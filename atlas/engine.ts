@@ -166,6 +166,8 @@ let raf = 0;
 
 let turn = 0;
 
+let generation = 0;
+
 let builtFonts = "";
 
 let builtAspect = 1;
@@ -249,10 +251,19 @@ function ensure(key: Key): Promise<Drawn> {
   const name = key ?? "root";
 
   const draw = queue.then(async (): Promise<Drawn> => {
+    const built = generation;
     const layer = el("g", { style: "visibility: hidden" }, svg);
     performance.mark(`atlas:draw ${name}:start`);
     const d = await drawView(viewOf(tree, key), layer, packing(), settings.pins, words, send);
     performance.measure(`atlas:draw ${name}`, `atlas:draw ${name}:start`);
+
+    // A relayout meanwhile dropped every view: this one was laid out for the old fonts or aspect.
+    if (built !== generation) {
+      layer.remove();
+
+      return ensure(key);
+    }
+
     views.set(key, d);
     pending.delete(key);
     coverGrid();
@@ -266,14 +277,17 @@ function ensure(key: Key): Promise<Drawn> {
   return draw;
 }
 
+// The view first, so a deep link shows it at once; then its ancestors, which a move up aligns on.
 async function ensureChain(key: Key): Promise<Drawn> {
-  for (const id of key === null ? [] : chainOf(tree, key).slice(0, -1)) {
+  const d = await ensure(key);
+
+  for (const id of key === null ? [] : chainOf(tree, key).slice(0, -1).toReversed()) {
     await ensure(id);
   }
 
   await ensure(null);
 
-  return ensure(key);
+  return d;
 }
 
 const imageOf = (key: Key): Image => {
@@ -541,11 +555,29 @@ async function loadThreads(): Promise<ThreadState> {
   }
 }
 
-// Re-renders with new threads, keeping the panel where the reader is.
+// Re-renders with new threads, keeping the panel where the reader is and what they were typing.
 function showThreads(next: ThreadState): void {
   const top = panel.scrollTop;
+
+  const typed = [...panel.querySelectorAll("form.reply")].flatMap((form) => {
+    const input = form.querySelector("input");
+
+    return form instanceof HTMLFormElement && input !== null && input.value !== ""
+      ? [[form.dataset["open"] ?? "", input.value] as const]
+      : [];
+  });
+
   threads = next;
   render();
+
+  for (const [open, value] of typed) {
+    const input = panel.querySelector(`form.reply[data-open="${CSS.escape(open)}"] input`);
+
+    if (input instanceof HTMLInputElement) {
+      input.value = value;
+    }
+  }
+
   panel.scrollTop = top;
 }
 
@@ -657,6 +689,14 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// A fragment typed into the address bar moves the reader there; render() writes the fragment with
+// replaceState, which fires no hashchange.
+addEventListener("hashchange", () => {
+  place = placeOfHash(tree, location.hash);
+  render();
+  settle().catch(fail);
+});
+
 // A click on the empty sheet deselects, then goes up a level.
 svg.addEventListener("click", () => {
   if (place !== navigate(tree, place, { type: "escape" })) {
@@ -664,19 +704,24 @@ svg.addEventListener("click", () => {
   }
 });
 
-// Every view is laid out from scratch: after the fonts settle late, and, with the Config's
-// overview ratio "screen", when the aspect of the drawing area moves by more than RELAYOUT (a
-// resized window, the panel hidden or shown), once the resizing settles.
+// Views are laid out from scratch after the fonts settle late, every one of them; and, with the
+// Config's overview ratio "screen", when the aspect of the drawing area moves by more than
+// RELAYOUT (a resized window, the panel hidden or shown), once the resizing settles, the packed
+// ones alone: a layered view does not aim at the screen.
 const RELAYOUT = { change: 0.15, settleMs: 300 };
 
 let relayoutTimer: ReturnType<typeof setTimeout> | undefined;
 
-function relayout(): void {
-  for (const d of views.values()) {
-    d.layer.remove();
+function relayout(stale: (d: Drawn) => boolean): void {
+  generation += 1;
+
+  for (const [key, d] of views) {
+    if (stale(d)) {
+      d.layer.remove();
+      views.delete(key);
+    }
   }
 
-  views.clear();
   pending.clear();
   builtFonts = fontKey();
   builtAspect = aspect();
@@ -693,7 +738,7 @@ function relayoutIfNeeded(): void {
     return;
   }
 
-  relayout();
+  relayout((d) => d.mode === "packed");
 }
 
 new ResizeObserver(() => {
@@ -740,7 +785,7 @@ async function start(): Promise<void> {
   await settle();
   document.fonts.addEventListener("loadingdone", () => {
     if (fontKey() !== builtFonts) {
-      relayout();
+      relayout(() => true);
     }
   });
 }
