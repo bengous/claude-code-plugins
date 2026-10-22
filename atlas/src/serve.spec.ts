@@ -252,7 +252,7 @@ afterAll(async () => {
 
 describe("serve.ts", () => {
   test("serves a map folder that sits outside the plugin, with no package.json", async () => {
-    expect(dir.startsWith(import.meta.dir)).toBe(false);
+    expect(dir.startsWith(dirname(import.meta.dir))).toBe(false);
     expect(await Bun.file(join(dir, "package.json")).exists()).toBe(false);
 
     const p = await page();
