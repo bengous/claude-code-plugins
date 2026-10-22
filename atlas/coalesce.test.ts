@@ -9,6 +9,19 @@ type Gated = {
   readonly end: () => void;
 };
 
+// Calls `then` n microtasks from now.
+function after(n: number, then: () => void): void {
+  if (n === 0) {
+    then();
+
+    return;
+  }
+
+  void Promise.resolve().then(() => {
+    after(n - 1, then);
+  });
+}
+
 function gated(): Gated {
   const gates: Array<PromiseWithResolvers<void>> = [];
 
@@ -70,18 +83,6 @@ describe("coalesced", () => {
       let runs = 0;
       let runsBefore = 0;
       let late: Promise<void> = Promise.resolve();
-
-      const after = (n: number, then: () => void): void => {
-        if (n === 0) {
-          then();
-
-          return;
-        }
-
-        void Promise.resolve().then(() => {
-          after(n - 1, then);
-        });
-      };
 
       // oxlint-disable-next-line require-await -- an async task that returns its promise unawaited settles at the microtask depth whose window this test covers.
       const request = coalesced(async () => {
