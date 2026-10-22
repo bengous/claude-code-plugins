@@ -28,8 +28,14 @@ export function text(tag: SVGElement, attrs: Attrs, content: string): SVGTextEle
   return t;
 }
 
+// Safe in a text node and in a quoted attribute value alike.
 export const esc = (s: string): string =>
-  s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 
 const fmt = ([x, y]: Point): string => `${x.toFixed(1)} ${y.toFixed(1)}`;
 

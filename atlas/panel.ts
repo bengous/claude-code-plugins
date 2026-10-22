@@ -39,11 +39,11 @@ function openPoint(s: Settings, o: OpenPoint, state: ThreadState): string {
 
   return [
     `<div class="open-point">`,
-    `<p class="open-id"><code>${o.id}</code> · ${waits(s, waitsFor(thread))}</p>`,
+    `<p class="open-id"><code>${esc(o.id)}</code> · ${waits(s, waitsFor(thread))}</p>`,
     `<p class="warn">${o.text}</p>`,
     log,
-    `<form class="reply" data-open="${o.id}">`,
-    `<input name="text" required autocomplete="off" placeholder="${s.words.replyPlaceholder(esc(nameOf(s, "human")))}" aria-label="${s.words.replyLabel(o.id)}">`,
+    `<form class="reply" data-open="${esc(o.id)}">`,
+    `<input name="text" required autocomplete="off" placeholder="${s.words.replyPlaceholder(esc(nameOf(s, "human")))}" aria-label="${s.words.replyLabel(esc(o.id))}">`,
     `<button type="submit">${s.words.reply}</button>`,
     `</form></div>`,
   ].join("");
@@ -73,7 +73,7 @@ function chip(graph: Graph, id: string): string {
 
   const label = esc(item.label.replaceAll("\n", " "));
 
-  return `<button type="button" class="chip" data-go="${id}" style="--zc: var(${item.color})"><span class="dot"></span>${label}</button>`;
+  return `<button type="button" class="chip" data-go="${esc(id)}" style="--zc: var(${item.color})"><span class="dot"></span>${label}</button>`;
 }
 
 const pointList = (graph: Graph, items: readonly Pair[]): string =>
@@ -174,7 +174,7 @@ function zoneTour(graph: Graph, zid: string): string {
   const prev = graph.zone(order[(i + order.length - 1) % order.length] ?? zid);
   const next = graph.zone(order[(i + 1) % order.length] ?? zid);
 
-  return `<div class="nav"><button type="button" data-go="${prev.id}">← ${esc(prev.title)}</button><button type="button" data-go="${next.id}">${esc(next.title)} →</button></div>`;
+  return `<div class="nav"><button type="button" data-go="${esc(prev.id)}">← ${esc(prev.title)}</button><button type="button" data-go="${esc(next.id)}">${esc(next.title)} →</button></div>`;
 }
 
 function overviewExtra(s: Settings, graph: Graph, avoidError: string | null): string {
@@ -191,7 +191,7 @@ function overviewExtra(s: Settings, graph: Graph, avoidError: string | null): st
 export function renderPanel(
   s: Settings,
   graph: Graph,
-  panel: HTMLElement,
+  panel: Pick<HTMLElement, "innerHTML" | "scrollTop">,
   place: Place,
   avoidError: string | null,
   state: ThreadState,
@@ -202,7 +202,7 @@ export function renderPanel(
     const up =
       n.zone === null
         ? ""
-        : `<div class="nav"><button type="button" data-go="${n.zone}">↑ ${esc(graph.zone(n.zone).title)}</button></div>`;
+        : `<div class="nav"><button type="button" data-go="${esc(n.zone)}">↑ ${esc(graph.zone(n.zone).title)}</button></div>`;
 
     panel.innerHTML =
       renderInfo(s, graph, n.info, n.color, "", coupledWith(graph, n.id), [], state) + up;
@@ -244,8 +244,8 @@ export function renderOpenList(
 
   const rows = items.map((i) =>
     [
-      `<li><button type="button" class="open-row" data-go="${i.owner}">`,
-      `<span><code>${i.id}</code> <span class="open-owner">${s.words.owner[i.kind]} ${esc(i.ownerLabel)}</span></span>`,
+      `<li><button type="button" class="open-row" data-go="${esc(i.owner)}">`,
+      `<span><code>${esc(i.id)}</code> <span class="open-owner">${s.words.owner[i.kind]} ${esc(i.ownerLabel)}</span></span>`,
       `<span class="open-wait">${waits(s, waitsFor(threadOf(state, i.id)))}</span>`,
       `<span class="open-line">${esc(firstLine(i.text))}</span>`,
       `</button></li>`,
@@ -272,7 +272,7 @@ export function renderCrumbs(s: Settings, graph: Graph, crumbs: HTMLElement, pla
   if (place.zone !== null) {
     const title = esc(graph.zone(place.zone).title);
     parts.push(
-      `<span class="sep">›</span><button type="button" data-go="${place.zone}" ${place.node === null ? current : ""}>${title}</button>`,
+      `<span class="sep">›</span><button type="button" data-go="${esc(place.zone)}" ${place.node === null ? current : ""}>${title}</button>`,
     );
   }
 
