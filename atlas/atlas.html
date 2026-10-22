@@ -60,8 +60,8 @@
     "text" }], without a date: git keeps the history.
   - A point waits for the party that did not write the last entry; a point
     without a thread waits for nobody.
-  - Read them in the terminal: bun atlas/check.ts <map folder> --open
-  - Answer: bun atlas/reply.ts <map folder> <id> --as agent "<text>". An
+  - Read them in the terminal: bun atlas/cli.ts check <map folder> --open
+  - Answer: bun atlas/cli.ts reply <map folder> <id> --as agent "<text>". An
     agent always writes as agent; the human answers from the panel or with
     --as human.
     An unknown id is refused.
@@ -69,13 +69,20 @@
 
   Edit recipes (the fields are documented on the types of atlas.ts), in the
   map folder (map.ts, atlas.config.ts, threads.json; the sample's is
-  atlas/fixtures/sample):
+  atlas/fixtures/sample). Its atlas.d.ts and tsconfig.json come from the
+  plugin: bun atlas/cli.ts sync <map folder> rewrites them, never edit them.
+  - A new map: bun atlas/cli.ts new <dir>, then replace its placeholder
+    nodes.
+  - A change to try before it counts: bun atlas/cli.ts draft <map folder>
+    <name> copies the map into drafts/<name> and prints that path; edit and
+    check the draft there, then the same command with --adopt makes the map
+    the draft, or with --drop deletes the draft.
   - Add a brick: a node without `children` in the `children` of its zone
     (map.ts); then its links (with `tags` from the Config's list, required
     when the link enters a third-party service and the Config says so) and
     its `couples`.
   - Retire a brick: delete its node, its links, and its id from every
-    `couples`, `see`, `seams` and `traps` list (check.ts finds leftovers).
+    `couples`, `see`, `seams` and `traps` list (check finds leftovers).
   - Add a zone: a node with `children` in the `children` of its parent; the
     zone tour follows the tree, unless the root lists a `tour`.
   - Name an overview arrow: a link with a zone on one end or both, in the
@@ -85,9 +92,11 @@
 
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.
-  2. bun atlas/check.ts <map folder>   (ids, couplings, nesting, overview
-     labels, tags, open points, threads.json), then bun test atlas and the
-     repository's gates.
+  2. bun atlas/cli.ts check <map folder>: the plan (ids, couplings,
+     nesting, overview labels, tags, open points, threads.json), then tsgo,
+     oxlint and oxfmt on the folder's files, then its atlas.d.ts against
+     the plugin's atlas.ts (stale: bun atlas/cli.ts sync <map folder>). It
+     exits 1 on any failure. Then bun test atlas and the repository's gates.
   3. Look at the page: bun atlas/serve.ts <map folder> [port] and open the
      address it prints. It rebuilds on every save in the map folder or the
      engine, and reloads the open tab when the page changed; a build error,

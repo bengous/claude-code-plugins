@@ -1,4 +1,4 @@
-import type { Config } from "../../atlas.ts";
+import type { Config } from "./atlas.d.ts";
 
 export default {
   title: "Bookshop",

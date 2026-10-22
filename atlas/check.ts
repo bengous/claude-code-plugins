@@ -1,8 +1,5 @@
-import { join, resolve } from "node:path";
-
 import { toPlan } from "./adapter.ts";
 import type { AtlasMap, Config } from "./atlas.ts";
-import { THREADS_FILE, loadFolder, planOf } from "./folder.ts";
 import { graphOf } from "./graph.ts";
 import type { Brick, Edge, Plan, Zone } from "./model.ts";
 import { PlanError } from "./model.ts";
@@ -11,14 +8,11 @@ import { settingsOf } from "./settings.ts";
 import type { Threads } from "./threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "./threads.ts";
 
-// Validates a map folder's data and threads.json without a browser:
-//   bun atlas/check.ts <map folder>          validate
-//   bun atlas/check.ts <map folder> --open   list the open points
-// The types (atlas.ts) already hold the shape of every field, and toPlan
-// (adapter.ts) refuses a tree the engine cannot draw: a duplicate id, a link
-// end that is no node, a colour outside the palette among them. This checks
-// what they cannot, and fails on what would break the page or mislead a
-// reader:
+// Validates a map folder's data and threads.json without a browser, for `cli.ts check`, which
+// also lists the open points (openReport). The types (atlas.ts) already hold the shape of every
+// field, and toPlan (adapter.ts) refuses a tree the engine cannot draw: a duplicate id, a link
+// end that is no node, a colour outside the palette among them. This checks what they cannot,
+// and fails on what would break the page or mislead a reader:
 //   - references to ids that do not exist (couplings, `see`, the root's
 //     `seams` and `traps`);
 //   - a root's `tour` that names what is no node with children, or misses one;
@@ -311,42 +305,4 @@ export function openReport(p: Plan, threads: Threads): string {
     ...lines,
     `${items.length} open points: ${count("agent")} wait for agent, ${count("human")} wait for human`,
   ].join("\n");
-}
-
-if (import.meta.main) {
-  const open = process.argv.includes("--open");
-  const [dir, ...extra] = process.argv.slice(2).filter((a) => a !== "--open");
-
-  if (dir === undefined || extra.length > 0) {
-    console.error("usage: bun check.ts <map folder> [--open]");
-    process.exit(1);
-  }
-
-  const folder = resolve(dir);
-  const raw: unknown = await Bun.file(join(folder, THREADS_FILE)).json();
-
-  if (open) {
-    const { threads, errors } = readThreads(raw);
-
-    if (errors.length > 0) {
-      console.error(errors.join("\n"));
-      process.exit(1);
-    }
-
-    console.log(openReport(await planOf(folder), threads));
-    process.exit(0);
-  }
-
-  const { map, config } = await loadFolder(folder);
-  const errors = checkMap(map, config, raw);
-
-  if (errors.length > 0) {
-    console.error(errors.join("\n"));
-    process.exit(1);
-  }
-
-  const plan = toPlan(map, config);
-  console.log(
-    `plan ok: ${plan.zones.length} zones, ${plan.nodes.length} bricks, ${plan.edges.length} arrows`,
-  );
 }

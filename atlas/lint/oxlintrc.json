@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error"
+  },
+  "rules": {
+    // A map is one literal that grows with the system it maps.
+    "max-lines": "off",
+    "typescript/consistent-type-imports": "error"
+  }
+}

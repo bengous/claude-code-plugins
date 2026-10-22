@@ -7,7 +7,7 @@ import type { Plan } from "./model.ts";
 // A map folder holds a map's data and nothing of the engine: map.ts, whose default export is the
 // AtlasMap, atlas.config.ts, whose default export is its Config, and threads.json. The data imports
 // types only, so the folder needs no package.json. serve.ts bundles the first two into the page;
-// check.ts and reply.ts import them here.
+// cli.ts imports them here.
 //   bun atlas/folder.ts <map folder>   exits 1 with the reason when the engine cannot draw the map
 export const MAP_FILE = "map.ts";
 

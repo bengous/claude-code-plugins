@@ -75,37 +75,3 @@ describe("appendReply", () => {
     expect(refused instanceof Error ? refused.message : "").toContain("empty");
   });
 });
-
-describe("reply.ts command line", () => {
-  const sample = join(import.meta.dir, "fixtures", "sample");
-
-  test("refuses an unknown id with exit code 1", () => {
-    const run = Bun.spawnSync([
-      process.execPath,
-      join(import.meta.dir, "reply.ts"),
-      sample,
-      "no-such-point",
-      "--as",
-      "agent",
-      "x",
-    ]);
-
-    expect(run.exitCode).toBe(1);
-    expect(run.stderr.toString()).toContain("unknown open id no-such-point");
-  });
-
-  test("refuses a who outside the enumeration", () => {
-    const run = Bun.spawnSync([
-      process.execPath,
-      join(import.meta.dir, "reply.ts"),
-      sample,
-      "backup-restore-untested",
-      "--as",
-      "codex",
-      "x",
-    ]);
-
-    expect(run.exitCode).toBe(1);
-    expect(run.stderr.toString()).toContain("--as takes human or agent");
-  });
-});

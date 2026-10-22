@@ -1,4 +1,4 @@
-import type { AtlasMap } from "../../atlas.ts";
+import type { AtlasMap } from "./atlas.d.ts";
 
 export default {
   root: {

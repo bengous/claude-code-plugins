@@ -9,14 +9,20 @@ the data has a position or a size. Open points carry threads between the human a
 
 Content lives only in a map folder; the engine's modules change only for behaviour. A map folder
 holds `map.ts` (its AtlasMap, the default export), `atlas.config.ts` (its Config, the default
-export) and `threads.json` (the thread of each open point, by open id), and needs no
-`package.json`: its data imports types only.
+export), `threads.json` (the thread of each open point, by open id), and the two files `sync`
+writes: `atlas.d.ts`, a byte copy of `atlas.ts` its data imports its types from, and
+`tsconfig.json`. It needs no `package.json`: its data imports types only. Its drafts sit in
+`drafts/<name>/`, each a map folder of its own, which the folder's check leaves out.
 
 ```
+cli.ts               the one command line of agents and skills: new, sync, check, reply, draft
+                     (cli.spec.ts, on copies in temporary folders)
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, overview
                      packing, tags, legend labels, step words); the source of a map's atlas.d.ts
-fixtures/sample/     the sample map folder; its data imports its types from ../../atlas.ts
+template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes
+lint/                the oxlint and oxfmt configs `check` runs on a map folder
+fixtures/sample/     the sample map folder
 folder.ts            the map folder's files (loadFolder), and the plan its data makes (planOf)
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
 settings.ts          the Config with its defaults filled in, refusing what the engine cannot use,
@@ -28,8 +34,8 @@ adapter.ts           the tree as that plan, refusing a tree the engine cannot dr
 graph.ts             graphOf: the plan with the lookups both drawings and the panel share
 threads.ts           open points and threads, pure: who a point waits for (threads.test.ts)
 check.ts             validates a map folder's ids, couplings, nesting, labels, tags against the
-                     Config's, open points against its step words, and threads (check.test.ts);
-                     --open lists the open points
+                     Config's, open points against its step words, and threads, and reports the
+                     open points (check.test.ts)
 legend.ts            the legend's lines, one per arrow kind or node mark the map uses
                      (legend.spec.ts)
 reply.ts             adds an entry to a thread of a map folder (reply.test.ts)
@@ -60,8 +66,13 @@ Every command runs from the repository root.
 
 ```bash
 bun install --cwd atlas --frozen-lockfile   # once; Claude Code does it at the plugin's cache
-bun atlas/check.ts <map folder>             # validate the data and threads.json; --open lists the open points
-bun atlas/reply.ts <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
+bun atlas/cli.ts new <dir>                  # scaffold a map folder in an empty or new folder
+bun atlas/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin
+bun atlas/cli.ts check <map folder>         # the plan, tsgo, oxlint, oxfmt, atlas.d.ts; exit 1 on any failure
+bun atlas/cli.ts check <map folder> --open  # list the open points and whom each waits for
+bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
+bun atlas/cli.ts draft <map folder> <name>  # copy the map into drafts/<name> and print its path
+bun atlas/cli.ts draft <map folder> <name> --adopt   # the map becomes the draft, which is deleted; --drop deletes it
 bun test atlas                              # the engine's suites
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
 ```
@@ -81,8 +92,10 @@ Each module explains its own where it bites.
 - Every child of the root that is not `outside` and has children holds a node with children:
   `pack` in `overview.ts` asks for a `<zone>~own` block that `blocksOf` makes only for a zone
   that nests others. `toPlan` refuses such a tree, naming the node, and so do
-  `bun atlas/check.ts <map folder>`, which builds the plan, and `serve.ts`, which answers an error
-  page instead of the map.
+  `bun atlas/cli.ts check <map folder>`, which builds the plan, and `serve.ts`, which answers an
+  error page instead of the map. The template's map nests a node for this reason.
+- `atlas/fixtures/sample` and `atlas/template` each commit an `atlas.d.ts`, a copy of `atlas.ts`:
+  after a change to `atlas.ts`, `bun atlas/cli.ts sync` both, or `cli.spec.ts` fails on them.
 - A process that imported a map folder keeps that first evaluation: importing it again answers
   the old data, and a `?query` on the specifier refreshes the file named but not what it imports.
   `serve.ts` therefore loads the folder in a fresh process (`bun atlas/folder.ts <map folder>`) on
