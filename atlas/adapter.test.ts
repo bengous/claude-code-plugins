@@ -365,6 +365,15 @@ describe("toPlan", () => {
     expect(() => toPlan(m, CONFIG)).toThrow(message);
   });
 
+  test.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
+    "refuses the color %s, which only Object's prototype holds",
+    (color) => {
+      expect(() => toPlan(mapOf([server([leaf("a", { color })])]), CONFIG)).toThrow(
+        `node a: color ${color} is not in the palette`,
+      );
+    },
+  );
+
   test("refuses a palette key that cannot name a CSS custom property", () => {
     const palette = { ...CONFIG.palette, "light blue": { light: "#00f", dark: "#88f" } };
 

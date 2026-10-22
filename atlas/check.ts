@@ -1,10 +1,11 @@
 import { join, resolve } from "node:path";
 
-import { PlanError, toPlan } from "./adapter.ts";
+import { toPlan } from "./adapter.ts";
 import type { AtlasMap, Config } from "./atlas.ts";
 import { THREADS_FILE, loadFolder, planOf } from "./folder.ts";
 import { graphOf } from "./graph.ts";
 import type { Brick, Edge, Plan, Zone } from "./model.ts";
+import { PlanError } from "./model.ts";
 import type { Settings } from "./settings.ts";
 import { settingsOf } from "./settings.ts";
 import type { Threads } from "./threads.ts";
@@ -14,12 +15,13 @@ import { firstLine, openItems, plainText, readThreads, waitsFor } from "./thread
 //   bun atlas/check.ts <map folder>          validate
 //   bun atlas/check.ts <map folder> --open   list the open points
 // The types (atlas.ts) already hold the shape of every field, and toPlan
-// (adapter.ts) refuses a tree the engine cannot draw, a colour outside the
-// palette among them; this checks what they cannot, and fails on what would
-// break the page or mislead a reader:
-//   - duplicate ids, and references to ids that do not exist (arrows,
-//     couplings, `see`, `seams`, `traps`, the zone order);
-//   - a zone whose `parent` is unknown or loops back on itself;
+// (adapter.ts) refuses a tree the engine cannot draw: a duplicate id, a link
+// end that is no node, a colour outside the palette among them. This checks
+// what they cannot, and fails on what would break the page or mislead a
+// reader:
+//   - references to ids that do not exist (couplings, `see`, the root's
+//     `seams` and `traps`);
+//   - a root's `tour` that names what is no node with children, or misses one;
 //   - an ext zone or an outside service without a `side`;
 //   - an overview label ("z:" arrow) that no brick arrow backs: the engine
 //     would never draw it;
@@ -86,13 +88,13 @@ function checkZones(p: Plan, { zones }: Index, errors: string[]): void {
 
   for (const id of p.zoneOrder) {
     if (!zones.has(id)) {
-      errors.push(`zoneOrder lists unknown zone ${id}`);
+      errors.push(`tour lists ${id}, which is no node with children`);
     }
   }
 
   for (const zone of p.zones) {
     if (!p.zoneOrder.includes(zone.id)) {
-      errors.push(`zone ${zone.id} missing from zoneOrder`);
+      errors.push(`tour misses ${zone.id}, a node with children`);
     }
   }
 }

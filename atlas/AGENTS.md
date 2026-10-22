@@ -19,8 +19,8 @@ atlas.ts             the format of a map, types only: Node (a tree, `children`),
 fixtures/sample/     the sample map folder; its data imports its types from ../../atlas.ts
 folder.ts            the map folder's files (loadFolder), and the plan its data makes (planOf)
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
-settings.ts          the Config with its defaults filled in, and the palette as the page's CSS
-                     custom properties (settings.spec.ts)
+settings.ts          the Config with its defaults filled in, refusing what the engine cannot use,
+                     and the palette as the page's CSS custom properties (settings.spec.ts)
 words.ts             the page's own words in each language a Config picks: the dictionary
 model.ts             the plan the engine draws on two levels (Zone, Brick, Edge, Info)
 adapter.ts           the tree as that plan, refusing a tree the engine cannot draw, a colour

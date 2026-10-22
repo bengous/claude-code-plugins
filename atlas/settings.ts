@@ -1,4 +1,5 @@
 import type { Config, Lang, LegendKey, Pins, Swatch, Tags } from "./atlas.ts";
+import { PlanError } from "./model.ts";
 import type { Words } from "./words.ts";
 import { WORDS } from "./words.ts";
 
@@ -17,8 +18,26 @@ export type Settings = {
   readonly legend: Readonly<Record<LegendKey, string>>;
 };
 
+// A palette key is the end of a CSS custom property's name.
+const PALETTE_KEY = /^[\w-]+$/u;
+
+// The Config is the map's data, checked by its type only where it was written: the language and
+// the palette's keys are looked up as own keys, never through Object's prototype.
 export function settingsOf(config: Config): Settings {
   const lang = config.lang ?? "en";
+
+  if (!Object.hasOwn(WORDS, lang)) {
+    throw new PlanError(
+      `lang "${lang}": the page's words exist in ${Object.keys(WORDS).join(", ")}`,
+    );
+  }
+
+  for (const key of Object.keys(config.palette)) {
+    if (!PALETTE_KEY.test(key)) {
+      throw new PlanError(`palette key "${key}": a key is letters, digits, - and _`);
+    }
+  }
+
   const words = WORDS[lang];
 
   return {
@@ -35,9 +54,6 @@ export function settingsOf(config: Config): Settings {
     legend: { ...words.legend, ...config.legend },
   };
 }
-
-// A palette key is the end of a CSS custom property's name.
-export const PALETTE_KEY = /^[\w-]+$/u;
 
 export const paletteVar = (key: string): string => `--palette-${key}`;
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import type { Node } from "./atlas.ts";
+import type { Lang, Node } from "./atlas.ts";
 import { checkMap, validate } from "./check.ts";
 import { THREADS_FILE, loadFolder, planOf } from "./folder.ts";
 import type { Brick, Plan } from "./model.ts";
@@ -84,10 +84,17 @@ describe("validate", () => {
     ]);
   });
 
-  test("a zone missing from the zone order is rejected", () => {
+  test("a tour that misses a node with children is rejected", () => {
     const zoneOrder = PLAN.zoneOrder.filter((id) => id !== "data");
     expect(validate({ ...PLAN, zoneOrder }, SETTINGS, {})).toContain(
-      "zone data missing from zoneOrder",
+      "tour misses data, a node with children",
+    );
+  });
+
+  test("a tour that names a leaf is rejected", () => {
+    const zoneOrder = [...PLAN.zoneOrder, "db"];
+    expect(validate({ ...PLAN, zoneOrder }, SETTINGS, {})).toContain(
+      "tour lists db, which is no node with children",
     );
   });
 
@@ -167,6 +174,13 @@ describe("checkMap", () => {
 
     expect(checkMap({ ...MAP, root }, CONFIG, THREADS)).toEqual([
       "node browser: color pink is not in the palette",
+    ]);
+  });
+
+  test("a language the dictionary does not hold is refused", () => {
+    // SAFETY: a language outside Lang, as a map folder's data can hold once it skips its typecheck.
+    expect(checkMap(MAP, { ...CONFIG, lang: "de" as Lang }, THREADS)).toEqual([
+      `lang "de": the page's words exist in fr, en`,
     ]);
   });
 

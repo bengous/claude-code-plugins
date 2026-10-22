@@ -1,8 +1,7 @@
 import type { AtlasMap, Config, Link, Node } from "./atlas.ts";
 import type { Brick, Edge, Plan, Zone } from "./model.ts";
-import { PALETTE_KEY, paletteVar } from "./settings.ts";
-
-export class PlanError extends Error {}
+import { PlanError } from "./model.ts";
+import { paletteVar, settingsOf } from "./settings.ts";
 
 function fail(message: string): never {
   throw new PlanError(message);
@@ -10,14 +9,9 @@ function fail(message: string): never {
 
 // The engine draws a Plan on two levels: zones, the nodes with children, and bricks, the leaves.
 // toPlan turns a map's tree into one, and refuses a tree that engine cannot draw, naming the node
-// or the link at fault.
+// or the link at fault, and a Config settingsOf refuses.
 export function toPlan(map: AtlasMap, config: Config): Plan {
-  for (const key of Object.keys(config.palette)) {
-    if (!PALETTE_KEY.test(key)) {
-      fail(`palette key "${key}": a key is letters, digits, - and _`);
-    }
-  }
-
+  const { palette } = settingsOf(config);
   const zones: Zone[] = [];
   const bricks: Brick[] = [];
   const ids = new Set<string>();
@@ -40,7 +34,7 @@ export function toPlan(map: AtlasMap, config: Config): Plan {
       fail(`node ${id}: side is for an outside node`);
     }
 
-    if (!Object.hasOwn(config.palette, color)) {
+    if (!Object.hasOwn(palette, color)) {
       fail(`node ${id}: color ${color} is not in the palette`);
     }
 

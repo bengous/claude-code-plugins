@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
+import type { Lang } from "./atlas.ts";
 import { loadFolder, planOf } from "./folder.ts";
 import { paletteCss, settingsOf } from "./settings.ts";
 import { WORDS } from "./words.ts";
@@ -51,6 +52,16 @@ describe("settingsOf", () => {
       tags: { names: ["order"], outside: "required" },
     });
   });
+
+  test.each(["constructor", "toString", "hasOwnProperty", "__proto__", "de"])(
+    "refuses the language %s, which the dictionary does not hold",
+    (lang) => {
+      // SAFETY: a language outside Lang, as a map folder's data can hold once it skips its typecheck.
+      const config = { title: "T", palette: {}, lang: lang as Lang };
+
+      expect(() => settingsOf(config)).toThrow(`lang "${lang}": the page's words exist in fr, en`);
+    },
+  );
 
   test("a legend label the Config omits keeps the dictionary's", () => {
     const { legend } = settingsOf({

@@ -2,6 +2,9 @@
 // here has a position or a size: engine.ts lays the plan out.
 import type { OpenPoint, Panel, Side } from "./atlas.ts";
 
+// Why a map or its Config cannot become a plan: toPlan and settingsOf throw it, check.ts reports it.
+export class PlanError extends Error {}
+
 // The right panel's content: the fields of Panel (atlas.ts), its title and its open points.
 export type Info = Panel & {
   readonly title: string;

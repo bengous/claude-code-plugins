@@ -31,9 +31,12 @@ export type Panel = {
   readonly extend?: string;
   /** Its non-obvious traps. */
   readonly pitfalls?: readonly string[];
-  /** Extension points, [node id, text]. */
+  /**
+   * Extension points, [node id, text]. Any panel shows them; check.ts checks the node ids of the
+   * root's only.
+   */
   readonly seams?: readonly Pair[];
-  /** Couplings to know, [node id, text]. */
+  /** Couplings to know, [node id, text]; shown and checked as `seams` are. */
   readonly traps?: readonly Pair[];
   /** The reasons for the current choice. */
   readonly why?: readonly string[];
@@ -64,12 +67,16 @@ export type Node = Panel & {
   readonly sub: string;
   /** A key of the Config's palette. */
   readonly color: string;
-  /** For a node with children: the short list at the top of its panel. */
+  /** The short list at the top of its panel; a node with children's only (adapter.ts). */
   readonly brief?: readonly string[];
-  /** Ids of the nodes that change when this one is replaced; one side of a coupling lists it. */
+  /**
+   * Ids of the nodes that change when this one is replaced; one side of a coupling lists it. A
+   * leaf's only (adapter.ts).
+   */
   readonly couples?: readonly string[];
-  /** "off": dormant, drawn dashed. */
+  /** "off": dormant, drawn dashed. A leaf's only (adapter.ts). */
   readonly kind?: "off";
+  /** Required on an outside node (check.ts), refused on any other (adapter.ts). */
   readonly side?: Side;
   /** Outside the system (a client, a third-party service): a child of the root, drawn dashed. */
   readonly outside?: true;
@@ -81,7 +88,10 @@ export type Node = Panel & {
 /** The top of the tree: the overview's panel and the nodes the overview shows. */
 export type Root = Panel & {
   readonly title: string;
-  /** The zone tour of the panel's ← → buttons, ids of nodes with children; depth-first when absent. */
+  /**
+   * The zone tour of the panel's ← → buttons; depth-first when absent. Given, it lists every node
+   * with children and nothing else (check.ts).
+   */
   readonly tour?: readonly string[];
   readonly children: readonly Node[];
 };
