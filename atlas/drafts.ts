@@ -6,11 +6,13 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 
 import { MAP_FILE, THREADS_FILE } from "./folder.ts";
 
@@ -101,20 +103,45 @@ function existingDraft(dir: string, name: string): string {
   return path;
 }
 
+/** What a draft brings back to its map: the data files and threads.json. */
+const trackedOf = (dir: string): string[] => [
+  ...dataFilesOf(dir),
+  ...(isPresent(join(dir, THREADS_FILE)) ? [THREADS_FILE] : []),
+];
+
 const hash = (file: string): string =>
   new Bun.CryptoHasher("sha256").update(readFileSync(file)).digest("hex");
 
 const hashesOf = (dir: string): ReadonlyMap<string, string> =>
-  new Map(dataFilesOf(dir).map((file) => [file, hash(join(dir, file))]));
+  new Map(trackedOf(dir).map((file) => [file, hash(join(dir, file))]));
 
 function copy(from: string, to: string): void {
   mkdirSync(dirname(to), { recursive: true });
   cpSync(from, to, { verbatimSymlinks: true });
 }
 
+// A link is copied as it is, two folders deeper: only a relative one that stays in the map lands
+// on the draft's own copy of its target.
+function refuseOutwardLink(dir: string, file: string): void {
+  const path = join(dir, file);
+
+  if (!lstatSync(path).isSymbolicLink()) {
+    return;
+  }
+
+  const target = readlinkSync(path);
+
+  if (isAbsolute(target) || !realpathSync(path).startsWith(`${dir}${sep}`)) {
+    throw new DraftError(
+      `${file} links to ${target}, which a draft cannot carry: only a relative link to a file of the map folder is drafted`,
+    );
+  }
+}
+
 /**
  * Copies the map's own files into drafts/<name>, never a dot entry nor another draft, and records
- * there, as `sha256sum` prints them, the hashes of the data files the draft starts from.
+ * there, as `sha256sum` prints them, the hashes of the data files and threads.json the draft
+ * starts from.
  */
 export function makeDraft(dir: string, name: string): string {
   const path = draftPath(dir, name);
@@ -131,6 +158,10 @@ export function makeDraft(dir: string, name: string): string {
   ];
 
   try {
+    for (const file of files) {
+      refuseOutwardLink(dir, file);
+    }
+
     const base = [...hashesOf(dir)].map(([file, digest]) => `${digest}  ${file}\n`).join("");
 
     for (const file of files) {
@@ -178,13 +209,16 @@ function baseOf(path: string): ReadonlyMap<string, string> {
   );
 }
 
+export type Adopted = { readonly path: string; readonly warnings: readonly string[] };
+
 /**
- * Copies the draft's data files over the map's, deletes the map's data files the draft dropped,
- * and deletes the draft. The map's threads.json and generated files stay as they are. Refused when
- * the map's data changed since the draft was made. Everything is staged first and renamed into
- * place after: a failure leaves the map as it was.
+ * Copies the draft's data files and threads.json over the map's, deletes the map's data files the
+ * draft dropped, and deletes the draft. The map's generated files and every other file stay as
+ * they are. Refused when one of those files of the map changed since the draft was made.
+ * Everything is staged first and renamed into place after: a failure leaves the map as it was. Once
+ * the map is switched, a draft that cannot be removed is a warning.
  */
-export function adoptDraft(dir: string, name: string): string {
+export function adoptDraft(dir: string, name: string): Adopted {
   const path = existingDraft(dir, name);
   const base = baseOf(path);
   const live = unchanged(() => hashesOf(dir));
@@ -195,17 +229,23 @@ export function adoptDraft(dir: string, name: string): string {
 
   if (changed.length > 0) {
     throw new DraftError(
-      `the map's data changed since the draft was made (${changed.join(", ")}): adopting would overwrite it, so nothing was changed; drop the draft and draft again, or bring those files back`,
+      `the map changed since the draft was made (${changed.join(", ")}): adopting would overwrite it, so nothing was changed; drop the draft and draft again, or bring those files back`,
     );
   }
 
-  const incoming = dataFilesOf(path);
+  const incoming = trackedOf(path);
   const outgoing = [...live.keys()].filter((file) => !incoming.includes(file));
   const work = unchanged(() => mkdtempSync(join(dir, DRAFTS, ".adopt-")));
   const moved: (readonly [string, string])[] = [];
+  const made: string[] = [];
 
   const move = (from: string, to: string): void => {
-    mkdirSync(dirname(to), { recursive: true });
+    const folder = mkdirSync(dirname(to), { recursive: true });
+
+    if (folder !== undefined) {
+      made.push(folder);
+    }
+
     renameSync(from, to);
     moved.push([from, to]);
   };
@@ -227,14 +267,30 @@ export function adoptDraft(dir: string, name: string): string {
       renameSync(to, from);
     }
 
+    for (const folder of made.toReversed()) {
+      rmSync(folder, { recursive: true, force: true });
+    }
+
     rmSync(work, { recursive: true, force: true });
     throw new DraftError(`${messageOf(error)}: nothing was changed`);
   }
 
-  rmSync(work, { recursive: true });
-  rmSync(path, { recursive: true });
+  const leftovers = [
+    { folder: work, what: `the staging folder ${work}` },
+    { folder: path, what: "the draft" },
+  ];
 
-  return path;
+  const warnings = leftovers.flatMap(({ folder, what }) => {
+    try {
+      rmSync(folder, { recursive: true });
+
+      return [];
+    } catch (error: unknown) {
+      return [`could not remove ${what}: ${messageOf(error)}`];
+    }
+  });
+
+  return { path, warnings };
 }
 
 export function dropDraft(dir: string, name: string): string {

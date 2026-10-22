@@ -179,10 +179,10 @@ describe("check", () => {
     expect(run.stderr).toBe("check: oxlint, oxfmt failed\n");
   });
 
-  test("reports a stale atlas.d.ts, and sync makes it current", async () => {
+  test("reports a stale atlas.d.ts, which oxlint and oxfmt leave alone, and sync makes it current", async () => {
     const dir = sampleCopy();
     const types = join(dir, "atlas.d.ts");
-    await Bun.write(types, `${await Bun.file(types).text()}\nexport type Extra = string;\n`);
+    await Bun.write(types, `${await Bun.file(types).text()}export type   Extra =   string\n`);
     const stale = cli("check", dir);
 
     expect(stale.code).toBe(1);
@@ -193,7 +193,7 @@ describe("check", () => {
 
     expect(cli("sync", dir)).toEqual({
       code: 0,
-      stdout: `${dir}: wrote atlas.d.ts and tsconfig.json\n`,
+      stdout: `${dir}: wrote atlas.d.ts and tsconfig.json; .gitignore lists drafts/\n`,
       stderr: "",
     });
     expect(cli("check", dir).code).toBe(0);
@@ -306,6 +306,7 @@ describe("sync", () => {
   test("adds drafts/ to the map's .gitignore once, as draft does", () => {
     const dir = sampleCopy();
     const ignore = join(dir, ".gitignore");
+    rmSync(ignore);
     cli("sync", dir);
 
     expect(readFileSync(ignore, "utf8")).toBe("drafts/\n");
@@ -373,6 +374,7 @@ describe("draft", () => {
     const dir = fresh();
     mkdirSync(join(dir, ".git"));
     writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(dir, ".git", "hook.ts"), "export const hook = 1;\n");
     writeFileSync(join(dir, "notes.txt"), "the map's notes\n");
     const run = cli("draft", dir, "split");
     const path = join(dir, "drafts", "split");
@@ -411,7 +413,39 @@ describe("draft", () => {
     expect(readlinkSync(alias)).toBe("map.ts");
   });
 
-  test("--adopt copies the draft's data files back and keeps every other file of the map", async () => {
+  test("refuses a link that leaves the map folder or is absolute, making no draft", () => {
+    const dir = fresh();
+    writeFileSync(join(TMP, "shared.ts"), "export const shared = 1;\n");
+    symlinkSync(`../shared.ts`, join(dir, "shared.ts"));
+    const outward = cli("draft", dir, "out");
+
+    expect(outward.code).toBe(1);
+    expect(outward.stderr).toBe(
+      "draft: shared.ts links to ../shared.ts, which a draft cannot carry: only a relative link to a file of the map folder is drafted: no draft made\n",
+    );
+    expect(existsSync(join(dir, "drafts", "out"))).toBe(false);
+
+    rmSync(join(dir, "shared.ts"));
+    symlinkSync(join(dir, "map.ts"), join(dir, "absolute.ts"));
+
+    expect(cli("draft", dir, "abs").stderr).toStartWith(
+      `draft: absolute.ts links to ${join(dir, "map.ts")}, which a draft cannot carry`,
+    );
+    expect(existsSync(join(dir, "drafts", "abs"))).toBe(false);
+  });
+
+  test("a failed copy leaves no draft behind", () => {
+    const dir = fresh();
+    chmodSync(join(dir, "tsconfig.json"), 0o000);
+    const run = cli("draft", dir, "unread");
+    chmodSync(join(dir, "tsconfig.json"), 0o644);
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toEndWith(": no draft made\n");
+    expect(existsSync(join(dir, "drafts", "unread"))).toBe(false);
+  });
+
+  test("--adopt copies the draft's data files and threads.json back, and no other file", async () => {
     const dir = fresh();
     const path = join(dir, "drafts", "rename");
     mkdirSync(join(dir, ".git"));
@@ -424,9 +458,13 @@ describe("draft", () => {
     writeFileSync(join(path, "extra.ts"), "export const extra = 1;\n");
     rmSync(join(path, "old.ts"));
     await edit(join(path, "tsconfig.json"), '"exclude": ["drafts"]', '"exclude": []');
+    writeFileSync(join(path, "atlas.d.ts"), "export type Edited = string;\n");
     writeFileSync(join(path, THREADS_FILE), '{ "draft-only": [] }\n');
-    writeFileSync(join(dir, THREADS_FILE), '{ "live-only": [] }\n');
-    const tsconfig = readFileSync(join(dir, "tsconfig.json"), "utf8");
+
+    const unchanged = ["tsconfig.json", "atlas.d.ts", ".gitignore", ".git/HEAD", "notes.txt"].map(
+      (file) => readFileSync(join(dir, file), "utf8"),
+    );
+
     const draftMap = readFileSync(join(path, "map.ts"), "utf8");
 
     expect(cli("draft", dir, "rename", "--adopt")).toEqual({
@@ -438,11 +476,45 @@ describe("draft", () => {
     expect(readFileSync(join(dir, "map.ts"), "utf8")).toBe(draftMap);
     expect(existsSync(join(dir, "extra.ts"))).toBe(true);
     expect(existsSync(join(dir, "old.ts"))).toBe(false);
-    expect(readFileSync(join(dir, THREADS_FILE), "utf8")).toBe('{ "live-only": [] }\n');
-    expect(readFileSync(join(dir, "tsconfig.json"), "utf8")).toBe(tsconfig);
-    expect(readFileSync(join(dir, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/main\n");
-    expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("the map's notes\n");
+    expect(readFileSync(join(dir, THREADS_FILE), "utf8")).toBe('{ "draft-only": [] }\n');
+    expect(
+      ["tsconfig.json", "atlas.d.ts", ".gitignore", ".git/HEAD", "notes.txt"].map((file) =>
+        readFileSync(join(dir, file), "utf8"),
+      ),
+    ).toEqual(unchanged);
     expect(listing(join(dir, "drafts"))).toEqual([]);
+  });
+
+  test("the draft cycle: an open point retired in a draft leaves the map green once adopted", () => {
+    const dir = sampleCopy();
+    const path = join(dir, "drafts", "settle");
+    cli("draft", dir, "settle");
+    const map = readFileSync(join(path, "map.ts"), "utf8");
+    const settled = map.replace(/\n\s*open: \[\n[\s\S]*?\n\s*\],/u, "");
+
+    expect(settled).not.toBe(map);
+
+    writeFileSync(join(path, "map.ts"), settled);
+    writeFileSync(join(path, THREADS_FILE), "{}\n");
+
+    expect(cli("check", path).code).toBe(0);
+    expect(cli("draft", dir, "settle", "--adopt").code).toBe(0);
+    expect(cli("check", dir).code).toBe(0);
+    expect(readFileSync(join(dir, THREADS_FILE), "utf8")).toBe("{}\n");
+  });
+
+  test("a thread written in the draft with reply comes back with it", async () => {
+    const dir = sampleCopy();
+    const path = join(dir, "drafts", "answer");
+    cli("draft", dir, "answer");
+    cli("reply", path, "backup-restore-untested", "--as", "agent", "Answered in the draft.");
+    cli("draft", dir, "answer", "--adopt");
+    const { threads } = readThreads(await Bun.file(join(dir, THREADS_FILE)).json());
+
+    expect(threads["backup-restore-untested"]?.at(-1)).toEqual({
+      who: "agent",
+      text: "Answered in the draft.",
+    });
   });
 
   test("--adopt refuses, changing nothing, when the map's data changed since the draft", async () => {
@@ -455,11 +527,80 @@ describe("draft", () => {
     const run = cli("draft", dir, "late", "--adopt");
 
     expect(run.code).toBe(1);
-    expect(run.stderr).toStartWith(
-      "draft: the map's data changed since the draft was made (map.ts)",
-    );
+    expect(run.stderr).toStartWith("draft: the map changed since the draft was made (map.ts)");
     expect(snapshot(dir)).toEqual(before);
     expect(readFileSync(join(path, "map.ts"), "utf8")).toContain('label: "Draft"');
+  });
+
+  test("--adopt refuses, changing nothing, when the map's threads.json changed since the draft", () => {
+    const dir = sampleCopy();
+    cli("draft", dir, "quiet");
+    cli("reply", dir, "backup-restore-untested", "--as", "human", "Answered in the map.");
+    const before = snapshot(dir);
+    const run = cli("draft", dir, "quiet", "--adopt");
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toStartWith(
+      "draft: the map changed since the draft was made (threads.json)",
+    );
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  test("--adopt that cannot move a file of the map puts back what it moved", () => {
+    const dir = fresh();
+    const path = join(dir, "drafts", "stuck");
+    mkdirSync(join(dir, "parts"));
+    writeFileSync(join(dir, "parts", "a.ts"), "export const a = 1;\n");
+    cli("draft", dir, "stuck");
+    writeFileSync(join(path, "map.ts"), "export default {};\n");
+    chmodSync(join(dir, "parts"), 0o555);
+    const before = snapshot(dir);
+    const run = cli("draft", dir, "stuck", "--adopt");
+    chmodSync(join(dir, "parts"), 0o755);
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toEndWith(": nothing was changed\n");
+    expect(snapshot(dir)).toEqual(before);
+    expect(listing(join(dir, "drafts"))).toEqual(["stuck"]);
+  });
+
+  test("--adopt that fails removes the folders it made in the map", () => {
+    const dir = fresh();
+    const path = join(dir, "drafts", "grow");
+    mkdirSync(join(dir, "zz"));
+    writeFileSync(join(dir, "zz", "readme.txt"), "no data here\n");
+    cli("draft", dir, "grow");
+    mkdirSync(join(path, "aa"));
+    writeFileSync(join(path, "aa", "x.ts"), "export const x = 1;\n");
+    mkdirSync(join(path, "zz"));
+    writeFileSync(join(path, "zz", "new.ts"), "export const late = 1;\n");
+    chmodSync(join(dir, "zz"), 0o555);
+    const before = snapshot(dir);
+    const run = cli("draft", dir, "grow", "--adopt");
+    chmodSync(join(dir, "zz"), 0o755);
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toEndWith(": nothing was changed\n");
+    expect(existsSync(join(dir, "aa"))).toBe(false);
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  test("--adopt that cannot remove the draft says so, and the map stays adopted", () => {
+    const dir = fresh();
+    const path = join(dir, "drafts", "sticky");
+    cli("draft", dir, "sticky");
+    mkdirSync(join(path, "parts"));
+    writeFileSync(join(path, "parts", "b.ts"), "export const b = 1;\n");
+    chmodSync(join(path, "parts"), 0o555);
+    const run = cli("draft", dir, "sticky", "--adopt");
+    chmodSync(join(path, "parts"), 0o755);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toStartWith(
+      `adopted ${path} into ${dir}; could not remove the draft: EACCES`,
+    );
+    expect(run.stderr).toBe("");
+    expect(readFileSync(join(dir, "parts", "b.ts"), "utf8")).toBe("export const b = 1;\n");
   });
 
   test("--adopt with a draft file it cannot read changes nothing", () => {

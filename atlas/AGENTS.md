@@ -9,12 +9,12 @@ the data has a position or a size. Open points carry threads between the human a
 
 Content lives only in a map folder; the engine's modules change only for behaviour. A map folder
 holds `map.ts` (its AtlasMap, the default export), `atlas.config.ts` (its Config, the default
-export), `threads.json` (the thread of each open point, by open id), and the two files `sync`
-writes and `check` compares byte for byte: `atlas.d.ts`, a copy of `atlas.ts` its data imports
-its types from, and `tsconfig.json`, a copy of the template's. It needs no `package.json`: its
-data imports types only. Its data files are its `.ts` files but `atlas.d.ts`. Its drafts sit in
-`drafts/<name>/`, which its `.gitignore` lists and its check leaves out; each holds a copy of the
-map's own files, a map folder of its own.
+export), `threads.json` (the thread of each open point, by open id), a `.gitignore` that lists
+`drafts/`, and the two files `sync` writes and `check` compares byte for byte: `atlas.d.ts`, a
+copy of `atlas.ts` its data imports its types from, and `tsconfig.json`, a copy of the
+template's. It needs no `package.json`: its data imports types only. Its data files are its `.ts`
+files but `atlas.d.ts`. Its drafts sit in `drafts/<name>/`, which its check leaves out; each
+holds a copy of the map's own files, a map folder of its own.
 
 ```
 cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft
@@ -70,13 +70,13 @@ Every command runs from the repository root.
 ```bash
 bun install --cwd atlas --frozen-lockfile   # once; Claude Code does it at the plugin's cache
 bun atlas/cli.ts new <dir>                  # scaffold a map folder in an empty or new folder
-bun atlas/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin
+bun atlas/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin, and drafts/ into .gitignore
 bun atlas/cli.ts check <map folder>         # the plan, tsgo, oxlint, oxfmt, the two copies; exit 1 on any failure
 bun atlas/cli.ts check <map folder> --open  # list the open points and whom each waits for
 bun atlas/cli.ts fmt <map folder>           # format in place the files check format-checks
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
 bun atlas/cli.ts draft <map folder> <name>  # copy the map's own files into drafts/<name> and print its path
-bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files replace the map's, then it is deleted; --drop deletes it
+bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files and threads.json replace the map's, then it is deleted; --drop deletes it
 bun test atlas                              # the engine's suites
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
 ```

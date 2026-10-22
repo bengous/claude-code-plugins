@@ -38,14 +38,16 @@ const TEMPLATE = join(ROOT, "template");
 
 const USAGE = `usage: bun ${CLI} <command> …
   new <dir>                                         scaffold an empty map folder
-  sync <dir>                                        write the plugin's atlas.d.ts and tsconfig.json into it
+  sync <dir>                                        write the plugin's atlas.d.ts and tsconfig.json into it,
+                                                    and drafts/ into its .gitignore
   check <dir> [--open]                              validate the map, type-check, lint and format-check it,
                                                     compare atlas.d.ts and tsconfig.json with the plugin's;
                                                     --open lists the open points
   fmt <dir>                                         format the files check format-checks, in place
   reply <dir> <open id> --as agent|human "<text>"   add an entry to an open point's thread
   draft <dir> <name> [--adopt | --drop]             copy the map into <dir>/${DRAFTS}/<name> and print its path;
-                                                    --adopt copies its data files back and deletes it,
+                                                    --adopt copies its data files and threads.json back
+                                                    and deletes it,
                                                     --drop deletes it`;
 
 class CliError extends Error {}
@@ -325,7 +327,8 @@ function draft(args: readonly string[]): number {
   const dir = mapFolder(dirArg);
 
   if (flags.has("--adopt")) {
-    console.log(`adopted ${adoptDraft(dir, name)} into ${dir}`);
+    const { path, warnings } = adoptDraft(dir, name);
+    console.log([`adopted ${path} into ${dir}`, ...warnings].join("; "));
   } else if (flags.has("--drop")) {
     console.log(`dropped ${dropDraft(dir, name)}`);
   } else {
@@ -352,7 +355,7 @@ async function run(command: Command, args: readonly string[]): Promise<number> {
     case "sync": {
       const dir = mapFolder(one(parse(args, []).positionals));
       sync(dir);
-      console.log(`${dir}: wrote ${TYPES_FILE} and ${TSCONFIG_FILE}`);
+      console.log(`${dir}: wrote ${TYPES_FILE} and ${TSCONFIG_FILE}; .gitignore lists ${DRAFTS}/`);
 
       return 0;
     }
