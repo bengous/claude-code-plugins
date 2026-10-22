@@ -85,7 +85,18 @@ function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   return style.style;
 }
 
+// settings.ts keeps a swatch to the shape of a colour; only the browser knows every value it draws.
 function applyPalette(): void {
+  for (const [key, swatch] of Object.entries(settings.palette)) {
+    for (const shade of ["light", "dark"] as const) {
+      if (!CSS.supports("color", swatch[shade])) {
+        throw new Error(
+          `palette ${key}.${shade}: "${swatch[shade]}" is not a colour this browser draws`,
+        );
+      }
+    }
+  }
+
   const element = document.createElement("style");
   document.head.append(element);
   const { sheet } = element;
@@ -104,11 +115,11 @@ function applyPalette(): void {
 }
 
 // The page holds no word of its own and no colour of the map: they come from the Config, and are
-// in place before the first layout measures the drawing area.
+// in place before the first layout measures the drawing area. The palette is applied as start()
+// begins, so a swatch the browser refuses shows in the panel.
 function dressPage(): void {
   document.documentElement.lang = settings.lang;
   document.title = settings.title;
-  applyPalette();
   byId("title", HTMLElement).textContent = settings.title;
   const subtitle = byId("subtitle", HTMLElement);
 
@@ -636,6 +647,7 @@ async function build(): Promise<Drawing> {
 }
 
 async function start(): Promise<void> {
+  applyPalette();
   const text = shownText();
   await Promise.all(FACES.map((f) => document.fonts.load(f, text)));
   await document.fonts.ready;

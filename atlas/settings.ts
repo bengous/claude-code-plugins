@@ -21,16 +21,39 @@ export type Settings = {
 // A palette key is the end of a CSS custom property's name.
 const PALETTE_KEY = /^[\w-]+$/u;
 
-const COMPONENT = String.raw`(?:[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?(?:%|deg|grad|rad|turn)?|none)`;
+const NUMBER = String.raw`[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?`;
 
-const COMMAS = String.raw`${COMPONENT}\s*,\s*${COMPONENT}\s*,\s*${COMPONENT}(?:\s*,\s*${COMPONENT})?`;
+const PERCENT = `${NUMBER}%`;
 
-const SPACES = String.raw`${COMPONENT}\s+${COMPONENT}\s+${COMPONENT}(?:\s*\/\s*${COMPONENT})?`;
+const HUE_ANGLE = `${NUMBER}(?:deg|grad|rad|turn)?`;
 
-// The colours a swatch may hold: a hex colour, or a colour function with three components and an
-// optional alpha. Nothing else can reach the page's style, a ; } or ) included.
+const AMOUNT = `(?:${NUMBER}%?|none)`;
+
+const HUE = `(?:${HUE_ANGLE}|none)`;
+
+// The modern form: three components apart, then an optional alpha after a slash.
+const spaced = (a: string, b: string, c: string): string =>
+  String.raw`\(\s*${a}\s+${b}\s+${c}(?:\s*\/\s*${AMOUNT})?\s*\)`;
+
+// The legacy form of rgb() and hsl(): three components and an optional alpha, between commas.
+const commas = (a: string, b: string, c: string): string =>
+  String.raw`\(\s*${a}\s*,\s*${b}\s*,\s*${c}(?:\s*,\s*${NUMBER}%?)?\s*\)`;
+
+// The colours a swatch may hold, each function in the forms CSS Color 4 gives it: an angle only
+// where a hue goes, percentages or numbers alike in rgb()'s legacy form, percentages in hsl()'s.
+// Nothing else can reach the page's style, a ; } or ) included.
 const COLOR = new RegExp(
-  String.raw`^(?:#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(\s*(?:${COMMAS}|${SPACES})\s*\))$`,
+  `^(?:${[
+    String.raw`#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})`,
+    `rgba?${spaced(AMOUNT, AMOUNT, AMOUNT)}`,
+    `rgba?${commas(NUMBER, NUMBER, NUMBER)}`,
+    `rgba?${commas(PERCENT, PERCENT, PERCENT)}`,
+    `hsla?${spaced(HUE, AMOUNT, AMOUNT)}`,
+    `hsla?${commas(HUE_ANGLE, PERCENT, PERCENT)}`,
+    `hwb${spaced(HUE, AMOUNT, AMOUNT)}`,
+    `(?:ok)?lab${spaced(AMOUNT, AMOUNT, AMOUNT)}`,
+    `(?:ok)?lch${spaced(AMOUNT, AMOUNT, HUE)}`,
+  ].join("|")})$`,
   "iu",
 );
 

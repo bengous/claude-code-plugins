@@ -121,7 +121,12 @@ export type AtlasMap = { readonly root: Root; readonly links: readonly Link[] };
 /** The language of the page's own words: its headings, buttons, legend and errors. */
 export type Lang = "fr" | "en";
 
-/** A colour on a light page and on a dark one, each any CSS colour. */
+/**
+ * A colour on a light page and on a dark one. Each is a hex colour (#rgb, #rgba, #rrggbb,
+ * #rrggbbaa) or rgb(), rgba(), hsl(), hsla(), hwb(), lab(), lch(), oklab() or oklch() with three
+ * components and an optional alpha; settings.ts refuses any other value, named colours, var(),
+ * color() and color-mix() included, and the page refuses one its browser does not draw.
+ */
 export type Swatch = { readonly light: string; readonly dark: string };
 
 /**

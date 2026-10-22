@@ -18,16 +18,32 @@ describe("the panel's HTML", () => {
     expect(esc(`a"b'c<d>&e`)).toBe("a&quot;b&#39;c&lt;d&gt;&amp;e");
   });
 
-  test("a human name with quotes stays inside the reply input's placeholder", () => {
+  test("a human name with quotes stays inside the reply input's placeholder", async () => {
     const panel = { innerHTML: "", scrollTop: 0 };
     const settings = settingsOf({ ...CONFIG, human: 'Jean "JJ" x" data-injected="yes' });
     const place = { zone: null, node: "backup" };
 
     renderPanel(settings, GRAPH, panel, place, null, { kind: "ok", threads: {} });
 
+    expect(await elementsWith(panel.innerHTML, "[data-injected]")).toBe(0);
     expect(panel.innerHTML).toContain(
       'placeholder="Répondre (Jean &quot;JJ&quot; x&quot; data-injected=&quot;yes)"',
     );
-    expect(panel.innerHTML).not.toContain('data-injected="yes"');
   });
 });
+
+// The elements an HTML parser finds for a selector in a fragment.
+async function elementsWith(html: string, selector: string): Promise<number> {
+  let found = 0;
+
+  await new HTMLRewriter()
+    .on(selector, {
+      element() {
+        found += 1;
+      },
+    })
+    .transform(new Response(html))
+    .text();
+
+  return found;
+}
