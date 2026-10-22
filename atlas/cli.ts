@@ -24,6 +24,7 @@ import {
 } from "./drafts.ts";
 import { drawableOf } from "./drawable.ts";
 import { MAP_FILE, THREADS_FILE, loadFolder } from "./folder.ts";
+import { InventoryError, inventoryOf, printed } from "./inventory.ts";
 import { ReplyError, appendReply } from "./reply.ts";
 import { WHO, openItems, readThreads } from "./threads.ts";
 import type { Tree } from "./tree.ts";
@@ -49,7 +50,10 @@ const USAGE = `usage: bun ${CLI} <command> …
   draft <dir> <name> [--adopt | --drop]             copy the map into <dir>/${DRAFTS}/<name> and print its path;
                                                     --adopt copies its data files and threads.json back
                                                     and deletes it,
-                                                    --drop deletes it`;
+                                                    --drop deletes it
+  inventory <repo>                                  print what a repository holds as JSON: its manifests,
+                                                    its directories of the top two levels, the imports
+                                                    between them and the environment variables it reads`;
 
 class CliError extends Error {}
 
@@ -344,7 +348,7 @@ function draft(args: readonly string[]): number {
   return 0;
 }
 
-const COMMANDS = ["new", "sync", "check", "fmt", "reply", "draft"] as const;
+const COMMANDS = ["new", "sync", "check", "fmt", "reply", "draft", "inventory"] as const;
 
 type Command = (typeof COMMANDS)[number];
 
@@ -388,6 +392,12 @@ async function run(command: Command, args: readonly string[]): Promise<number> {
     case "draft": {
       return draft(args);
     }
+
+    case "inventory": {
+      console.log(printed(inventoryOf(one(parse(args, []).positionals))));
+
+      return 0;
+    }
   }
 }
 
@@ -403,7 +413,12 @@ if (import.meta.main) {
     process.exitCode = await run(command, args);
   } catch (error: unknown) {
     if (
-      !(error instanceof CliError || error instanceof DraftError || error instanceof ReplyError)
+      !(
+        error instanceof CliError ||
+        error instanceof DraftError ||
+        error instanceof ReplyError ||
+        error instanceof InventoryError
+      )
     ) {
       throw error;
     }

@@ -21,8 +21,13 @@ files but `atlas.d.ts`. Its drafts sit in `drafts/<name>/`, which its check leav
 holds a copy of the map's own files, a map folder of its own.
 
 ```
-cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft
-                     (cli.spec.ts, on copies in temporary folders)
+cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft,
+                     inventory (cli.spec.ts, on copies in temporary folders)
+inventory.ts         what a repository holds, as JSON, model-free: the files git lists, or a walk;
+                     directories of the top two levels; the manifests (manifests.ts, their
+                     boundary parsers); the imports between those directories and the environment
+                     variables read, by pattern (scan.ts) (inventory.spec.ts, on repositories it
+                     writes in temporary folders)
 drafts.ts            a map folder's data files, and its drafts: made, adopted, dropped
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
@@ -145,6 +150,7 @@ bun atlas/cli.ts fmt <map folder>           # format in place the files check fo
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
 bun atlas/cli.ts draft <map folder> <name>  # copy the map's own files into drafts/<name> and print its path
 bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files and threads.json replace the map's, then it is deleted; --drop deletes it
+bun atlas/cli.ts inventory <repo>           # what a repository holds, as JSON
 bun test atlas                              # the engine's suites, *.spec.ts
 bun atlas/query.ts <map folder> <node id>   # one node as JSON
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
