@@ -260,6 +260,7 @@ describe("tool.check", () => {
     expect(await checked(), "the rule decided, so the lock asks").toEqual({
       decision: "ask",
       rule: "Bash(mkdir:*)",
+      plugin: "vellum",
     });
 
     expect(await checked(), "no rule: the engine's allow stands").toEqual({ decision: "allow" });
@@ -277,6 +278,7 @@ describe("tool.check", () => {
     expect(await checked(), "the rule decided, so the lock asks").toEqual({
       ...ruled,
       decision: "ask",
+      plugin: "vellum",
     });
 
     expect(await checked(), "no rule: the engine's allow stands").toEqual({ decision: "allow" });
@@ -291,6 +293,7 @@ describe("tool.check", () => {
     expect(await $.tool.check({ tool: "Monitor", input })).toEqual({
       decision: "ask",
       rule: "Bash(sed -i *)",
+      plugin: "vellum",
     });
   });
 

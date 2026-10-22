@@ -380,7 +380,7 @@ export const register: Register = (on, options) => {
   });
 
   // A finding goes to the buffer, not to the person: a plain todos-finding call skips the ask the mode alone would put.
-  // An ask a settings rule or a hook put stays; a function hook's says so by putting it to a person.
+  // An ask a settings rule or a hook put stays; the engine names the plugin whose function hook asked.
   on("tool.check", { tool: "Bash" }, async ($, e, next) => {
     const verdict = await next(e);
     const command = shellCommand(e.input);
@@ -389,7 +389,7 @@ export const register: Register = (on, options) => {
       verdict.decision === "ask" &&
       verdict.rule === undefined &&
       verdict.hook === undefined &&
-      verdict.decider !== "person";
+      verdict.plugin === undefined;
 
     if (!isModeAsk || command === null || !isPlainFindingCommand(command)) return verdict;
 

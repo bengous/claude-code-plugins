@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.306.
+// Written by Claude Code 2.1.308.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -4653,7 +4653,7 @@ declare module 'claude-code' {
        */
       'tool.call': ToolCallResult;
       /**
-       * `{ decision, reason?, rule?, hook?, setting?, decider?, ceiling? }`.
+       * `{ decision, reason?, rule?, hook?, setting?, plugin?, ceiling? }`.
        */
       'tool.check': ToolCheckResult;
       /**
@@ -7645,14 +7645,15 @@ declare module 'claude-code' {
       rows?: number;
       /**
        * The body columns the pane's content wants while docked beside a
-       * fullscreen transcript: the dock opens that wide, floor to ceiling.
+       * fullscreen transcript: the dock opens that wide, at most 45% of the
+       * terminal's columns and at least 24. Each open sets it anew.
        *
-       * A request, not a grant: a width the person dragged or keyed the dock
-       * to wins, this session's or a kept one, and the inline block ignores
-       * it. A positive whole number; left out, the share. Each open sets it anew.
+       * A request, not a grant: a width the person dragged or keyed the dock to,
+       * this session's or a kept one, wins under the same ceiling, and the
+       * inline block ignores it. A positive whole number; left out, the share.
        *
        * @example
-       * await $.ui.open({ id: "browser", focus: true, rows: 24, columns: 100 })
+       * await $.ui.open({ id: "browser", focus: true, rows: 24, columns: 60 })
        */
       columns?: number;
   };
@@ -10053,6 +10054,11 @@ declare module 'claude-code' {
        */
       type: 'Markdown';
       props: MarkdownLeafProps;
+      /**
+       * Whose `key` it is, set by the engine on a keyed one as the tree
+       * leaves its hook, as a Box's `part` is.
+       */
+      part?: PluginStamp;
       children?: undefined;
   } | {
       /**
@@ -13625,21 +13631,24 @@ declare module 'claude-code' {
   };
 
   /**
+   * Who answers the asks of a `tool.check` evaluation.
+   *
+   * `host`, the program that answers a hosted session's asks or a served call's
+   * own session; `person`, a dialog or a card the person answers.
+   */
+  type ToolCheckApprover = 'host' | 'person';
+
+  /**
    * `tool.check`'s input as `$.tool.check` takes it: the tool and its arguments;
-   * the call's id, `agentId`, ceiling and `isReadOnly` are the engine's to set.
+   * the call's id, `agentId`, ceiling, approver and `isReadOnly` are the
+   * engine's to set.
    */
   type ToolCheckArgs = Pick<ToolCheckInput, 'tool' | 'input'>;
 
   /**
-   * Who an ask is put to, where that is not the mode's decider alone: `host`,
-   * the program that answers a hosted session's asks, or a served call's own
-   * session; `person`, whoever answers for one, and no classifier's allow.
-   */
-  type ToolCheckDecider = 'host' | 'person';
-
-  /**
    * The verdict of `tool.check`: run the tool, put it to the mode's decider
-   * (the dialog, the auto-mode classifier, a headless host), or refuse it.
+   * (the dialog, the auto-mode classifier, a headless host) or, a hook's ask, to
+   * a person, or refuse it.
    */
   type ToolCheckDecision = 'allow' | 'ask' | 'deny';
 
@@ -13689,6 +13698,13 @@ declare module 'claude-code' {
        */
       ceiling?: ToolCheckDecision;
       /**
+       * Who answers this evaluation's asks, known before any hook runs.
+       *
+       * `host` where a host's permission callback does, `person` where a person
+       * can be asked, a pane's card included; absent where nobody can be. Pinned.
+       */
+      approver?: ToolCheckApprover;
+      /**
        * Set by the engine, present only when the tool's own `isReadOnly` holds
        * this input read-only, and pinned; a matcher can select reads, never writes.
        *
@@ -13701,7 +13717,7 @@ declare module 'claude-code' {
 
   /**
    * What a `tool.check` hook returns and what `next(e)` resolves to: the
-   * verdict, why, what stands behind it, and who answers core's ask.
+   * verdict, why, and what stands behind it, never who answers it.
    *
    * From core, the engine's declarative decision for the session's mode and
    * rules. A hook may answer any verdict in either direction; the last word up
@@ -13709,8 +13725,9 @@ declare module 'claude-code' {
    */
   type ToolCheckResult = {
       /**
-       * `allow` runs the tool; `ask` puts it to the mode's decider; `deny`
-       * refuses it, the reason the model's error.
+       * `allow` runs the tool; `ask` puts it to the mode's decider, or to a
+       * person when a hook made it (`plugin`); `deny` refuses it, the reason the
+       * model's error.
        *
        * For a tool that requires the person (a question put to them, a plan to
        * approve) a hook only tightens: its `allow` does not dismiss the dialog.
@@ -13744,24 +13761,20 @@ declare module 'claude-code' {
        */
       setting?: string;
       /**
-       * Who an ask is put to, where that is not a dialog here: `host`, a hosted
-       * session's permission callback or the cloud session a served call is for.
+       * The plugin whose hook made this ask, set by the engine and pinned:
+       * whatever a hook writes here is dropped.
        *
-       * From core, on its own ask, only where a host would be asked: an ask the
-       * mode or the loop refuses with nobody asked (dontAsk, no prompt to show)
-       * names none, and neither does a host whose card the person answers.
-       *
-       * From a hook, on its ask: `person`. The dialog or the host's callback
-       * answers. No machine's allow settles it, and any machine's refusal still
-       * refuses: the classifier's block, a PermissionRequest hook's deny. A rule
-       * for the whole tool is not kept; a narrower rule the person saves is theirs
-       * and settles nothing while the hook asks. Where nobody can be asked it is
-       * a deny, this verdict's reason the model's error. Any other word fails the
-       * hook. A tool no prompt is raised for keeps its own rule. `host` from a hook
-       * changes nothing: the engine says where a host answers. A hook above may
-       * rewrite it as it may any verdict.
+       * On an `ask` a hook answered, rewording included; one it hands up as it
+       * heard it keeps what it carried, so core's own names none. Such an ask is
+       * a person's: the dialog, the host's callback or a PermissionRequest hook
+       * answers. No classifier's allow settles it, its block still refuses, and
+       * a rule for the whole tool is not kept; a narrower rule the person saves
+       * is theirs and settles nothing while the hook asks. Where nobody can be
+       * asked it is a deny, this verdict's reason the model's error. A tool no
+       * prompt is raised for keeps its own rule. A hook above may answer anything
+       * over it.
        */
-      decider?: ToolCheckDecider;
+      plugin?: string;
       /**
        * The most permissive verdict the organization lets a call of the tool
        * reach (`ask`), as its administrators set it on a connector's tool.
@@ -15804,6 +15817,7 @@ declare module 'claude-code' {
 }
 
 declare module 'claude-code/testing' {
+  import type { AgentLoop } from 'claude-code';
   import type { Args } from 'claude-code';
   import type { Chunk } from 'claude-code';
   import type { ClassicEventName } from 'claude-code';
@@ -15829,6 +15843,9 @@ declare module 'claude-code/testing' {
   import type { SessionAppendInput } from 'claude-code';
   import type { StreamingEventName } from 'claude-code';
   import type { Tier } from 'claude-code';
+  import type { ToolCallArgs } from 'claude-code';
+  import type { ToolCallReserved } from 'claude-code';
+  import type { ToolCallResult } from 'claude-code';
   import type { UiInputArgument } from 'claude-code';
   import type { UiInputResult } from 'claude-code';
   import type { UiPressResult } from 'claude-code';
@@ -16019,13 +16036,13 @@ declare module 'claude-code/testing' {
 
   /**
    * One noun of the engine's `$`: each of its events as the engine calls it,
-   * `tool.call` and `ui.render` typed per tool and component, `ui.resolve` out.
+   * `tool.call` typed per tool and `ui.render` per component, `ui.resolve` out.
    *
    * `skill.prompt` takes a call's input: its frontmatter and source may be
    * left out, as a test written before the event carried them does.
    */
   export type EngineNoun<N extends keyof EventCalls> = {
-      [V in EngineNounEvent<N>]: `${N}.${V}` extends 'tool.call' | 'ui.render' | 'skill.prompt' ? EventCalls[N][V] : EngineCall<`${N}.${V}` & EventName>;
+      [V in EngineNounEvent<N>]: `${N}.${V}` extends 'tool.call' ? EngineToolCall : `${N}.${V}` extends 'ui.render' | 'skill.prompt' ? EventCalls[N][V] : EngineCall<`${N}.${V}` & EventName>;
   };
 
   /**
@@ -16074,6 +16091,22 @@ declare module 'claude-code/testing' {
        * await $.ui.select({ plugin: 'notes', key: 'sort', value: 'date' })
        */
       select: (target: SelectTarget) => Promise<UiSelectResult | undefined>;
+  };
+
+  /**
+   * `$.tool.call` on a test's `$`: a call as the engine raises one, `agentId`
+   * the loop it runs in (a subagent's, a teammate's); left out, the main loop.
+   *
+   * A hooked `tool.check` runs as for a background subagent: a test's
+   * `classic.PermissionRequest` answers an ask; no test plays a person's yes. A
+   * test states `isReadOnly` on `$.tool.check`; `$.ui.ask` states its own.
+   *
+   * @example
+   * await $.tool.call({ tool: 'Bash', command: 'ls', agentId: 'a1' })
+   */
+  export type EngineToolCall = {
+      <T extends string>(input: ToolCallArgs & Pick<ToolCallReserved<T>, 'tool'> & AgentLoop): Promise<ToolCallResult<T>>;
+      (input: ToolCallArgs & AgentLoop): Promise<ToolCallResult>;
   };
 
   /**
