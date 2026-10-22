@@ -41,9 +41,11 @@ tree.ts              the tree indexed for views at any depth: each node's chain 
 view.ts              the view of any container, pure: its children as boxes, a container child's
                      children as its chips; its links lifted to one arrow per pair; its outer
                      neighbours as ghosts in side columns; the couplings a selection outlines and
-                     the arrows it lights; the legend lines it uses (view.spec.ts)
+                     the arrows it lights; the legend lines it uses (view.spec.ts; scale.spec.ts
+                     bounds the time of the index and a view on a map of 5,000 nodes)
 navigation.ts        where the reader stands at any depth, pure: the path to the open container
-                     and the selection, their events, and the breadcrumb (navigation.spec.ts)
+                     and the selection, their events, the breadcrumb, and the URL fragment that
+                     carries both (navigation.spec.ts)
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 engine.ts            the page's entry: draws the map it imports, paints the camera, takes input
 overview.ts          the overview drawing
