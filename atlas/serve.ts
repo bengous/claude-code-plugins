@@ -26,9 +26,19 @@ const SETTLE_MS = 50;
 // never copied into this folder.
 const WASM_FILE = join(dirname(Bun.resolveSync("libavoid-js", DIR)), "libavoid.wasm");
 
+// html: the page as built, which names its chunks by the hash of their content.
 type Bundle =
-  | { readonly kind: "ok"; readonly files: ReadonlyMap<string, BuildArtifact> }
+  | {
+      readonly kind: "ok";
+      readonly html: string;
+      readonly files: ReadonlyMap<string, BuildArtifact>;
+    }
   | { readonly kind: "error"; readonly message: string };
+
+const same = (a: Bundle, b: Bundle): boolean =>
+  a.kind === "ok"
+    ? b.kind === "ok" && a.html === b.html
+    : b.kind === "error" && a.message === b.message;
 
 const USAGE = "usage: bun serve.ts <map folder> [port]";
 
@@ -80,10 +90,17 @@ async function bundle(): Promise<Bundle> {
     return { kind: "error", message: built.logs.map(located).join("\n\n") };
   }
 
-  return {
-    kind: "ok",
-    files: new Map(built.outputs.map((o): [string, BuildArtifact] => [`/${basename(o.path)}`, o])),
-  };
+  const files = new Map(
+    built.outputs.map((o): [string, BuildArtifact] => [`/${basename(o.path)}`, o]),
+  );
+
+  const html = files.get(`/${PAGE}`);
+
+  if (html === undefined) {
+    throw new Error(`the build has no ${PAGE}`);
+  }
+
+  return { kind: "ok", html: await html.text(), files };
 }
 
 // The page throws on data toPlan refuses, so the folder is loaded here first, in a fresh process:
@@ -155,19 +172,26 @@ function events(request: Request, server: Server<undefined>): Response {
   });
 }
 
+// A tab reloads only when what it would load changed: a reload drops a reply being typed, and an
+// editor's swap file or a regenerated atlas.d.ts changes nothing in the page.
 async function rebuild(): Promise<void> {
   const started = performance.now();
-  current = await compile();
+  const next = await compile();
+  const differs = !same(next, current);
+  current = next;
 
-  for (const tab of tabs) {
-    tell(tab, "reload", "");
+  if (differs) {
+    for (const tab of tabs) {
+      tell(tab, "reload", "");
+    }
   }
 
   const verdict = current.kind === "ok" ? "built" : "failed";
   const ms = Math.round(performance.now() - started);
-  console.log(`atlas: ${verdict} in ${ms} ms, reload sent to ${tabs.size} tab(s)`);
+  const outcome = differs ? `reload sent to ${tabs.size} tab(s)` : "page unchanged, no reload";
+  console.log(`atlas: ${verdict} in ${ms} ms, ${outcome}`);
 
-  if (current.kind === "error") {
+  if (differs && current.kind === "error") {
     console.error(current.message);
   }
 }
@@ -198,7 +222,7 @@ watch(DIR, (_, file) => {
   changed(file);
 });
 
-async function page(): Promise<Response> {
+function page(): Response {
   if (current.kind === "error") {
     const shown = `<!doctype html><meta charset="utf-8"><title>atlas: no map to show</title><pre>${Bun.escapeHTML(current.message)}</pre>`;
 
@@ -208,14 +232,8 @@ async function page(): Promise<Response> {
     });
   }
 
-  const html = current.files.get(`/${PAGE}`);
-
-  if (html === undefined) {
-    throw new Error(`the build has no ${PAGE}`);
-  }
-
-  return new Response((await html.text()) + LIVE, {
-    headers: { "content-type": html.type, "cache-control": "no-store" },
+  return new Response(current.html + LIVE, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });
 }
 

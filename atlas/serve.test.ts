@@ -12,17 +12,22 @@ const WAIT_MS = 10_000;
 
 type Page = { readonly status: number; readonly html: string; readonly script: string };
 
-let dir = "";
+type ServerEvent = { readonly name: string; readonly data: string };
 
-let server: ReturnType<typeof Bun.spawn> | undefined;
+// What a source produced so far, in order, and a cursor that waits for the next item matching.
+type Feed<T> = {
+  readonly items: readonly T[];
+  readonly next: (match: (item: T) => boolean) => Promise<T>;
+  readonly skip: () => void;
+};
 
-let base = "";
-
-let original = "";
-
-let announced = "";
-
-let nextEvent: (name: string) => Promise<string> = () => Promise.reject(new Error("no stream"));
+type Served = {
+  readonly child: ReturnType<typeof Bun.spawn>;
+  readonly base: string;
+  readonly port: string;
+  readonly log: Feed<string>;
+  readonly events: Feed<ServerEvent>;
+};
 
 async function within<T>(promise: Promise<T>, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -40,62 +45,137 @@ async function within<T>(promise: Promise<T>, what: string): Promise<T> {
   }
 }
 
-// The server's first stdout line is its address; the rest of its output is drained, never read.
-async function readyLine(stdout: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = stdout.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
+function feedOf<T>(source: AsyncGenerator<T>): Feed<T> {
+  const items: T[] = [];
+  let cursor = 0;
+  let ended = false;
+  let failure: Error | null = null;
+  let arrived = Promise.withResolvers<void>();
 
-  while (!text.includes("\n")) {
-    const { value, done } = await reader.read();
-
-    if (done) {
-      throw new Error(`the server exited before its ready line: ${text}`);
-    }
-
-    text += decoder.decode(value, { stream: true });
-  }
+  const wake = (): void => {
+    arrived.resolve();
+    arrived = Promise.withResolvers<void>();
+  };
 
   void (async () => {
-    while (!(await reader.read()).done) {
-      // drained
+    try {
+      for await (const item of source) {
+        items.push(item);
+        wake();
+      }
+    } catch (error: unknown) {
+      failure = error instanceof Error ? error : new Error(String(error));
     }
+
+    ended = true;
+    wake();
   })();
 
-  return text.slice(0, text.indexOf("\n"));
-}
+  return {
+    items,
+    skip: () => {
+      cursor = items.length;
+    },
+    next: async (match) => {
+      for (;;) {
+        while (cursor < items.length) {
+          const item = items[cursor];
+          cursor += 1;
 
-function eventsOf(body: ReadableStream<Uint8Array>): (name: string) => Promise<string> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  return async (name) => {
-    for (;;) {
-      const end = buffer.indexOf("\n\n");
-
-      if (end === -1) {
-        const { value, done } = await reader.read();
-
-        if (done) {
-          throw new Error("the event stream closed");
+          if (item !== undefined && match(item)) {
+            return item;
+          }
         }
 
-        buffer += decoder.decode(value, { stream: true });
-        continue;
-      }
+        if (ended) {
+          throw new Error("the source ended", { cause: failure });
+        }
 
-      const block = buffer.slice(0, end);
-      buffer = buffer.slice(end + 2);
-
-      if (/^event: (.*)$/mu.exec(block)?.[1] === name) {
-        return /^data: ?(.*)$/mu.exec(block)?.[1] ?? "";
+        await arrived.promise;
       }
-    }
+    },
   };
 }
 
+async function* chunksOf(stream: ReadableStream<Uint8Array>, separator: string) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for await (const chunk of stream) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let end = buffer.indexOf(separator);
+
+    while (end !== -1) {
+      yield buffer.slice(0, end);
+      buffer = buffer.slice(end + separator.length);
+      end = buffer.indexOf(separator);
+    }
+  }
+}
+
+async function* eventsOf(stream: ReadableStream<Uint8Array>): AsyncGenerator<ServerEvent> {
+  for await (const block of chunksOf(stream, "\n\n")) {
+    yield {
+      name: /^event: (.*)$/mu.exec(block)?.[1] ?? "",
+      data: /^data: ?(.*)$/mu.exec(block)?.[1] ?? "",
+    };
+  }
+}
+
+const anything = (): boolean => true;
+
+// The server's first stdout line is its address, then one line per build.
+async function serve(dir: string): Promise<Served> {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "serve.ts"), dir], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+
+  if (!(child.stdout instanceof ReadableStream)) {
+    throw new TypeError("the server's stdout is not piped");
+  }
+
+  const log = feedOf(chunksOf(child.stdout, "\n"));
+  const ready = new URL(await within(log.next(anything), "ready line"));
+  const stream = await fetch(`${ready.origin}/events`);
+
+  if (stream.body === null) {
+    throw new Error("the event stream has no body");
+  }
+
+  const events = feedOf(eventsOf(stream.body));
+  await within(events.next(anything), "first event");
+
+  return { child, base: ready.origin, port: ready.port, log, events };
+}
+
+const isBuild = (line: string): boolean => /^atlas: (?:built|failed) /u.test(line);
+
+const isReload = (e: ServerEvent): boolean => e.name === "reload";
+
+function copyOfSample(): string {
+  const dir = mkdtempSync(join(tmpdir(), "atlas-serve-"));
+  cpSync(SAMPLE, dir, { recursive: true });
+
+  return dir;
+}
+
+let dir = "";
+
+let main: Served | undefined;
+
+let original = "";
+
+function served(): Served {
+  if (main === undefined) {
+    throw new Error("the server did not start");
+  }
+
+  return main;
+}
+
 async function page(): Promise<Page> {
+  const { base } = served();
   const response = await fetch(`${base}/plan.fr.html`);
   const html = await response.text();
   const src = /<script type="module"[^>]* src="\.\/([^"]+)"/u.exec(html)?.[1];
@@ -104,11 +184,10 @@ async function page(): Promise<Page> {
   return { status: response.status, html, script };
 }
 
-// Waits through reloads until the page shows what the test saved: a save may reach the watch as
-// more than one event, each rebuild followed by a reload.
+// Waits through reloads until the page shows what the test saved.
 async function reloadedTo(shows: (p: Page) => boolean): Promise<Page> {
   for (;;) {
-    await within(nextEvent("reload"), "reload");
+    await within(served().events.next(isReload), "reload");
     const p = await page();
 
     if (shows(p)) {
@@ -123,37 +202,24 @@ function saveAtomically(file: string, text: string): void {
   renameSync(temporary, file);
 }
 
+async function restore(): Promise<void> {
+  served().events.skip();
+  saveAtomically(join(dir, MAP_FILE), original);
+  await reloadedTo((p) => p.status === 200 && p.script.includes("Nightly backup"));
+}
+
 const token = (html: string): string =>
   new RegExp(`<meta name="${TOKEN_META}" content="([^"]+)">`, "u").exec(html)?.[1] ?? "";
 
 beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), "atlas-serve-"));
-  cpSync(SAMPLE, dir, { recursive: true });
+  dir = copyOfSample();
   original = await Bun.file(join(dir, MAP_FILE)).text();
-
-  server = Bun.spawn([process.execPath, join(import.meta.dir, "serve.ts"), dir, "0"], {
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-
-  if (!(server.stdout instanceof ReadableStream)) {
-    throw new TypeError("the server's stdout is not piped");
-  }
-
-  base = new URL(await within(readyLine(server.stdout), "ready line")).origin;
-  const events = await fetch(`${base}/events`);
-
-  if (events.body === null) {
-    throw new Error("the event stream has no body");
-  }
-
-  nextEvent = eventsOf(events.body);
-  announced = await within(nextEvent("server"), "server event");
+  main = await serve(dir);
 });
 
 afterAll(async () => {
-  server?.kill();
-  await server?.exited;
+  main?.child.kill();
+  await main?.child.exited;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -172,11 +238,11 @@ describe("serve.ts", () => {
     const written = token((await page()).html);
 
     expect(written).not.toBe("");
-    expect(announced).toBe(written);
+    expect(served().events.items[0]).toEqual({ name: "server", data: written });
   });
 
   test("answers libavoid.wasm from the installed package", async () => {
-    const response = await fetch(`${base}/libavoid.wasm`);
+    const response = await fetch(`${served().base}/libavoid.wasm`);
 
     const installed = join(
       dirname(Bun.resolveSync("libavoid-js", import.meta.dir)),
@@ -191,13 +257,31 @@ describe("serve.ts", () => {
   test(
     "an atomic save of the data is rebuilt and reloads the page",
     async () => {
+      served().events.skip();
       saveAtomically(join(dir, MAP_FILE), original.replace("Nightly backup", "Weekly backup"));
       const changed = await reloadedTo((p) => p.script.includes("Weekly backup"));
 
       expect(changed.status).toBe(200);
 
-      saveAtomically(join(dir, MAP_FILE), original);
-      await reloadedTo((p) => p.script.includes("Nightly backup"));
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+
+  test(
+    "a save that leaves the page as it was rebuilds without reloading the tabs",
+    async () => {
+      const { log, events } = served();
+      const reloads = events.items.filter(isReload).length;
+      log.skip();
+      writeFileSync(join(dir, "notes.md"), "a note beside the map\n");
+      const build = await within(log.next(isBuild), "build");
+
+      expect(build).toContain("unchanged");
+
+      await Bun.sleep(200);
+
+      expect(events.items.filter(isReload).length).toBe(reloads);
     },
     WAIT_MS * 3,
   );
@@ -205,6 +289,7 @@ describe("serve.ts", () => {
   test(
     "a build error shows its file and line, and the next good save recovers",
     async () => {
+      served().events.skip();
       const lines = original.split("\n");
       const at = lines.findIndex((l) => l.includes('title: "Bookshop",'));
       lines[at] = '    title: "Bookshop" "broken",';
@@ -213,10 +298,7 @@ describe("serve.ts", () => {
 
       expect(broken.html).toContain(`${join(dir, MAP_FILE)}:${at + 1}:`);
 
-      saveAtomically(join(dir, MAP_FILE), original);
-      const fixed = await reloadedTo((p) => p.status === 200);
-
-      expect(fixed.script).toContain("Nightly backup");
+      await restore();
     },
     WAIT_MS * 3,
   );
@@ -224,20 +306,20 @@ describe("serve.ts", () => {
   test(
     "data the engine cannot draw shows why, and the next good save recovers",
     async () => {
+      served().events.skip();
       saveAtomically(join(dir, MAP_FILE), original.replace('id: "catalog"', 'id: "web"'));
       const refused = await reloadedTo((p) => p.status === 500);
 
       expect(refused.html).toContain("node web: a second node has this id");
 
-      saveAtomically(join(dir, MAP_FILE), original);
-      await reloadedTo((p) => p.status === 200);
+      await restore();
     },
     WAIT_MS * 3,
   );
 });
 
 const post = async (headers: Record<string, string>): Promise<Response> =>
-  await fetch(`${base}/${THREADS_FILE}`, {
+  await fetch(`${served().base}/${THREADS_FILE}`, {
     method: "POST",
     headers,
     body: JSON.stringify({ id: "backup-restore-untested", text: "A restore was tried." }),
@@ -245,7 +327,7 @@ const post = async (headers: Record<string, string>): Promise<Response> =>
 
 // What the page sends: the browser sets its Origin, and the page adds the token it was served.
 const own = async (): Promise<Record<string, string>> => ({
-  origin: base,
+  origin: served().base,
   "content-type": "application/json",
   [TOKEN_HEADER]: token((await page()).html),
 });
