@@ -147,12 +147,35 @@ const overlap = (a: Rect, b: Rect): number =>
 /** Where a label landed: its spot, and which of its variants fits there. */
 export type Spotted = { readonly spot: Rect; readonly variant: number };
 
+const SLIDE_GAP = 3;
+
+/**
+ * A spot that hits obstacles, slid up above the topmost of them and down below the bottommost:
+ * a label wider than the gap its arrow crosses floats above or below the items on each side.
+ */
+function slid(spot: Rect, obstacles: readonly Rect[]): Rect[] {
+  const hit = obstacles.filter((o) => hits(spot, o));
+
+  if (hit.length === 0) {
+    return [];
+  }
+
+  const top = Math.min(...hit.map((o) => o.y));
+  const bottom = Math.max(...hit.map((o) => o.y + o.h));
+
+  return [
+    { ...spot, y: top - spot.h - SLIDE_GAP },
+    { ...spot, y: bottom + SLIDE_GAP },
+  ];
+}
+
 /**
  * A spot for each label, given the sizes of its variants from the fullest to the shortest. Each
- * variant in turn is tried on the arrow's spots: first a spot that hits no obstacle, no label
- * placed before it and no other arrow, then one that hits no obstacle and no label; failing every
- * variant, the shortest variant takes the spot that overlaps the obstacles and the placed labels
- * the least. Null for an arrow without a route or without a variant.
+ * variant in turn is tried on the arrow's spots, then on those spots slid clear of the items they
+ * hit: first a spot that hits no obstacle, no label placed before it and no other arrow, then one
+ * that hits no obstacle and no label; failing every variant, the shortest variant takes the spot
+ * that overlaps the obstacles and the placed labels the least. Null for an arrow without a route
+ * or without a variant.
  */
 export function labelSpots(
   routes: ReadonlyArray<readonly Point[] | null>,
@@ -182,7 +205,8 @@ export function labelSpots(
     const others = segBoxes.filter((_, j) => j !== i).flat();
 
     const clear = sizes.flatMap((size, variant): Spotted[] => {
-      const spots = spotsOf(pts, size);
+      const along = spotsOf(pts, size);
+      const spots = [...along, ...along.flatMap((s) => slid(s, obstacles))];
 
       const spot =
         spots.find((s) => free(s) && !others.some((o) => hits(s, o))) ?? spots.find((s) => free(s));

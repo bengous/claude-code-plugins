@@ -165,6 +165,11 @@ describe("labelSpots", () => {
     expect(labelSpots([null, FLAT], [[SIZE], []], [])).toEqual([null, null]);
   });
 
+  // A ceiling and a floor leave a label nowhere to slide to above or below the walls.
+  const CEILING: Rect = { x: -1000, y: -1000, w: 3000, h: 1060 };
+
+  const FLOOR: Rect = { x: -1000, y: 140, w: 3000, h: 1000 };
+
   test("a shorter variant takes a free spot the fullest one cannot", () => {
     const walls: Rect[] = [
       { x: 0, y: 70, w: 110, h: 60 },
@@ -179,30 +184,60 @@ describe("labelSpots", () => {
           { w: 60, h: 10 },
         ],
       ],
-      walls,
+      [...walls, CEILING, FLOOR],
     );
 
     expect(spotted).toEqual({ spot: { x: 120, y: 87, w: 60, h: 10 }, variant: 1 });
   });
 
+  test("a label wider than the gap between two items floats above them, whole", () => {
+    const left: Rect = { x: 0, y: 70, w: 120, h: 60 };
+    const right: Rect = { x: 180, y: 70, w: 120, h: 60 };
+
+    const gap: Point[] = [
+      [120, 100],
+      [180, 100],
+    ];
+
+    const [spotted] = labelSpots(
+      [gap],
+      [
+        [
+          { w: 100, h: 10 },
+          { w: 20, h: 10 },
+        ],
+      ],
+      [left, right],
+    );
+
+    expect(spotted).toEqual({ spot: { x: 100, y: 57, w: 100, h: 10 }, variant: 0 });
+  });
+
   test("with no free spot for any variant, the shortest one overlaps the least", () => {
-    const left: Rect = { x: 0, y: 0, w: 160, h: 200 };
-    const rightEdge: Rect = { x: 160, y: 0, w: 140, h: 200 };
-    const [spotted] = labelSpots([FLAT], [[SIZE, { w: 20, h: 10 }]], [left, rightEdge]);
+    const left: Rect = { x: 0, y: 60, w: 160, h: 80 };
+    const rightEdge: Rect = { x: 160, y: 60, w: 140, h: 80 };
+
+    const [spotted] = labelSpots(
+      [FLAT],
+      [[SIZE, { w: 20, h: 10 }]],
+      [left, rightEdge, CEILING, FLOOR],
+    );
 
     expect(spotted?.variant).toBe(1);
     expect(spotted?.spot.w).toBe(20);
-
-    const everywhere: Rect = { x: -1000, y: -1000, w: 3000, h: 3000 };
-    const [anywhere] = labelSpots([FLAT], [[SIZE]], [everywhere]);
-
-    expect(anywhere).toEqual({ spot: { x: 130, y: 87, w: 40, h: 10 }, variant: 0 });
   });
 
   test("the least overlapping spot wins over the first one", () => {
     const mostly: Rect = { x: 0, y: 70, w: 250, h: 60 };
-    const [spotted] = labelSpots([FLAT], [[SIZE]], [mostly]);
+    const [spotted] = labelSpots([FLAT], [[SIZE]], [mostly, CEILING, FLOOR]);
 
     expect(spotted?.spot.x).toBeGreaterThan(200);
+  });
+
+  test("a label slides above a universal obstacle rather than over it", () => {
+    const everywhere: Rect = { x: -1000, y: -1000, w: 3000, h: 3000 };
+    const [above] = labelSpots([FLAT], [[SIZE]], [everywhere]);
+
+    expect(above).toEqual({ spot: { x: 130, y: -1013, w: 40, h: 10 }, variant: 0 });
   });
 });
