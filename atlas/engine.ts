@@ -1,5 +1,5 @@
 /* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, and the JSON of threads.json, which readThreads parses: there is no earlier place to narrow them. */
-// The page's entry (plan.fr.html loads it; serve.ts bundles it). It draws the
+// The page's entry (atlas.html loads it; serve.ts bundles it). It draws the
 // map it is given, atlas:map and atlas:config, which serve.ts resolves to the
 // files of a map folder; it holds no content: a new brick, arrow or text
 // belongs in the map's data.
@@ -51,7 +51,7 @@ function byId<E extends Element>(id: string, kind: new () => E): E {
   const e = document.querySelector(`#${id}`);
 
   if (!(e instanceof kind)) {
-    throw new TypeError(`plan.fr.html: #${id} is missing or not a ${kind.name}`);
+    throw new TypeError(`atlas.html: #${id} is missing or not a ${kind.name}`);
   }
 
   return e;
@@ -128,7 +128,7 @@ function dressPage(): void {
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
   byId("hint", HTMLElement).textContent = words.hint;
   legend.setAttribute("aria-label", words.legendButton);
-  legend.innerHTML = legendHtml(legendKeys(graph.plan), settings.legend);
+  legend.innerHTML = legendHtml(legendKeys(graph), settings.legend);
 }
 
 dressPage();
@@ -609,10 +609,10 @@ async function build(): Promise<Drawing> {
       ? { kind: "screen", aspect: builtAspect }
       : { kind: "fixed", ratio: settings.ratio };
 
-  const ov = await drawOverview(graph, ovLayer, send, packing, settings.pins);
+  const ov = await drawOverview(graph, words, ovLayer, send, packing, settings.pins);
   const dtX = ov.size.w + 4000;
   const dtLayer = el("g", { class: "layer-dt" }, svg);
-  const dt = await drawDetail(graph, dtLayer, dtX, send);
+  const dt = await drawDetail(graph, words, dtLayer, dtX, send);
   grid.setAttribute("x", String(-ov.size.w));
   grid.setAttribute("y", String(-ov.size.h * 2));
   grid.setAttribute("width", String(dtX + dt.size.w + ov.size.w * 2));

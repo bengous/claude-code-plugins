@@ -4,14 +4,14 @@ import { el } from "./svg.ts";
 
 // Every box is sized from its text, measured on hidden <text> elements that
 // carry the same class as the drawn text. TEXT and TITLE repeat the font
-// sizes that plan.fr.html sets on those classes: change one, change the
+// sizes that atlas.html sets on those classes: change one, change the
 // other, or text overflows its box.
 // Trap: measure outside #map. Inside it, Chrome lays text out at the zoom of
 // that moment and rounds the font size there: the same 112-unit label
 // measured 70.8 at the zoom of the first layout (before the view is framed)
 // and 132.6 at the overview's zoom, so boxes overflowed at random. The
 // measuring SVG has no viewBox, so it measures at scale 1, always;
-// plan.fr.html sets text-rendering: geometricPrecision on SVG text, which
+// atlas.html sets text-rendering: geometricPrecision on SVG text, which
 // keeps drawn text at its measured width at every zoom.
 const measSvg = el(
   "svg",

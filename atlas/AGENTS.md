@@ -36,6 +36,7 @@ reply.ts             adds an entry to a thread of a map folder (reply.test.ts)
 machine.ts           the two state machines, navigation and camera, pure (machine.test.ts)
 engine.ts            the page's entry: draws the map it imports, paints the camera, takes input
 overview.ts          the overview drawing
+flows.ts             the overview's arrows: the leaves' arrows grouped by the boxes they join
 detail.ts            the detail drawing
 layout.ts            runs ELK
 avoid.ts             runs libavoid
@@ -43,7 +44,7 @@ measure.ts           sizes text
 frame.ts             draws a zone
 panel.ts             the panel, the breadcrumb and the open points' list
 svg.ts               SVG building blocks shared by both drawings
-plan.fr.html         the page: its styles and its markup, which hold no word and no colour of a map
+atlas.html           the page: its styles and its markup, which hold no word and no colour of a map
 serve.ts             serves one map folder's page, rebuilt and reloaded on save, answers
                      libavoid.wasm and threads.json, and takes the panel's replies (serve.test.ts)
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
@@ -72,8 +73,8 @@ The sample map folder is `atlas/fixtures/sample`.
 Each module explains its own where it bites.
 
 - The text classes `measure.ts` measures (`TEXT` and `TITLE` there) keep the font sizes
-  `plan.fr.html` gives them, or text overflows its box.
-- `svg text { text-rendering: geometricPrecision }` stays in `plan.fr.html`: without it, Chrome
+  `atlas.html` gives them, or text overflows its box.
+- `svg text { text-rendering: geometricPrecision }` stays in `atlas.html`: without it, Chrome
   rounds font sizes per zoom and drawn text drifts from the width `measure.ts` measured.
 - The order of a node's `children` is the order in which the overview packs them, and the
   order of the plan's zones and bricks: reordering them moves boxes.
@@ -93,8 +94,7 @@ Each module explains its own where it bites.
 - `dressPage` (engine.ts) writes the Config's title, subtitle and words into the page before the
   first layout: the header's height sets the drawing area's aspect, which a "screen" overview
   packs for. Written later, the overview packs for another aspect.
-- The legend shows a line only for the arrow kinds and node marks the map uses (`legendKeys` in
-  `legend.ts`). A map moved onto the engine from a page with a fixed legend loses the lines for
-  the kinds it never uses: an expected difference when its captures are compared.
+- The legend shows a line only for the arrow kinds and node marks the map draws (`legendKeys` in
+  `legend.ts`): a kind the map never uses has no line.
 - Layout runs in the browser only. To script it (a check, a benchmark), run elkjs under Node:
   under Bun its constructor fails.

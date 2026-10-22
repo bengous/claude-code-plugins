@@ -1,6 +1,6 @@
 import type { LegendKey } from "./atlas.ts";
-import { isZoneRef } from "./graph.ts";
-import type { Plan } from "./model.ts";
+import { flowsOf } from "./flows.ts";
+import type { Graph } from "./graph.ts";
 import { esc } from "./svg.ts";
 import { openItems } from "./threads.ts";
 
@@ -25,13 +25,14 @@ const GLYPH: Readonly<Record<LegendKey, string>> = {
   open: mark(`<circle cx="13" cy="6" r="4.5" fill="var(--open)"/>`),
 };
 
-// The legend's lines the plan draws, in legend order: a line for a kind the map never uses would
-// explain nothing on it.
-export function legendKeys(plan: Plan): LegendKey[] {
-  const links = plan.edges.filter((e) => !isZoneRef(e.from) && !isZoneRef(e.to));
+// The legend's lines the map draws, in legend order: a line for a kind the map never uses would
+// explain nothing on it. The detail draws each leaves' arrow with its own kind; the overview
+// draws plain an arrow whose leaves' arrows differ in kind.
+export function legendKeys(graph: Graph): LegendKey[] {
+  const { plan, links } = graph;
 
   const used: Readonly<Record<LegendKey, boolean>> = {
-    flow: links.some((e) => e.kind === undefined),
+    flow: links.some((e) => e.kind === undefined) || flowsOf(graph).some((f) => f.kind === ""),
     dash: links.some((e) => e.kind === "dash"),
     deny: links.some((e) => e.kind === "deny"),
     coupled: plan.nodes.some((n) => n.couples.length > 0),

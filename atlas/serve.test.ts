@@ -185,7 +185,7 @@ function served(): Served {
 
 async function page(): Promise<Page> {
   const { base } = served();
-  const response = await fetch(`${base}/plan.fr.html`);
+  const response = await fetch(`${base}/atlas.html`);
   const html = await response.text();
   const src = /<script type="module"[^>]* src="\.\/([^"]+)"/u.exec(html)?.[1];
   const script = src === undefined ? "" : await (await fetch(`${base}/${src}`)).text();
@@ -417,7 +417,7 @@ describe("a request that names another host", () => {
   test("is refused on every route: a name rebound to this machine reads nothing", async () => {
     const { base, port } = served();
 
-    for (const path of ["/plan.fr.html", "/events", `/${THREADS_FILE}`, "/libavoid.wasm", "/"]) {
+    for (const path of ["/atlas.html", "/events", `/${THREADS_FILE}`, "/libavoid.wasm", "/"]) {
       const response = await fetch(`${base}${path}`, {
         headers: { host: `rebound.example:${port}` },
       });
@@ -440,7 +440,7 @@ describe("a request that names another host", () => {
   test("named localhost, with this server's port, is served", async () => {
     const { base, port } = served();
 
-    const response = await fetch(`${base}/plan.fr.html`, {
+    const response = await fetch(`${base}/atlas.html`, {
       headers: { host: `localhost:${port}` },
     });
 
@@ -460,13 +460,13 @@ describe("a map folder that goes away", () => {
         const build = await within(other.log.next(isBuild), "build");
 
         expect(build).toContain("failed");
-        expect((await fetch(`${other.base}/plan.fr.html`)).status).toBe(500);
+        expect((await fetch(`${other.base}/atlas.html`)).status).toBe(500);
         expect(other.child.exitCode).toBeNull();
 
         cpSync(SAMPLE, gone, { recursive: true });
         await within(other.log.next(isBuilt), "build of the folder made anew");
 
-        expect((await fetch(`${other.base}/plan.fr.html`)).status).toBe(200);
+        expect((await fetch(`${other.base}/atlas.html`)).status).toBe(200);
 
         const text = original.replace("Nightly backup", "Weekly backup");
         saveAtomically(join(gone, MAP_FILE), text);

@@ -11,6 +11,7 @@ export type Words = {
   readonly position: string;
   readonly stage: string;
   readonly mapLabel: (title: string) => string;
+  readonly zoneLabel: (title: string) => string;
   readonly legend: Readonly<Record<LegendKey, string>>;
   readonly openPoints: string;
   readonly openCount: (count: number) => string;
@@ -49,6 +50,7 @@ const fr: Words = {
   position: "Position dans le plan",
   stage: "Plan zoomable",
   mapLabel: (title) => `Architecture de ${title}`,
+  zoneLabel: (title) => `Zone ${title}`,
   legend: {
     flow: "flux",
     dash: "en sommeil, local ou sur demande",
@@ -96,6 +98,7 @@ const en: Words = {
   position: "Position in the map",
   stage: "Zoomable map",
   mapLabel: (title) => `Architecture of ${title}`,
+  zoneLabel: (title) => `Zone ${title}`,
   legend: {
     flow: "flow",
     dash: "dormant, local or on demand",

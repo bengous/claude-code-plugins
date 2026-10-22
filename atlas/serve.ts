@@ -19,7 +19,7 @@ import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 // It answers requests to 127.0.0.1 or localhost with its own port only.
 const DIR = import.meta.dir;
 
-const PAGE = "plan.fr.html";
+const PAGE = "atlas.html";
 
 const EVENTS = "/events";
 

@@ -10,6 +10,7 @@ import type { Brick } from "./model.ts";
 import { edgeText } from "./model.ts";
 import type { ArrowEl, Registry } from "./svg.ts";
 import { arrowPath, el, onActivate, openBadge, register, rounded, text } from "./svg.ts";
+import type { Words } from "./words.ts";
 
 export type Detail = {
   readonly size: Size;
@@ -97,6 +98,7 @@ function drawBrick(
 
 export async function drawDetail(
   graph: Graph,
+  words: Words,
   layer: SVGGElement,
   x0: number,
   pick: (ev: NavEvent) => void,
@@ -137,7 +139,7 @@ export async function drawDetail(
     register(
       zoneEls,
       zid,
-      drawZone(graph, zl, zid, box(zid), "dt", (id) => pick({ type: "zone", id })),
+      drawZone(graph, words, zl, zid, box(zid), "dt", (id) => pick({ type: "zone", id })),
     );
   }
 

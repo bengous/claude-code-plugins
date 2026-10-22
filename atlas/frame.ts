@@ -4,6 +4,7 @@ import type { Level } from "./measure.ts";
 import { TITLE, textWidth } from "./measure.ts";
 import type { Zone } from "./model.ts";
 import { el, onActivate, openBadge, text } from "./svg.ts";
+import type { Words } from "./words.ts";
 
 function zoneKind(graph: Graph, z: Zone): string {
   if (z.ext === true) {
@@ -19,6 +20,7 @@ function zoneKind(graph: Graph, z: Zone): string {
 
 export function drawZone(
   graph: Graph,
+  words: Words,
   layer: SVGGElement,
   zid: string,
   r: Rect,
@@ -46,7 +48,7 @@ export function drawZone(
   }
 
   openBadge(g, z.info, r.x + r.w - 16 * k, r.y + 16 * k, 6 * k);
-  onActivate(g, `Zone ${z.title}`, () => {
+  onActivate(g, words.zoneLabel(z.title), () => {
     onPick(zid);
   });
 
