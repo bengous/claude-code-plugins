@@ -257,6 +257,19 @@ describe("checkMap", () => {
     ]);
   });
 
+  test("markup a panel would not keep is refused, naming each node and field", () => {
+    const hostile = withNode(
+      withNode(MAP, "orders", (n) => ({ ...n, lead: '<img src=x onerror="fetch(1)">' })),
+      "db",
+      (n) => ({ ...n, pitfalls: ['<code class="x">y</code> <em>ok</em>'] }),
+    );
+
+    expect(checkMap(hostile, CONFIG, THREADS)).toEqual([
+      'node orders: lead: <img src=x onerror="fetch(1)"> is not markup a panel keeps (code, cite, b, i, em, strong, br, with no attribute)',
+      'node db: pitfalls: <code class="x"> is not markup a panel keeps (code, cite, b, i, em, strong, br, with no attribute)',
+    ]);
+  });
+
   test("a tag outside the config's tags is refused", () => {
     const links = MAP.links.map((l) =>
       l.to === "email" && l.tags !== undefined ? { ...l, tags: ["parcel"] } : l,
@@ -274,5 +287,13 @@ describe("drawableOf", () => {
 
     expect([...tree.nodes.keys()]).toEqual([...TREE.nodes.keys()]);
     expect(settings).toEqual(SETTINGS);
+  });
+
+  test("refuses markup a panel would not keep, as the server asks before each build", () => {
+    const hostile = withNode(MAP, "orders", (n) => ({ ...n, how: "<script>x</script>" }));
+
+    expect(() => drawableOf(hostile, CONFIG)).toThrow(
+      "node orders: how: <script> is not markup a panel keeps",
+    );
   });
 });

@@ -1,4 +1,5 @@
 import type { OpenPoint, Pair, Panel } from "./atlas.ts";
+import { keptMarkup } from "./markup.ts";
 import type { Place } from "./navigation.ts";
 import type { Crumb } from "./navigation.ts";
 import { crumbsOf, foldedCrumbs, openOf } from "./navigation.ts";
@@ -10,8 +11,9 @@ import { firstLine, openItems, waitsFor } from "./threads.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, couplingsOf, nodeOf } from "./tree.ts";
 
-// The panel shows the fields of Panel (atlas.ts) in their order; HTML in them is trusted (it
-// comes from the map's data), ids and labels are escaped.
+// The panel shows the fields of Panel (atlas.ts) in their order: the HTML fields through
+// keptMarkup (markup.ts), which shows any tag but a few plain ones as text, so a map's text runs
+// nothing in the page that holds the reply token; the plain fields, ids and labels escaped.
 //
 // threads.json as the page last read it, or why it could not.
 export type ThreadState =
@@ -42,7 +44,7 @@ function openPoint(s: Settings, o: OpenPoint, state: ThreadState): string {
   return [
     `<div class="open-point">`,
     `<p class="open-id"><code>${esc(o.id)}</code> · ${waits(s, waitsFor(thread))}</p>`,
-    `<p class="warn">${o.text}</p>`,
+    `<p class="warn">${keptMarkup(o.text)}</p>`,
     log,
     `<form class="reply" data-open="${esc(o.id)}">`,
     `<input name="text" required autocomplete="off" placeholder="${s.words.replyPlaceholder(esc(nameOf(s, "human")))}" aria-label="${s.words.replyLabel(esc(o.id))}">`,
@@ -73,20 +75,20 @@ function chip(tree: Tree, id: string): string {
 }
 
 const pointList = (tree: Tree, items: readonly Pair[]): string =>
-  `<ul class="points">${items.map(([id, t]) => `<li>${t} ${chip(tree, id)}</li>`).join("")}</ul>`;
+  `<ul class="points">${items.map(([id, t]) => `<li>${keptMarkup(t)} ${chip(tree, id)}</li>`).join("")}</ul>`;
 
 const pairs = (items: readonly Pair[], escape: boolean): string =>
-  items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : v}</dd>`).join("");
+  items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : keptMarkup(v)}</dd>`).join("");
 
 const list = (items: readonly string[], escape: boolean): string =>
-  items.map((i) => `<li>${escape ? esc(i) : i}</li>`).join("");
+  items.map((i) => `<li>${escape ? esc(i) : keptMarkup(i)}</li>`).join("");
 
 function replaceSection(s: Settings, tree: Tree, info: Panel, coupled: readonly string[]): string {
   if (info.swap === undefined && coupled.length === 0) {
     return "";
   }
 
-  const swap = info.swap === undefined ? "" : `<p>${info.swap}</p>`;
+  const swap = info.swap === undefined ? "" : `<p>${keptMarkup(info.swap)}</p>`;
 
   const chips =
     coupled.length === 0
@@ -107,7 +109,7 @@ function laterSections(
   const w = s.words;
 
   return [
-    info.extend === undefined ? "" : `<h3>${w.extend}</h3><p>${info.extend}</p>`,
+    info.extend === undefined ? "" : `<h3>${w.extend}</h3><p>${keptMarkup(info.extend)}</p>`,
     info.pitfalls === undefined || info.pitfalls.length === 0
       ? ""
       : `<h3>${w.pitfalls}</h3><ul>${list(info.pitfalls, false)}</ul>`,
@@ -116,12 +118,12 @@ function laterSections(
     info.why === undefined || info.why.length === 0
       ? ""
       : `<h3>${w.why}</h3><ul>${list(info.why, false)}</ul>`,
-    info.alt === undefined ? "" : `<h3>${w.alt}</h3><p class="alt">${info.alt}</p>`,
+    info.alt === undefined ? "" : `<h3>${w.alt}</h3><p class="alt">${keptMarkup(info.alt)}</p>`,
     info.facts === undefined
       ? ""
       : `<h3>${w.facts}</h3><dl class="facts">${pairs(info.facts, true)}</dl>`,
     openSection(s, open, state),
-    info.how === undefined ? "" : `<h3>${w.how}</h3><p>${info.how}</p>`,
+    info.how === undefined ? "" : `<h3>${w.how}</h3><p>${keptMarkup(info.how)}</p>`,
   ].join("");
 }
 
@@ -141,8 +143,8 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
   return [
     `<div style="--zc: var(${shown.color})">`,
     info.kicker === undefined ? "" : `<p class="kicker">${esc(info.kicker)}</p>`,
-    `<h2><span class="swatch"></span>${shown.title}</h2>`,
-    info.lead === undefined ? "" : `<p class="lead">${info.lead}</p>`,
+    `<h2><span class="swatch"></span>${keptMarkup(shown.title)}</h2>`,
+    info.lead === undefined ? "" : `<p class="lead">${keptMarkup(info.lead)}</p>`,
     shown.brief.length === 0 ? "" : `<ul class="brief">${list(shown.brief, true)}</ul>`,
     info.io === undefined
       ? ""

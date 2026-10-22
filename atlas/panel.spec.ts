@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
+import type { AtlasMap } from "./atlas.ts";
 import { DEEP } from "./fixtures/trees.ts";
 import { loadFolder } from "./folder.ts";
 import { renderCrumbs, renderPanel } from "./panel.ts";
@@ -30,6 +31,53 @@ describe("the panel's HTML", () => {
     expect(panel.innerHTML).toContain(
       'placeholder="Répondre (Jean &quot;JJ&quot; x&quot; data-injected=&quot;yes)"',
     );
+  });
+
+  test("markup a panel does not keep, in any field a map writes, is shown as text and runs nothing", async () => {
+    const hostile = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+
+    const map: AtlasMap = {
+      root: { title: `Map${hostile}`, lead: hostile, children: [] },
+      links: [],
+    };
+
+    const node = {
+      id: "a",
+      label: `A${hostile}`,
+      sub: "",
+      color: "clients",
+      lead: `<code>kept</code> ${hostile}`,
+      io: [["Receives", hostile]],
+      swap: hostile,
+      extend: hostile,
+      pitfalls: [hostile],
+      why: [hostile],
+      alt: hostile,
+      how: hostile,
+      seams: [["a", hostile]],
+      traps: [["a", hostile]],
+      open: [{ id: "o", text: hostile }],
+    } as const;
+
+    const tree = treeOf({ ...map, root: { ...map.root, children: [node] } });
+    const settings = settingsOf(CONFIG);
+    const threads = { kind: "ok", threads: {} } as const;
+
+    for (const place of [
+      { path: [], selected: null },
+      { path: [], selected: "a" },
+    ]) {
+      const panel = { innerHTML: "", scrollTop: 0 };
+      renderPanel(settings, tree, panel, place, null, threads);
+
+      expect(await elementsWith(panel.innerHTML, "img, script")).toBe(0);
+      expect(panel.innerHTML).toContain("&lt;img src=x onerror=");
+    }
+
+    const panel = { innerHTML: "", scrollTop: 0 };
+    renderPanel(settings, tree, panel, { path: [], selected: "a" }, null, threads);
+
+    expect(panel.innerHTML).toContain("<code>kept</code>");
   });
 
   test("a selected node shows its fields, its couplings and the way up", () => {

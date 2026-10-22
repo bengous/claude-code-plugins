@@ -78,6 +78,9 @@ export const links = [
 - `lead`, `io`, `swap`, `extend`, `pitfalls` and `why` are HTML, `<code>name</code>` for an
   identifier and `&lt;` for `<`, and carry the citations; `label`, `sub`, `brief`, `facts`,
   `kicker` and `src` are plain text, shown as written, markup included.
+- The HTML fields take `code`, `cite`, `b`, `i`, `em`, `strong` and `br`, with no attribute:
+  `check` refuses any other tag. Never copy markup from the repository's files into the map; a
+  `<` quoted from them is written `&lt;`.
 
 ## What to return
 

@@ -1,5 +1,6 @@
 import type { AtlasMap, Config, Link, Node, Panel } from "./atlas.ts";
 import { drawableOf } from "./drawable.ts";
+import { MarkupError } from "./markup.ts";
 import { ConfigError } from "./settings.ts";
 import type { Settings } from "./settings.ts";
 import type { Threads } from "./threads.ts";
@@ -10,7 +11,8 @@ import { TreeError, isLeaf } from "./tree.ts";
 // Validates a map folder's data and threads.json without a browser, for `cli.ts check`, which
 // also lists the open points (openReport).
 // The types (atlas.ts) already hold the shape of every field, and drawableOf (drawable.ts) refuses
-// a tree no view can show, a colour outside the palette among them; this checks what they cannot,
+// a tree no view can show, a colour outside the palette and markup a panel would not keep among
+// them; this checks what they cannot,
 // and fails on what would mislead a reader:
 //   - a `brief` on a leaf;
 //   - a root's `tour` that names what is no node with children, or misses one;
@@ -154,6 +156,10 @@ export function checkMap(map: AtlasMap, config: Config, threads: unknown): strin
 
     return validate(tree, settings, threads);
   } catch (error: unknown) {
+    if (error instanceof MarkupError) {
+      return [...error.faults];
+    }
+
     if (error instanceof TreeError || error instanceof ConfigError) {
       return [error.message];
     }

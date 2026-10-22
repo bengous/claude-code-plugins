@@ -50,7 +50,11 @@ aliases.d.ts         the types of atlas:map and atlas:config, the page's imports
 settings.ts          the Config with its defaults filled in, refusing what the engine cannot use,
                      and the palette as the page's CSS custom properties (settings.spec.ts)
 drawable.ts          the tree and the settings a map folder makes, or why no view can show it:
-                     treeOf's and settingsOf's refusals, a colour outside the palette
+                     treeOf's and settingsOf's refusals, a colour outside the palette, markup a
+                     panel would not keep
+markup.ts            the markup a panel keeps from a map's text (code, cite, b, i, em, strong, br,
+                     no attribute), the rest shown as text, and the faults check and the server
+                     refuse, by node and field (markup.spec.ts)
 words.ts             the page's own words in each language a Config picks: the dictionary
 tree.ts              the tree indexed for views at any depth: each node's chain from the root,
                      open points counted down each subtree, couplings both ways, and what stands
