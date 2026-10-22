@@ -38,6 +38,8 @@ svg.ts               SVG building blocks shared by both drawings
 plan.fr.html         the page: its styles, its header and its legend
 serve.ts             serves one map folder's page, rebuilt and reloaded on save, answers
                      libavoid.wasm and threads.json, and takes the panel's replies (serve.test.ts)
+coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
+                     (coalesce.test.ts)
 ```
 
 `package.json` pins the libraries, elkjs (EPL-2.0) and libavoid-js (LGPL-2.1-or-later,

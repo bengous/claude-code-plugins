@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import type { BuildArtifact, BunPlugin, Server } from "bun";
 
+import { coalesced } from "./coalesce.ts";
 import { CONFIG_FILE, MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 
@@ -198,7 +199,7 @@ async function rebuild(): Promise<void> {
 
 let settle: ReturnType<typeof setTimeout> | undefined;
 
-let builds = Promise.resolve();
+const rebuildSoon = coalesced(rebuild);
 
 // threads.json changes on every reply, and the page reads it again by itself. An event on the
 // watched folder itself, moved or deleted, comes with no file name (Bun 1.4.3): it rebuilds.
@@ -209,7 +210,7 @@ function changed(file: string | null | undefined): void {
 
   clearTimeout(settle);
   settle = setTimeout(() => {
-    builds = builds.then(rebuild);
+    void rebuildSoon();
   }, SETTLE_MS);
 }
 

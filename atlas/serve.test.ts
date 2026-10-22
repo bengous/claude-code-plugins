@@ -286,6 +286,9 @@ describe("serve.ts", () => {
     WAIT_MS * 3,
   );
 
+  // A build bundles the page and loads the data in another process, each reading the folder when
+  // it gets there: a save that lands between them makes a page of two saves, which the build the
+  // save triggers then replaces. Each test waits for the page of its own save.
   test(
     "a build error shows its file and line, and the next good save recovers",
     async () => {
@@ -294,9 +297,10 @@ describe("serve.ts", () => {
       const at = lines.findIndex((l) => l.includes('title: "Bookshop",'));
       lines[at] = '    title: "Bookshop" "broken",';
       saveAtomically(join(dir, MAP_FILE), lines.join("\n"));
-      const broken = await reloadedTo((p) => p.status === 500);
+      const position = `${join(dir, MAP_FILE)}:${at + 1}:`;
+      const broken = await reloadedTo((p) => p.html.includes(position));
 
-      expect(broken.html).toContain(`${join(dir, MAP_FILE)}:${at + 1}:`);
+      expect(broken.status).toBe(500);
 
       await restore();
     },
@@ -308,9 +312,10 @@ describe("serve.ts", () => {
     async () => {
       served().events.skip();
       saveAtomically(join(dir, MAP_FILE), original.replace('id: "catalog"', 'id: "web"'));
-      const refused = await reloadedTo((p) => p.status === 500);
+      const reason = "node web: a second node has this id";
+      const refused = await reloadedTo((p) => p.html.includes(reason));
 
-      expect(refused.html).toContain("node web: a second node has this id");
+      expect(refused.status).toBe(500);
 
       await restore();
     },
