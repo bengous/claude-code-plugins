@@ -1,15 +1,9 @@
-import { edges } from "./data-edges.ts";
-import { bricks } from "./data-nodes.ts";
-import { OVERVIEW, ZONES, ZONE_ORDER } from "./data-zones.ts";
+import { toPlan } from "./adapter.ts";
+import config from "./atlas.config.ts";
+import map from "./map.ts";
 import type { Brick, Plan } from "./model.ts";
 
-export const PLAN: Plan = {
-  overview: OVERVIEW,
-  zones: ZONES,
-  nodes: bricks,
-  edges,
-  zoneOrder: ZONE_ORDER,
-};
+export const PLAN: Plan = toPlan(map, config);
 
 export const kidsOf = (p: Plan, zid: string): string[] =>
   p.zones.filter((z) => z.parent === zid).map((z) => z.id);

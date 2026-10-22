@@ -7,15 +7,17 @@ the data has a position or a size. Open points carry threads between the human a
 
 ## Files
 
-Content lives only in the data files; the other modules change only for behaviour.
+Content lives only in the map's data; the other modules change only for behaviour.
 
 ```
-model.ts             the data types (Zone, Brick, Edge, Info, Tag) and add() / E()
-data-zones.ts        overview panel, zones, their nesting, and the order of the zone tour
-data-nodes.ts        bricks
-data-edges.ts        arrows between bricks, and the labels of the overview's arrows
+atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
+                     (the root and every link), Config; the source of a map's atlas.d.ts
+map.ts               the sample map: its tree, with the overview panel on the root, and its links
+atlas.config.ts      the sample map's Config: the palette its `color` keys name
 threads.json         the thread of each open point, by open id
-plan.ts              the assembled plan and the reading of its nesting
+model.ts             the plan the engine draws on two levels (Zone, Brick, Edge, Info)
+adapter.ts           the tree as that plan, refusing a tree the engine cannot draw (adapter.test.ts)
+plan.ts              the plan built from map.ts, and the reading of its nesting
 threads.ts           open points and threads, pure: who a point waits for (threads.test.ts)
 check.ts             validates ids, couplings, nesting, labels, tags, open points and
                      threads (check.test.ts); --open lists the open points
@@ -58,11 +60,12 @@ Each module explains its own where it bites.
   `plan.fr.html` gives them, or text overflows its box.
 - `svg text { text-rendering: geometricPrecision }` stays in `plan.fr.html`: without it, Chrome
   rounds font sizes per zoom and drawn text drifts from the width `measure.ts` measured.
-- The order of the zones in `data-zones.ts` is the order in which the overview packs them:
-  reordering them moves boxes.
-- Every top-level zone that is not `ext` holds a sub-zone: `pack` in `overview.ts` asks for a
-  `<zone>~own` block that `blocksOf` makes only for a zone that nests others, and the page fails
-  with `overview block: nothing for <zone>~own`.
+- The order of a node's `children` is the order in which the overview packs them, and the
+  order of the plan's zones and bricks: reordering them moves boxes.
+- Every child of the root that is not `outside` and has children holds a node with children:
+  `pack` in `overview.ts` asks for a `<zone>~own` block that `blocksOf` makes only for a zone
+  that nests others. `toPlan` refuses such a tree, naming the node, and so does
+  `bun atlas/check.ts`, which builds the plan.
 - `libavoid.wasm` is the installed libavoid-js package's own: its exports list only the entry
   point, so `serve.ts` resolves the file beside that entry and answers it next to each page. No
   copy is committed. A page that cannot load it draws the overview without arrows and says so in

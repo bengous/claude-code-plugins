@@ -1,14 +1,15 @@
+import type { OpenPoint, Pair } from "./atlas.ts";
 import { isNode, isZone, node, zone } from "./graph.ts";
 import type { Place } from "./machine.ts";
-import type { Info, OpenPoint, Pair } from "./model.ts";
+import type { Info } from "./model.ts";
 import { PLAN } from "./plan.ts";
 import { esc } from "./svg.ts";
 import type { Entry, Threads, Who } from "./threads.ts";
 import { firstLine, openItems, waitsFor } from "./threads.ts";
 
-// The panel shows the `info` fields in the order documented at the top of
-// data-zones.ts; HTML in them is trusted (it comes from the data files), ids
-// and labels are escaped.
+// The panel shows the `info` fields in the order of Panel in atlas.ts; HTML
+// in them is trusted (it comes from the map's data), ids and labels are
+// escaped.
 //
 // threads.json as the page last read it, or why it could not.
 export type ThreadState =

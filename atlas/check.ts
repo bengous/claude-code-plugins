@@ -8,9 +8,9 @@ import { firstLine, openItems, plainText, readThreads, waitsFor } from "./thread
 // Validates the plan's data and threads.json without a browser:
 //   bun atlas/check.ts          validate
 //   bun atlas/check.ts --open   list the open points
-// The types (model.ts) already hold the shape of every field; this checks
-// what they cannot, and fails on what would break the page or mislead a
-// reader:
+// The types (atlas.ts) already hold the shape of every field, and toPlan
+// (adapter.ts) refuses a tree the engine cannot draw; this checks what they
+// cannot, and fails on what would break the page or mislead a reader:
 //   - duplicate ids, and references to ids that do not exist (arrows,
 //     couplings, `see`, `seams`, `traps`, the zone order);
 //   - a zone whose `parent` is unknown or loops back on itself;

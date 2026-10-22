@@ -44,8 +44,8 @@
     serve.ts as human. The page reads threads.json again when its window
     regains focus, so a reply from the terminal shows up.
 
-  Open points and threads (the field notes are in data-zones.ts):
-  - An open point is { id, text } in a data file; its thread is the list
+  Open points and threads (the field notes are on the types of atlas.ts):
+  - An open point is { id, text } in a node's `open`; its thread is the list
     under the same id in threads.json, [{ "who": "human" | "agent",
     "text" }], without a date: git keeps the history.
   - A point waits for the party that did not write the last entry; a point
@@ -56,15 +56,17 @@
     An unknown id is refused.
   - A settled point: delete its `open` entry and its thread together.
 
-  Edit recipes (details in the comments of each data file):
-  - Add a brick: add(...) in data-nodes.ts; then its arrows in
-    data-edges.ts (with `data` when the arrow enters a third-party service)
-    and its `couples`.
-  - Retire a brick: delete its add(...), its edges, and its id from every
+  Edit recipes (the fields are documented on the types of atlas.ts):
+  - Add a brick: a node without `children` in the `children` of its zone
+    (map.ts); then its links (with `tags` when the link enters a
+    third-party service) and its `couples`.
+  - Retire a brick: delete its node, its links, and its id from every
     `couples`, `see`, `seams` and `traps` list (check.ts finds leftovers).
-  - Add a zone: an entry in `zones` (data-zones.ts) with its `parent`, and
-    its id in `zoneOrder` there.
-  - Name an overview arrow: E("z:<zone>", "z:<zone>", label) in data-edges.ts.
+  - Add a zone: a node with `children` in the `children` of its parent; the
+    zone tour follows the tree, unless the root lists a `tour`.
+  - Name an overview arrow: a link with a zone on one end or both, in the
+    `links` of map.ts.
+  - A new colour: a key of the palette in atlas.config.ts.
 
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.

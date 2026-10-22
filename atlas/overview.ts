@@ -2,8 +2,8 @@
 // 1. Boxes: a zone frame with its bricks as chips; a nesting zone's own
 //    bricks as chips without a frame; a service outside as a pill.
 // 2. Placement: ELK's rectpacking packs the zones inside each nesting zone, in
-//    data order (it keeps the order it is given, so reordering the zones of
-//    data-zones.ts moves zones on the overview). Every nesting zone aims at
+//    data order (it keeps the order it is given, so reordering the children
+//    of a node in the map's tree moves zones on the overview). Every nesting zone aims at
 //    the aspect of the screen, less the room of the two side columns, so a
 //    wide screen gets a wide plan: place() packs a few times, correcting the
 //    aspect from the height each pass gives. The outside services and the ext zones stand in a
@@ -163,7 +163,7 @@ function blocksOf(): Map<string, Block> {
 }
 
 // The bricks' arrows grouped by the pair of boxes they join. An overview label
-// (a "z:" arrow of data-edges.ts) names the arrow; with `two`, it also merges
+// (a "z:" arrow, a Link with a zone end) names the arrow; with `two`, it also merges
 // both directions into one arrow. Without a label, the arrow carries the
 // first two labels of its bricks.
 const refBox = (ref: string, arriving: boolean): string => {

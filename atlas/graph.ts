@@ -47,7 +47,7 @@ export const nestsZone = (zid: string): boolean => nests(PLAN, zid);
 export const kidsOfZone = (zid: string): string[] => kidsOf(PLAN, zid);
 
 // An arrow with a "z:<zone>" end is not drawn: it names the overview arrow
-// between two boxes (data-edges.ts).
+// between two boxes (Link in atlas.ts).
 export const isZoneRef = (ref: string): boolean => ref.startsWith("z:");
 
 export const links: readonly Edge[] = PLAN.edges.filter(
