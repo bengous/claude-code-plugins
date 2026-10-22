@@ -952,8 +952,8 @@ describe("renovate-agent run", () => {
     const installs = calls.flatMap((line, at) => (/ install /u.test(line) ? [at] : []));
     const firstVersion = calls.findIndex((line) => line.endsWith("--version"));
 
-    expect(installs).toHaveLength(6);
-    expect(installs[5]).toBeLessThan(firstVersion);
+    expect(installs).toHaveLength(8);
+    expect(installs[7]).toBeLessThan(firstVersion);
     expect(git(origin, "log", "-1", "--format=%s", originHead())).toStartWith("fix(lint):");
   });
 

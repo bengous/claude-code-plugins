@@ -16,7 +16,7 @@ New plugin: add its `marketplace.json` entry and its `README.md` table row by ha
 
 Agents never bump a version or write a `CHANGELOG.md` section: `scripts/release.ts` does both at release time, one `chore(<plugin>): x.y.z, <summary>` commit per plugin changed since `main`, judged by Claude and read by the human before it lands ([Git procedures](docs/repo-ops/git.md), Release). The pre-push release guard (`scripts/check-plugin-bumps.ts --pre-push`) refuses a push to `main` that leaves a changed plugin unbumped.
 
-For plugin tests, permissions and the catalog lifecycle, start at [Plugin testing](docs/plugin-testing.md) and open only the page for the task. What a skill's example commands may contain so they run without a prompt: `.claude/rules/skill-commands.md`, loaded when a `SKILL.md` is edited. The vellum plugin carries its own `AGENTS.md`, loaded when a file under `vellum/` is read, and its own `.claude/rules/`, whose `paths:` are relative to `vellum/` (measured from a session at the repository root).
+For plugin tests, permissions and the catalog lifecycle, start at [Plugin testing](docs/plugin-testing.md) and open only the page for the task. What a skill's example commands may contain so they run without a prompt: `.claude/rules/skill-commands.md`, loaded when a `SKILL.md` is edited. The vellum and atlas plugins carry their own `AGENTS.md`, loaded when a file under their folder is read; vellum also carries its own `.claude/rules/`, whose `paths:` are relative to `vellum/` (measured from a session at the repository root).
 
 ## Commands
 
@@ -31,7 +31,7 @@ bun x oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add 
 bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
 claude plugin validate vellum   # the hooks module: what it hooks and calls
 claude plugin test vellum       # the hooks module's kit tests: `*.test.ts` under vellum/src/runtime/hooks, review and steps/<name>
-bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's and pinpoint's dependencies first
+bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's, pinpoint's and atlas's dependencies first
 bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
 bun ./scripts/mutation.ts run                          # CI's `mutation` job: Stryker on each module stryker.config.ts lists whose source or tests changed since origin/dev; a survivor on a changed line, or one its old tests killed, fails
 bun ./scripts/land.ts <branch>                         # land a reviewed feature/, fix/, renovate/ or chore/claude-code-types branch on dev; run once in the background, it waits for CI itself (docs/repo-ops/git.md)
@@ -41,7 +41,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite,
 bun ./scripts/claude-code-types.ts run                 # vellum's Claude Code types into the chore/claude-code-types PR, judged by a headless agent; a session start runs it detached (docs/plugin-testing/hooks.md)
 ```
 
-`vellum/` and `pinpoint/` carry `package.json` + `bun.lock`: `bun install --cwd <plugin> --frozen-lockfile` before their tests or their server, as Claude Code does at the plugin's cache.
+`vellum/`, `pinpoint/` and `atlas/` carry `package.json` + `bun.lock`: `bun install --cwd <plugin> --frozen-lockfile` before their tests or their server, as Claude Code does at the plugin's cache.
 
 Everything above but the browser suite, the mutation run, the types pipeline and the operator scripts (`land.ts`, `sample-review.ts`, `friction-report.ts`) also runs in `pre-push` and CI, the suites and kits scoped to what the change reaches (`scripts/affected.ts`) in `pre-push` and on a pull request, everything on a push or a dispatch; `pre-commit` runs all of it except `bun test`. The mutation run is CI's `mutation` job, on a pull request, a push to `dev` or a dispatch, in no hook ([Mutation testing](docs/repo-ops/checks.md#mutation-testing)). The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
 
@@ -56,7 +56,7 @@ That bash boundary binds new code. Scripts already over it move when an issue re
 
 Carried by the commands above:
 
-- One root `tsconfig.json` covers every tracked `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. It is the one the typecheck gate reads. A plugin that compiles code where it is installed carries its own beside its `package.json`, with no `extends`: an installed plugin is a copy of its folder, and the root's file does not come along. `vellum/tsconfig.json` is the one today, since Bun's bundler reads the JSX runtime in the `tsconfig.json` nearest the page's sources; `scripts/typecheck-coverage.test.ts` holds its compiler options equal to the root's. The root's wildcards skip every directory whose name starts with a dot, so `.claude/` is included by name, and `.claude/worktrees/` excluded, or the check takes whole copies of the repository. A new dot directory that holds TypeScript gets its own `include` entry: `scripts/typecheck-coverage.test.ts` fails, naming the files, while a tracked one is left out. `oxlint`, `oxfmt` and `check-lint-disables.ts` walk dot directories by themselves.
+- One root `tsconfig.json` covers every tracked `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. It is the one the typecheck gate reads. A plugin that compiles code where it is installed carries its own beside its `package.json`, with no `extends`: an installed plugin is a copy of its folder, and the root's file does not come along. `vellum/tsconfig.json` and `atlas/tsconfig.json` are such files, vellum's since Bun's bundler reads the JSX runtime in the `tsconfig.json` nearest the page's sources; `scripts/typecheck-coverage.test.ts` holds the compiler options of every plugin's `tsconfig.json` equal to the root's. The root's wildcards skip every directory whose name starts with a dot, so `.claude/` is included by name, and `.claude/worktrees/` excluded, or the check takes whole copies of the repository. A new dot directory that holds TypeScript gets its own `include` entry: `scripts/typecheck-coverage.test.ts` fails, naming the files, while a tracked one is left out. `oxlint`, `oxfmt` and `check-lint-disables.ts` walk dot directories by themselves.
 - Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
 
 Carried by nobody, so hold them by hand:

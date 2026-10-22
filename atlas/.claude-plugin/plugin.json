@@ -1,0 +1,13 @@
+{
+  "name": "atlas",
+  "version": "0.1.0",
+  "description": "Interactive architecture maps in the browser: zones and bricks laid out by ELK, overview arrows routed by libavoid, typed data files checked by a script, and open points discussed in threads between you and the agent",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/atlas",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": ["architecture", "map", "diagram", "elk", "libavoid", "browser", "open-points"]
+}

@@ -50,7 +50,7 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  for (const plugin of ["vellum", "pinpoint"]) {
+  for (const plugin of ["vellum", "pinpoint", "atlas"]) {
     const install = await $`bun install --cwd ${plugin} --frozen-lockfile --ignore-scripts`
       .cwd(repoRoot)
       .nothrow()

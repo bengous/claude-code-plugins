@@ -289,6 +289,7 @@ describe("run", () => {
         `${worktree()} install --frozen-lockfile`,
         `${worktree()} install --cwd vellum --frozen-lockfile`,
         `${worktree()} install --cwd pinpoint --frozen-lockfile`,
+        `${worktree()} install --cwd atlas --frozen-lockfile`,
         "",
       ].join("\n"),
     );

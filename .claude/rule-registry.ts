@@ -27,12 +27,12 @@ export const REGISTRY: Registry = {
       quote: "Agents never bump a version or write a `CHANGELOG.md`",
       held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.test.ts"],
     },
-    f050d941: {
+    a1834ff4: {
       quote: "For plugin tests, permissions and the catalog lifecycle,",
       prose: "a pointer to the pages that hold the detail",
     },
-    b17ce01d: {
-      quote: "`vellum/` and `pinpoint/` carry `package.json` + `bun.lock`:",
+    "19545da0": {
+      quote: "`vellum/`, `pinpoint/` and `atlas/` carry `package.json` +",
       prose: "a bare `bun test` installs nothing; `run-gates.ts` and CI install first",
     },
     ea2d40ae: {
@@ -56,7 +56,7 @@ export const REGISTRY: Registry = {
       quote: "Carried by the commands above:",
       prose: "a lead-in; each item below has its own entry",
     },
-    "1547ba58": {
+    "4cfac215": {
       quote: "One root `tsconfig.json` covers every tracked `.ts` outside",
       held: ["gate typecheck", "test scripts/typecheck-coverage.test.ts"],
     },

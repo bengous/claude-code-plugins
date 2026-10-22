@@ -102,6 +102,7 @@ const INSTALLS = [
   ["bun", "install", "--frozen-lockfile"],
   ["bun", "install", "--cwd", "vellum", "--frozen-lockfile"],
   ["bun", "install", "--cwd", "pinpoint", "--frozen-lockfile"],
+  ["bun", "install", "--cwd", "atlas", "--frozen-lockfile"],
 ] as const;
 
 export type Step =

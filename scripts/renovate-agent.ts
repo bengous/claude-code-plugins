@@ -103,6 +103,7 @@ const INSTALLS = [
   ["bun", "install", "--frozen-lockfile"],
   ["bun", "install", "--cwd", "vellum", "--frozen-lockfile"],
   ["bun", "install", "--cwd", "pinpoint", "--frozen-lockfile"],
+  ["bun", "install", "--cwd", "atlas", "--frozen-lockfile"],
 ] as const;
 
 /** An open Renovate pull request, as `gh pr list` gives it. */

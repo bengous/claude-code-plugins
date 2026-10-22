@@ -10,7 +10,7 @@ plans/
 node_modules/
 
 # Claude Code writes one at a mod's root, when it has none, at each --plugin-dir load; it extends the untracked
-# .claude-plugin/types/. A plugin's own tsconfig.json, vellum's, is tracked, which no ignore pattern affects.
+# .claude-plugin/types/. A plugin's own tsconfig.json, vellum's or atlas's, is tracked, which no ignore pattern affects.
 /*/tsconfig.json
 
 # Playwright's traces of failed e2e tests, and its JSON report under CI

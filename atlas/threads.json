@@ -1,0 +1,8 @@
+{
+  "backup-restore-untested": [
+    {
+      "who": "agent",
+      "text": "The dump runs each night; no restore from it was ever measured."
+    }
+  ]
+}

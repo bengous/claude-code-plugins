@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bookshop</title>
+<!--
+  Bookshop: a sample architecture map on two levels, drawn by the atlas
+  engine. The engine's files and traps: atlas/AGENTS.md.
+
+  A local page, served by serve.ts (see "Check" below); never published.
+
+  Purpose: understand the architecture, improve it easily, and swap a
+  component when needed. Every brick therefore answers: what it receives and
+  produces (Contrat), what to touch to replace it (Pour remplacer), which
+  bricks change with it (dashed blue outline on the map), how to extend it
+  (Pour étendre) and its traps (Pièges). Every arrow into a third-party
+  service names the tags it carries. Addresses and secrets are left
+  out on purpose: no IP, no secret value.
+
+  How the map works:
+  - No position or size is written anywhere: at load time ELK (elkjs) lays
+    out the boxes and libavoid routes the overview's arrows. Nothing overlaps.
+  - Overview, where the page opens: every zone as a box listing its bricks by
+    name, nested as the zones nest and packed by ELK; the ext zones and the
+    services outside every zone stand in a column on each side, by their
+    `side`; one arrow per pair of boxes, routed around every box.
+  - Detail: every brick with its subtitle and every arrow with its label and
+    tags, laid out by ELK one zone at a time. Clicking a zone or a
+    brick moves the camera into it in one step, the two levels cross-fading
+    on the way; Escape, the breadcrumb or a click on the empty sheet go back.
+    There is no free zoom or drag: the camera only follows navigation
+    (machine.ts). A zone that holds sub-zones frames its own bricks; its
+    sub-zones are one click away.
+  - Clicking a brick selects it, lights its arrows and outlines its
+    couplings. Couplings are symmetric: listing B in A's `couples` also
+    outlines A when B is selected. A service outside every zone is selected
+    on the overview.
+  - The panel on the right renders the `info` object of the selection.
+  - A bare #id in the link (zone or brick id) opens the page on it.
+  - Open points: a zone or brick with an `open` entry carries a dot on both
+    levels. The header button "Points ouverts : N" lists them all, with the
+    party each waits for; a row opens its zone or brick. The panel shows
+    each point's id, text and thread, and a one-line reply form that posts to
+    serve.ts as human. The page reads threads.json again when its window
+    regains focus, so a reply from the terminal shows up.
+
+  Open points and threads (the field notes are in data-zones.ts):
+  - An open point is { id, text } in a data file; its thread is the list
+    under the same id in threads.json, [{ "who": "human" | "agent",
+    "text" }], without a date: git keeps the history.
+  - A point waits for the party that did not write the last entry; a point
+    without a thread waits for nobody.
+  - Read them in the terminal: bun atlas/check.ts --open
+  - Answer: bun atlas/reply.ts <id> --as agent "<text>". An agent always
+    writes as agent; the human answers from the panel or with --as human.
+    An unknown id is refused.
+  - A settled point: delete its `open` entry and its thread together.
+
+  Edit recipes (details in the comments of each data file):
+  - Add a brick: add(...) in data-nodes.ts; then its arrows in
+    data-edges.ts (with `data` when the arrow enters a third-party service)
+    and its `couples`.
+  - Retire a brick: delete its add(...), its edges, and its id from every
+    `couples`, `see`, `seams` and `traps` list (check.ts finds leftovers).
+  - Add a zone: an entry in `zones` (data-zones.ts) with its `parent`, and
+    its id in `zoneOrder` there.
+  - Name an overview arrow: E("z:<zone>", "z:<zone>", label) in data-edges.ts.
+
+  Check, from the repository root:
+  1. bun install --cwd atlas --frozen-lockfile, once.
+  2. bun atlas/check.ts   (ids, couplings, nesting, overview labels, tags,
+     open points, threads.json), then bun test atlas and the
+     repository's gates.
+  3. Look at the page: bun atlas/serve.ts [port] and open the address it
+     prints. Bun rebuilds on every save and reloads the open tab. Look at the
+     overview and at the zone you changed.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a zoomable drawing sheet (inline SVG, two levels) beside a reading panel; stacked on phones. */
+:root {
+  --bg: #e9edf1;
+  --sheet: #f6f8fa;
+  --surface: #ffffff;
+  --ink: #18222f;
+  --ink-2: #4f5d70;
+  --ink-3: #7a8798;
+  --line: #c3ccd7;
+  --grid: rgba(24, 34, 47, 0.06);
+  --grid-major: rgba(24, 34, 47, 0.10);
+  --accent: #2d5fc4;
+  --ok: #1e7a4c;
+  --deny: #b83246;
+  /* One hue per zone. Data files name them in `color`; a node or zone sets --zc from it. */
+  --open: #c2410c;
+  --z-olive: #76690f;
+  --z-brown: #8a5536;
+  --z-indigo: #3a5688;
+  --z-blue: #1f6aa8;
+  --z-violet: #6a4cb0;
+  --z-teal: #1d7a69;
+  --z-amber: #a4640b;
+  --z-plum: #95407f;
+  --z-green: #4a7a1f;
+  --z-grey: #5c697b;
+  --f-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d131b; --sheet: #121a24; --surface: #18222f; --ink: #e2e8ef; --ink-2: #a3b0c0; --ink-3: #75839a;
+    --line: #2f3d50; --grid: rgba(226, 232, 239, 0.04); --grid-major: rgba(226, 232, 239, 0.08);
+    --accent: #7fa6f5; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
+    --z-olive: #c9ba52; --z-brown: #d79a74; --z-indigo: #8fa9de; --z-blue: #6fb0ea; --z-violet: #ad95f0;
+    --z-teal: #4fc2ac; --z-amber: #e2a54a; --z-plum: #e28fcd; --z-green: #9ccc6a; --z-grey: #9aa7b8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d131b; --sheet: #121a24; --surface: #18222f; --ink: #e2e8ef; --ink-2: #a3b0c0; --ink-3: #75839a;
+  --line: #2f3d50; --grid: rgba(226, 232, 239, 0.04); --grid-major: rgba(226, 232, 239, 0.08);
+  --accent: #7fa6f5; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
+  --z-olive: #c9ba52; --z-brown: #d79a74; --z-indigo: #8fa9de; --z-blue: #6fb0ea; --z-violet: #ad95f0;
+  --z-teal: #4fc2ac; --z-amber: #e2a54a; --z-plum: #e28fcd; --z-green: #9ccc6a; --z-grey: #9aa7b8;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-body); font-size: 15px; line-height: 1.5;
+  display: flex; flex-direction: column;
+  margin: 0; padding-inline: 16px; padding-block: 0 12px; box-sizing: border-box;
+}
+*, *::before, *::after { box-sizing: border-box; }
+
+.top {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 24px;
+  padding-block: 14px 10px;
+}
+.top h1 {
+  margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 30px;
+  letter-spacing: 0.02em; line-height: 1;
+}
+.top .sub { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+.crumbs {
+  margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  font-family: var(--f-display); font-size: 16px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.crumbs button {
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--ink-2);
+  background: none; border: 0; padding: 2px 4px; cursor: pointer; border-radius: 3px;
+}
+.crumbs button:hover { color: var(--accent); }
+.crumbs button[aria-current="true"] { color: var(--ink); cursor: default; }
+.crumbs .sep { color: var(--ink-3); }
+
+/* Open points: the header button, its list (a native popover), and the badge on the map. */
+.open-btn {
+  font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--open);
+  border-radius: 4px; padding: 4px 10px; cursor: pointer; align-self: center;
+}
+.open-btn:hover { border-color: var(--accent); color: var(--accent); }
+.open-list {
+  position: fixed; inset: 60px 16px auto auto; margin: 0; width: min(620px, calc(100vw - 32px)); max-height: 72vh; overflow-y: auto;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+.open-list h2 { font-family: var(--f-display); font-weight: 700; font-size: 22px; margin: 0 0 2px; }
+.open-list .open-sum { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); }
+.open-list ul { list-style: none; margin: 0; padding: 0; }
+.open-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2px 12px; width: 100%; text-align: left;
+  font: inherit; font-size: 13.5px; color: var(--ink); background: none; border: 0; border-top: 1px solid var(--line);
+  padding: 7px 4px; cursor: pointer;
+}
+.open-row:hover { background: var(--sheet); }
+.open-row code { font-family: var(--f-mono); font-size: 12px; color: var(--ink); }
+.open-row .open-wait { font-size: 12px; color: var(--ink-2); text-align: right; }
+.open-row .open-owner { font-size: 12px; color: var(--ink-3); margin-left: 6px; }
+.open-row .open-line { grid-column: 1 / -1; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-dot { fill: var(--open); stroke: var(--surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.app {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 14px;
+}
+.stage {
+  position: relative; min-width: 0; min-height: 0;
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+}
+#map { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; }
+
+.controls { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+.controls button, .panel .nav button, .chip {
+  font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 10px; cursor: pointer; line-height: 1.2;
+}
+.controls button:hover, .panel .nav button:hover, .chip:hover { border-color: var(--accent); color: var(--accent); }
+button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.legend {
+  position: absolute; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 4px;
+  padding: 5px 10px; font-size: 12px; color: var(--ink-2); max-width: calc(100% - 20px);
+}
+.legend[hidden], .panel[hidden] { display: none; }
+.app:has(> .panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.controls button[aria-pressed="false"] { color: var(--ink-3); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: 26px; height: 8px; overflow: visible; }
+.hint {
+  position: absolute; right: 10px; top: 12px; margin: 0; font-size: 12px; color: var(--ink-3);
+  background: color-mix(in srgb, var(--sheet) 85%, transparent); padding: 2px 6px; border-radius: 3px;
+}
+
+.panel {
+  min-width: 0; min-height: 0; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  padding: 18px 20px 22px;
+}
+.panel .kicker {
+  font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); margin: 0 0 6px; word-break: break-all;
+}
+.panel h2 {
+  font-family: var(--f-display); font-weight: 700; font-size: 28px; line-height: 1.05; letter-spacing: 0.01em;
+  margin: 0 0 10px; text-wrap: balance; display: flex; align-items: center; gap: 10px;
+}
+.panel h2 .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; background: var(--zc, var(--ink-3)); }
+.panel h3 {
+  font-family: var(--f-display); font-weight: 600; font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-2); margin: 18px 0 6px;
+}
+.panel p { margin: 0 0 8px; }
+.panel .lead { font-size: 15.5px; }
+.panel ul { margin: 0; padding-left: 18px; }
+.panel li { margin-bottom: 6px; }
+.panel li::marker { color: var(--zc, var(--ink-3)); }
+.panel code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
+.panel .alt { color: var(--ink-2); }
+.panel .warn {
+  border-left: 3px solid var(--open); padding: 6px 10px; background: var(--sheet); border-radius: 0 4px 4px 0; font-size: 14px;
+}
+.panel .open-point { margin-bottom: 14px; }
+.panel .open-id { font-size: 12.5px; color: var(--ink-2); margin: 0 0 4px; }
+.panel .thread { list-style: none; margin: 6px 0; padding: 0 0 0 13px; font-size: 14px; }
+.panel .thread li { margin-bottom: 4px; }
+.panel .thread .who { font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); margin-right: 4px; }
+.panel .reply { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.panel .reply input {
+  flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--ink); background: var(--sheet);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px;
+}
+.panel .reply input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.panel .reply button {
+  font-family: var(--f-display); font-weight: 600; font-size: 14px; letter-spacing: 0.04em; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer;
+}
+.panel .reply button:hover { border-color: var(--accent); color: var(--accent); }
+.panel .reply button:disabled { color: var(--ink-3); cursor: wait; }
+.reply-error { color: var(--deny); font-size: 13px; margin: 4px 0 0; flex-basis: 100%; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 14px; }
+.facts dt { color: var(--ink-2); }
+.facts dd { margin: 0; font-family: var(--f-mono); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 14px; padding: 3px 9px; }
+.chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: var(--zc, var(--ink-3)); }
+.panel .points { list-style: none; padding: 0; }
+.panel .points li { margin-bottom: 10px; }
+.panel .points .chip { margin-top: 4px; }
+.panel .label { font-size: 13px; color: var(--ink-2); margin: 10px 0 6px; }
+.facts.io dd { font-family: var(--f-body); font-size: 14px; }
+.panel .src { font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); margin-top: 16px; overflow-wrap: anywhere; }
+.panel .nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* SVG. Sizes are in world units, so text grows with the zoom. measure.ts
+   measures the text classes it lays out (TEXT and TITLE there): their font
+   sizes here must match. Borders keep a constant screen width
+   (non-scaling-stroke), otherwise a zoomed-in zone gets a thick border.
+   engine.ts sets each level's opacity, visibility and alignment frame by
+   frame; the detail starts hidden so the first paint shows the overview only. */
+.layer-dt { visibility: hidden; }
+/* Text keeps the width measure.ts measured at every zoom; without it, Chrome rounds font sizes per zoom. */
+svg text { text-rendering: geometricPrecision; }
+.hit { cursor: pointer; }
+.zone.hit { cursor: zoom-in; }
+
+/* Zones: outer (a top zone that nests others), inner (a nested zone that nests others), module, ext (outside the server). */
+.zone-bg { vector-effect: non-scaling-stroke; }
+.zone.outer .zone-bg { fill: color-mix(in srgb, var(--zc) 6%, var(--sheet)); stroke: color-mix(in srgb, var(--zc) 75%, var(--ink)); stroke-width: 2.2; }
+.zone.inner .zone-bg { fill: color-mix(in srgb, var(--zc) 4%, var(--surface)); stroke: color-mix(in srgb, var(--zc) 70%, var(--line)); stroke-width: 1.6; }
+.zone.module .zone-bg { fill: color-mix(in srgb, var(--zc) 9%, var(--surface)); stroke: color-mix(in srgb, var(--zc) 30%, transparent); stroke-width: 1; }
+.zone.ext .zone-bg { fill: color-mix(in srgb, var(--zc) 4%, var(--sheet)); stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 7 5; }
+.zone:hover .zone-bg, .zone.focused .zone-bg { stroke: var(--zc); stroke-width: 2.4; }
+.z-big, .ov-big, .z-title, .ov-title { font-family: var(--f-display); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; fill: var(--zc); }
+.z-big { font-size: 27px; }
+.ov-big { font-size: 34px; }
+.z-title { font-size: 21px; }
+.ov-title { font-size: 27px; }
+.z-tag, .ov-tag { font-family: var(--f-mono); fill: var(--ink-2); }
+.z-tag { font-size: 11px; }
+.ov-tag { font-size: 13px; }
+
+/* Detail bricks; .ext = a service outside the server, .off = suspended. */
+.brick .box { fill: var(--surface); stroke: color-mix(in srgb, var(--zc) 55%, var(--line)); stroke-width: 1; }
+.brick.ext .box { stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.brick.off .box { stroke-dasharray: 4 3; fill: var(--sheet); }
+.brick:hover .box { stroke: var(--zc); }
+.brick.selected .box { stroke: var(--accent); stroke-width: 2.2; stroke-dasharray: none; }
+.brick.coupled .box { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.b-lbl, .x-lbl { font-family: var(--f-display); font-weight: 600; letter-spacing: 0.02em; fill: var(--ink); }
+.b-lbl { font-size: 15px; }
+.x-lbl { font-size: 19px; }
+.b-sub, .x-sub { font-family: var(--f-mono); fill: var(--ink-2); }
+.b-sub { font-size: 7.8px; }
+.x-sub { font-size: 10px; }
+.brick.off .b-lbl { fill: var(--ink-2); }
+
+.edge path { fill: none; stroke: var(--ink-3); stroke-width: 1.3; }
+.edge.deny path { stroke: var(--deny); }
+.edge.dash path { stroke-dasharray: 5 4; }
+.edge.hot path { stroke: var(--accent); stroke-width: 2.4; }
+.elabel { font-family: var(--f-mono); font-size: 7.5px; fill: var(--ink-2); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
+.edge.deny .elabel { fill: var(--deny); }
+.edge.hot .elabel { fill: var(--accent); }
+.arrowhead { fill: var(--ink-3); }
+.arrowhead.deny { fill: var(--deny); }
+.arrowhead.hot { fill: var(--accent); }
+
+/* Overview: bricks as chips inside their zone, outside services as pills. */
+.ov-chip rect { fill: var(--surface); stroke: color-mix(in srgb, var(--zc) 55%, var(--line)); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ov-chip.off rect { stroke-dasharray: 4 3; fill: var(--sheet); }
+.ov-chip:hover rect { stroke: var(--zc); stroke-width: 2; }
+.ov-chip.selected rect { stroke: var(--accent); stroke-width: 2.4; }
+.ov-chip.coupled rect { stroke: var(--accent); stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.ov-chip-t { font-family: var(--f-display); font-weight: 600; font-size: 20px; letter-spacing: 0.02em; fill: var(--ink); }
+.ov-chip.off .ov-chip-t { fill: var(--ink-2); }
+.ov-ext rect { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.ov-ext:hover rect { stroke: var(--ink); }
+.ov-ext.selected rect { stroke: var(--accent); stroke-width: 2.6; }
+.ov-ext.coupled rect { stroke: var(--accent); }
+.ov-ext-t { font-family: var(--f-display); font-weight: 600; font-size: 22px; fill: var(--ink); }
+/* Overview arrows rest faded; a hovered box (.focusing) or a selected brick
+   (.selecting) lights its own (.lit, .hot) and fades the rest further. */
+.ov-flow { opacity: 0.3; transition: opacity 120ms ease-out; }
+.layer-ov.focusing .ov-flow, .layer-ov.selecting .ov-flow { opacity: 0.1; }
+.layer-ov .ov-flow.lit, .layer-ov .ov-flow.hot { opacity: 1; }
+.ov-flow.lit path { stroke: var(--ink); }
+.ov-flow.lit .ov-label { fill: var(--ink); }
+.ov-flow path { fill: none; stroke: var(--ink-3); stroke-width: 2.2; }
+.ov-flow.deny path { stroke: var(--deny); }
+.ov-flow.dash path { stroke-dasharray: 6 5; }
+.ov-flow.hot path { stroke: var(--accent); stroke-width: 3.2; }
+.ov-label { font-family: var(--f-mono); font-size: 14px; fill: var(--ink-2); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
+.ov-flow.deny .ov-label { fill: var(--deny); }
+.ov-flow.hot .ov-label { fill: var(--accent); }
+
+@media (max-width: 860px) {
+  html, body { height: auto; }
+  body { display: block; }
+  .app { display: flex; flex-direction: column; }
+  .stage { height: 64vh; min-height: 360px; }
+  .panel { overflow: visible; }
+  .crumbs { margin-left: 0; width: 100%; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<header class="top">
+  <h1>Bookshop</h1>
+  <p class="sub">A sample map. One zone per machine or module, one brick per replaceable component.</p>
+  <button type="button" class="open-btn" id="btn-open" popovertarget="open-list">Points ouverts</button>
+  <div class="open-list" id="open-list" popover aria-label="Points ouverts"></div>
+  <nav class="crumbs" id="crumbs" aria-label="Position dans le plan"></nav>
+</header>
+
+<main class="app">
+  <section class="stage" aria-label="Plan zoomable">
+    <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Architecture of Bookshop: clients, server, application, storage and an email service"></svg>
+    <div class="controls">
+      <button type="button" id="btn-home">Vue d'ensemble</button>
+      <button type="button" id="btn-legend" aria-controls="legend" aria-pressed="true">Légende</button>
+      <button type="button" id="btn-panel" aria-controls="panel" aria-pressed="true">Panneau</button>
+    </div>
+    <p class="hint">clic sur une zone ou une brique pour le détail · Échap ou clic sur le fond pour remonter</p>
+    <!-- One line per encoding that repeats on the map: a new edge kind or node style adds its line here. -->
+    <div class="legend" id="legend" aria-label="Légende">
+      <span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink-3)" stroke-width="2"/></svg>flux</span>
+      <span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="5 4"/></svg>en sommeil, local ou sur demande</span>
+      <span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--deny)" stroke-width="2"/></svg>refusé</span>
+      <span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><rect x="1" y="1" width="24" height="10" rx="2" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 2"/></svg>change avec la brique choisie</span>
+      <span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><rect x="1" y="1" width="24" height="10" rx="5" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>hors du serveur</span>
+      <span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><circle cx="13" cy="6" r="4.5" fill="var(--open)"/></svg>point ouvert</span>
+    </div>
+  </section>
+  <aside class="panel" id="panel" aria-live="polite"></aside>
+</main>
+
+<!-- One module: engine.ts imports the data files and everything else; serve.ts bundles it. -->
+<script type="module" src="./engine.ts"></script>

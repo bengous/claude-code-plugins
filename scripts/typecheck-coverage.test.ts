@@ -36,10 +36,23 @@ async function tsconfig(path: string): Promise<TsConfig> {
   return (await Bun.file(join(ROOT, path)).json()) as TsConfig;
 }
 
-test("a plugin's own tsconfig.json compiles as the root's does", async () => {
+/** A plugin's own `tsconfig.json` sits at its folder's root, one level under the repository's. */
+const PLUGIN_TSCONFIG = /^(?!archive\/)[^/]+\/tsconfig\.json$/u;
+
+test("every plugin's own tsconfig.json compiles as the root's does", async () => {
   const root = await tsconfig("tsconfig.json");
-  const vellum = await tsconfig("vellum/tsconfig.json");
+
+  const plugins = (await $`git ls-files '*/tsconfig.json'`.cwd(ROOT).text())
+    .split("\n")
+    .filter((path) => PLUGIN_TSCONFIG.test(path));
 
   expect(root.compilerOptions).toBeDefined();
-  expect(vellum.compilerOptions).toEqual(root.compilerOptions);
+  expect(plugins).toContain("vellum/tsconfig.json");
+
+  for (const path of plugins) {
+    expect({ path, options: (await tsconfig(path)).compilerOptions }).toEqual({
+      path,
+      options: root.compilerOptions,
+    });
+  }
 });

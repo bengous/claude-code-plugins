@@ -60,6 +60,11 @@ jobs:
       - name: Install pinpoint dependencies
         run: bun install --cwd pinpoint --frozen-lockfile --ignore-scripts
 
+      # atlas's page imports elkjs and libavoid-js, and its server answers libavoid.wasm from the
+      # installed package, so its suites and the typecheck read them.
+      - name: Install atlas dependencies
+        run: bun install --cwd atlas --frozen-lockfile --ignore-scripts
+
       # What the change reaches (`scripts/affected.ts`): a pull request's against its base, every
       # suite and kit on any other event. The steps below read `kits`, never interpolate it.
       - name: Scope the suites and kits to the change
