@@ -111,6 +111,11 @@ describe("treeOf", () => {
 
   test.each([
     [
+      "an empty id",
+      mapOf([card("", { label: "Nameless", outside: true, side: "in" })]),
+      'node "Nameless": its id is empty; an id names it in links and URLs',
+    ],
+    [
       "two nodes with one id",
       mapOf([card("a", { outside: true, side: "in" }), card("a", { outside: true, side: "in" })]),
       "node a: a second node has this id",

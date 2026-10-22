@@ -4,7 +4,7 @@ import type { Node } from "./atlas.ts";
 import SAMPLE from "./fixtures/sample/map.ts";
 import { DEEP, randomMap } from "./fixtures/trees.ts";
 import type { Place, PlaceEvent } from "./navigation.ts";
-import { HOME, crumbsOf, hashOf, navigate, openOf, placeOfHash } from "./navigation.ts";
+import { HOME, crumbsOf, hashOf, navigate, normalised, openOf, placeOfHash } from "./navigation.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, treeOf } from "./tree.ts";
 import { viewOf } from "./view.ts";
@@ -141,6 +141,36 @@ describe("jump", () => {
   test("an unknown id, or none, opens the root's view", () => {
     expect(navigate(deep, at(["A"], "A1"), { type: "jump", id: "nowhere" })).toBe(HOME);
     expect(navigate(deep, at(["A"], "A1"), { type: "jump", id: "" })).toBe(HOME);
+  });
+});
+
+describe("a place the tree cannot show", () => {
+  test("a stale path is cut where it breaks, and a selection that view does not show dropped", () => {
+    expect(normalised(sample, at(["server", "gone"], "x"))).toEqual(at(["server"]));
+    expect(normalised(sample, at(["server", "app", "web"]))).toEqual(at(["server", "app"]));
+  });
+
+  test("a path that is not a chain from the root keeps only its valid start", () => {
+    expect(normalised(sample, at(["app"], "web"))).toEqual(HOME);
+    expect(normalised(sample, at(["server", "clients"]))).toEqual(at(["server"]));
+  });
+
+  test("a place the tree shows comes back as it is", () => {
+    const place = at(["server", "app"], "email");
+
+    expect(normalised(sample, place)).toBe(place);
+  });
+
+  test("navigate, crumbsOf and hashOf read a stale place as normalised instead of throwing", () => {
+    const stale = at(["server", "gone"], "x");
+
+    expect(navigate(sample, stale, { type: "select", id: "proxy" })).toEqual(
+      at(["server"], "proxy"),
+    );
+
+    expect(navigate(sample, stale, { type: "up" })).toEqual(HOME);
+    expect(crumbsOf(sample, stale)).toHaveLength(2);
+    expect(hashOf(sample, stale)).toBe("server");
   });
 });
 

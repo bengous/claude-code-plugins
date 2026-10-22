@@ -107,8 +107,8 @@ export const itemIn = (tree: Tree, container: string | null, id: string): string
   liftIn(tree, container, id) ?? ghostIn(tree, container, id);
 
 /**
- * Indexes a map, and refuses what its views cannot show: two nodes with one id, an empty
- * `children`, a `kind` or a side "both" on a container, an outside node below the root or without
+ * Indexes a map, and refuses what its views cannot show: an empty id, two nodes with one id, an
+ * empty `children`, a `kind` or a side "both" on a container, an outside node below the root or without
  * a side, a side on a node inside, a coupling or a link to an unknown node, and a link whose one
  * end holds the other.
  */
@@ -122,6 +122,10 @@ export function treeOf(map: AtlasMap): Tree {
 
   const visit = (node: Node, above: readonly string[]): number => {
     const { id, children, outside, side } = node;
+
+    if (id === "") {
+      refuse(`node "${node.label}": its id is empty; an id names it in links and URLs`);
+    }
 
     if (nodes.has(id)) {
       refuse(`node ${id}: a second node has this id`);
