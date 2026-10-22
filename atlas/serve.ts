@@ -250,15 +250,19 @@ const isReply = (v: unknown): v is { readonly id: string; readonly text: string 
 const isJson = (type: string | null): boolean =>
   type?.split(";")[0]?.trim().toLowerCase() === "application/json";
 
-// The page's own origin, from the port this server listens on: the request's Host names whatever
-// address the browser used, a name rebound to this machine included.
-const isOwn = (origin: string | null): boolean =>
-  origin === `http://127.0.0.1:${server.port}` || origin === `http://localhost:${server.port}`;
+// The names this server answers to, with the port it listens on. A page on a name rebound to this
+// machine is same-origin with the server: only the Host its requests name tells them apart.
+const ownHosts = (): readonly string[] => [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
+
+const isOwnHost = (host: string | null): boolean => ownHosts().some((own) => host === own);
+
+const isOwnOrigin = (origin: string | null): boolean =>
+  ownHosts().some((own) => origin === `http://${own}`);
 
 // A browser sends a cross-origin text/plain POST without asking first, so the content type, the
 // Origin and the token are all required: a page elsewhere can set none of them to this server's.
 async function reply(request: Request): Promise<Response> {
-  if (!isOwn(request.headers.get("origin"))) {
+  if (!isOwnOrigin(request.headers.get("origin"))) {
     return new Response("a reply comes from this server's own page", { status: 403 });
   }
 
@@ -300,29 +304,50 @@ async function threads(): Promise<Response> {
     : new Response(`no ${THREADS_FILE} in ${folder}`, { status: 404 });
 }
 
+function route(request: Request, server: Server<undefined>): Response | Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const get = request.method === "GET";
+
+  if (pathname === `/${THREADS_FILE}` && request.method === "POST") {
+    return reply(request);
+  }
+
+  if (!get) {
+    return new Response("method not allowed", { status: 405 });
+  }
+
+  switch (pathname) {
+    case "/":
+      return Response.redirect(`/${PAGE}`, 302);
+    case `/${PAGE}`:
+      return page();
+    case EVENTS:
+      return events(request, server);
+    case "/libavoid.wasm":
+      return new Response(Bun.file(WASM_FILE), { headers: { "cache-control": "no-store" } });
+    case `/${THREADS_FILE}`:
+      return threads();
+    default: {
+      const file = current.kind === "ok" ? current.files.get(pathname) : undefined;
+
+      return file === undefined
+        ? new Response("not found", { status: 404 })
+        : new Response(file, {
+            headers: { "content-type": file.type, "cache-control": "no-store" },
+          });
+    }
+  }
+}
+
+// Every route sits behind the Host check, so a route added later cannot skip it.
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: Number(portArg),
   reusePort: false,
-  routes: {
-    "/": Response.redirect(`/${PAGE}`, 302),
-    [`/${PAGE}`]: { GET: page },
-    [EVENTS]: { GET: events },
-    "/libavoid.wasm": {
-      GET: () => new Response(Bun.file(WASM_FILE), { headers: { "cache-control": "no-store" } }),
-    },
-    [`/${THREADS_FILE}`]: { GET: threads, POST: reply },
-  },
-  fetch(request) {
-    const file =
-      request.method === "GET" && current.kind === "ok"
-        ? current.files.get(new URL(request.url).pathname)
-        : undefined;
-
-    return file === undefined
-      ? new Response("not found", { status: 404 })
-      : new Response(file, { headers: { "content-type": file.type, "cache-control": "no-store" } });
-  },
+  fetch: (request, self) =>
+    isOwnHost(request.headers.get("host"))
+      ? route(request, self)
+      : new Response("atlas answers requests to its own address only", { status: 403 }),
 });
 
 console.log(`${server.url.href}${PAGE}`);

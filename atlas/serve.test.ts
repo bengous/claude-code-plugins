@@ -323,6 +323,30 @@ describe("serve.ts", () => {
   );
 });
 
+describe("a request that names another host", () => {
+  test("is refused on every route: a name rebound to this machine reads nothing", async () => {
+    const { base, port } = served();
+
+    for (const path of ["/plan.fr.html", "/events", `/${THREADS_FILE}`, "/libavoid.wasm", "/"]) {
+      const response = await fetch(`${base}${path}`, {
+        headers: { host: `rebound.example:${port}` },
+      });
+
+      expect(`${path} ${response.status}`).toBe(`${path} 403`);
+    }
+  });
+
+  test("named localhost, with this server's port, is served", async () => {
+    const { base, port } = served();
+
+    const response = await fetch(`${base}/plan.fr.html`, {
+      headers: { host: `localhost:${port}` },
+    });
+
+    expect(response.status).toBe(200);
+  });
+});
+
 describe("a map folder that goes away", () => {
   test(
     "leaves the server up, answering an error page",
