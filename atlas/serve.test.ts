@@ -318,6 +318,29 @@ describe("serve.ts", () => {
   );
 });
 
+describe("a map folder that goes away", () => {
+  test(
+    "leaves the server up, answering an error page",
+    async () => {
+      const gone = copyOfSample();
+      const other = await serve(gone);
+
+      try {
+        rmSync(gone, { recursive: true });
+        const build = await within(other.log.next(isBuild), "build");
+
+        expect(build).toContain("failed");
+        expect((await fetch(`${other.base}/plan.fr.html`)).status).toBe(500);
+        expect(other.child.exitCode).toBeNull();
+      } finally {
+        other.child.kill();
+        await other.child.exited;
+      }
+    },
+    WAIT_MS * 3,
+  );
+});
+
 const post = async (headers: Record<string, string>): Promise<Response> =>
   await fetch(`${served().base}/${THREADS_FILE}`, {
     method: "POST",

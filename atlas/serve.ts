@@ -200,9 +200,10 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 
 let builds = Promise.resolve();
 
-// threads.json changes on every reply, and the page reads it again by itself.
-function changed(file: string | null): void {
-  if (file !== null && basename(file) === THREADS_FILE) {
+// threads.json changes on every reply, and the page reads it again by itself. An event on the
+// watched folder itself, moved or deleted, comes with no file name (Bun 1.4.3): it rebuilds.
+function changed(file: string | null | undefined): void {
+  if (basename(file ?? "") === THREADS_FILE) {
     return;
   }
 
