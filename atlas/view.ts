@@ -1,8 +1,10 @@
 import type { LegendKey, Link, Node, Side } from "./atlas.ts";
 import type { Tree } from "./tree.ts";
 import {
+  chainOf,
   childrenOf,
   couplingsOf,
+  ghostIn,
   holds,
   isLeaf,
   itemIn,
@@ -148,19 +150,26 @@ function liftedIn(tree: Tree, container: string | null): Lifted[] {
 
 const pairKey = (a: string, b: string): string => JSON.stringify(a < b ? [a, b] : [b, a]);
 
-const names = (tree: Tree, outer: Link, inner: Link, two: boolean): boolean =>
-  (holds(tree, outer.from, inner.from) &&
-    holds(tree, outer.to, inner.to) &&
-    (outer.from !== inner.from || outer.to !== inner.to)) ||
-  (two &&
-    holds(tree, outer.from, inner.to) &&
-    holds(tree, outer.to, inner.from) &&
-    (outer.from !== inner.to || outer.to !== inner.from));
+const endsKey = (from: string, to: string): string => JSON.stringify([from, to]);
 
 function labelOf(tree: Tree, links: readonly Link[], two: boolean): string {
-  const named = links.flatMap((inner) =>
-    links.some((outer) => names(tree, outer, inner, two)) ? [] : [inner.label],
-  );
+  const namers = new Set(links.map((l) => endsKey(l.from, l.to)));
+
+  if (two) {
+    for (const l of links) {
+      namers.add(endsKey(l.to, l.from));
+    }
+  }
+
+  const named = links.flatMap((inner) => {
+    const tos = chainOf(tree, inner.to);
+
+    const outer = chainOf(tree, inner.from).some((from) =>
+      tos.some((to) => (from !== inner.from || to !== inner.to) && namers.has(endsKey(from, to))),
+    );
+
+    return outer ? [] : [inner.label];
+  });
 
   return [...new Set(named)].slice(0, LABELS_SHOWN).join(LABEL_JOINT);
 }
@@ -338,6 +347,29 @@ export function coupledIn(tree: Tree, view: View, id: string): readonly string[]
   const shown = new Set([...view.boxes.map((b) => b.id), ...view.ghosts.map((g) => g.id)]);
 
   return coupledAmong(tree, view.id, shown, id);
+}
+
+/**
+ * Whether the view of `container` shows `id`, as a box (a child) or as a ghost (a link joins a node
+ * it holds to a node below the container), without building the view.
+ */
+export function showsIn(tree: Tree, container: string | null, id: string): boolean {
+  if (!tree.nodes.has(id)) {
+    return false;
+  }
+
+  if (liftIn(tree, container, id) === id) {
+    return true;
+  }
+
+  return (
+    ghostIn(tree, container, id) === id &&
+    tree.map.links.some(
+      ({ from, to }) =>
+        (liftIn(tree, container, from) !== null && holds(tree, id, to)) ||
+        (liftIn(tree, container, to) !== null && holds(tree, id, from)),
+    )
+  );
 }
 
 /** Whether selecting or hovering `id` lights the arrow: `id` is or holds an end of its links. */

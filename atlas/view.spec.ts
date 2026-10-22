@@ -6,7 +6,7 @@ import { DEEP, randomMap } from "./fixtures/trees.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, itemIn, liftIn, treeOf } from "./tree.ts";
 import type { Arrow, View } from "./view.ts";
-import { coupledIn, lights, viewOf } from "./view.ts";
+import { coupledIn, lights, showsIn, viewOf } from "./view.ts";
 
 const sample = treeOf(SAMPLE);
 
@@ -539,6 +539,10 @@ function expectWellFormed(tree: Tree, container: string | null): void {
   const shown = new Set([...boxes, ...ghostIds]);
 
   expect(boxes).toEqual(childrenOf(tree, container).map((n) => n.id));
+
+  for (const id of tree.nodes.keys()) {
+    expect(showsIn(tree, container, id)).toBe(shown.has(id));
+  }
 
   for (const [i, link] of tree.map.links.entries()) {
     const from = liftIn(tree, container, link.from);
