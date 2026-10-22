@@ -30,7 +30,8 @@ export const LINKED = "/work/linked-map";
 /** The first port a server on port 0 is given. */
 export const FIRST_PORT = 4242;
 
-export const page = (port: number): string => `http://127.0.0.1:${port}/plan.fr.html`;
+/** The address the module gives: the server's root, which serve.ts redirects to its page. */
+export const page = (port: number): string => `http://127.0.0.1:${port}/`;
 
 /** A server as the module spawned it: its argv, and the test's hand on what it writes. */
 export type Child = {
@@ -107,7 +108,8 @@ export const STARTS: Spawn = (child, seen) => {
 
   const given = port === 0 ? seen.nextPort++ : port;
   child.listen(given);
-  child.write(page(given));
+  // As serve.ts prints it, its page's own name after the root, which the module never reads.
+  child.write(`${page(given)}page.html`);
 };
 
 const MAPS = [MAP, OTHER_MAP, DRAFT].map((folder) => `${folder}/atlas.config.ts`);

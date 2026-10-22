@@ -55,7 +55,7 @@ export function parseBeat(text: string): Beat | null {
   return typeof value?.folder === "string" ? { folder: value.folder } : null;
 }
 
-/** The port of serve.ts's first line, the page's address `http://127.0.0.1:<port>/plan.fr.html`. */
+/** The port of serve.ts's first line, the page's address `http://127.0.0.1:<port>/<page>`. */
 export function readyPort(line: string): number | null {
   const url = URL.parse(line.trim());
   const port = url === null ? null : Number(url.port);

@@ -65,8 +65,9 @@ export type Started = { readonly kind: "started"; readonly child: Child } | Fail
 
 export type Failed = { readonly kind: "failed"; readonly reason: string };
 
+/** The server's root, which serve.ts redirects to its page, whatever the page's name. */
 export function pageUrl(port: number): string {
-  return `http://127.0.0.1:${port}/plan.fr.html`;
+  return `http://127.0.0.1:${port}/`;
 }
 
 /** Cuts the pieces of stdout on `\n` and keeps the tail for the next piece: a piece ends wherever the child's write did. */
