@@ -5,7 +5,7 @@ description: >
 disable-model-invocation: true
 argument-hint: "[map folder]"
 allowed-tools:
-  - Bash(bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts *)
+  - Bash(bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts *)
   - Read(~/.claude/plugins/cache/*/atlas/*/skills/init/*)
 ---
 
@@ -24,7 +24,7 @@ sit beside it: `${CLAUDE_PLUGIN_ROOT}/skills/init/branch-brief.md` and
 ## 1. Inventory
 
 ```bash
-bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts inventory .
+bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts inventory .
 ```
 
 It prints JSON: `manifests` (what each package.json, pyproject.toml, go.mod, Cargo.toml, compose
@@ -58,7 +58,7 @@ system calls. Take the human's changes; go on once they agree.
 ## 3. Scaffold the folder
 
 ```bash
-bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts new docs/atlas
+bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts new docs/atlas
 ```
 
 It refuses a folder that is not empty: a map already there is shown with `/atlas:board`, and
@@ -83,11 +83,11 @@ agreed order, then the outside nodes, which `map.ts` holds itself (`outside: tru
 `color: "outside"`); and every part's links. Then:
 
 ```bash
-bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts fmt docs/atlas
+bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts fmt docs/atlas
 ```
 
 ```bash
-bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts check docs/atlas
+bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts check docs/atlas
 ```
 
 Fix what check reports in the parts until it passes: a link to an id no part holds goes to that
@@ -107,7 +107,7 @@ Start one Explore subagent per part, all at once, never the one that wrote it, w
   write what is missing as the point's first entry, one point at a time:
 
 ```bash
-bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts reply docs/atlas <open id> --as agent "<what is missing: the lines read, what was not found there>"
+bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts reply docs/atlas <open id> --as agent "<what is missing: the lines read, what was not found there>"
 ```
 
 A doubt a branch subagent returned is an open point the same way. Run `fmt` and `check` again until
@@ -117,7 +117,7 @@ check passes.
 
 Tell the human to run `/atlas:board docs/atlas` to open the map, and say in a few lines: the
 number of nodes and links, the open points, which
-`bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/cli.ts check docs/atlas --open`
+`bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUGIN_ROOT}/src/cli.ts check docs/atlas --open`
 lists, and every place where the procedure needed a judgement of yours. Offer, without writing
 them, the map's rules for the repository's agent instructions: where its facts come from (the
 paths it cites), a change to a component updates the map in the same commit, and a draft of the

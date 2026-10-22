@@ -138,13 +138,13 @@ pre-commit:
     - name: validate-atlas
       glob:
         - "atlas/hooks/*"
-        - "atlas/wire.ts"
+        - "atlas/src/server/wire.ts"
         - "atlas/.claude-plugin/*"
       run: claude plugin validate atlas
     - name: test-atlas
       glob:
         - "atlas/hooks/*"
-        - "atlas/wire.ts"
+        - "atlas/src/server/wire.ts"
       run: claude plugin test atlas
 
 commit-msg:

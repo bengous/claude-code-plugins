@@ -1,4 +1,4 @@
-import type { Config } from "../../atlas.ts";
+import type { Config } from "../../src/model/atlas.ts";
 
 export default {
   title: "Deep",

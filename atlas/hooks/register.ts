@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, Timer } from "claude-code";
 
-import type { Selection } from "../wire.ts";
+import type { Selection } from "../src/server/wire.ts";
 import type { MapRecord } from "./parse.ts";
 import {
   argumentsOf,

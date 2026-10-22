@@ -1,4 +1,4 @@
-import type { Beat, Selection, ServerLine } from "../wire.ts";
+import type { Beat, Selection, ServerLine } from "../src/server/wire.ts";
 
 /**
  * The module's boundary: the server's stdout and answers, the plugin's store, a skill's text and a
