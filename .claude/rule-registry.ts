@@ -19,24 +19,24 @@ export const REGISTRY: Registry = {
       prose: "which tool fits a task is a judgement",
       covers: "list",
     },
-    "6a1ce9bb": {
+    af9d742f: {
       quote: "New plugin: add its `marketplace.json` entry and its",
       held: ["hook scripts/sync-versions.ts", "gate validate-marketplace"],
     },
-    "0d420803": {
+    e720734e: {
       quote: "Agents never bump a version or write a `CHANGELOG.md`",
       held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.test.ts"],
     },
-    a1834ff4: {
+    f8c3afb9: {
       quote: "For plugin tests, permissions and the catalog lifecycle,",
       prose: "a pointer to the pages that hold the detail",
     },
-    "19545da0": {
+    "195c7036": {
       quote: "`vellum/`, `pinpoint/` and `atlas/` carry `package.json` +",
       prose: "a bare `bun test` installs nothing; `run-gates.ts` and CI install first",
     },
-    ea2d40ae: {
-      quote: "Everything above but the browser suite, the mutation run,",
+    "4d9290b5": {
+      quote: "`pre-commit` and `pre-push` run the gates; CI runs them all",
       held: ["gate lint-config", "hook scripts/run-gates.ts", "hook scripts/affected.ts"],
     },
     "9679b29c": { quote: "| Layer | Language | Boundary |", prose: "the table's header" },
@@ -48,31 +48,11 @@ export const REGISTRY: Registry = {
       quote: "| Glue | bash | Wiring only. Stop at ~150 lines, or at the",
       prose: "no check counts a script's lines or reads what its `jq` builds",
     },
-    "1580a5e3": {
-      quote: "That bash boundary binds new code. Scripts already over it",
-      prose: "which script is new and which an issue rewrites is a judgement",
-    },
-    "32ed59a4": {
-      quote: "Carried by the commands above:",
-      prose: "a lead-in; each item below has its own entry",
-    },
-    "4cfac215": {
-      quote: "One root `tsconfig.json` covers every tracked `.ts` outside",
-      held: ["gate typecheck", "test scripts/typecheck-coverage.test.ts"],
-    },
-    "79ced6ec": {
-      quote: "Every lint suppression says why on its own line: `//",
-      held: ["gate check-lint-disables"],
-    },
-    "1c48ac57": {
-      quote: "Carried by nobody, so hold them by hand:",
-      prose: "a lead-in; each item below has its own entry",
-    },
-    fe467aaa: {
-      quote: "Extensions are mandatory: `.ts`, `.tsx`, `.sh`. `tsgo`,",
+    e0256d65: {
+      quote: "Extensions are mandatory: `.ts`, `.tsx`, `.sh`. The gates",
       prose: "no check refuses a script with no extension; the gates skip it",
     },
-    "04c96c9f": {
+    cf4262d2: {
       quote: "Plugins are self-contained. No import crosses a plugin",
       prose: "no lint rule or test reads where an import points",
     },
@@ -80,29 +60,12 @@ export const REGISTRY: Registry = {
       quote: "Ship sources, never compiled binaries. `bun` is the runtime.",
       prose: "no check reads what a plugin ships",
     },
-    b0a682fa: {
-      quote: "Docs name symbols, sections and paths, never line numbers or",
-      prose:
-        "`scripts/check-frozen-facts.ts` finds versions and run ids, but no gate runs it; whether a number dates a measurement is a judgement",
-    },
-    "2212b2bf": {
-      quote: "Keep documentation entry points as task indexes. Put each",
-      prose: "what belongs on a page is a judgement",
-    },
-    "59fdda51": {
-      quote: "A fact about the engine or the code cites the symbol or the",
-      prose: "no tool tells a fact that was read from one that was guessed",
-    },
     "4fd7f1a6": {
       quote: "A change of behaviour or of a data model, once a first",
       prose: "what changes a behaviour is a judgement",
     },
-    "58eec70d": {
-      quote: "Two symptom fixes on one feature: stop. Write the model",
-      prose: "no tool sees that two fixes treat one cause",
-    },
-    "36ba8d0d": {
-      quote: "One writer per worktree. The lead agent reads only until the",
+    d0ee4058: {
+      quote: "One writer per worktree.",
       prose: "no hook knows which agent owns a worktree",
     },
     "660d31af": {
@@ -127,12 +90,12 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/local/` - the repo's own lint plugin, edited",
       held: ["gate lint-config"],
     },
-    "7ee7b9c5": {
+    e4faa8be: {
       quote: "`dev` is the working trunk; `main` is the release channel",
       prose:
         "lefthook's `block-commit-to-main` and the agent-hooks landing guard refuse an agent's commit and push to `main`, but the fast-forward, the linear history and the signed commits are the GitHub rulesets', which no check of this repo reads",
     },
-    c9751f1c: {
+    efdba6e9: {
       quote: "Claude Code's built-in \"Commit or push only when the user",
       held: ["hook agent-hooks/agent-hooks.ts", "test agent-hooks/pre-bash.test.ts"],
     },
@@ -144,12 +107,12 @@ export const REGISTRY: Registry = {
       quote: "Inline — one concern, small diff: commit directly on `dev`.",
       held: ["hook scripts/check-e2e-green.ts"],
     },
-    f78cbc4c: {
+    c316b6bb: {
       quote: "Branch — several concerns, big work (large feature, large",
-      prose: "the lane, the slices and when to rebase are judgements of scope",
+      prose: "the lane, the split into PRs and when to rebase are judgements of scope",
     },
-    c0d18f62: {
-      quote: "Review: agents review each other's PRs; the human reviews",
+    "045c3965": {
+      quote: "Review: one agent review, once, on a branch that touches the",
       prose: "a review is a judgement; no tool reads a finding",
     },
     b3476aba: {

@@ -12,38 +12,26 @@ Do not reinvent plugin patterns. Delegate:
 - Live doc search: the `claude-code-docs` MCP server (user scope, https://code.claude.com/docs/mcp)
 - Official docs, the fallback when those are not installed: https://code.claude.com/docs/en/plugins
 
-New plugin: add its `marketplace.json` entry and its `README.md` table row by hand; no check catches their absence. A plugin's version and description live in its `plugin.json` alone; pre-commit propagates both to the existing entry and row, and `validate-marketplace` fails on a mismatch either way round. A description holding a `|` is refused, not escaped: no README table cell carries one.
+New plugin: add its `marketplace.json` entry and its `README.md` table row by hand; no check catches their absence. A plugin's version and description live in its `plugin.json` alone.
 
-Agents never bump a version or write a `CHANGELOG.md` section: `scripts/release.ts` does both at release time, one `chore(<plugin>): x.y.z, <summary>` commit per plugin changed since `main`, judged by Claude and read by the human before it lands ([Git procedures](docs/repo-ops/git.md), Release). The pre-push release guard (`scripts/check-plugin-bumps.ts --pre-push`) refuses a push to `main` that leaves a changed plugin unbumped.
+Agents never bump a version or write a `CHANGELOG.md` section: `scripts/release.ts` does both at release time.
 
-For plugin tests, permissions and the catalog lifecycle, start at [Plugin testing](docs/plugin-testing.md) and open only the page for the task. What a skill's example commands may contain so they run without a prompt: `.claude/rules/skill-commands.md`, loaded when a `SKILL.md` is edited. The vellum and atlas plugins carry their own `AGENTS.md`, loaded when a file under their folder is read; vellum also carries its own `.claude/rules/`, whose `paths:` are relative to `vellum/` (measured from a session at the repository root).
+For plugin tests, permissions and the catalog lifecycle, start at [Plugin testing](docs/plugin-testing.md) and open only the page for the task. The vellum and atlas plugins carry their own `AGENTS.md`; vellum's `.claude/rules/` have `paths:` relative to `vellum/`.
 
 ## Commands
 
 ```bash
-bun test --parallel                                    # every suite outside dot directories and `archive/` (`bunfig.toml`)
+bun test --parallel                                    # every suite outside dot directories and `archive/`
 bun test --parallel ./.claude/hooks/*.test.ts          # the repo's own hooks; `bun test` skips them
-bun ./scripts/validate-marketplace.ts                  # versions + structure
-bun ./scripts/validate-frontmatter.ts --all            # frontmatter (default: staged only)
-bun x tsgo --noEmit                                    # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag
-bun x oxlint                                           # lint (correctness + suspicious + pedantic + anti-slop)
-bun x oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add --check to verify only
-bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
-claude plugin validate vellum   # the hooks module: what it hooks and calls
-claude plugin test vellum       # the hooks module's kit tests: `*.test.ts` under vellum/src/runtime/hooks, review and steps/<name>
-bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's, pinpoint's and atlas's dependencies first
-bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
-bun ./scripts/mutation.ts run                          # CI's `mutation` job: Stryker on each module stryker.config.ts lists whose source or tests changed since origin/dev; a survivor on a changed line, or one its old tests killed, fails
-bun ./scripts/land.ts <branch>                         # land a reviewed feature/, fix/, renovate/ or chore/claude-code-types branch on dev; run once in the background, it waits for CI itself (docs/repo-ops/git.md)
-bun ./scripts/sample-review.ts                      # the weekly review: 3 commits landed on origin/dev in the last complete ISO week, each with its /code-review; --week <YYYY-Www>, --count <n> (docs/repo-ops/git.md)
-bun ./scripts/friction-report.ts                       # the weekly frictions of the agent workflow in the last complete ISO week, beside the friction audit's average; local only, it reads the Claude Code transcripts; --week <YYYY-Www> (docs/repo-ops/git.md)
-bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` jobs, one per window; Chromium once per machine: `bun run --cwd vellum e2e:install`
-bun ./scripts/claude-code-types.ts run                 # vellum's Claude Code types into the chore/claude-code-types PR, judged by a headless agent; a session start runs it detached (docs/plugin-testing/hooks.md)
+bun ./scripts/run-gates.ts                             # CI's `validate` gates for what the change reaches (`--all`: everything)
+bun ./scripts/affected.ts print                        # what the change reaches since origin/dev; `test` runs those suites
+bun ./scripts/land.ts <branch>                         # land a branch on dev; run once in the background, its last line says what to do next
+bun run --cwd vellum e2e                               # vellum's browser suite; Chromium once per machine: `bun run --cwd vellum e2e:install`
 ```
 
-`vellum/`, `pinpoint/` and `atlas/` carry `package.json` + `bun.lock`: `bun install --cwd <plugin> --frozen-lockfile` before their tests or their server, as Claude Code does at the plugin's cache.
+`vellum/`, `pinpoint/` and `atlas/` carry `package.json` + `bun.lock`: `bun install --cwd <plugin> --frozen-lockfile` before their tests or their server.
 
-Everything above but the browser suite, the mutation run, the types pipeline and the operator scripts (`land.ts`, `sample-review.ts`, `friction-report.ts`) also runs in `pre-push` and CI, the suites and kits scoped to what the change reaches (`scripts/affected.ts`) in `pre-push` and on a pull request, everything on a push or a dispatch; `pre-commit` runs all of it except `bun test`. The mutation run is CI's `mutation` job, on a pull request, a push to `dev` or a dispatch, in no hook ([Mutation testing](docs/repo-ops/checks.md#mutation-testing)). The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
+`pre-commit` and `pre-push` run the gates; CI runs them all ([Local checks and CI](docs/repo-ops/checks.md)).
 
 ## Code Standards
 
@@ -52,27 +40,14 @@ Everything above but the browser suite, the mutation run, the types pipeline and
 | Logic | TypeScript on Bun | Parsing, branching, state. Comes with tests. |
 | Glue | bash | Wiring only. Stop at ~150 lines, or at the first `jq` that builds data; past either it is logic. |
 
-That bash boundary binds new code. Scripts already over it move when an issue rewrites them, not before.
-
-Carried by the commands above:
-
-- One root `tsconfig.json` covers every tracked `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. It is the one the typecheck gate reads. A plugin that compiles code where it is installed carries its own beside its `package.json`, with no `extends`: an installed plugin is a copy of its folder, and the root's file does not come along. `vellum/tsconfig.json` and `atlas/tsconfig.json` are such files, vellum's since Bun's bundler reads the JSX runtime in the `tsconfig.json` nearest the page's sources; `scripts/typecheck-coverage.test.ts` holds the compiler options of every plugin's `tsconfig.json` equal to the root's. The root's wildcards skip every directory whose name starts with a dot, so `.claude/` is included by name, and `.claude/worktrees/` excluded, or the check takes whole copies of the repository. A new dot directory that holds TypeScript gets its own `include` entry: `scripts/typecheck-coverage.test.ts` fails, naming the files, while a tracked one is left out. `oxlint`, `oxfmt` and `check-lint-disables.ts` walk dot directories by themselves.
-- Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
-
-Carried by nobody, so hold them by hand:
-
-- Extensions are mandatory: `.ts`, `.tsx`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
-- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today every relative import of a plugin stays inside its own top-level directory.
+- Extensions are mandatory: `.ts`, `.tsx`, `.sh`. The gates select files by extension, so a script named without one is checked by nothing.
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`.
 - Ship sources, never compiled binaries. `bun` is the runtime.
-- Docs name symbols, sections and paths, never line numbers or version numbers: both drift at the next regeneration or release. A measurement keeps its conditions, the tool and its version, the date, the run id: they date it and make it reproducible.
-- Keep documentation entry points as task indexes. Put each procedure or reference in its owning page and link to it; do not import the whole tree.
 
 ## Method
 
-- A fact about the engine or the code cites the symbol or the file it was read in. Otherwise it is written "not measured", with the slice that measures it.
 - A change of behaviour or of a data model, once a first version was delivered, is proposed before it is coded.
-- Two symptom fixes on one feature: stop. Write the model (states, events, one owner per fact) and propose.
-- One writer per worktree. The lead agent reads only until the subagent hands back, and judges the commits, never a guess: messages between agents cross.
+- One writer per worktree.
 - In an agent worktree, a Bash call runs one simple command: no `&&` or `;` chain, pipe, `$(…)`, heredoc, loop or leading `cd`, and plain `git`, not `git -C`. Claude Code's worktree-isolation guard refuses a command it cannot verify stays inside the worktree. Read, Write, Edit and Grep, or a script file run as one command, do the rest.
 - A step that code can decide is done by the script or the hook, not asked of Claude: an instruction can go unfollowed. A skill, a message or an error tells Claude what to do only when no code can decide it.
 
@@ -84,15 +59,15 @@ Carried by nobody, so hold them by hand:
 
 ## Branching
 
-`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. Every commit carries the user's signature: the remote refuses an unsigned one, so never pass `-c commit.gpgsign=false`. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
+`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. Every commit carries the user's signature: the remote refuses an unsigned one, so never pass `-c commit.gpgsign=false`. `origin/dev` is the source of truth; a local `dev` goes stale each time someone else lands.
 
-Claude Code's built-in "Commit or push only when the user asks" does not hold here: agents commit and push to `dev` (inline lane) and to their own `feature/`|`fix/` branches without asking, and land a reviewed branch with `bun ./scripts/land.ts <branch>`; `main` is the human's release, and a hook refuses every agent push to it.
+Claude Code's built-in "Commit or push only when the user asks" does not hold here: agents commit and push to `dev` (inline lane) and to their own `feature/`|`fix/` branches without asking, and land a branch with `bun ./scripts/land.ts <branch>`; `main` is the human's release, and a hook refuses every agent push to it.
 
 Two lanes; the agent judges by scope, the user can override:
 
 - Inline — one concern, small diff: commit directly on `dev`. A commit that touches the e2e paths (listed in `scripts/check-e2e-green.ts`) goes through a branch instead: the pre-push hook lets it reach `dev` only once its SHA has a green `e2e` run, and that run needs a pushed branch.
-- Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`, agent review per PR. One slice of a plan is one PR, stacked when they depend on each other: a reviewer finds more in a small diff than in a large one. During a feature the branch ignores `dev`; rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
+- Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`. During a feature the branch ignores `dev`; rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
 
-Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause, so the author can reproduce it; the author reproduces before fixing, and declines a finding with a measurement, never an opinion.
+Review: one agent review, once, on a branch that touches the `profile.review.risky` paths of `.claude/agent-hooks.jsonc`, whose verdict `land.ts` requires; the human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause.
 
 Before any push or release: follow [Repo operations](docs/repo-ops.md); landing is remote-first.
