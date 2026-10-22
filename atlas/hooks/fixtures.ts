@@ -10,6 +10,7 @@ import type {
 import { mock, type MockClock } from "claude-code/testing";
 
 import type { Selection } from "../wire.ts";
+import { HEARTBEAT_HEADER } from "../wire.ts";
 import type { MapRecord, SessionRecord } from "./parse.ts";
 
 /** The world beneath the module in a kit test: what it answers, and what the module did there. */
@@ -37,6 +38,7 @@ export const page = (port: number): string => `http://127.0.0.1:${port}/`;
 export type Child = {
   readonly argv: readonly string[];
   readonly cwd: string | undefined;
+  readonly env: Readonly<Record<string, string>>;
   /** Takes `port`, which it frees as it ends. */
   readonly listen: (port: number) => void;
   /** Writes each line on stdout, all of them in one piece. */
@@ -54,6 +56,8 @@ export type Child = {
 type Spawn = (child: Child, world: World) => void;
 
 export type Ran = { readonly argv: readonly string[]; readonly cwd: string | undefined };
+
+export type Beaten = { readonly port: number; readonly secret: string | null };
 
 /** What the store may hold: the module's records, or a value of no shape it reads. */
 export type Stored = MapRecord | SessionRecord | Selection | { readonly broken: true };
@@ -74,7 +78,8 @@ export type World = {
   readonly clock: MockClock;
   readonly children: Child[];
   readonly runs: Ran[];
-  readonly beats: number[];
+  /** Each heartbeat posted, by port: the secret it carried, `null` for a probe. */
+  readonly beats: Beaten[];
   readonly asked: (readonly string[])[];
   readonly registered: string[];
   readonly contexts: (readonly string[])[];
@@ -195,6 +200,7 @@ function children(on: On, seen: World, spawn: Spawn): void {
     const child: Child = {
       argv: e.argv,
       cwd: e.cwd,
+      env: e.env ?? {},
       listen: (port) => {
         life.port = port;
         seen.servers.set(port, e.argv[2] ?? "");
@@ -266,7 +272,7 @@ export function world(on: On, options: WorldOptions = {}): World {
 
     if (pathname !== "/heartbeat" || e.init?.method !== "POST")
       return { deny: `unexpected ${e.url}` };
-    built.beats.push(Number(port));
+    built.beats.push({ port: Number(port), secret: e.init.headers?.[HEARTBEAT_HEADER] ?? null });
     const folder = built.servers.get(Number(port));
 
     return folder === undefined

@@ -16,6 +16,7 @@ import {
   mapFolders,
   openBrowser,
   pageUrl,
+  probe,
   runScript,
   SCRIPTS,
   start,
@@ -24,10 +25,11 @@ import {
 /**
  * The atlas mod: `/atlas:board [map folder] [draft name]` shows a map folder's page, served by one
  * server per map folder whichever session asks: the first session to ask starts it as its child
- * and beats it; another session that asks joins it and beats it too, and starts its own on the
- * same port once it ends. A server leaves with the session that started it, or a minute after the
- * last beat. The page's selection reaches each session showing that map at its next prompt; the
- * agent reads and answers the map through four tools. `/atlas:stop` ends this session's boards.
+ * and beats it with the server's secret; another session that asks joins it, only probes it, and
+ * starts its own on the same port once it ends. A server leaves with the session that started it,
+ * or a minute after its last beat. The page's selection reaches each session showing that map at
+ * its next prompt; the agent reads and answers the map through four tools. `/atlas:stop` ends
+ * this session's boards.
  */
 
 const BOARD_SKILL = "atlas:board";
@@ -36,7 +38,7 @@ const STOP_SKILL = "atlas:stop";
 
 const CONFIG_FILE = "atlas.config.ts";
 
-/** serve.ts leaves after HEARTBEAT_GRACE_MS (wire.ts) without one: a `claude` killed hard sends no signal. */
+/** serve.ts leaves HEARTBEAT_GRACE_MS (wire.ts) after the last beat carrying its secret. */
 export const HEARTBEAT_MS = 15_000;
 
 /** This many ends of a server this session started, within the window, stop its revivals. */
@@ -300,7 +302,7 @@ export const register: Register = (on) => {
       folder: from.folder,
       port,
       watch: host.repeat(HEARTBEAT_MS, () => {
-        const watched = beat(host, port).then(async (answer) => {
+        const watched = probe(host, port).then(async (answer) => {
           if (holds(joined) && answer?.folder !== from.folder) await revive(host, joined);
         });
 
@@ -327,7 +329,7 @@ export const register: Register = (on) => {
 
     if (!holds(from)) return;
 
-    if (kept !== null && (await beat(host, kept))?.folder === folder) {
+    if (kept !== null && (await probe(host, kept))?.folder === folder) {
       if (holds(from)) join(host, from, kept);
 
       return;
@@ -336,7 +338,7 @@ export const register: Register = (on) => {
     let started = await start(host, folder, kept ?? 0);
 
     if (started.kind === "failed" && kept !== null) {
-      if ((await beat(host, kept))?.folder === folder) {
+      if ((await probe(host, kept))?.folder === folder) {
         if (holds(from)) join(host, from, kept);
 
         return;
@@ -376,7 +378,7 @@ export const register: Register = (on) => {
       child,
       ends,
       heartbeat: host.repeat(HEARTBEAT_MS, () => {
-        void beat(host, child.port);
+        void beat(host, child);
       }),
     };
 

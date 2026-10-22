@@ -3,10 +3,12 @@ import { cpSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { Subprocess } from "bun";
+
 import { MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 import type { Selection } from "./wire.ts";
-import { HEARTBEAT_PATH, SELECTION_PATH } from "./wire.ts";
+import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH, SELECTION_PATH } from "./wire.ts";
 
 const SAMPLE = join(import.meta.dir, "fixtures", "sample");
 
@@ -627,8 +629,137 @@ describe("the hooks module's routes, named by another host", () => {
     const { base, port } = served();
     const host = `rebound.example:${port}`;
     const selected = await select({ ...(await own()), host }, { id: null });
-    const beat = await fetch(`${base}/${HEARTBEAT_PATH}`, { method: "POST", headers: { host } });
+    const beaten = await fetch(`${base}/${HEARTBEAT_PATH}`, { method: "POST", headers: { host } });
 
-    expect([selected.status, beat.status]).toEqual([403, 403]);
+    expect([selected.status, beaten.status]).toEqual([403, 403]);
+  });
+});
+
+// The first line a process prints: a server's address.
+const firstLine = async (stdout: ReadableStream<Uint8Array>, what: string): Promise<string> =>
+  await within(feedOf(chunksOf(stdout, "\n")).next(anything), what);
+
+const SECRET = "the-owner-s-secret";
+
+const GRACE_MS = 1_000;
+
+const SERVE = join(import.meta.dir, "serve.ts");
+
+type Watched = { readonly proc: Subprocess<"ignore", "pipe", "ignore">; readonly base: string };
+
+async function watched(args: readonly string[], env: Record<string, string>): Promise<Watched> {
+  const proc = Bun.spawn([process.execPath, SERVE, dir, "0", ...args], {
+    stdout: "pipe",
+    stderr: "ignore",
+    env: { ...process.env, ...env },
+  });
+
+  return { proc, base: new URL(await firstLine(proc.stdout, "ready line")).origin };
+}
+
+const beat = async (at: string, headers: Record<string, string>): Promise<void> => {
+  await fetch(`${at}/${HEARTBEAT_PATH}`, { method: "POST", headers }).catch(() => {});
+};
+
+const exitsWithin = async (proc: Subprocess, ms: number): Promise<boolean> =>
+  await Promise.race([proc.exited.then(() => true), Bun.sleep(ms).then(() => false)]);
+
+const answers = async (at: string): Promise<boolean> =>
+  await fetch(`${at}/${HEARTBEAT_PATH}`, { method: "POST" }).then(
+    (response) => response.ok,
+    () => false,
+  );
+
+describe("serve.ts --heartbeat", () => {
+  const GRACE = ["--heartbeat", "--grace", String(GRACE_MS)];
+
+  test(
+    "the beat that carries its secret keeps it, and it leaves a grace after the last",
+    async () => {
+      const { proc, base: at } = await watched(GRACE, { [HEARTBEAT_ENV]: SECRET });
+
+      try {
+        for (let beats = 0; beats < 8; beats += 1) {
+          await beat(at, { [HEARTBEAT_HEADER]: SECRET });
+          await Bun.sleep(GRACE_MS / 4);
+        }
+
+        expect(proc.exitCode).toBeNull();
+        expect(await exitsWithin(proc, GRACE_MS * 3)).toBe(true);
+      } finally {
+        proc.kill();
+      }
+    },
+    WAIT_MS,
+  );
+
+  test(
+    "a probe without the secret, as a session that joined it sends, keeps nothing",
+    async () => {
+      const { proc, base: at } = await watched(GRACE, { [HEARTBEAT_ENV]: SECRET });
+
+      const probing = setInterval(() => {
+        void beat(at, {});
+        void beat(at, { [HEARTBEAT_HEADER]: "another secret" });
+      }, 100);
+
+      try {
+        expect(await exitsWithin(proc, GRACE_MS * 3)).toBe(true);
+      } finally {
+        clearInterval(probing);
+        proc.kill();
+      }
+    },
+    WAIT_MS,
+  );
+
+  test(
+    "it leaves once its parent is gone, while the parent's beat would keep it",
+    async () => {
+      const argv = [process.execPath, SERVE, dir, "0", "--heartbeat", "--grace", "4000"];
+
+      // The parent beats with the secret until it dies: only the change of parent can end the
+      // server within the wait below.
+      const code = [
+        `const child = Bun.spawn(${JSON.stringify(argv)}, { stdout: "pipe", stderr: "ignore", env: { ...process.env, ${HEARTBEAT_ENV}: ${JSON.stringify(SECRET)} } });`,
+        "const reader = child.stdout.getReader();",
+        "const { value } = await reader.read();",
+        "const line = new TextDecoder().decode(value).split('\\n')[0];",
+        "console.log(line);",
+        `setInterval(() => fetch(new URL(${JSON.stringify(`/${HEARTBEAT_PATH}`)}, line), { method: "POST", headers: { ${JSON.stringify(HEARTBEAT_HEADER)}: ${JSON.stringify(SECRET)} } }).catch(() => {}), 200);`,
+        "await Bun.sleep(600000);",
+      ].join("\n");
+
+      const parent = Bun.spawn([process.execPath, "-e", code], {
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+
+      const at = new URL(await firstLine(parent.stdout, "the child's address")).origin;
+      await Bun.sleep(1_000);
+
+      expect(await answers(at)).toBe(true);
+
+      parent.kill("SIGKILL");
+      const started = Date.now();
+
+      while ((await answers(at)) && Date.now() - started < 3_000) {
+        await Bun.sleep(100);
+      }
+
+      expect(await answers(at)).toBe(false);
+    },
+    WAIT_MS,
+  );
+
+  test("asks for its secret: without one in its environment it does not start", async () => {
+    const proc = Bun.spawn([process.execPath, SERVE, dir, "0", "--heartbeat"], {
+      stdout: "ignore",
+      stderr: "pipe",
+      env: { ...process.env, [HEARTBEAT_ENV]: "" },
+    });
+
+    expect(await proc.exited).toBe(1);
+    expect(await new Response(proc.stderr).text()).toContain(HEARTBEAT_ENV);
   });
 });

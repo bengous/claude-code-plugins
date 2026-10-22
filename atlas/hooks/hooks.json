@@ -1,4 +1,4 @@
 {
-  "description": "Shows a map folder's page on /atlas:board: one server per map folder, started as a child of the first session that asks and beaten by every session that shows it, joined by the others, taken over when it ends, gone with its session or a minute after the last beat; ends this session's boards on /atlas:stop; hands the page's selection to the next prompt's context; registers the agent's tools atlas_open_points, atlas_reply, atlas_query and atlas_check",
+  "description": "Shows a map folder's page on /atlas:board: one server per map folder, started as a child of the first session that asks, which alone beats it with the server's secret; the other sessions join it, probe it, and start their own on its port once it ends; it leaves with the session that started it, at once when that session's process is gone, or a minute after its last beat; ends this session's boards on /atlas:stop; hands the page's selection to the next prompt's context; registers the agent's tools atlas_open_points, atlas_reply, atlas_query and atlas_check",
   "modules": ["./register.ts"]
 }

@@ -61,8 +61,8 @@ svg.ts               SVG building blocks shared by both drawings
 atlas.html           the page: its styles and its markup, which hold no word and no colour of a map
 serve.ts             serves one map folder's page, rebuilt and reloaded on save, answers
                      libavoid.wasm and threads.json, takes the panel's replies, prints the page's
-                     selections, and with --heartbeat leaves a minute after the last beat
-                     (serve.spec.ts)
+                     selections, and with --heartbeat leaves with its parent process or a minute
+                     after the last beat carrying its secret (serve.spec.ts)
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.spec.ts)
 wire.ts              what crosses between the page, serve.ts and the mod: routes, a selection,
@@ -78,10 +78,12 @@ The mod keeps one server per map folder, whichever session asks. Its store keeps
 `map:<folder>`, the port of that folder's live server, under `session:<id>` the folders a session
 shows (a reload attaches them again), and under `selection:<folder>` the page's last selection,
 which every session showing that map adds to its next prompt's context once. The first session to
-ask spawns `serve.ts --heartbeat` and beats it; another joins it and beats it too, and starts its
-own on the same port once it stops answering. A server that crashes comes back on its port, three
-ends within a minute leave the board lost; a SIGTERM from outside, as Claude Code ends its
-children on exit, revives nothing.
+ask spawns `serve.ts --heartbeat` with a secret of its own in `$ATLAS_HEARTBEAT`, reads its
+stdout, and beats it with that secret; another session joins it and only probes it, so the server
+never outlives the session that reads it: it leaves once its parent process changes (a `claude`
+killed hard) or a minute after the last beat, and a joined session then starts its own on the
+same port. A server that crashes comes back on its port, three ends within a minute leave the
+board lost; a SIGTERM from outside, as Claude Code ends its children on exit, revives nothing.
 
 `package.json` pins the libraries, elkjs (EPL-2.0) and libavoid-js (LGPL-2.1-or-later,
 github.com/Aksem/libavoid-js), and the checkers tsgo, oxlint and oxfmt, as runtime dependencies.

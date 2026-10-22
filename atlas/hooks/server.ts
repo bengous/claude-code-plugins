@@ -12,7 +12,7 @@ import type {
 } from "claude-code";
 
 import type { Beat, Selection } from "../wire.ts";
-import { HEARTBEAT_PATH } from "../wire.ts";
+import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH } from "../wire.ts";
 import { type MapRecord, parseBeat, readyPort, type SessionRecord } from "./parse.ts";
 
 /**
@@ -56,10 +56,16 @@ const STDERR_KEPT = 2_000;
 export type Lines = AsyncGenerator<string, ProcessSpawnResult>;
 
 /**
- * A server this module spawned: its port, the rest of its output, and the way to end it. `end`
- * returns the engine's stream, which kills the child even while a read is pending.
+ * A server this module spawned: its port, the secret only its beat carries, the rest of its
+ * output, and the way to end it. `end` returns the engine's stream, which kills the child even
+ * while a read is pending.
  */
-export type Child = { readonly port: number; readonly lines: Lines; readonly end: () => void };
+export type Child = {
+  readonly port: number;
+  readonly secret: string;
+  readonly lines: Lines;
+  readonly end: () => void;
+};
 
 export type Started = { readonly kind: "started"; readonly child: Child } | Failed;
 
@@ -92,13 +98,15 @@ async function* linesOf(
 }
 
 /**
- * Spawns `serve.ts` for `folder` on `port` (0, a free one) with its heartbeat watchdog, and reads
- * it up to the page's address, for `START_TIMEOUT_MS` at most; a child that gives none is ended.
+ * Spawns `serve.ts` for `folder` on `port` (0, a free one) with its heartbeat watchdog and a
+ * secret of its own, and reads it up to the page's address, for `START_TIMEOUT_MS` at most; a
+ * child that gives none is ended.
  */
 export async function start(host: Host, folder: string, port: number): Promise<Started> {
   const argv = ["bun", `${host.pluginRoot}/serve.ts`, folder, String(port), "--heartbeat"];
+  const secret = crypto.randomUUID();
   const heard = { stderr: "" };
-  const stream = host.spawn({ argv, cwd: folder });
+  const stream = host.spawn({ argv, cwd: folder, env: { [HEARTBEAT_ENV]: secret } });
   const lines = linesOf(stream, heard);
 
   const end = (): void => {
@@ -126,7 +134,7 @@ export async function start(host: Host, folder: string, port: number): Promise<S
 
     const ready = readyPort(first.value);
 
-    if (ready !== null) return { kind: "started", child: { port: ready, lines, end } };
+    if (ready !== null) return { kind: "started", child: { port: ready, secret, lines, end } };
     end();
 
     return { kind: "failed", reason: `its first line is no address: ${first.value.slice(0, 200)}` };
@@ -139,13 +147,26 @@ export async function start(host: Host, folder: string, port: number): Promise<S
   }
 }
 
-/** Beats the server on `port`: the folder it serves, or `null` when nothing there answers as one. */
-export async function beat(host: Host, port: number): Promise<Beat | null> {
+async function heartbeat(
+  host: Host,
+  port: number,
+  headers: Record<string, string>,
+): Promise<Beat | null> {
   const response = await host
-    .fetch(`http://127.0.0.1:${port}/${HEARTBEAT_PATH}`, { method: "POST" })
+    .fetch(`http://127.0.0.1:${port}/${HEARTBEAT_PATH}`, { method: "POST", headers })
     .catch(() => null);
 
   return response?.ok === true ? parseBeat(response.text) : null;
+}
+
+/** Asks the server on `port` what it serves, keeping nothing up: `null` when nothing there answers as one. */
+export function probe(host: Host, port: number): Promise<Beat | null> {
+  return heartbeat(host, port, {});
+}
+
+/** Beats a server this session spawned, with its secret: the beat that keeps it up. */
+export function beat(host: Host, child: Child): Promise<Beat | null> {
+  return heartbeat(host, child.port, { [HEARTBEAT_HEADER]: child.secret });
 }
 
 /** Hands the page's address to the desktop's browser (`open.ts`); the reason when none opened. */

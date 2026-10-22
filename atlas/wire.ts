@@ -6,9 +6,14 @@
 // it changes: `place.node ?? place.zone` in engine.ts, the id the URL's #id holds.
 export const SELECTION_PATH = "selection";
 
-// The module beats a server it started or uses here; serve.ts started with --heartbeat leaves once
-// HEARTBEAT_GRACE_MS pass without a beat, so it outlives no session that used it.
+// The module beats a server it started here, with the secret it gave the server in HEARTBEAT_ENV,
+// under HEARTBEAT_HEADER; a session that joined that server posts here without it, a probe.
+// serve.ts started with --heartbeat leaves HEARTBEAT_GRACE_MS after the last beat.
 export const HEARTBEAT_PATH = "heartbeat";
+
+export const HEARTBEAT_ENV = "ATLAS_HEARTBEAT";
+
+export const HEARTBEAT_HEADER = "x-atlas-heartbeat";
 
 export const HEARTBEAT_GRACE_MS = 60_000;
 

@@ -7,6 +7,7 @@ import type {
 } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
+import { HEARTBEAT_ENV } from "../wire.ts";
 import {
   CWD,
   DRAFT,
@@ -178,14 +179,17 @@ describe("one server per map folder", () => {
     expect(seen.store.get(SESSION_KEY)).toEqual({ folders: [MAP] });
   });
 
-  test("a joined server is beaten too, so it outlives the session that started it no longer than this one", async ($, on) => {
+  test("a joined server is only probed, without a secret: it stays up for the session that started it alone", async ($, on) => {
     const seen = world(on, { stored: new Map([[MAP_KEY, { port: THEIRS }]]) });
     seen.servers.set(THEIRS, MAP);
     await $.skill.prompt(board("docs/map"));
-    const before = seen.beats.length;
     await seen.clock.advance(HEARTBEAT_MS * 2);
 
-    expect(seen.beats.slice(before)).toEqual([THEIRS, THEIRS]);
+    expect(seen.beats).toEqual([
+      { port: THEIRS, secret: null },
+      { port: THEIRS, secret: null },
+      { port: THEIRS, secret: null },
+    ]);
   });
 
   test("a joined server that stops answering is replaced by this session's own, on its port", async ($, on) => {
@@ -218,12 +222,28 @@ describe("one server per map folder", () => {
 });
 
 describe("the server's life", () => {
-  test("the module beats its server", async ($, on) => {
+  test("the module beats its server with the secret it started it with", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(board("docs/map"));
     await seen.clock.advance(HEARTBEAT_MS * 2);
+    const secret = seen.children[0]?.env[HEARTBEAT_ENV] ?? "";
 
-    expect(seen.beats).toEqual([FIRST_PORT, FIRST_PORT]);
+    expect(secret).not.toBe("");
+    expect(seen.beats).toEqual([
+      { port: FIRST_PORT, secret },
+      { port: FIRST_PORT, secret },
+    ]);
+  });
+
+  test("each server it starts has a secret of its own", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(board("docs/map"));
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    const [first, second] = seen.children.map((child) => child.env[HEARTBEAT_ENV]);
+
+    expect(second).not.toBe(first);
   });
 
   test("a server that ends on its own comes back on its port", async ($, on) => {

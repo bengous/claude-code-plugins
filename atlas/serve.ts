@@ -2,6 +2,7 @@
 import type { FSWatcher } from "node:fs";
 import { statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { parseArgs } from "node:util";
 
 import type { BuildArtifact, BunPlugin, Server } from "bun";
 
@@ -9,12 +10,20 @@ import { coalesced } from "./coalesce.ts";
 import { CONFIG_FILE, MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 import type { Beat, Selection, ServerLine } from "./wire.ts";
-import { HEARTBEAT_GRACE_MS, HEARTBEAT_PATH, SELECTION_PATH } from "./wire.ts";
+import {
+  HEARTBEAT_ENV,
+  HEARTBEAT_GRACE_MS,
+  HEARTBEAT_HEADER,
+  HEARTBEAT_PATH,
+  SELECTION_PATH,
+} from "./wire.ts";
 
 // Serves the page of one map folder:
-//   bun atlas/serve.ts <map folder> [port] [--heartbeat]
+//   bun atlas/serve.ts <map folder> [port] [--heartbeat [--grace <ms>]]
 //     prints the page's address once it listens; port 0 or none takes a free one; --heartbeat
-//     leaves once no POST /heartbeat came for HEARTBEAT_GRACE_MS (the hooks module beats it)
+//     leaves once its parent process is gone, or once no POST /heartbeat carrying the secret of
+//     $ATLAS_HEARTBEAT came for the grace (HEARTBEAT_GRACE_MS): the session that started it beats
+//     it, and another that shows it only probes
 // Bun.build bundles the page, atlas:map and atlas:config resolved to the folder's files, and the
 // server answers the outputs from memory. A save in the folder or in the page's sources rebuilds it
 // and, when the page changed, reloads every open tab through a server-sent event. A failed build,
@@ -50,19 +59,40 @@ const same = (a: Bundle, b: Bundle): boolean =>
     ? b.kind === "ok" && a.html === b.html
     : b.kind === "error" && a.message === b.message;
 
-const USAGE = "usage: bun serve.ts <map folder> [port] [--heartbeat]";
-
-const HEARTBEAT_FLAG = "--heartbeat";
+const USAGE = `usage: bun serve.ts <map folder> [port] [--heartbeat [--grace <ms>]], --heartbeat with $${HEARTBEAT_ENV} set`;
 
 const WATCH_MS = 5_000;
 
-const args = process.argv.slice(2);
+const OPTIONS = { heartbeat: { type: "boolean" }, grace: { type: "string" } } as const;
 
-const [dirArg, portArg = "0", ...extra] = args.filter((arg) => arg !== HEARTBEAT_FLAG);
-
-if (dirArg === undefined || extra.length > 0 || !/^\d+$/u.test(portArg)) {
+function usage(): never {
   console.error(USAGE);
   process.exit(1);
+}
+
+const { values: flags, positionals } = (() => {
+  try {
+    return parseArgs({ args: process.argv.slice(2), allowPositionals: true, options: OPTIONS });
+  } catch {
+    return usage();
+  }
+})();
+
+const [dirArg, portArg = "0", ...extra] = positionals;
+
+const secret = process.env[HEARTBEAT_ENV] ?? "";
+
+const grace = flags.grace === undefined ? HEARTBEAT_GRACE_MS : Number(flags.grace);
+
+if (
+  dirArg === undefined ||
+  extra.length > 0 ||
+  !/^\d+$/u.test(portArg) ||
+  !Number.isSafeInteger(grace) ||
+  grace <= 0 ||
+  (flags.heartbeat === true && secret === "")
+) {
+  usage();
 }
 
 const folder = resolve(dirArg);
@@ -391,7 +421,9 @@ async function select(request: Request): Promise<Response> {
 
 let lastBeat = Date.now();
 
-// The module's beat carries no Origin; a page elsewhere, which would, cannot keep the server up.
+// The module's beat carries no Origin; a page elsewhere, which would, is refused. Any beat answers
+// the folder served, a probe; only the secret this server was started with keeps it up, so a
+// session that joined it never outlives the one that started it.
 function heartbeat(request: Request): Response {
   const origin = request.headers.get("origin");
 
@@ -399,17 +431,26 @@ function heartbeat(request: Request): Response {
     return new Response("a heartbeat comes from the hooks module", { status: 403 });
   }
 
-  lastBeat = Date.now();
+  if (secret !== "" && request.headers.get(HEARTBEAT_HEADER) === secret) {
+    lastBeat = Date.now();
+  }
 
   return Response.json({ folder } satisfies Beat);
 }
 
-if (args.includes(HEARTBEAT_FLAG)) {
-  setInterval(() => {
-    if (Date.now() - lastBeat > HEARTBEAT_GRACE_MS) {
-      process.exit(0);
-    }
-  }, WATCH_MS);
+// A parent killed hard sends no signal: the child is handed to another process, which its ppid
+// then names.
+if (flags.heartbeat === true) {
+  const parent = process.ppid;
+
+  setInterval(
+    () => {
+      if (process.ppid !== parent || Date.now() - lastBeat > grace) {
+        process.exit(0);
+      }
+    },
+    Math.min(WATCH_MS, grace / 4),
+  );
 }
 
 async function threads(): Promise<Response> {
