@@ -79,11 +79,14 @@ export type Arrow = {
    * two-headed arrow. A link set directly between the pair names them all.
    */
   readonly label: string;
-  /** The kind shared by its links between two leaves; "flow" when they differ or there are none. */
+  /**
+   * The kind shared by its links between two leaves, or by all its links when none joins two
+   * leaves; "flow" when they differ.
+   */
   readonly kind: ArrowKind;
   /** It stands for both directions: a link of the pair carries `two`. */
   readonly two: boolean;
-  /** The tags of its links between two leaves, each once. */
+  /** The tags of the links its kind is read from, each once. */
   readonly tags: readonly string[];
   /** The indexes in the map's links of the links it stands for, in map order. */
   readonly links: readonly number[];
@@ -183,7 +186,8 @@ type Group = {
 
 function arrowOf(tree: Tree, { from, to, two, members }: Group): Arrow {
   const links = members.map((m) => m.link);
-  const flows = links.filter((l) => isLeaf(tree, l.from) && isLeaf(tree, l.to));
+  const leafward = links.filter((l) => isLeaf(tree, l.from) && isLeaf(tree, l.to));
+  const flows = leafward.length > 0 ? leafward : links;
   const kinds = new Set(flows.map((l): ArrowKind => l.kind ?? "flow"));
   const [kind] = kinds;
 
