@@ -51,6 +51,15 @@ const twoBoxes = (links: readonly Link[]): Tree =>
 const rootArrows = (links: readonly Link[]): readonly Arrow[] =>
   viewOf(twoBoxes(links), null).arrows;
 
+const kindOf = (kinds: ReadonlyArray<Link["kind"]>): string | undefined =>
+  rootArrows(
+    kinds.map((kind, i): Link => {
+      const link = { from: `a${1 + (i % 2)}`, to: `b${1 + (i % 2)}`, label: `l${i}` };
+
+      return kind === undefined ? link : { ...link, kind };
+    }),
+  )[0]?.kind;
+
 describe("the sample's views", () => {
   test("the root: a box per child, outside ones in their side's column, every link lifted", () => {
     expect(viewOf(sample, null)).toEqual({
@@ -432,6 +441,39 @@ describe("a pair's arrows", () => {
     ]);
 
     expect(arrows.map((a) => pair(a))).toEqual(["A → B"]);
+  });
+
+  test("kind and tags come from the links between two leaves, not from a container link", () => {
+    const [only] = rootArrows([
+      { from: "A", to: "B", label: "named", tags: ["t9"] },
+      { from: "a1", to: "b1", label: "f", kind: "dash", tags: ["t1"] },
+    ]);
+
+    expect(only).toMatchObject({ label: "named", kind: "dash", tags: ["t1"] });
+  });
+
+  test("an arrow made of container links alone keeps their kind and tags", () => {
+    const [only] = rootArrows([{ from: "A", to: "B", label: "named", kind: "dash", tags: ["t2"] }]);
+
+    expect(only).toMatchObject({ label: "named", kind: "dash", tags: ["t2"] });
+  });
+
+  test("links of one kind keep it; mixed kinds draw a plain flow, whichever comes first", () => {
+    expect(kindOf(["dash", "dash"])).toBe("dash");
+    expect(kindOf(["deny", "deny"])).toBe("deny");
+    expect(kindOf(["dash", undefined])).toBe("flow");
+    expect(kindOf(["deny", "dash"])).toBe("flow");
+  });
+
+  test("the label keeps each distinct label once, the first two", () => {
+    const [only] = rootArrows([
+      { from: "a1", to: "b1", label: "x" },
+      { from: "a2", to: "b2", label: "x" },
+      { from: "a1", to: "b2", label: "y" },
+      { from: "a2", to: "b1", label: "z" },
+    ]);
+
+    expect(only?.label).toBe("x · y");
   });
 
   test("a pair joined both ways without two keeps two one-headed arrows", () => {
