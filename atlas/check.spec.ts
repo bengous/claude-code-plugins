@@ -1,113 +1,154 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import type { Lang, Node } from "./atlas.ts";
+import type { AtlasMap, Lang, Link, Node } from "./atlas.ts";
 import { checkMap, validate } from "./check.ts";
-import { THREADS_FILE, loadFolder, planOf } from "./folder.ts";
-import type { Brick, Plan } from "./model.ts";
+import { drawableOf } from "./drawable.ts";
+import { DEEP } from "./fixtures/trees.ts";
+import { THREADS_FILE, loadFolder } from "./folder.ts";
 import { settingsOf } from "./settings.ts";
+import { treeOf } from "./tree.ts";
 
 const SAMPLE = join(import.meta.dir, "fixtures", "sample");
 
-const PLAN = await planOf(SAMPLE);
-
 const { map: MAP, config: CONFIG } = await loadFolder(SAMPLE);
+
+const TREE = treeOf(MAP);
 
 const SETTINGS = settingsOf(CONFIG);
 
 const THREADS: unknown = await Bun.file(join(SAMPLE, THREADS_FILE)).json();
 
-const withOpen = (id: string, text: string): Plan => ({
-  ...PLAN,
-  nodes: PLAN.nodes.map((n): Brick =>
-    n.id === "browser" ? { ...n, info: { ...n.info, open: [{ id, text }] } } : n,
-  ),
+const edit = (node: Node, change: (n: Node) => Node): Node => {
+  const changed = change(node);
+
+  return changed.children === undefined
+    ? changed
+    : { ...changed, children: changed.children.map((c) => edit(c, change)) };
+};
+
+const withNode = (map: AtlasMap, id: string, change: (n: Node) => Node): AtlasMap => ({
+  ...map,
+  root: {
+    ...map.root,
+    children: map.root.children.map((c) => edit(c, (n) => (n.id === id ? change(n) : n))),
+  },
 });
 
+const withLinks = (map: AtlasMap, change: (l: Link) => Link): AtlasMap => ({
+  ...map,
+  links: map.links.map(change),
+});
+
+const withOpen = (id: string, text: string): AtlasMap =>
+  withNode(MAP, "browser", (n) => ({ ...n, open: [{ id, text }] }));
+
+const errorsOf = (map: AtlasMap, settings = SETTINGS): string[] =>
+  validate(treeOf(map), settings, {});
+
 describe("validate", () => {
-  test("the plan itself is valid", () => {
-    expect(validate(PLAN, SETTINGS, THREADS)).toEqual([]);
+  test("the sample is valid, and so is a map five levels deep", () => {
+    expect(validate(TREE, SETTINGS, THREADS)).toEqual([]);
+    expect(
+      validate(
+        treeOf(DEEP),
+        settingsOf({ ...CONFIG, tags: { names: ["t1"], outside: "optional" } }),
+        {},
+      ),
+    ).toEqual([]);
   });
 
-  test("a coupling to a brick that does not exist is rejected", () => {
-    const nodes = PLAN.nodes.map((n) =>
-      n.id === "browser" ? { ...n, couples: ["no-such-brick"] } : n,
-    );
-
-    expect(validate({ ...PLAN, nodes }, SETTINGS, {})).toContain(
-      "brick browser: couples unknown brick no-such-brick",
-    );
+  test("a brief on a leaf is rejected", () => {
+    expect(errorsOf(withNode(MAP, "browser", (n) => ({ ...n, brief: ["x"] })))).toEqual([
+      "node browser: brief is for a node with children",
+    ]);
   });
 
-  test("an overview label that no brick arrow backs is rejected", () => {
-    const edges = PLAN.edges.map((e) =>
-      e.from === "z:app" && e.to === "email" ? { ...e, to: "browser" } : e,
-    );
+  test("a tour that misses a node with children, or names a leaf, is rejected", () => {
+    const tour = ["clients", "server", "app", "db"];
 
-    expect(validate({ ...PLAN, edges }, SETTINGS, {})).toContain(
-      "overview label z:app → browser: no brick arrow joins these boxes in that direction",
-    );
+    expect(errorsOf({ ...MAP, root: { ...MAP.root, tour } })).toEqual([
+      "tour lists db, which is no node with children",
+      "tour misses data, a node with children",
+    ]);
   });
 
-  const untagged = PLAN.edges.map((e) =>
-    e.from === "orders" && e.to === "email" ? { from: e.from, to: e.to, label: e.label } : e,
+  const untagged = withLinks(MAP, (l) =>
+    l.from === "orders" && l.to === "email" ? { from: l.from, to: l.to, label: l.label } : l,
   );
 
-  test("an arrow into a third-party service without its tags is rejected when the tags require them", () => {
-    expect(validate({ ...PLAN, edges: untagged }, SETTINGS, {})).toContain(
-      "arrow orders → email: an arrow into a third-party service names its tags",
+  test("a link into a third-party service without its tags is rejected when the tags require them", () => {
+    expect(errorsOf(untagged)).toContain(
+      "link orders → email: a link into a third-party service names its tags",
     );
   });
 
-  test("an arrow into a third-party service without tags passes when the tags do not require them", () => {
+  test("a link into a third-party service without tags passes when the tags do not require them", () => {
     const optional = { ...SETTINGS, tags: { ...SETTINGS.tags, outside: "optional" as const } };
 
-    expect(validate({ ...PLAN, edges: untagged }, optional, {})).toEqual([]);
+    expect(errorsOf(untagged, optional)).toEqual([]);
+  });
+
+  test("a link into an outside container, or into an outside leaf on the left, needs no tag", () => {
+    const left = withLinks(MAP, (l) =>
+      l.from === "browser" && l.to === "proxy"
+        ? { from: "proxy", to: "browser", label: "pages" }
+        : l,
+    );
+
+    expect(errorsOf(left)).toEqual([]);
   });
 
   test("a tag outside the config's tags is rejected", () => {
-    const edges = PLAN.edges.map((e) =>
-      e.from === "orders" && e.to === "email" ? { ...e, data: ["order", "invoice"] } : e,
+    const tagged = withLinks(MAP, (l) =>
+      l.from === "orders" && l.to === "email" ? { ...l, tags: ["order", "invoice"] } : l,
     );
 
-    expect(validate({ ...PLAN, edges }, SETTINGS, {})).toEqual([
-      "arrow orders → email: tag invoice is not in the config's tags",
+    expect(errorsOf(tagged)).toEqual([
+      "link orders → email: tag invoice is not in the config's tags",
     ]);
   });
 
   test("a map whose config lists no tags refuses every tag", () => {
     const { tags: _, ...tagless } = CONFIG;
 
-    expect(validate(PLAN, settingsOf(tagless), {})).toEqual([
-      "arrow orders → email: tag account is not in the config's tags",
-      "arrow orders → email: tag order is not in the config's tags",
+    expect(errorsOf(MAP, settingsOf(tagless))).toEqual([
+      "link orders → email: tag account is not in the config's tags",
+      "link orders → email: tag order is not in the config's tags",
     ]);
   });
 
-  test("a tour that misses a node with children is rejected", () => {
-    const zoneOrder = PLAN.zoneOrder.filter((id) => id !== "data");
-    expect(validate({ ...PLAN, zoneOrder }, SETTINGS, {})).toContain(
-      "tour misses data, a node with children",
-    );
-  });
+  test("an unknown id in see, seams or traps is rejected on the root and on any node", () => {
+    const root = { ...MAP, root: { ...MAP.root, seams: [["nowhere", "x"]] as const } };
 
-  test("a tour that names a leaf is rejected", () => {
-    const zoneOrder = [...PLAN.zoneOrder, "db"];
-    expect(validate({ ...PLAN, zoneOrder }, SETTINGS, {})).toContain(
-      "tour lists db, which is no node with children",
-    );
+    expect(errorsOf(root)).toEqual(["root: seams unknown id nowhere"]);
+
+    const node = withNode(MAP, "db", (n) => ({ ...n, traps: [["gone", "x"]], see: ["lost"] }));
+
+    expect(errorsOf(node)).toEqual([
+      "node db: see unknown id lost",
+      "node db: traps unknown id gone",
+    ]);
   });
 
   test("an open id used twice is rejected", () => {
-    expect(validate(withOpen("backup-restore-untested", "Un état."), SETTINGS, {})).toContain(
-      "brick backup: open point backup-restore-untested: duplicate open id",
+    expect(errorsOf(withOpen("backup-restore-untested", "Un état."))).toContain(
+      "leaf backup: open point backup-restore-untested: duplicate open id",
     );
   });
 
   test("an open id that is not kebab-case is rejected", () => {
-    expect(validate(withOpen("Browser_Open", "Un état."), SETTINGS, {})).toContain(
-      "brick browser: open point Browser_Open: the id must be kebab-case",
+    expect(errorsOf(withOpen("Browser_Open", "Un état."))).toContain(
+      "leaf browser: open point Browser_Open: the id must be kebab-case",
     );
+  });
+
+  test("a container's open point names it as a container", () => {
+    const container = withNode(MAP, "data", (n) => ({ ...n, open: [{ id: "Data", text: "x" }] }));
+
+    expect(errorsOf(container)).toEqual([
+      "container data: open point Data: the id must be kebab-case",
+    ]);
   });
 
   const STEPS = settingsOf({
@@ -123,61 +164,50 @@ describe("validate", () => {
     ["Sauvegarde Bientôt écrite.", "Bientôt"],
     ["Réglé après l'étape de la CI.", "après l'étape"],
   ])("an open point matching the config's step words is rejected: %s", (text, word) => {
-    expect(validate(withOpen("browser-step", text), STEPS, {})).toContain(
-      `brick browser: open point browser-step: "${word}" names a step; an open point describes a state`,
+    expect(errorsOf(withOpen("browser-step", text), STEPS)).toContain(
+      `leaf browser: open point browser-step: "${word}" names a step; an open point describes a state`,
     );
   });
 
   test("a state that only looks like a step word passes", () => {
     expect(
-      validate(
+      errorsOf(
         withOpen("browser-state", "La migration 0026 reste en A10 et en I12, imprévu."),
         STEPS,
-        {},
       ),
     ).toEqual([]);
   });
 
   test("a step word with a g flag finds its word in every open point", () => {
-    const nodes = PLAN.nodes.map((n): Brick =>
-      n.id === "browser" || n.id === "proxy"
-        ? { ...n, info: { ...n.info, open: [{ id: `${n.id}-step`, text: "Réglé en F2a." }] } }
-        : n,
-    );
+    const twice = withNode(withOpen("browser-step", "Réglé en F2a."), "proxy", (n) => ({
+      ...n,
+      open: [{ id: "proxy-step", text: "Réglé en F2a." }],
+    }));
 
-    expect(
-      validate({ ...PLAN, nodes }, settingsOf({ ...CONFIG, stepWords: [/F2a/gu] }), {}),
-    ).toEqual([
-      'brick browser: open point browser-step: "F2a" names a step; an open point describes a state',
-      'brick proxy: open point proxy-step: "F2a" names a step; an open point describes a state',
+    expect(errorsOf(twice, settingsOf({ ...CONFIG, stepWords: [/F2a/gu] }))).toEqual([
+      'leaf browser: open point browser-step: "F2a" names a step; an open point describes a state',
+      'leaf proxy: open point proxy-step: "F2a" names a step; an open point describes a state',
     ]);
   });
 
   test("without step words in the config, no text names a step", () => {
-    expect(validate(withOpen("browser-step", "Rotation prévue en F2a."), SETTINGS, {})).toEqual([]);
+    expect(errorsOf(withOpen("browser-step", "Rotation prévue en F2a."))).toEqual([]);
   });
 
   test("a thread under an unknown open id is rejected", () => {
-    expect(validate(PLAN, SETTINGS, { "no-such-point": [{ who: "agent", text: "x" }] })).toContain(
+    expect(validate(TREE, SETTINGS, { "no-such-point": [{ who: "agent", text: "x" }] })).toContain(
       "threads.json: thread for unknown open id no-such-point",
     );
   });
 
   test("a who outside the enumeration is rejected", () => {
     expect(
-      validate(PLAN, SETTINGS, { "backup-restore-untested": [{ who: "codex", text: "x" }] }),
+      validate(TREE, SETTINGS, { "backup-restore-untested": [{ who: "codex", text: "x" }] }),
     ).toContain(
       'threads.json backup-restore-untested[0]: who must be one of human, agent, got "codex"',
     );
   });
 });
-
-const pinkBrowser = (n: Node): Node =>
-  n.id === "browser"
-    ? { ...n, color: "pink" }
-    : n.children === undefined
-      ? n
-      : { ...n, children: n.children.map(pinkBrowser) };
 
 describe("checkMap", () => {
   test("the sample map folder is valid", () => {
@@ -185,11 +215,23 @@ describe("checkMap", () => {
   });
 
   test("a colour that is not a key of the palette is refused", () => {
-    const root = { ...MAP.root, children: MAP.root.children.map(pinkBrowser) };
+    expect(
+      checkMap(
+        withNode(MAP, "browser", (n) => ({ ...n, color: "pink" })),
+        CONFIG,
+        THREADS,
+      ),
+    ).toEqual(["node browser: color pink is not in the palette"]);
+  });
 
-    expect(checkMap({ ...MAP, root }, CONFIG, THREADS)).toEqual([
-      "node browser: color pink is not in the palette",
-    ]);
+  test("a tree no view can show is refused with its reason", () => {
+    expect(
+      checkMap(
+        withNode(MAP, "catalog", (n) => ({ ...n, id: "web" })),
+        CONFIG,
+        THREADS,
+      ),
+    ).toEqual(["node web: a second node has this id"]);
   });
 
   test("a language the dictionary does not hold is refused", () => {
@@ -199,13 +241,38 @@ describe("checkMap", () => {
     ]);
   });
 
+  test("a palette key that cannot name a CSS custom property is refused", () => {
+    const palette = { ...CONFIG.palette, "light blue": { light: "#00f", dark: "#88f" } };
+
+    expect(checkMap(MAP, { ...CONFIG, palette }, THREADS)).toEqual([
+      'palette key "light blue": a key is letters, digits, - and _',
+    ]);
+  });
+
+  test("a container in both side columns is refused: only a leaf is drawn twice", () => {
+    const both = withNode(MAP, "clients", (n) => ({ ...n, side: "both" }));
+
+    expect(checkMap(both, CONFIG, THREADS)).toEqual([
+      'node clients: side "both" is for an outside leaf',
+    ]);
+  });
+
   test("a tag outside the config's tags is refused", () => {
     const links = MAP.links.map((l) =>
       l.to === "email" && l.tags !== undefined ? { ...l, tags: ["parcel"] } : l,
     );
 
     expect(checkMap({ ...MAP, links }, CONFIG, THREADS)).toEqual([
-      "arrow orders → email: tag parcel is not in the config's tags",
+      "link orders → email: tag parcel is not in the config's tags",
     ]);
+  });
+});
+
+describe("drawableOf", () => {
+  test("answers the tree and the settings of a drawable map", () => {
+    const { tree, settings } = drawableOf(MAP, CONFIG);
+
+    expect([...tree.nodes.keys()]).toEqual([...TREE.nodes.keys()]);
+    expect(settings).toEqual(SETTINGS);
   });
 });

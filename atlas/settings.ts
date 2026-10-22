@@ -1,7 +1,10 @@
 import type { Config, Lang, LegendKey, Pins, Swatch, Tags } from "./atlas.ts";
-import { PlanError } from "./model.ts";
 import type { Words } from "./words.ts";
 import { WORDS } from "./words.ts";
+
+// Why a Config, or a map against its Config, cannot be drawn: settingsOf and drawableOf throw it,
+// check.ts reports it.
+export class ConfigError extends Error {}
 
 // A map's Config with every default filled in: what the engine reads instead of the Config.
 export type Settings = {
@@ -62,12 +65,12 @@ const COLOR_FORMS = "#hex, or rgb(), hsl(), hwb(), lab(), lch(), oklab() or oklc
 function checkPalette(palette: Config["palette"]): void {
   for (const [key, swatch] of Object.entries(palette)) {
     if (!PALETTE_KEY.test(key)) {
-      throw new PlanError(`palette key "${key}": a key is letters, digits, - and _`);
+      throw new ConfigError(`palette key "${key}": a key is letters, digits, - and _`);
     }
 
     for (const shade of ["light", "dark"] as const) {
       if (!COLOR.test(swatch[shade])) {
-        throw new PlanError(
+        throw new ConfigError(
           `palette ${key}.${shade}: "${swatch[shade]}" is not a colour: ${COLOR_FORMS}, with three components and an optional alpha`,
         );
       }
@@ -82,7 +85,7 @@ export function settingsOf(config: Config): Settings {
   const lang = config.lang ?? "en";
 
   if (!Object.hasOwn(WORDS, lang)) {
-    throw new PlanError(
+    throw new ConfigError(
       `lang "${lang}": the page's words exist in ${Object.keys(WORDS).join(", ")}`,
     );
   }
@@ -91,7 +94,7 @@ export function settingsOf(config: Config): Settings {
   const ratio = config.overview?.ratio ?? "screen";
 
   if (ratio !== "screen" && !(Number.isFinite(ratio) && ratio > 0)) {
-    throw new PlanError(`overview ratio ${ratio}: "screen", or a width / height above 0`);
+    throw new ConfigError(`overview ratio ${ratio}: "screen", or a width / height above 0`);
   }
 
   const words = WORDS[lang];

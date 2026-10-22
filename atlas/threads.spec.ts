@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 
-import { planOf } from "./folder.ts";
+import SAMPLE from "./fixtures/sample/map.ts";
+import { DEEP } from "./fixtures/trees.ts";
 import { appendEntry, firstLine, openItems, readThreads, waitsFor } from "./threads.ts";
+import { treeOf } from "./tree.ts";
 
-const PLAN = await planOf(join(import.meta.dir, "fixtures", "sample"));
+const sample = treeOf(SAMPLE);
 
 describe("open points", () => {
   test("every open point has a unique id and a text", () => {
-    const items = openItems(PLAN);
+    const items = openItems(sample);
     expect(items.length).toBeGreaterThan(0);
     expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
 
@@ -17,15 +18,31 @@ describe("open points", () => {
     }
   });
 
-  test("a zone's open point names the zone as its owner", () => {
-    const zones = PLAN.zones.map((z) =>
-      z.id === "data"
-        ? { ...z, info: { ...z.info, open: [{ id: "data-state", text: "Un état." }] } }
-        : z,
-    );
-
-    const item = openItems({ ...PLAN, zones }).find((i) => i.id === "data-state");
-    expect(item).toMatchObject({ owner: "data", kind: "zone" });
+  test("each point names its owner, a container or a leaf, in tree order", () => {
+    expect(openItems(treeOf(DEEP))).toEqual([
+      {
+        id: "a11-open",
+        text: "a11-open is unsettled",
+        owner: "A11",
+        ownerLabel: "A11",
+        kind: "container",
+      },
+      { id: "a1-open", text: "a1-open is unsettled", owner: "a1", ownerLabel: "a1", kind: "leaf" },
+      {
+        id: "b1-first",
+        text: "b1-first is unsettled",
+        owner: "b1",
+        ownerLabel: "b1",
+        kind: "leaf",
+      },
+      {
+        id: "b1-second",
+        text: "b1-second is unsettled",
+        owner: "b1",
+        ownerLabel: "b1",
+        kind: "leaf",
+      },
+    ]);
   });
 
   test("the first line drops tags and decodes entities", () => {

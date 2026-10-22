@@ -1,18 +1,14 @@
-import type { Graph } from "./graph.ts";
-import type { Brick } from "./model.ts";
+import type { Size } from "./geometry.ts";
 import { el } from "./svg.ts";
 
-// Every box is sized from its text, measured on hidden <text> elements that
-// carry the same class as the drawn text. TEXT and TITLE repeat the font
-// sizes that atlas.html sets on those classes: change one, change the
-// other, or text overflows its box.
-// Trap: measure outside #map. Inside it, Chrome lays text out at the zoom of
-// that moment and rounds the font size there: the same 112-unit label
-// measured 70.8 at the zoom of the first layout (before the view is framed)
-// and 132.6 at the overview's zoom, so boxes overflowed at random. The
-// measuring SVG has no viewBox, so it measures at scale 1, always;
-// atlas.html sets text-rendering: geometricPrecision on SVG text, which
-// keeps drawn text at its measured width at every zoom.
+// Every box is sized from its text, measured on hidden <text> elements that carry the same class
+// as the drawn text. The sizes below repeat the font sizes atlas.html sets on those classes:
+// change one, change the other, or text overflows its box.
+// Trap: measure outside #map. Inside it, Chrome lays text out at the zoom of that moment and rounds
+// the font size there: the same 112-unit label measured 70.8 at the zoom of the first layout and
+// 132.6 at the root view's zoom, so boxes overflowed at random. The measuring SVG has no viewBox,
+// so it measures at scale 1, always; atlas.html sets text-rendering: geometricPrecision on SVG
+// text, which keeps drawn text at its measured width at every zoom.
 const measSvg = el(
   "svg",
   {
@@ -34,91 +30,59 @@ export function textWidth(content: string, cls: string): number {
   return probe.getComputedTextLength();
 }
 
-export type TextStyle = {
-  readonly lbl: string;
-  readonly sub: string;
-  readonly ls: number;
-  readonly ss: number;
-  readonly lh: number;
-  readonly padX: number;
-  readonly padY: number;
+/** A leaf's card: its label, then its subtitle lines. */
+export const CARD = {
+  lbl: "card-lbl",
+  sub: "card-sub",
+  ls: 20,
+  ss: 11,
+  lh: 14,
+  padX: 24,
+  padY: 16,
 };
 
-const BRICK: TextStyle = {
-  lbl: "b-lbl",
-  sub: "b-sub",
-  ls: 15,
-  ss: 7.8,
-  lh: 9.8,
-  padX: 20,
-  padY: 15,
-};
+/** A child named inside a container's box. */
+export const CHIP = { cls: "chip-t", h: 34, gap: 9, pad: 13, maxW: 560 };
 
-const EXT: TextStyle = { lbl: "x-lbl", sub: "x-sub", ls: 19, ss: 10, lh: 12.5, padX: 34, padY: 24 };
+/** A container's box: its title and tag above its chips. Titles are uppercase through CSS, so the
+ * measure uppercases them too, and 1.06 covers their letter-spacing. */
+export const BOX = { title: "box-title", tag: "box-tag", padX: 20, top: 80, bottom: 20 };
 
-export const textOf = (n: Brick): TextStyle => (n.zone === null ? EXT : BRICK);
+/** A ghost's pill. */
+export const GHOST = { cls: "ghost-t", h: 52, pad: 22 };
 
-export const subLines = (n: Brick): string[] => (n.sub === "" ? [] : n.sub.split("\n"));
+/** An arrow's label. */
+export const LABEL = { cls: "flow-label", h: 17, pad: 8 };
 
-// The height of a card's text block: its label, then its subtitle lines.
-export const textHeight = (t: TextStyle, lines: number): number =>
-  t.ls + (lines > 0 ? 5 + lines * t.lh : 0);
+export const subLines = (sub: string): string[] => (sub === "" ? [] : sub.split("\n"));
 
-export type Size = { readonly w: number; readonly h: number };
+export const textHeight = (lines: number): number =>
+  CARD.ls + (lines > 0 ? 5 + lines * CARD.lh : 0);
 
-export function cardSize(n: Brick): Size {
-  const t = textOf(n);
-  const lines = subLines(n);
+export function cardSize(label: string, sub: string): Size {
+  const lines = subLines(sub);
 
   return {
     w: Math.ceil(
-      Math.max(textWidth(n.label, t.lbl), ...lines.map((l) => textWidth(l, t.sub))) + t.padX,
+      Math.max(textWidth(label, CARD.lbl), ...lines.map((l) => textWidth(l, CARD.sub))) + CARD.padX,
     ),
-    h: Math.ceil(textHeight(t, lines.length) + t.padY),
+    h: Math.ceil(textHeight(lines.length) + CARD.padY),
   };
 }
 
-// Zone titles: the overview uses larger type (k = 1.3) than the detail. The
-// titles are uppercase through CSS, so the measure uppercases them too, and
-// 1.06 covers their letter-spacing.
-export type Level = "dt" | "ov";
+export const tagOf = (sub: string): string => sub.replaceAll("\n", " · ");
 
-export type TitleStyle = {
-  readonly big: string;
-  readonly title: string;
-  readonly tag: string;
-  readonly k: number;
-};
+export const titleWidth = (label: string, sub: string): number =>
+  Math.max(textWidth(label.toUpperCase(), BOX.title) * 1.06, textWidth(tagOf(sub), BOX.tag)) + 32;
 
-export const TITLE = {
-  dt: { big: "z-big", title: "z-title", tag: "z-tag", k: 1 },
-  ov: { big: "ov-big", title: "ov-title", tag: "ov-tag", k: 1.3 },
-} satisfies Record<Level, TitleStyle>;
+export const labelSize = (label: string): Size => ({
+  w: Math.ceil(textWidth(label, LABEL.cls)) + LABEL.pad,
+  h: LABEL.h,
+});
 
-export function titleWidth(graph: Graph, zid: string, level: Level): number {
-  const z = graph.zone(zid);
-  const t = TITLE[level];
-
-  return graph.nestsZone(zid)
-    ? textWidth(z.title.toUpperCase(), t.big) * 1.06 + textWidth(z.tag, t.tag) + 70 * t.k
-    : Math.max(textWidth(z.title.toUpperCase(), t.title) * 1.06, textWidth(z.tag, t.tag)) +
-        32 * t.k;
-}
-
-// A fingerprint of the measured fonts: engine.ts lays out again when a font
-// that arrives late changes it.
+// A fingerprint of the measured fonts: engine.ts lays out again when a font that arrives late
+// changes it.
 export const fontKey = (): string =>
-  [
-    "b-lbl",
-    "b-sub",
-    "x-lbl",
-    "z-big",
-    "z-title",
-    "ov-big",
-    "ov-title",
-    "ov-chip-t",
-    "ov-label",
-    "elabel",
-  ]
+  [CARD.lbl, CARD.sub, CHIP.cls, BOX.title, BOX.tag, GHOST.cls, LABEL.cls]
     .map((c) => textWidth("Mg Wq 0123", c).toFixed(1))
     .join(",");

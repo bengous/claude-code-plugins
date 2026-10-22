@@ -1,8 +1,8 @@
 import { join, resolve } from "node:path";
 
-import { toPlan } from "./adapter.ts";
 import type { AtlasMap, Config } from "./atlas.ts";
-import type { Plan } from "./model.ts";
+import { drawableOf } from "./drawable.ts";
+import type { Tree } from "./tree.ts";
 
 // A map folder holds a map's data and nothing of the engine: map.ts, whose default export is the
 // AtlasMap, atlas.config.ts, whose default export is its Config, and threads.json. The data imports
@@ -37,19 +37,12 @@ export async function loadFolder(dir: string): Promise<Folder> {
   return { map: map.default, config: config.default };
 }
 
-export async function planOf(dir: string): Promise<Plan> {
-  const { map, config } = await loadFolder(dir);
-
-  return toPlan(map, config);
-}
-
-// What the page names each zone and brick by, by id: the map's own text, the only ids a selection
-// the page posts may name.
-export function labelsOf(plan: Plan): Record<string, string> {
-  return Object.fromEntries([
-    ...plan.zones.map((zone): [string, string] => [zone.id, zone.title]),
-    ...plan.nodes.map((node): [string, string] => [node.id, node.label]),
-  ]);
+// What the page names each node by, by id: the map's own text, the only ids a selection the page
+// posts may name.
+export function labelsOf(tree: Tree): Record<string, string> {
+  return Object.fromEntries(
+    [...tree.nodes.values()].map((node): [string, string] => [node.id, node.label]),
+  );
 }
 
 // The map's code shares this process's stdout and may print to it: the labels' line is marked.
@@ -67,7 +60,8 @@ if (import.meta.main) {
   }
 
   try {
-    console.log(`${LABELS_LINE}${JSON.stringify(labelsOf(await planOf(resolve(dir))))}`);
+    const { map, config } = await loadFolder(resolve(dir));
+    console.log(`${LABELS_LINE}${JSON.stringify(labelsOf(drawableOf(map, config).tree))}`);
   } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

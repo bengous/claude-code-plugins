@@ -4,8 +4,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>atlas</title>
 <!--
-  The page of the atlas engine: an architecture map on two levels. The
-  engine's files and traps: atlas/AGENTS.md.
+  The page of the atlas engine: an architecture map, one container's view at
+  a time, at any depth. The engine's files and traps: atlas/AGENTS.md.
 
   The markup holds no word and no colour of a map: engine.ts writes the
   title, the subtitle, the page's own words (words.ts, in the Config's
@@ -23,36 +23,40 @@
   Addresses and secrets are left out on purpose: no IP, no secret value.
 
   How the map works:
-  - No position or size is written anywhere: at load time ELK (elkjs) lays
-    out the boxes and libavoid routes the overview's arrows. Nothing overlaps.
-  - Overview, where the page opens: every zone as a box listing its bricks by
-    name, nested as the zones nest and packed by ELK; the ext zones and the
-    services outside every zone stand in a column on each side, by their
-    `side`; one arrow per pair of boxes, routed around every box.
-  - Detail: every brick with its subtitle and every arrow with its label and
-    tags, laid out by ELK one zone at a time. Clicking a zone or a
-    brick moves the camera into it in one step, the two levels cross-fading
-    on the way; Escape, the breadcrumb or a click on the empty sheet go back.
-    There is no free zoom or drag: the camera only follows navigation
-    (machine.ts). A zone that holds sub-zones frames its own bricks; its
-    sub-zones are one click away.
-  - Clicking a brick selects it, lights its arrows and outlines its
-    couplings. Couplings are symmetric: listing B in A's `couples` also
-    outlines A when B is selected. A service outside every zone is selected
-    on the overview.
-  - The panel on the right shows the selected node's panel fields (Panel in
-    atlas.ts), or the root's on the overview.
-  - A bare #id in the link (zone or brick id) opens the page on it.
-  - The legend shows a line for each arrow kind and node mark the map uses,
+  - No position or size is written anywhere: ELK (elkjs) lays each view out
+    when the reader reaches it, and libavoid routes its arrows. Nothing
+    overlaps.
+  - A view shows the children of the open container: a container child as a
+    box listing its own children as chips, a leaf child as a card with its
+    subtitle. The page opens on the root's view, where an outside child
+    stands in the column of its `side`. One arrow per pair of boxes, each
+    link's ends lifted to the boxes that hold them; the links that leave the
+    open container bring their other end as a ghost at the edge, on the left
+    when the arrow comes from it, on the right when it goes to it. A view of
+    leaves alone is laid out left to right with every arrow's label and tags.
+  - Clicking a box enters it: the camera carries the reader from the box
+    into the child's view, the two cross-fading on the way; Escape, the
+    breadcrumb or a click on the empty sheet go up one level (Escape first
+    deselects). There is no free zoom or drag: the camera only follows
+    navigation (navigation.ts, camera.ts).
+  - Clicking a card, a ghost or a chip selects it, lights its arrows and
+    outlines its couplings, lifted to the boxes and ghosts of the view.
+    Couplings are symmetric: listing B in A's `couples` also outlines A when
+    B is selected.
+  - The panel on the right renders the fields of the selection, or of the
+    open container.
+  - A bare #id in the link opens the page on it: a container's view, or a
+    leaf's parent's view with the leaf selected.
+  - The legend shows a line for each arrow kind and node mark the view uses,
     labelled by the Config's `legend` or the dictionary.
-  - Open points: a zone or brick with an `open` entry carries a dot on both
-    levels. The header button, with their count, lists them all, with the
-    party each waits for; a row opens its zone or brick. The panel shows
-    each point's id, text and thread, and a one-line reply form that posts to
-    serve.ts as human, with the token serve.ts wrote into the page: the
-    server refuses a write from any other page. The page reads threads.json
-    again when its window regains focus, so a reply from the terminal shows
-    up.
+  - Open points: a node with an `open` entry carries a badge counting the
+    open points of its subtree, as does every box and chip that holds it. The
+    header button, with their count, lists them all, with the party each
+    waits for; a row opens its node. The panel shows each point's id, text
+    and thread, and a one-line reply form that posts to serve.ts as human,
+    with the token serve.ts wrote into the page: the server refuses a write
+    from any other page. The page reads threads.json again when its window
+    regains focus, so a reply from the terminal shows up.
 
   Open points and threads (the field notes are on the types of atlas.ts):
   - An open point is { id, text } in a node's `open`; its thread is the list
@@ -81,33 +85,33 @@
     and threads.json over the map's and deletes the draft, or with --drop
     deletes it. --adopt refuses while the map's own copies of those files
     differ from those the draft started from.
-  - Add a brick: a node without `children` in the `children` of its zone
+  - Add a leaf: a node without `children` in the `children` of its container
     (map.ts); then its links (with `tags` from the Config's list, required
     when the link enters a third-party service and the Config says so) and
     its `couples`.
-  - Retire a brick: delete its node, its links, and its id from every
-    `couples`, `see`, `seams` and `traps` list (check finds leftovers).
-  - Add a zone: a node with `children` in the `children` of its parent; the
-    zone tour follows the tree, unless the root lists a `tour`.
-  - Name an overview arrow: a link with a zone on one end or both, in the
-    `links` of map.ts.
+  - Retire a node: delete it, its links, and its id from every `couples`,
+    `see`, `seams` and `traps` list (check finds leftovers).
+  - Add a container: a node with `children` in the `children` of its parent,
+    at any depth; the tour follows the tree, unless the root lists a `tour`.
+  - Name the arrow between two boxes: a link between those two nodes, in the
+    `links` of map.ts; it names the arrow in every view where the two stand
+    apart.
   - A new colour: a key of the palette in atlas.config.ts, with its light
     and dark values.
 
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.
-  2. bun atlas/cli.ts check <map folder>: the plan (ids, couplings,
-     nesting, overview labels, tags, open points, threads.json), then tsgo,
-     oxlint and oxfmt on its data files, then its atlas.d.ts and
-     tsconfig.json against the plugin's (stale or edited: bun atlas/cli.ts
-     sync <map folder>). It exits 1 on any failure; bun atlas/cli.ts fmt
-     <map folder> fixes what oxfmt reports. Then bun test atlas and the
-     repository's gates.
+  2. bun atlas/cli.ts check <map folder>: the map (ids, couplings, nesting,
+     tags, open points, threads.json), then tsgo, oxlint and oxfmt on its
+     data files, then its atlas.d.ts and tsconfig.json against the plugin's
+     (stale or edited: bun atlas/cli.ts sync <map folder>). It exits 1 on
+     any failure; bun atlas/cli.ts fmt <map folder> fixes what oxfmt
+     reports. Then bun test atlas and the repository's gates.
   3. Look at the page: bun atlas/serve.ts <map folder> [port] and open the
      address it prints. It rebuilds on every save in the map folder or the
      engine, and reloads the open tab when the page changed; a build error,
      or a map the engine cannot draw, shows an error page until the next
-     good save. Look at the overview and at the zone you changed.
+     good save. Look at the root's view and at the container you changed.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -202,8 +206,6 @@ body {
 .open-row .open-wait { font-size: 12px; color: var(--ink-2); text-align: right; }
 .open-row .open-owner { font-size: 12px; color: var(--ink-3); margin-left: 6px; }
 .open-row .open-line { grid-column: 1 / -1; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.open-dot { fill: var(--open); stroke: var(--surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
-
 .app {
   flex: 1; min-height: 0;
   display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 14px;
@@ -228,7 +230,7 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
   background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 10px; font-size: 12px; color: var(--ink-2); max-width: calc(100% - 20px);
 }
-.legend[hidden], .panel[hidden] { display: none; }
+.legend[hidden], .legend.empty, .panel[hidden] { display: none; }
 .app:has(> .panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .controls button[aria-pressed="false"] { color: var(--ink-3); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -297,87 +299,74 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel .src { font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); margin-top: 16px; overflow-wrap: anywhere; }
 .panel .nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
 
-/* SVG. Sizes are in world units, so text grows with the zoom. measure.ts
-   measures the text classes it lays out (TEXT and TITLE there): their font
-   sizes here must match. Borders keep a constant screen width
-   (non-scaling-stroke), otherwise a zoomed-in zone gets a thick border.
-   engine.ts sets each level's opacity, visibility and alignment frame by
-   frame; the detail starts hidden so the first paint shows the overview only. */
-.layer-dt { visibility: hidden; }
+/* SVG. Sizes are in world units, so text grows with the zoom. measure.ts measures the text
+   classes it lays out (CARD, CHIP, BOX, GHOST and LABEL there): their font sizes here must match.
+   Borders keep a constant screen width (non-scaling-stroke), otherwise a zoomed-in box gets a
+   thick border. engine.ts sets each view's opacity, visibility and alignment frame by frame. */
 /* Text keeps the width measure.ts measured at every zoom; without it, Chrome rounds font sizes per zoom. */
 svg text { text-rendering: geometricPrecision; }
 .hit { cursor: pointer; }
-.zone.hit { cursor: zoom-in; }
+.box.hit { cursor: zoom-in; }
 
-/* Zones: outer (a top zone that nests others), inner (a nested zone that nests others), module, ext (outside the server). */
-.zone-bg { vector-effect: non-scaling-stroke; }
-.zone.outer .zone-bg { fill: color-mix(in srgb, var(--zc) 6%, var(--sheet)); stroke: color-mix(in srgb, var(--zc) 75%, var(--ink)); stroke-width: 2.2; }
-.zone.inner .zone-bg { fill: color-mix(in srgb, var(--zc) 4%, var(--surface)); stroke: color-mix(in srgb, var(--zc) 70%, var(--line)); stroke-width: 1.6; }
-.zone.module .zone-bg { fill: color-mix(in srgb, var(--zc) 9%, var(--surface)); stroke: color-mix(in srgb, var(--zc) 30%, transparent); stroke-width: 1; }
-.zone.ext .zone-bg { fill: color-mix(in srgb, var(--zc) 4%, var(--sheet)); stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 7 5; }
-.zone:hover .zone-bg, .zone.focused .zone-bg { stroke: var(--zc); stroke-width: 2.4; }
-.z-big, .ov-big, .z-title, .ov-title { font-family: var(--f-display); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; fill: var(--zc); }
-.z-big { font-size: 27px; }
-.ov-big { font-size: 34px; }
-.z-title { font-size: 21px; }
-.ov-title { font-size: 27px; }
-.z-tag, .ov-tag { font-family: var(--f-mono); fill: var(--ink-2); }
-.z-tag { font-size: 11px; }
-.ov-tag { font-size: 13px; }
+/* A container child: a box naming its own children as chips. */
+.box-bg { fill: color-mix(in srgb, var(--zc) 9%, var(--surface)); stroke: color-mix(in srgb, var(--zc) 30%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.box:hover .box-bg { stroke: var(--zc); stroke-width: 2.4; }
+.box.selected .box-bg { stroke: var(--accent); stroke-width: 2.4; }
+.box.coupled .box-bg { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 3; }
+.box-title { font-family: var(--f-display); font-weight: 700; font-size: 27px; letter-spacing: 0.06em; text-transform: uppercase; fill: var(--zc); }
+.box-tag { font-family: var(--f-mono); font-size: 13px; fill: var(--ink-2); }
+.chip rect { fill: var(--surface); stroke: color-mix(in srgb, var(--zc) 55%, var(--line)); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chip.off rect { stroke-dasharray: 4 3; fill: var(--sheet); }
+.chip:hover rect { stroke: var(--zc); stroke-width: 2; }
+.chip.selected rect { stroke: var(--accent); stroke-width: 2.4; }
+.chip.coupled rect { stroke: var(--accent); stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.chip-t { font-family: var(--f-display); font-weight: 600; font-size: 20px; letter-spacing: 0.02em; fill: var(--ink); }
+.chip.off .chip-t { fill: var(--ink-2); }
 
-/* Detail bricks; .ext = a service outside the server, .off = suspended. */
-.brick .box { fill: var(--surface); stroke: color-mix(in srgb, var(--zc) 55%, var(--line)); stroke-width: 1; }
-.brick.ext .box { stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; }
-.brick.off .box { stroke-dasharray: 4 3; fill: var(--sheet); }
-.brick:hover .box { stroke: var(--zc); }
-.brick.selected .box { stroke: var(--accent); stroke-width: 2.2; stroke-dasharray: none; }
-.brick.coupled .box { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
-.b-lbl, .x-lbl { font-family: var(--f-display); font-weight: 600; letter-spacing: 0.02em; fill: var(--ink); }
-.b-lbl { font-size: 15px; }
-.x-lbl { font-size: 19px; }
-.b-sub, .x-sub { font-family: var(--f-mono); fill: var(--ink-2); }
-.b-sub { font-size: 7.8px; }
-.x-sub { font-size: 10px; }
-.brick.off .b-lbl { fill: var(--ink-2); }
+/* A leaf child: a card with its subtitle; .outside = a child of the root outside the system, .off = dormant. */
+.card rect { fill: var(--surface); stroke: color-mix(in srgb, var(--zc) 55%, var(--line)); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.card.outside rect { stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.card.off rect { stroke-dasharray: 4 3; fill: var(--sheet); }
+.card:hover rect { stroke: var(--zc); stroke-width: 2; }
+.card.selected rect { stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: none; }
+.card.coupled rect { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.card-lbl { font-family: var(--f-display); font-weight: 600; font-size: 20px; letter-spacing: 0.02em; fill: var(--ink); }
+.card-sub { font-family: var(--f-mono); font-size: 11px; fill: var(--ink-2); }
+.card.off .card-lbl { fill: var(--ink-2); }
 
-.edge path { fill: none; stroke: var(--ink-3); stroke-width: 1.3; }
-.edge.deny path { stroke: var(--deny); }
-.edge.dash path { stroke-dasharray: 5 4; }
-.edge.hot path { stroke: var(--accent); stroke-width: 2.4; }
-.elabel { font-family: var(--f-mono); font-size: 7.5px; fill: var(--ink-2); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
-.edge.deny .elabel { fill: var(--deny); }
-.edge.hot .elabel { fill: var(--accent); }
+/* A ghost: a neighbour outside the open container, at the edge; .outside = outside the system. */
+.ghost rect { fill: color-mix(in srgb, var(--zc) 5%, var(--sheet)); stroke: color-mix(in srgb, var(--zc) 45%, var(--ink-3)); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.ghost.outside rect { stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.ghost.off rect { stroke-dasharray: 4 3; fill: var(--sheet); }
+.ghost:hover rect { stroke: var(--ink); }
+.ghost.selected rect { stroke: var(--accent); stroke-width: 2.6; stroke-dasharray: none; }
+.ghost.coupled rect { stroke: var(--accent); stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.ghost-t { font-family: var(--f-display); font-weight: 600; font-size: 20px; fill: var(--ink-2); }
+
+/* The badge of an item whose subtree carries open points, with their count. */
+.open-dot { fill: var(--open); stroke: var(--surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.open-count { font-family: var(--f-display); font-weight: 700; font-size: 12px; fill: #fff; pointer-events: none; }
+.open-badge.small .open-count { font-size: 10px; }
+
+/* Arrows rest faded in a packed view and full in a layered one; a hovered item (.focusing) or a
+   selected node (.selecting) lights its own (.lit, .hot) and fades the rest. */
+.flow { transition: opacity 120ms ease-out; }
+.view.packed .flow { opacity: 0.3; }
+.view.focusing .flow, .view.selecting .flow { opacity: 0.12; }
+.view .flow.lit, .view .flow.hot { opacity: 1; }
+.flow.lit path { stroke: var(--ink); }
+.flow.lit .flow-label { fill: var(--ink); }
+.flow path { fill: none; stroke: var(--ink-3); stroke-width: 2.2; }
+.view.layered .flow path { stroke-width: 1.8; }
+.flow.deny path { stroke: var(--deny); }
+.flow.dash path { stroke-dasharray: 6 5; }
+.flow.hot path { stroke: var(--accent); stroke-width: 3.2; }
+.flow-label { font-family: var(--f-mono); font-size: 14px; fill: var(--ink-2); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
+.flow.deny .flow-label { fill: var(--deny); }
+.flow.hot .flow-label { fill: var(--accent); }
 .arrowhead { fill: var(--ink-3); }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
-
-/* Overview: bricks as chips inside their zone, outside services as pills. */
-.ov-chip rect { fill: var(--surface); stroke: color-mix(in srgb, var(--zc) 55%, var(--line)); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ov-chip.off rect { stroke-dasharray: 4 3; fill: var(--sheet); }
-.ov-chip:hover rect { stroke: var(--zc); stroke-width: 2; }
-.ov-chip.selected rect { stroke: var(--accent); stroke-width: 2.4; }
-.ov-chip.coupled rect { stroke: var(--accent); stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
-.ov-chip-t { font-family: var(--f-display); font-weight: 600; font-size: 20px; letter-spacing: 0.02em; fill: var(--ink); }
-.ov-chip.off .ov-chip-t { fill: var(--ink-2); }
-.ov-ext rect { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
-.ov-ext:hover rect { stroke: var(--ink); }
-.ov-ext.selected rect { stroke: var(--accent); stroke-width: 2.6; }
-.ov-ext.coupled rect { stroke: var(--accent); }
-.ov-ext-t { font-family: var(--f-display); font-weight: 600; font-size: 22px; fill: var(--ink); }
-/* Overview arrows rest faded; a hovered box (.focusing) or a selected brick
-   (.selecting) lights its own (.lit, .hot) and fades the rest further. */
-.ov-flow { opacity: 0.3; transition: opacity 120ms ease-out; }
-.layer-ov.focusing .ov-flow, .layer-ov.selecting .ov-flow { opacity: 0.1; }
-.layer-ov .ov-flow.lit, .layer-ov .ov-flow.hot { opacity: 1; }
-.ov-flow.lit path { stroke: var(--ink); }
-.ov-flow.lit .ov-label { fill: var(--ink); }
-.ov-flow path { fill: none; stroke: var(--ink-3); stroke-width: 2.2; }
-.ov-flow.deny path { stroke: var(--deny); }
-.ov-flow.dash path { stroke-dasharray: 6 5; }
-.ov-flow.hot path { stroke: var(--accent); stroke-width: 3.2; }
-.ov-label { font-family: var(--f-mono); font-size: 14px; fill: var(--ink-2); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
-.ov-flow.deny .ov-label { fill: var(--deny); }
-.ov-flow.hot .ov-label { fill: var(--accent); }
 
 @media (max-width: 860px) {
   html, body { height: auto; }

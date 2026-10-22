@@ -188,7 +188,7 @@ function labelsIn(stdout: string): ReadonlyMap<string, string> | null {
     : null;
 }
 
-// The page throws on data toPlan refuses, so the folder is loaded here first, in a fresh process:
+// The page throws on data drawableOf refuses, so the folder is loaded here first, in a fresh process:
 // this one keeps the first evaluation of every module it imports. Its labels are the ids a
 // selection may name.
 async function drawable(): Promise<Drawable> {

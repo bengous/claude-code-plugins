@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 import type { Config, Lang } from "./atlas.ts";
-import { loadFolder, planOf } from "./folder.ts";
-import { paletteRules, settingsOf } from "./settings.ts";
+import { loadFolder } from "./folder.ts";
+import { ConfigError, paletteRules, paletteVar, settingsOf } from "./settings.ts";
+import { treeOf } from "./tree.ts";
 import { WORDS } from "./words.ts";
 
 const SAMPLE = join(import.meta.dir, "fixtures", "sample");
@@ -87,6 +88,15 @@ describe("settingsOf", () => {
     });
 
     expect(legend).toEqual({ ...WORDS.fr.legend, deny: "bloqué" });
+  });
+
+  test("a palette key that cannot name a CSS custom property is refused", () => {
+    const palette = { "light blue": { light: "#00f", dark: "#88f" } };
+
+    expect(() => settingsOf({ title: "T", palette })).toThrow(ConfigError);
+    expect(() => settingsOf({ title: "T", palette })).toThrow(
+      'palette key "light blue": a key is letters, digits, - and _',
+    );
   });
 });
 
@@ -179,14 +189,13 @@ describe("paletteRules", () => {
   });
 
   test("every colour the sample draws with is a property its palette defines", async () => {
-    const plan = await planOf(SAMPLE);
-    const { config } = await loadFolder(SAMPLE);
+    const { map, config } = await loadFolder(SAMPLE);
 
     const names = new Set(
       paletteRules(config.palette).flatMap((r) => r.properties.map(([n]) => n)),
     );
 
-    const colours = new Set([...plan.zones, ...plan.nodes].map((x) => x.color));
+    const colours = new Set([...treeOf(map).nodes.values()].map((n) => paletteVar(n.color)));
 
     expect(colours.size).toBeGreaterThan(0);
 

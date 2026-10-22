@@ -1,223 +1,110 @@
-import { toPlan } from "./adapter.ts";
-import type { AtlasMap, Config } from "./atlas.ts";
-import { graphOf } from "./graph.ts";
-import type { Brick, Edge, Plan, Zone } from "./model.ts";
-import { PlanError } from "./model.ts";
+import type { AtlasMap, Config, Link, Node, Panel } from "./atlas.ts";
+import { drawableOf } from "./drawable.ts";
+import { ConfigError } from "./settings.ts";
 import type { Settings } from "./settings.ts";
-import { settingsOf } from "./settings.ts";
 import type { Threads } from "./threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "./threads.ts";
+import type { Tree } from "./tree.ts";
+import { TreeError, isLeaf } from "./tree.ts";
 
 // Validates a map folder's data and threads.json without a browser, for `cli.ts check`, which
-// also lists the open points (openReport). The types (atlas.ts) already hold the shape of every
-// field, and toPlan (adapter.ts) refuses a tree the engine cannot draw: a duplicate id, a link
-// end that is no node, a colour outside the palette among them. This checks what they cannot,
-// and fails on what would break the page or mislead a reader:
-//   - references to ids that do not exist (couplings, `see`, the root's
-//     `seams` and `traps`);
+// also lists the open points (openReport).
+// The types (atlas.ts) already hold the shape of every field, and drawableOf (drawable.ts) refuses
+// a tree no view can show, a colour outside the palette among them; this checks what they cannot,
+// and fails on what would mislead a reader:
+//   - a `brief` on a leaf;
 //   - a root's `tour` that names what is no node with children, or misses one;
-//   - an ext zone or an outside service without a `side`;
-//   - an overview label ("z:" arrow) that no brick arrow backs: the engine
-//     would never draw it;
-//   - a tag outside the Config's `tags`, and, when they say so, an arrow
-//     into a third-party service (a brick outside every zone, on the right)
-//     that does not name the tags it carries;
-//   - an open point whose id is not unique or not kebab-case, or whose text
-//     matches one of the Config's `stepWords`: an open point describes a state;
-//   - a thread of threads.json under an unknown open id, or with a `who`
-//     outside the enumeration.
-// Layout is not checked here: ELK and libavoid lay the plan out in the
-// browser, and nothing overlaps by construction. Look at the rendered page
-// (serve.ts) for the rest.
-type Index = {
-  readonly nodes: ReadonlyMap<string, Brick>;
-  readonly zones: ReadonlyMap<string, Zone>;
-};
-
-function indexIds(p: Plan, errors: string[]): Index {
-  const nodes = new Map<string, Brick>();
-
-  for (const node of p.nodes) {
-    if (nodes.has(node.id)) {
-      errors.push(`duplicate brick id: ${node.id}`);
-    }
-
-    nodes.set(node.id, node);
-  }
-
-  const zones = new Map<string, Zone>();
-
-  for (const zone of p.zones) {
-    if (zones.has(zone.id)) {
-      errors.push(`duplicate zone id: ${zone.id}`);
-    }
-
-    zones.set(zone.id, zone);
-  }
-
-  return { nodes, zones };
-}
-
-function checkZones(p: Plan, { zones }: Index, errors: string[]): void {
-  for (const zone of p.zones) {
-    if (zone.parent !== undefined && !zones.has(zone.parent)) {
-      errors.push(`zone ${zone.id}: unknown parent ${zone.parent}`);
-    }
-
-    const seen = new Set([zone.id]);
-
-    for (let parent = zone.parent; parent !== undefined; parent = zones.get(parent)?.parent) {
-      if (seen.has(parent)) {
-        errors.push(`zone ${zone.id}: its parents loop through ${parent}`);
-        break;
-      }
-
-      seen.add(parent);
-    }
-
-    if (zone.ext === true && zone.side === undefined) {
-      errors.push(`zone ${zone.id}: an ext zone needs side "in" or "out"`);
+//   - an id in `see`, `seams` or `traps`, on the root or on any node, that no node carries;
+//   - a tag outside the Config's `tags`, and, when they say so, a link between two leaves into an
+//     outside one that is not on the left and names no tag; a link with a container end names the
+//     arrow between boxes, whose tags are its leaf links';
+//   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
+//     Config's `stepWords`: an open point describes a state;
+//   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration.
+// Layout is not checked here: ELK and libavoid lay each view out in the browser, and nothing
+// overlaps by construction. Look at the rendered page (serve.ts) for the rest.
+function checkNodes(tree: Tree, errors: string[]): void {
+  for (const node of tree.nodes.values()) {
+    if (node.children === undefined && node.brief !== undefined) {
+      errors.push(`node ${node.id}: brief is for a node with children`);
     }
   }
 
-  for (const id of p.zoneOrder) {
-    if (!zones.has(id)) {
+  const { tour } = tree.map.root;
+
+  if (tour === undefined) {
+    return;
+  }
+
+  for (const id of tour) {
+    if (tree.nodes.get(id)?.children === undefined) {
       errors.push(`tour lists ${id}, which is no node with children`);
     }
   }
 
-  for (const zone of p.zones) {
-    if (!p.zoneOrder.includes(zone.id)) {
-      errors.push(`tour misses ${zone.id}, a node with children`);
+  for (const node of tree.nodes.values()) {
+    if (node.children !== undefined && !tour.includes(node.id)) {
+      errors.push(`tour misses ${node.id}, a node with children`);
     }
   }
 }
 
-function checkBricks(p: Plan, { nodes, zones }: Index, errors: string[]): void {
-  for (const node of p.nodes) {
-    if (node.zone !== null && !zones.has(node.zone)) {
-      errors.push(`brick ${node.id}: unknown zone ${node.zone}`);
-    }
+const outsideLeafOff = (tree: Tree, id: string): boolean =>
+  tree.sides.has(id) && tree.sides.get(id) !== "in" && isLeaf(tree, id);
 
-    if (node.zone === null && node.side === undefined) {
-      errors.push(
-        `brick ${node.id}: a service outside every zone needs side "in", "out" or "both"`,
-      );
-    }
+const linkName = (l: Link): string => `link ${l.from} → ${l.to}`;
 
-    for (const id of node.couples) {
-      if (!nodes.has(id)) {
-        errors.push(`brick ${node.id}: couples unknown brick ${id}`);
+function checkLinks(tree: Tree, s: Settings, errors: string[]): void {
+  for (const link of tree.map.links) {
+    for (const tag of link.tags ?? []) {
+      if (!s.tags.names.includes(tag)) {
+        errors.push(`${linkName(link)}: tag ${tag} is not in the config's tags`);
       }
     }
-  }
-}
-
-// An overview label names the arrow between two boxes, as engine.ts sees
-// them: a zone that nests others keeps its own bricks in a box of their own.
-function checkArrows(p: Plan, s: Settings, { nodes, zones }: Index, errors: string[]): void {
-  const { zoneBox } = graphOf(p);
-
-  const boxOf = (ref: string): string => {
-    if (ref.startsWith("z:")) {
-      return zoneBox(ref.slice(2));
-    }
-
-    const zone = nodes.get(ref)?.zone ?? null;
-
-    return zone === null ? ref : zoneBox(zone);
-  };
-
-  const isRef = (ref: string): boolean =>
-    ref.startsWith("z:") ? zones.has(ref.slice(2)) : nodes.has(ref);
-
-  const brickArrows = p.edges.filter((e) => !e.from.startsWith("z:") && !e.to.startsWith("z:"));
-
-  for (const e of brickArrows) {
-    const to = nodes.get(e.to);
 
     if (
       s.tags.outside === "required" &&
-      to !== undefined &&
-      to.zone === null &&
-      to.side !== "in" &&
-      (e.data === undefined || e.data.length === 0)
+      isLeaf(tree, link.from) &&
+      outsideLeafOff(tree, link.to) &&
+      (link.tags === undefined || link.tags.length === 0)
     ) {
-      errors.push(`arrow ${e.from} → ${e.to}: an arrow into a third-party service names its tags`);
-    }
-  }
-
-  for (const e of p.edges) {
-    for (const tag of e.data ?? []) {
-      if (!s.tags.names.includes(tag)) {
-        errors.push(`arrow ${e.from} → ${e.to}: tag ${tag} is not in the config's tags`);
-      }
-    }
-  }
-
-  const backs = (edge: Edge, a: string, b: string): boolean =>
-    brickArrows.some((e) => {
-      const [x, y] = [boxOf(e.from), boxOf(e.to)];
-
-      return (x === a && y === b) || (edge.two === true && x === b && y === a);
-    });
-
-  const labels = new Set<string>();
-
-  for (const edge of p.edges) {
-    const ends = [edge.from, edge.to];
-    const unknown = ends.filter((end) => !isRef(end));
-
-    for (const end of unknown) {
-      errors.push(`arrow ${edge.from} → ${edge.to}: unknown end ${end}`);
-    }
-
-    if (unknown.length > 0 || !ends.some((end) => end.startsWith("z:"))) {
-      continue;
-    }
-
-    const [a, b] = [boxOf(edge.from), boxOf(edge.to)];
-
-    if (labels.has(`${a}>${b}`)) {
-      errors.push(`overview label ${edge.from} → ${edge.to}: a second label for the same boxes`);
-    }
-
-    labels.add(`${a}>${b}`);
-
-    if (!backs(edge, a, b)) {
-      errors.push(
-        `overview label ${edge.from} → ${edge.to}: no brick arrow joins these boxes in that direction`,
-      );
+      errors.push(`${linkName(link)}: a link into a third-party service names its tags`);
     }
   }
 }
 
-function checkLinks(p: Plan, { nodes, zones }: Index, errors: string[]): void {
-  for (const item of [
-    p.overview,
-    ...p.zones.map((zone) => zone.info),
-    ...p.nodes.map((node) => node.info),
-  ]) {
-    for (const id of item.see ?? []) {
-      if (!nodes.has(id) && !zones.has(id)) {
-        errors.push(`${item.title}: see unknown id ${id}`);
+function checkPanels(tree: Tree, errors: string[]): void {
+  const panels: Array<[string, Panel]> = [
+    ["root", tree.map.root],
+    ...[...tree.nodes.values()].map((n): [string, Node] => [`node ${n.id}`, n]),
+  ];
+
+  for (const [where, panel] of panels) {
+    for (const id of panel.see ?? []) {
+      if (!tree.nodes.has(id)) {
+        errors.push(`${where}: see unknown id ${id}`);
       }
     }
-  }
 
-  for (const [id] of [...(p.overview.seams ?? []), ...(p.overview.traps ?? [])]) {
-    if (!nodes.has(id)) {
-      errors.push(`overview: unknown brick ${id}`);
+    for (const [field, pairs] of [
+      ["seams", panel.seams],
+      ["traps", panel.traps],
+    ] as const) {
+      for (const [id] of pairs ?? []) {
+        if (!tree.nodes.has(id)) {
+          errors.push(`${where}: ${field} unknown id ${id}`);
+        }
+      }
     }
   }
 }
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
-function checkOpen(p: Plan, s: Settings, threads: Threads, errors: string[]): void {
+function checkOpen(tree: Tree, s: Settings, threads: Threads, errors: string[]): void {
   const ids = new Set<string>();
 
-  for (const item of openItems(p)) {
+  for (const item of openItems(tree)) {
     const where = `${item.kind} ${item.owner}: open point ${item.id}`;
 
     if (ids.has(item.id)) {
@@ -246,41 +133,37 @@ function checkOpen(p: Plan, s: Settings, threads: Threads, errors: string[]): vo
   }
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- threads is the content of threads.json as JSON.parse left it: readThreads below is its parser, and its errors join the plan's.
-export function validate(p: Plan, s: Settings, threads: unknown): string[] {
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- threads is the content of threads.json as JSON.parse left it: readThreads below is its parser, and its errors join the map's.
+export function validate(tree: Tree, s: Settings, threads: unknown): string[] {
   const errors: string[] = [];
-  const index = indexIds(p, errors);
-  checkZones(p, index, errors);
-  checkBricks(p, index, errors);
-  checkArrows(p, s, index, errors);
-  checkLinks(p, index, errors);
+  checkNodes(tree, errors);
+  checkLinks(tree, s, errors);
+  checkPanels(tree, errors);
   const read = readThreads(threads);
   errors.push(...read.errors);
-  checkOpen(p, s, read.threads, errors);
+  checkOpen(tree, s, read.threads, errors);
 
   return errors;
 }
 
-// A map folder's data as check.ts sees it: toPlan's refusal, or what validate finds.
+// A map folder's data as check.ts sees it: drawableOf's refusal, or what validate finds.
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- threads is threads.json as JSON.parse left it, which validate hands to its parser.
 export function checkMap(map: AtlasMap, config: Config, threads: unknown): string[] {
-  let plan: Plan;
-
   try {
-    plan = toPlan(map, config);
+    const { tree, settings } = drawableOf(map, config);
+
+    return validate(tree, settings, threads);
   } catch (error: unknown) {
-    if (error instanceof PlanError) {
+    if (error instanceof TreeError || error instanceof ConfigError) {
       return [error.message];
     }
 
     throw error;
   }
-
-  return validate(plan, settingsOf(config), threads);
 }
 
-export function openReport(p: Plan, threads: Threads): string {
-  const items = openItems(p);
+export function openReport(tree: Tree, threads: Threads): string {
+  const items = openItems(tree);
 
   const rows = items.map((item) => [
     item.id,

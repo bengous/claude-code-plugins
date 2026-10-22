@@ -1,8 +1,7 @@
-// Open points (the `open` field of a zone or brick) and their threads, as
-// threads.json stores them: { "<open id>": [{ "who", "text" }] }, oldest entry
-// first, no date (git keeps the history). Pure: the page, check.ts and
-// reply.ts share it, and only reply.ts and serve.ts touch the file.
-import type { Plan } from "./model.ts";
+// Open points (the `open` field of a node) and their threads, as threads.json stores them:
+// { "<open id>": [{ "who", "text" }] }, oldest entry first, no date (git keeps the history). Pure:
+// the page, check.ts and reply.ts share it, and only reply.ts and serve.ts touch the file.
+import type { Tree } from "./tree.ts";
 
 // serve.ts writes a token of its own into the page it serves, under this meta name, and takes a
 // reply posted to threads.json only with that token in this header.
@@ -23,31 +22,20 @@ export type OpenItem = {
   readonly text: string;
   readonly owner: string;
   readonly ownerLabel: string;
-  readonly kind: "zone" | "brick";
+  readonly kind: "container" | "leaf";
 };
 
-export function openItems(p: Plan): OpenItem[] {
-  const zones = p.zones.flatMap((z) =>
-    (z.info.open ?? []).map((o): OpenItem => ({
-      id: o.id,
-      text: o.text,
-      owner: z.id,
-      ownerLabel: z.title,
-      kind: "zone",
-    })),
-  );
-
-  const bricks = p.nodes.flatMap((n) =>
-    (n.info.open ?? []).map((o): OpenItem => ({
+/** Every node's own open points, in tree order. */
+export function openItems(tree: Tree): OpenItem[] {
+  return [...tree.nodes.values()].flatMap((n) =>
+    (n.open ?? []).map((o): OpenItem => ({
       id: o.id,
       text: o.text,
       owner: n.id,
       ownerLabel: n.label.replaceAll("\n", " "),
-      kind: "brick",
+      kind: n.children === undefined ? "leaf" : "container",
     })),
   );
-
-  return [...zones, ...bricks];
 }
 
 // A point waits for the party that did not write the last entry; without a

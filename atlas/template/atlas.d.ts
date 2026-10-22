@@ -12,8 +12,8 @@ export type Pair = readonly [string, string];
 export type OpenPoint = { readonly id: string; readonly text: string };
 
 /**
- * The overview column of an outside node: "in" (left) or "out" (right). "both", for a leaf only,
- * draws it twice, its links leaving the left copy and arriving at the right one.
+ * The column of an outside node in the root's view: "in" (left) or "out" (right). "both", for a
+ * leaf only, draws it twice, its links leaving the left copy and arriving at the right one.
  */
 export type Side = "in" | "out" | "both";
 
@@ -31,10 +31,7 @@ export type Panel = {
   readonly extend?: string;
   /** Its non-obvious traps. */
   readonly pitfalls?: readonly string[];
-  /**
-   * Extension points, [node id, text]. Any panel shows them; check.ts checks the node ids of the
-   * root's only.
-   */
+  /** Extension points, [node id, text]. Any panel shows them; check.ts checks the node ids. */
   readonly seams?: readonly Pair[];
   /** Couplings to know, [node id, text]; shown and checked as `seams` are. */
   readonly traps?: readonly Pair[];
@@ -54,7 +51,8 @@ export type Panel = {
 
 /**
  * One responsibility of the system: what one would replace on its own, never a file (a path is
- * its `src`). A node with `children` is drawn as a frame around them, a node without as a card.
+ * its `src`). A node with `children` is a container: in its parent's view, a box naming its
+ * children as chips; opened, a view of its own. A node without is a leaf, drawn as a card.
  */
 export type Node = Panel & {
   /** Unique among the nodes of the map: links, `couples`, `see` and the page's #id name it. */
@@ -67,16 +65,16 @@ export type Node = Panel & {
   readonly sub: string;
   /** A key of the Config's palette. */
   readonly color: string;
-  /** The short list at the top of its panel; a node with children's only (adapter.ts). */
+  /** The short list at the top of its panel; a node with children's only (check.ts). */
   readonly brief?: readonly string[];
   /**
-   * Ids of the nodes that change when this one is replaced; one side of a coupling lists it. A
-   * leaf's only (adapter.ts).
+   * Ids of the nodes that change when this one is replaced; one side of a coupling lists it. Any
+   * node's: a view outlines a coupling lifted to the boxes and ghosts it shows, on either side.
    */
   readonly couples?: readonly string[];
-  /** "off": dormant, drawn dashed. A leaf's only (adapter.ts). */
+  /** "off": dormant, drawn dashed. A leaf's only (tree.ts). */
   readonly kind?: "off";
-  /** Required on an outside node (check.ts), refused on any other (adapter.ts). */
+  /** Required on an outside node, refused on any other (tree.ts). */
   readonly side?: Side;
   /** Outside the system (a client, a third-party service): a child of the root, drawn dashed. */
   readonly outside?: true;
@@ -85,22 +83,23 @@ export type Node = Panel & {
   readonly children?: readonly Node[];
 };
 
-/** The top of the tree: the overview's panel and the nodes the overview shows. */
+/** The top of the tree: the root view's panel and the nodes that view shows. */
 export type Root = Panel & {
   readonly title: string;
   /**
-   * The zone tour of the panel's ← → buttons; depth-first when absent. Given, it lists every node
-   * with children and nothing else (check.ts).
+   * The tour of the panel's ← → buttons; every container depth-first when absent. Given, it lists
+   * every node with children and nothing else (check.ts).
    */
   readonly tour?: readonly string[];
   readonly children: readonly Node[];
 };
 
 /**
- * An arrow, from → to. Between two leaves, the detail draws it, and the overview draws one arrow
- * per pair of boxes such arrows join. With a node with children on either end, it draws nothing: it
- * names the overview's arrow between those boxes, instead of the joined labels of the leaves'
- * arrows, and check.ts wants a leaves' arrow joining them in that direction.
+ * An arrow, from → to, between two nodes neither of which holds the other, at any depth. A view
+ * draws one arrow per pair of the boxes and ghosts its links join, each end lifted to the one that
+ * holds it: a link set directly between that pair names the arrow, and otherwise the arrow joins
+ * the first two labels of the links it stands for. A link whose two ends lift to one box shows in
+ * that container's own view.
  */
 export type Link = {
   readonly from: string;
@@ -109,9 +108,12 @@ export type Link = {
   readonly label: string;
   /** "deny": refused, in red; "dash": dormant, local only, or on demand. */
   readonly kind?: "deny" | "dash";
-  /** Arrowheads at both ends; naming an overview arrow, it also merges both directions into one. */
+  /** Arrowheads at both ends; the pair's arrows merge into one two-headed arrow. */
   readonly two?: true;
-  /** What it carries, from the Config's `tags`; drawn after its label in the detail. */
+  /**
+   * What it carries, from the Config's `tags`; drawn after its label in a view of leaves alone. A
+   * link with a container end names the arrow, whose tags are its leaf links'.
+   */
   readonly tags?: readonly string[];
 };
 
@@ -131,13 +133,14 @@ export type Swatch = { readonly light: string; readonly dark: string };
 
 /**
  * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`) or a node mark (coupled to
- * the selected leaf, outside, carrying an open point).
+ * the selected node, outside, carrying an open point). The legend shows the lines the open view
+ * uses.
  */
 export type LegendKey = "flow" | "dash" | "deny" | "coupled" | "outside" | "open";
 
 /**
- * The ends of the overview's arrows: "shared" lets arrows into one box end at the same point and
- * run as one trunk, "exclusive" gives every arrow its own end.
+ * The ends of the arrows of a view with a container child: "shared" lets arrows into one box end
+ * at the same point and run as one trunk, "exclusive" gives every arrow its own end.
  */
 export type Pins = "shared" | "exclusive";
 
@@ -171,12 +174,13 @@ export type Config = {
   /** "shared" when absent. */
   readonly pins?: Pins;
   /**
-   * The overview's packing: "screen" aims at the drawing area's width / height and packs again
-   * when it changes, a number is a fixed width / height. "screen" when absent.
+   * The packing of a view with a container child: "screen" aims at the drawing area's width /
+   * height and packs again when it changes, a number is a fixed width / height. "screen" when
+   * absent.
    */
   readonly overview?: { readonly ratio: "screen" | number };
   /** The tags links may carry; none, and none required, when absent. */
   readonly tags?: Tags;
-  /** The legend's labels, the dictionary's when absent. The legend shows the lines the map uses. */
+  /** The legend's labels, the dictionary's when absent. The legend shows the lines a view uses. */
   readonly legend?: Readonly<Partial<Record<LegendKey, string>>>;
 };

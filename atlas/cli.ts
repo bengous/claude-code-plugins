@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { toPlan } from "./adapter.ts";
 import { checkMap, openReport } from "./check.ts";
 import {
   DRAFTS,
@@ -23,10 +22,11 @@ import {
   makeDraft,
   messageOf,
 } from "./drafts.ts";
-import { MAP_FILE, THREADS_FILE, loadFolder, planOf } from "./folder.ts";
-import type { Plan } from "./model.ts";
+import { drawableOf } from "./drawable.ts";
+import { MAP_FILE, THREADS_FILE, loadFolder } from "./folder.ts";
 import { ReplyError, appendReply } from "./reply.ts";
 import { WHO, openItems, readThreads } from "./threads.ts";
+import type { Tree } from "./tree.ts";
 import { bunFlags } from "./wire.ts";
 
 const ROOT = import.meta.dir;
@@ -99,8 +99,12 @@ async function loading<T>(load: () => Promise<T>, then: string): Promise<T> {
   }
 }
 
-const loadPlan = async (dir: string, then: string): Promise<Plan> =>
-  await loading(() => planOf(dir), then);
+const loadTree = async (dir: string, then: string): Promise<Tree> =>
+  await loading(async () => {
+    const { map, config } = await loadFolder(dir);
+
+    return drawableOf(map, config).tree;
+  }, then);
 
 const whereFix = (dir: string): string => `; ${hint("check", dir)} to see where`;
 
@@ -135,28 +139,29 @@ function scaffold(arg: string): string {
 
 type Step = { readonly name: string; readonly ok: boolean; readonly report: string };
 
-async function planStep(dir: string): Promise<Step> {
+async function mapStep(dir: string): Promise<Step> {
   try {
     const { map, config } = await loading(() => loadFolder(dir), "");
     const errors = checkMap(map, config, await readJson(join(dir, THREADS_FILE)));
 
     if (errors.length > 0) {
-      return { name: "plan", ok: false, report: errors.join("\n") };
+      return { name: "map", ok: false, report: errors.join("\n") };
     }
 
-    const plan = toPlan(map, config);
+    const { tree } = drawableOf(map, config);
+    const containers = [...tree.nodes.values()].filter((n) => n.children !== undefined).length;
 
     return {
-      name: "plan",
+      name: "map",
       ok: true,
-      report: `${plan.zones.length} zones, ${plan.nodes.length} bricks, ${plan.edges.length} arrows`,
+      report: `${containers} containers, ${tree.nodes.size - containers} leaves, ${map.links.length} links`,
     };
   } catch (error: unknown) {
     if (!(error instanceof CliError)) {
       throw error;
     }
 
-    return { name: "plan", ok: false, report: error.message };
+    return { name: "map", ok: false, report: error.message };
   }
 }
 
@@ -247,7 +252,7 @@ function generatedStep(dir: string, name: string, source: string): Step {
 
 async function check(dir: string): Promise<number> {
   const steps = [
-    await planStep(dir),
+    await mapStep(dir),
     ...toolSteps(dir),
     generatedStep(dir, TYPES_FILE, TYPES_SOURCE),
     generatedStep(dir, TSCONFIG_FILE, join(TEMPLATE, TSCONFIG_FILE)),
@@ -273,14 +278,14 @@ async function check(dir: string): Promise<number> {
 }
 
 async function listOpen(dir: string): Promise<number> {
-  const plan = await loadPlan(dir, whereFix(dir));
+  const tree = await loadTree(dir, whereFix(dir));
   const { threads, errors } = readThreads(await readJson(join(dir, THREADS_FILE)));
 
   if (errors.length > 0) {
     throw new CliError(errors.join("\n"));
   }
 
-  console.log(openReport(plan, threads));
+  console.log(openReport(tree, threads));
 
   return 0;
 }
@@ -306,7 +311,7 @@ async function reply(args: readonly string[]): Promise<number> {
 
   const dir = mapFolder(dirArg);
   const file = join(dir, THREADS_FILE);
-  const known = new Set(openItems(await loadPlan(dir, whereFix(dir))).map((o) => o.id));
+  const known = new Set(openItems(await loadTree(dir, whereFix(dir))).map((o) => o.id));
   await readJson(file);
   const threads = await appendReply(file, known, id, who, text);
 

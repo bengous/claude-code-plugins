@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { labelsOf, planOf } from "./folder.ts";
+import { labelsOf, loadFolder } from "./folder.ts";
+import { treeOf } from "./tree.ts";
 
-test("labelsOf names each zone by its title and each brick by its label, by id", async () => {
-  const labels = labelsOf(await planOf(join(import.meta.dir, "fixtures", "sample")));
+test("labelsOf names each node by its label, by id", async () => {
+  const { map } = await loadFolder(join(import.meta.dir, "fixtures", "sample"));
+  const labels = labelsOf(treeOf(map));
 
   expect(labels).toMatchObject({ data: "Storage", backup: "Nightly backup", db: "Database" });
   expect(Object.keys(labels)).toHaveLength(12);

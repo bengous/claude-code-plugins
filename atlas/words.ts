@@ -16,7 +16,7 @@ export type Words = {
   readonly openPoints: string;
   readonly openCount: (count: number) => string;
   readonly openSum: (human: number, agent: number, humanName: string | null) => string;
-  readonly owner: { readonly zone: string; readonly brick: string };
+  readonly owner: { readonly container: string; readonly leaf: string };
   readonly waits: (who: string | null) => string;
   readonly unreadable: (why: string) => string;
   readonly replyPlaceholder: (who: string) => string;
@@ -46,7 +46,7 @@ const fr: Words = {
   home: "Vue d'ensemble",
   legendButton: "Légende",
   panelButton: "Panneau",
-  hint: "clic sur une zone ou une brique pour le détail · Échap ou clic sur le fond pour remonter",
+  hint: "clic sur une boîte pour y entrer, sur une carte pour la choisir · Échap ou clic sur le fond pour remonter",
   position: "Position dans le plan",
   stage: "Plan zoomable",
   mapLabel: (title) => `Architecture de ${title}`,
@@ -63,7 +63,7 @@ const fr: Words = {
   openCount: (count) => `Points ouverts : ${count}`,
   openSum: (human, agent, humanName) =>
     `${human} attendent ${humanName ?? "l'humain"} · ${agent} attendent un agent`,
-  owner: { zone: "zone", brick: "brique" },
+  owner: { container: "zone", leaf: "brique" },
   waits: (who) => `attend : ${who ?? "personne"}`,
   unreadable: (why) => `Fils illisibles : ${why}`,
   replyPlaceholder: (who) => `Répondre (${who})`,
@@ -86,7 +86,7 @@ const fr: Words = {
   zones: "Zones",
   arrowsMissing: "Flèches absentes",
   avoidFailed: (error) =>
-    `libavoid ne s'est pas chargé : la vue d'ensemble n'a pas ses flèches. Le plan doit être servi par <code>bun atlas/serve.ts &lt;dossier du plan&gt;</code>, qui sert aussi <code>libavoid.wasm</code>. Erreur : <code>${error}</code>`,
+    `libavoid ne s'est pas chargé : cette vue n'a pas ses flèches. Le plan doit être servi par <code>bun atlas/serve.ts &lt;dossier du plan&gt;</code>, qui sert aussi <code>libavoid.wasm</code>. Erreur : <code>${error}</code>`,
   drawFailed: (error) => `Le plan n'a pas pu se dessiner : <code>${error}</code>`,
 };
 
@@ -94,7 +94,7 @@ const en: Words = {
   home: "Overview",
   legendButton: "Legend",
   panelButton: "Panel",
-  hint: "click a zone or a brick for its detail · Escape or a click on the background to go back",
+  hint: "click a box to enter it, a card to select it · Escape or a click on the background to go up",
   position: "Position in the map",
   stage: "Zoomable map",
   mapLabel: (title) => `Architecture of ${title}`,
@@ -111,7 +111,7 @@ const en: Words = {
   openCount: (count) => `Open points: ${count}`,
   openSum: (human, agent, humanName) =>
     `${human} wait for ${humanName ?? "the human"} · ${agent} wait for an agent`,
-  owner: { zone: "zone", brick: "brick" },
+  owner: { container: "zone", leaf: "brick" },
   waits: (who) => `waits for: ${who ?? "nobody"}`,
   unreadable: (why) => `Threads unreadable: ${why}`,
   replyPlaceholder: (who) => `Reply (${who})`,
@@ -134,7 +134,7 @@ const en: Words = {
   zones: "Zones",
   arrowsMissing: "Arrows missing",
   avoidFailed: (error) =>
-    `libavoid did not load: the overview has no arrows. The map must be served by <code>bun atlas/serve.ts &lt;map folder&gt;</code>, which also serves <code>libavoid.wasm</code>. Error: <code>${error}</code>`,
+    `libavoid did not load: this view has no arrows. The map must be served by <code>bun atlas/serve.ts &lt;map folder&gt;</code>, which also serves <code>libavoid.wasm</code>. Error: <code>${error}</code>`,
   drawFailed: (error) => `The map could not be drawn: <code>${error}</code>`,
 };
 

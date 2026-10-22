@@ -86,11 +86,16 @@ const KINDS = ["flow", "flow", "flow", "dash", "deny"] as const;
 
 const MODULUS = 2_147_483_647;
 
+/** How wide a random map grows: children per container at most, and links tried. */
+export type Growth = { readonly fanout: number; readonly links: number };
+
+const SMALL: Growth = { fanout: 3, links: 30 };
+
 /**
- * A map drawn from a seed, the same for the same seed: nodes up to five levels deep, an outside
- * leaf, couplings, open points, and links between nodes that do not hold each other.
+ * A map drawn from a seed, the same for the same seed and growth: nodes up to five levels deep, an
+ * outside leaf, couplings, open points, and links between nodes that do not hold each other.
  */
-export function randomMap(seed: number): AtlasMap {
+export function randomMap(seed: number, growth: Growth = SMALL): AtlasMap {
   let state = (seed % (MODULUS - 1)) + 1;
 
   const next = (): number => {
@@ -124,7 +129,7 @@ export function randomMap(seed: number): AtlasMap {
       return leaf(id, extra);
     }
 
-    const size = 1 + Math.floor(next() * 3);
+    const size = 1 + Math.floor(next() * growth.fanout);
 
     return box(
       id,
@@ -147,7 +152,7 @@ export function randomMap(seed: number): AtlasMap {
 
   const entries = [...chains];
 
-  const links = Array.from({ length: 30 }, (): Link[] => {
+  const links = Array.from({ length: growth.links }, (): Link[] => {
     const [from, fromChain] = pick(entries);
     const [to, toChain] = pick(entries);
 

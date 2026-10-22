@@ -137,7 +137,7 @@ describe("new", () => {
 
     expect(cli("check", dir)).toEqual({
       code: 0,
-      stdout: `plan: ok, 2 zones, 1 bricks, 0 arrows\n${OK}\n`,
+      stdout: `map: ok, 2 containers, 1 leaves, 0 links\n${OK}\n`,
       stderr: "",
     });
   });
@@ -163,7 +163,7 @@ describe("check", () => {
   test("passes on the sample and the template as committed", async () => {
     expect(cli("check", sampleCopy())).toEqual({
       code: 0,
-      stdout: `plan: ok, 4 zones, 8 bricks, 10 arrows\n${OK}\n`,
+      stdout: `map: ok, 4 containers, 8 leaves, 10 links\n${OK}\n`,
       stderr: "",
     });
     expect(cli("check", copyOf(TEMPLATE)).code).toBe(0);
@@ -263,7 +263,7 @@ describe("check", () => {
     const run = cli("check", sampleCopy(), "--open");
 
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain("backup-restore-untested  brick backup  waits: human");
+    expect(run.stdout).toContain("backup-restore-untested  leaf backup  waits: human");
     expect(run.stdout).toContain("1 open points: 0 wait for agent, 1 wait for human");
   });
 
@@ -718,7 +718,7 @@ describe("a map folder's own Bun configuration", () => {
       cwd: dir,
     });
 
-    expect(run.stdout.toString()).toContain("plan: ok");
+    expect(run.stdout.toString()).toContain("map: ok");
     expect(run.stdout.toString()).toContain("tsgo:");
     expect(existsSync(marker) ? readFileSync(marker, "utf8") : "").toBe("");
   });

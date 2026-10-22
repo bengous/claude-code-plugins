@@ -2,9 +2,9 @@
 import { AvoidLib } from "libavoid-js";
 
 import type { Pins } from "./atlas.ts";
-import type { Point, Rect } from "./machine.ts";
+import type { Point, Rect } from "./geometry.ts";
 
-// libavoid routes the overview's arrows orthogonally, around every box, and
+// libavoid routes a packed view's arrows orthogonally, around every box, and
 // spreads parallel segments apart (nudging). It is WebAssembly: AvoidLib.load
 // fetches libavoid.wasm next to the page, which serve.ts answers with the
 // dist/libavoid.wasm of the installed libavoid-js package.

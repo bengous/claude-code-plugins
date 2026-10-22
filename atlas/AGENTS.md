@@ -1,11 +1,13 @@
 # Atlas
 
-An interactive architecture map on two levels, served by Bun to the browser: an overview of
-every zone with its bricks, and a detail of every brick and arrow, one zone at a time. ELK lays
-out the boxes in the page, libavoid routes the overview's arrows from WebAssembly, and nothing in
-the data has a position or a size. Open points carry threads between the human and the agent.
-A mod (`hooks/`) serves a map folder's page on `/atlas:board`, hands the human's selection in
-the page to the agent, and gives the agent its tools on the map.
+An interactive architecture map, served by Bun to the browser: a tree of nodes, drawn one
+container's view at a time, at any depth. A view shows the children of the open container, a
+container child as a box naming its own children, a leaf child as a card, the neighbours outside
+the container as ghosts at the edge, and one arrow per pair lifted to what it shows. ELK lays each
+view out in the page, libavoid routes the arrows of a view with a container child from
+WebAssembly, and nothing in the data has a position or a size. Open points carry threads between
+the human and the agent. A mod (`hooks/`) serves a map folder's page on `/atlas:board`, hands the
+human's selection in the page to the agent, and gives the agent its tools on the map.
 
 ## Files
 
@@ -23,42 +25,64 @@ cli.ts               the one command line of agents and skills: new, sync, check
                      (cli.spec.ts, on copies in temporary folders)
 drafts.ts            a map folder's data files, and its drafts: made, adopted, dropped
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
-                     (the root and every link), Config (title, language, palette, pins, overview
-                     packing, tags, legend labels, step words); the source of a map's atlas.d.ts
+                     (the root and every link), Config (title, language, palette, pins, packing
+                     ratio, tags, legend labels, step words); the source of a map's atlas.d.ts
 template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes
 lint/                the oxlint and oxfmt configs `check` and `fmt` run on a map's data files
 fixtures/sample/     the sample map folder
-folder.ts            the map folder's files (loadFolder), the plan its data makes (planOf), and its
-                     labels by id, the ids a selection may name (labelsOf, folder.spec.ts)
+fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at in the browser;
+                     fixtures/large/ a seeded random map, wide and deep, to time a view on; both
+                     import the plugin's own types and carry no generated files
+fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
+folder.ts            the map folder's files (loadFolder), and its labels by id, the ids a selection
+                     may name (labelsOf, folder.spec.ts); run, it prints them, or refuses a folder
+                     the engine cannot draw, which serve.ts asks before each build
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
 settings.ts          the Config with its defaults filled in, refusing what the engine cannot use,
                      and the palette as the page's CSS custom properties (settings.spec.ts)
+drawable.ts          the tree and the settings a map folder makes, or why no view can show it:
+                     treeOf's and settingsOf's refusals, a colour outside the palette
 words.ts             the page's own words in each language a Config picks: the dictionary
-model.ts             the plan the engine draws on two levels (Zone, Brick, Edge, Info)
-adapter.ts           the tree as that plan, refusing a tree the engine cannot draw, a colour
-                     outside the palette among them (adapter.spec.ts)
-graph.ts             graphOf: the plan with the lookups both drawings and the panel share
+tree.ts              the tree indexed for views at any depth: each node's chain from the root,
+                     open points counted down each subtree, couplings both ways, and what stands
+                     for a node in a container's view (a child, or a ghost); refuses what no view
+                     can show (tree.spec.ts)
+view.ts              the view of any container, pure: its children as boxes, a container child's
+                     children as its chips; its links lifted to one arrow per pair; its outer
+                     neighbours as ghosts in side columns; the couplings a selection outlines and
+                     the arrows it lights; the legend lines it uses (view.spec.ts; scale.spec.ts
+                     bounds the time of the index and a view on a map of 5,000 nodes)
+navigation.ts        where the reader stands at any depth, pure: the path to the open container
+                     and the selection, their events, the breadcrumb, and the URL fragment that
+                     carries both (navigation.spec.ts)
 threads.ts           open points and threads, pure: who a point waits for (threads.spec.ts)
-check.ts             validates a map folder's ids, couplings, nesting, labels, tags against the
-                     Config's, open points against its step words, and threads, and reports the
-                     open points (check.spec.ts)
-legend.ts            the legend's lines, one per arrow kind or node mark the map uses
-                     (legend.spec.ts)
+check.ts             validates a map folder: what drawable.ts refuses, then a brief on a leaf, the
+                     root's tour, see/seams/traps ids on every panel, tags against the Config's,
+                     open points against its step words, and threads, and reports the open points
+                     (check.spec.ts)
 reply.ts             adds an entry to a thread of a map folder (reply.spec.ts)
 query.ts             one node of a map folder as JSON: path, children, links, fields, sources
                      (query.spec.ts)
-machine.ts           the two state machines, navigation and camera, pure (machine.spec.ts)
-engine.ts            the page's entry: draws the map it imports, paints the camera, takes input,
-                     posts the reader's selection to serve.ts
-overview.ts          the overview drawing
-flows.ts             the overview's arrows: the leaves' arrows grouped by the boxes they join
-detail.ts            the detail drawing
-layout.ts            runs ELK
-avoid.ts             runs libavoid
-measure.ts           sizes text
-frame.ts             draws a zone
-panel.ts             the panel, the breadcrumb and the open points' list
-svg.ts               SVG building blocks shared by both drawings
+legend.ts            the legend's lines, one per arrow kind or node mark a view uses
+                     (legend.spec.ts)
+engine.ts            the page's entry: draws the view of the open container the first time the
+                     reader reaches it and keeps it, paints the camera, takes input, posts the
+                     reader's selection to serve.ts
+draw.ts              the renderer of one view: packed (ELK rectpacking, side columns, libavoid)
+                     when the view has a container child, layered (ELK layered, labels and tags)
+                     when it has leaves alone
+placement.ts         the pure parts of placing a view: the side columns, the chips wrapped in a
+                     box, the spot of each arrow's label, the copies of an item drawn twice
+                     (placement.spec.ts)
+camera.ts            the camera, pure: the view shown and the one it cross-fades with, aligned
+                     through the boxes along their path, any number of levels at once
+                     (camera.spec.ts)
+geometry.ts          rects, points and similarities
+layout.ts            runs ELK's layered layout, flat
+avoid.ts             runs libavoid (avoid.spec.ts)
+measure.ts           sizes text: one scale for every view
+panel.ts             the panel, the breadcrumb and the open points' list (panel.spec.ts)
+svg.ts               SVG building blocks
 atlas.html           the page: its styles and its markup, which hold no word and no colour of a map
 serve.ts             serves one map folder's page, rebuilt and reloaded on save, answers
                      libavoid.wasm and threads.json, takes the panel's replies, prints the page's
@@ -110,7 +134,7 @@ Every command runs from the repository root.
 bun install --cwd atlas --frozen-lockfile   # once; Claude Code does it at the plugin's cache
 bun atlas/cli.ts new <dir>                  # scaffold a map folder in an empty or new folder
 bun atlas/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin, and drafts/ into .gitignore
-bun atlas/cli.ts check <map folder>         # the plan, tsgo, oxlint, oxfmt, the two copies; exit 1 on any failure
+bun atlas/cli.ts check <map folder>         # the map, tsgo, oxlint, oxfmt, the two copies; exit 1 on any failure
 bun atlas/cli.ts check <map folder> --open  # list the open points and whom each waits for
 bun atlas/cli.ts fmt <map folder>           # format in place the files check format-checks
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
@@ -124,23 +148,34 @@ claude plugin test atlas                    # the mod's kit tests, hooks/*.test.
 claude --plugin-dir atlas                   # a live session with the mod from source
 ```
 
-The sample map folder is `atlas/fixtures/sample`.
+The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes five levels down.
+
+## The page
+
+- The URL's fragment is the place (`hashOf` in `navigation.ts`): a bare `#id` opens a container's
+  view, or a leaf's parent's view with the leaf selected; `#<open>/<selected>` carries a selection
+  no bare id lands on, a ghost or a container among them. A fragment typed into the address bar is
+  followed.
+- Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
+  container, a card or a ghost is selected where it stands, a chip jumps to its node.
+- A move between a view and one of its ancestors cross-fades the two, the deeper one aligned on
+  its box; a move between two views neither of which holds the other lands at once.
+- A view is laid out the first time the reader reaches it, then kept; its parent and its
+  container children are laid out while the reader looks, a navigated view before any of them.
+  The packed views are laid out again when the drawing area's aspect moves, with the Config's
+  ratio "screen"; every view is when the fonts settle late. `performance.measure("atlas:draw
+  <view>")` times each layout.
 
 ## Traps
 
 Each module explains its own where it bites.
 
-- The text classes `measure.ts` measures (`TEXT` and `TITLE` there) keep the font sizes
-  `atlas.html` gives them, or text overflows its box.
+- The text classes `measure.ts` measures (`CARD`, `CHIP`, `BOX`, `GHOST` and `LABEL` there) keep
+  the font sizes `atlas.html` gives them, or text overflows its box.
 - `svg text { text-rendering: geometricPrecision }` stays in `atlas.html`: without it, Chrome
   rounds font sizes per zoom and drawn text drifts from the width `measure.ts` measured.
-- The order of a node's `children` is the order in which the overview packs them, and the
-  order of the plan's zones and bricks: reordering them moves boxes.
-- Every child of the root that is not `outside` and has children holds a node with children:
-  `pack` in `overview.ts` asks for a `<zone>~own` block that `blocksOf` makes only for a zone
-  that nests others. `toPlan` refuses such a tree, naming the node, and so do
-  `bun atlas/cli.ts check <map folder>`, which builds the plan, and `serve.ts`, which answers an
-  error page instead of the map. The template's map nests a node for this reason.
+- The order of a node's `children` is the order in which its view packs them: reordering them
+  moves boxes.
 - `atlas/fixtures/sample` and `atlas/template` each commit an `atlas.d.ts`, a copy of `atlas.ts`:
   after a change to `atlas.ts`, `bun atlas/cli.ts sync` both, or `cli.spec.ts` fails on them.
 - A process that imported a map folder keeps that first evaluation: importing it again answers
@@ -149,13 +184,13 @@ Each module explains its own where it bites.
   every build.
 - `libavoid.wasm` is the installed libavoid-js package's own: its exports list only the entry
   point, so `serve.ts` resolves the file beside that entry and answers it beside the page. No
-  copy is committed. A page that cannot load it draws the overview without arrows and says so in
+  copy is committed. A page that cannot load it draws a packed view without arrows and says so in
   the panel (`arrowsMissing` in `words.ts`).
 - `dressPage` (engine.ts) writes the Config's title, subtitle and words into the page before the
-  first layout: the header's height sets the drawing area's aspect, which a "screen" overview
-  packs for. Written later, the overview packs for another aspect.
-- The legend shows a line only for the arrow kinds and node marks the map draws (`legendKeys` in
-  `legend.ts`): a kind the map never uses has no line.
+  first layout: the header's height sets the drawing area's aspect, which a "screen" packing aims
+  at. Written later, the views pack for another aspect.
+- The legend shows a line only for the arrow kinds and node marks the open view draws
+  (`legendKeys` in `legend.ts`): a kind the view never uses has no line.
 - Layout runs in the browser only. To script it (a check, a benchmark), run elkjs under Node:
   under Bun its constructor fails.
 - A map folder's files are code: its `map.ts` and `atlas.config.ts` run in every command on it,

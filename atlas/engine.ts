@@ -1,53 +1,45 @@
 /* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, and the JSON of threads.json, which readThreads parses: there is no earlier place to narrow them. */
-// The page's entry (atlas.html loads it; serve.ts bundles it). It draws the
-// map it is given, atlas:map and atlas:config, which serve.ts resolves to the
-// files of a map folder; it holds no content: a new brick, arrow or text
-// belongs in the map's data.
+// The page's entry (atlas.html loads it; serve.ts bundles it). It draws the map it is given,
+// atlas:map and atlas:config, which serve.ts resolves to the files of a map folder; it holds no
+// content: a new node, link or text belongs in the map's data.
 //
-// Two levels share one SVG:
-//   overview  where the page opens (overview.ts). Every zone is a box listing
-//             its bricks by name, nested as the zones nest; the services
-//             outside the server stand in a column on each side; one arrow
-//             per pair of boxes. Readable at its own scale.
-//   detail    every brick with its subtitle, every arrow with its label
-//             (detail.ts).
-// The detail is drawn far to the right of the overview (x = overview width +
-// 4000), so the two never overlap. Clicks drive two state machines
-// (machine.ts): navigation decides where the reader stands, and the camera
-// moves there in one step, cross-fading the levels on the way. There is no
-// free zoom or drag.
+// One view at a time shares one SVG: the view of the open container (view.ts), drawn on a layer
+// of its own the first time the reader reaches it and kept (draw.ts), laid out again when the
+// drawing area's aspect or the fonts change. Clicks and keys become navigation events
+// (navigation.ts): the place changes, the camera (camera.ts) carries the reader from the box of
+// the child in the parent's view into the child's view and back, cross-fading the two on the way,
+// and the panel follows. There is no free zoom or drag.
 //
-// Nothing in the data has a position or a size, and nothing should get one:
-// ELK (layout.ts, overview.ts) sizes and places the boxes, libavoid
-// (avoid.ts) routes the overview's arrows. Text is measured from the rendered
-// fonts (measure.ts), so layout waits for them (start).
+// Nothing in the data has a position or a size, and nothing should get one: ELK and libavoid lay
+// each view out (draw.ts). Text is measured from the rendered fonts (measure.ts), so layout waits
+// for them (start).
 import config from "atlas:config";
 import map from "atlas:map";
 
-import { toPlan } from "./adapter.ts";
-import type { Detail } from "./detail.ts";
-import { drawDetail } from "./detail.ts";
-import { got, graphOf } from "./graph.ts";
+import type { Camera, Image, Key } from "./camera.ts";
+import { betweenOf, camera, shown } from "./camera.ts";
+import type { Drawn, Packing } from "./draw.ts";
+import { drawView } from "./draw.ts";
+import { drawableOf } from "./drawable.ts";
+import type { Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
-import type { Anchor, Camera, Image, NavEvent, Place, Rect, Target } from "./machine.ts";
-import { alignment, anchorOf, camera, navigate, shown } from "./machine.ts";
 import { fontKey } from "./measure.ts";
-import type { Overview, Packing } from "./overview.ts";
-import { drawOverview } from "./overview.ts";
+import type { Place, PlaceEvent } from "./navigation.ts";
+import { HOME, hashOf, navigate, openOf, placeOfHash } from "./navigation.ts";
 import type { ThreadState } from "./panel.ts";
-import { coupledWith, renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
+import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
 import type { PaletteRule } from "./settings.ts";
-import { paletteRules, settingsOf } from "./settings.ts";
+import { paletteRules } from "./settings.ts";
 import { defs, el, esc } from "./svg.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
+import { chainOf, holds } from "./tree.ts";
+import { coupledIn, lights, viewOf } from "./view.ts";
 import type { Selected } from "./wire.ts";
 import { SELECTION_PATH } from "./wire.ts";
 
-const settings = settingsOf(config);
+const { tree, settings } = drawableOf(map, config);
 
 const words = settings.words;
-
-const graph = graphOf(toPlan(map, config));
 
 function byId<E extends Element>(id: string, kind: new () => E): E {
   const e = document.querySelector(`#${id}`);
@@ -141,7 +133,6 @@ function dressPage(): void {
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
   byId("hint", HTMLElement).textContent = words.hint;
   legend.setAttribute("aria-label", words.legendButton);
-  legend.innerHTML = legendHtml(legendKeys(graph), settings.legend);
 }
 
 dressPage();
@@ -155,21 +146,25 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const DUR = 700;
 
-type Drawing = {
-  readonly ov: Overview;
-  readonly dt: Detail;
-  readonly ovLayer: SVGGElement;
-  readonly dtLayer: SVGGElement;
-  readonly anchors: ReadonlyMap<string, Anchor>;
-};
+const PAD = 12;
 
-let drawing: Drawing | null = null;
+defs(svg);
 
-let place: Place = { zone: null, node: null };
+const grid = el("rect", { fill: "url(#grid)" }, svg);
+
+const views = new Map<Key, Drawn>();
+
+const pending = new Map<Key, Promise<Drawn>>();
+
+let queue: Promise<unknown> = Promise.resolve();
+
+let place: Place = HOME;
 
 let cam: Camera | null = null;
 
 let raf = 0;
+
+let turn = 0;
 
 let builtFonts = "";
 
@@ -177,17 +172,8 @@ let builtAspect = 1;
 
 let threads: ThreadState = { kind: "ok", threads: {} };
 
-function drawn(): Drawing {
-  if (drawing === null) {
-    throw new Error("the plan is not drawn yet");
-  }
-
-  return drawing;
-}
-
-// The camera is the SVG viewBox, always at the aspect of the element, so
-// nothing is letterboxed. paint() draws the image the camera machine returns,
-// frame by frame.
+// The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
+// paint() draws the image the camera returns, frame by frame.
 function aspect(): number {
   const r = svg.getBoundingClientRect();
 
@@ -206,20 +192,96 @@ function fit(r: Rect, pad: number): Rect {
   return { x: r.x - pad, y: r.y - pad - (w / a - h) / 2, w, h: w / a };
 }
 
-function imageOf(p: Place): Target {
-  const d = drawn();
+function drawn(key: Key): Drawn {
+  const d = views.get(key);
 
-  if (p.zone === null) {
-    const all = { x: 0, y: 0, w: d.ov.size.w, h: d.ov.size.h };
-
-    return { space: "ov", vb: fit(all, 10), op: { ov: 1, dt: 0 } };
+  if (d === undefined) {
+    throw new Error(`the view of ${key ?? "the root"} is not drawn`);
   }
 
-  return { space: "dt", vb: fit(anchorOf(d.anchors, p.zone).dt, 16), op: { ov: 0, dt: 1 } };
+  return d;
 }
 
-// A drawing that does not show is hidden, so it takes no click and costs no
-// paint. While both show, the one in the other space carries the alignment.
+const parentOf = (id: string): Key => chainOf(tree, id).at(-2) ?? null;
+
+const between = betweenOf({
+  chainOf: (key) => (key === null ? [] : chainOf(tree, key)),
+  anchorOf: (id) => {
+    const box = drawn(parentOf(id)).rects.get(id);
+
+    if (box === undefined) {
+      throw new Error(`the view of ${parentOf(id) ?? "the root"} has no box ${id}`);
+    }
+
+    return { box, frame: drawn(id).frame };
+  },
+});
+
+const packing = (): Packing =>
+  settings.ratio === "screen"
+    ? { kind: "screen", aspect: builtAspect }
+    : { kind: "fixed", ratio: settings.ratio };
+
+// The grid rect covers the largest view drawn, with room around it for the camera's fit.
+function coverGrid(): void {
+  const w = Math.max(...[...views.values()].map((d) => d.size.w));
+  const h = Math.max(...[...views.values()].map((d) => d.size.h));
+  grid.setAttribute("x", String(-w));
+  grid.setAttribute("y", String(-h * 2));
+  grid.setAttribute("width", String(w * 3));
+  grid.setAttribute("height", String(h * 5));
+}
+
+// Views are laid out one at a time: ELK and libavoid run once per view, in the order asked.
+function ensure(key: Key): Promise<Drawn> {
+  const done = views.get(key);
+
+  if (done !== undefined) {
+    return Promise.resolve(done);
+  }
+
+  const started = pending.get(key);
+
+  if (started !== undefined) {
+    return started;
+  }
+
+  const name = key ?? "root";
+
+  const draw = queue.then(async (): Promise<Drawn> => {
+    const layer = el("g", { style: "visibility: hidden" }, svg);
+    performance.mark(`atlas:draw ${name}:start`);
+    const d = await drawView(viewOf(tree, key), layer, packing(), settings.pins, words, send);
+    performance.measure(`atlas:draw ${name}`, `atlas:draw ${name}:start`);
+    views.set(key, d);
+    pending.delete(key);
+    coverGrid();
+
+    return d;
+  });
+
+  pending.set(key, draw);
+  queue = draw.catch(() => {});
+
+  return draw;
+}
+
+async function ensureChain(key: Key): Promise<Drawn> {
+  for (const id of key === null ? [] : chainOf(tree, key).slice(0, -1)) {
+    await ensure(id);
+  }
+
+  await ensure(null);
+
+  return ensure(key);
+}
+
+const imageOf = (key: Key): Image => {
+  const { size } = drawn(key);
+
+  return { space: key, vb: fit({ x: 0, y: 0, ...size }, PAD), op: 1, other: null };
+};
+
 function paintLayer(layer: SVGGElement, op: number, transform: string): void {
   layer.style.opacity = String(op);
   layer.style.visibility = op > 0 ? "visible" : "hidden";
@@ -232,23 +294,21 @@ function paintLayer(layer: SVGGElement, op: number, transform: string): void {
   }
 }
 
+// The image's own view is drawn as it is; the other one, through the similarity onto it; the
+// rest hidden, so they take no click and cost no paint.
 function paint(img: Image): void {
-  const d = drawn();
   svg.setAttribute("viewBox", `${img.vb.x} ${img.vb.y} ${img.vb.w} ${img.vb.h}`);
-  const a = img.align === null ? null : alignment(anchorOf(d.anchors, img.align));
-  const ovMoved = a !== null && img.space === "dt";
-  const dtMoved = a !== null && img.space === "ov";
 
-  const ovTransform = ovMoved
-    ? `translate(${a.dc.join(",")}) scale(${a.k}) translate(${-a.oc[0]},${-a.oc[1]})`
-    : "";
-
-  const dtTransform = dtMoved
-    ? `translate(${a.oc.join(",")}) scale(${1 / a.k}) translate(${-a.dc[0]},${-a.dc[1]})`
-    : "";
-
-  paintLayer(d.ovLayer, img.op.ov, ovTransform);
-  paintLayer(d.dtLayer, img.op.dt, dtTransform);
+  for (const [key, d] of views) {
+    if (key === img.space) {
+      paintLayer(d.layer, img.op, "");
+    } else if (img.other !== null && key === img.other.space) {
+      const s = between(key, img.space);
+      paintLayer(d.layer, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`);
+    } else {
+      paintLayer(d.layer, 0, "");
+    }
+  }
 }
 
 function frame(): void {
@@ -257,108 +317,104 @@ function frame(): void {
   }
 
   const now = performance.now();
-  cam = camera(cam, { type: "tick", now }, drawn().anchors);
+  cam = camera(cam, { type: "tick", now }, between);
   paint(shown(cam, now));
   raf = cam.kind === "moving" ? requestAnimationFrame(frame) : 0;
 }
 
-// link: the zone entered, or for a return to the overview the zone left.
-function moveTo(p: Place, link: string | null): void {
-  if (cam === null) {
+// A move between a view and one of its ancestors is animated; any other, and the first, lands at
+// once.
+function moveTo(key: Key, from: Key): void {
+  const related =
+    from === key ||
+    (from !== null && holds(tree, key, from)) ||
+    (key !== null && holds(tree, from, key));
+
+  const image = imageOf(key);
+
+  if (cam === null || !related) {
+    cam = { kind: "idle", image };
+    paint(image);
+
     return;
   }
 
-  const ev = {
-    type: "go",
-    to: imageOf(p),
-    link,
-    now: performance.now(),
-    dur: reduced ? 0 : DUR,
-  } as const;
-
-  cam = camera(cam, ev, drawn().anchors);
+  cam = camera(
+    cam,
+    { type: "go", to: image, now: performance.now(), dur: reduced ? 0 : DUR },
+    between,
+  );
 
   if (raf === 0) {
     raf = requestAnimationFrame(frame);
   }
 }
 
-function jumpTo(p: Place): void {
-  const image: Image = { ...imageOf(p), align: null };
-  cam =
-    cam === null ? { kind: "idle", image } : camera(cam, { type: "jump", image }, drawn().anchors);
+function jumpTo(key: Key): void {
+  const image = imageOf(key);
+  cam = { kind: "idle", image };
   paint(image);
 }
 
-// render() rebuilds the panel and the breadcrumb, then toggles classes on both
-// levels: focused zone, selected brick, coupled bricks, hot arrows.
-function highlight(p: Place): void {
-  const d = drawn();
-  const coupled = p.node === null ? [] : coupledWith(graph, p.node);
+// Selecting a node lights its arrows and outlines its couplings, lifted to the view's items.
+function highlight(d: Drawn, p: Place): void {
+  const selected = p.selected;
+  const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
 
-  for (const [id, gs] of d.dt.zoneEls) {
+  for (const [id, gs] of d.items) {
     for (const g of gs) {
-      g.classList.toggle("focused", id === p.zone);
+      g.classList.toggle("selected", id === selected);
+      g.classList.toggle("coupled", coupled.includes(id));
     }
   }
 
-  for (const registry of [d.dt.nodeEls, d.ov.nodeEls]) {
-    for (const [id, gs] of registry) {
-      for (const g of gs) {
-        g.classList.toggle("selected", id === p.node);
-        g.classList.toggle("coupled", coupled.includes(id));
-      }
-    }
-  }
-
-  for (const e of [...d.dt.arrows, ...d.ov.arrows]) {
-    const hot = p.node !== null && e.bricks.includes(p.node);
+  for (const e of d.arrows) {
+    const hot = selected !== null && lights(tree, e.arrow, selected);
     e.g.classList.toggle("hot", hot);
     const m = hot ? "url(#arr-hot)" : e.marker;
     e.path.setAttribute("marker-end", m);
 
-    if (e.two) {
+    if (e.arrow.two) {
       e.path.setAttribute("marker-start", m);
     }
   }
 
-  d.ovLayer.classList.toggle("selecting", p.node !== null);
+  d.layer.classList.toggle("selecting", selected !== null);
 }
 
-// Overview arrows rest faded; hovering a chip, a pill or a module's frame
-// lights the arrows that touch it and fades the others further. The labels of
-// a lit arrow stay readable. Nesting frames carry no data-zone: they cover
-// most of the sheet, so hovering them would fade nearly every arrow.
-function hoverOverview(target: EventTarget | null): void {
-  if (drawing === null) {
+// Arrows rest faded; hovering a box, a card, a chip or a pill lights the arrows that touch it and
+// fades the others further. The labels of a lit arrow stay readable.
+function hover(target: EventTarget | null): void {
+  const d = views.get(openOf(place));
+
+  if (d === undefined) {
     return;
   }
 
-  const over = target instanceof Element ? target.closest("[data-brick], [data-zone]") : null;
+  const over = target instanceof Element ? target.closest("[data-id]") : null;
   // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- closest() answers an `Element`, which has no `dataset`: only its HTML and SVG kinds do.
-  const brick = over?.getAttribute("data-brick") ?? null;
-  // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- the same `Element` as the line above.
-  const zid = over?.getAttribute("data-zone") ?? null;
-  const box = zid === null ? null : graph.zoneBox(zid);
+  const id = over?.getAttribute("data-id") ?? null;
 
-  for (const a of drawing.ov.arrows) {
-    const lit =
-      (brick !== null && a.bricks.includes(brick)) ||
-      (box !== null && (a.from === box || a.to === box));
-
-    a.g.classList.toggle("lit", lit);
+  for (const e of d.arrows) {
+    e.g.classList.toggle("lit", id !== null && lights(tree, e.arrow, id));
   }
 
-  drawing.ovLayer.classList.toggle("focusing", brick !== null || box !== null);
+  d.layer.classList.toggle("focusing", id !== null);
 }
 
 svg.addEventListener("pointerover", (e) => {
-  hoverOverview(e.target);
+  hover(e.target);
 });
 
 svg.addEventListener("pointerleave", () => {
-  hoverOverview(null);
+  hover(null);
 });
+
+function renderLegend(key: Key): void {
+  const keys = legendKeys(viewOf(tree, key).legend);
+  legend.innerHTML = legendHtml(keys, settings.legend);
+  legend.classList.toggle("empty", keys.length === 0);
+}
 
 // serve.ts prints each selection, with the map's own label, for the agent's session (wire.ts); a
 // page reloaded on a #id posts it again, so a revived server's session hears it too.
@@ -388,30 +444,78 @@ function tellSelection(id: string | null): void {
   );
 }
 
+// The panel, the breadcrumb and the legend follow the place at once; the drawing, once its view
+// is laid out (settle).
 function render(): void {
-  renderPanel(settings, graph, panel, place, drawn().ov.avoidError, threads);
-  renderOpenList(settings, graph, openButton, openList, threads);
-  renderCrumbs(settings, graph, crumbs, place);
-  highlight(place);
-  // Keeps #id in the URL so a link reopens the same view.
-  const id = place.node ?? place.zone;
-  history.replaceState(null, "", id === null ? location.pathname + location.search : `#${id}`);
-  tellSelection(id);
+  const key = openOf(place);
+  renderPanel(settings, tree, panel, place, views.get(key)?.avoidError ?? null, threads);
+  renderOpenList(settings, tree, openButton, openList, threads);
+  renderCrumbs(settings, tree, crumbs, place);
+  renderLegend(key);
+  // Keeps the place in the URL's fragment so a link reopens the same view.
+  const fragment = hashOf(tree, place);
+
+  history.replaceState(
+    null,
+    "",
+    fragment === "" ? location.pathname + location.search : `#${fragment}`,
+  );
+
+  tellSelection(place.selected ?? key);
 }
 
-// Every input becomes a navigation event: the place changes, the camera heads
-// to it, the panel follows.
-function send(ev: NavEvent): void {
-  const left = place.zone;
-  place = navigate(place, ev, graph.zoneOfNode);
-  moveTo(place, place.zone ?? left);
+// The views beside the open one, laid out while the reader looks: its parent, for the way up,
+// then its container children, for the way down.
+function prefetch(key: Key): void {
+  const next = [
+    ...(key === null ? [] : [parentOf(key)]),
+    ...viewOf(tree, key).boxes.flatMap((b): string[] => (b.kind === "container" ? [b.id] : [])),
+  ];
+
+  for (const k of next) {
+    ensure(k).catch(fail);
+  }
+}
+
+async function settle(): Promise<void> {
+  const seq = ++turn;
+  const from = cam === null ? null : shown(cam, performance.now()).space;
+  const key = openOf(place);
+  await ensureChain(key);
+
+  if (from !== key && cam !== null) {
+    await ensureChain(from);
+  }
+
+  if (seq !== turn) {
+    return;
+  }
+
+  if (key !== from || cam === null) {
+    moveTo(key, from);
+  }
+
+  const d = drawn(key);
+  highlight(d, place);
+
+  if (d.avoidError !== null) {
+    renderPanel(settings, tree, panel, place, d.avoidError, threads);
+  }
+
+  prefetch(key);
+}
+
+// Every input becomes a navigation event: the place changes, the panel follows, the camera heads
+// to the view once it is drawn.
+function send(ev: PlaceEvent): void {
+  place = navigate(tree, place, ev);
   render();
+  settle().catch(fail);
 }
 
-// threads.json is read at start and each time the window regains focus (an
-// agent replies from the terminal); a reply from the page is POSTed to
-// serve.ts with the token it wrote into the page, and it answers the updated
-// threads.
+// threads.json is read at start and each time the window regains focus (an agent replies from the
+// terminal); a reply from the page is POSTed to serve.ts with the token it wrote into the page,
+// and it answers the updated threads.
 const failure = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -486,23 +590,13 @@ panel.addEventListener("submit", (e) => {
 
 addEventListener("focus", () => {
   void loadThreads().then((next) => {
-    if (drawing !== null && JSON.stringify(next) !== JSON.stringify(threads)) {
+    if (cam !== null && JSON.stringify(next) !== JSON.stringify(threads)) {
       showThreads(next);
     }
   });
 });
 
 // Clicks and keys only: the camera follows navigation and nothing else.
-function go(id: string): void {
-  if (id === "") {
-    send({ type: "home" });
-  } else if (graph.isZone(id)) {
-    send({ type: "zone", id });
-  } else {
-    send({ type: "node", id });
-  }
-}
-
 document.addEventListener("click", (e) => {
   const b = e.target instanceof Element ? e.target.closest("[data-go]") : null;
 
@@ -511,7 +605,8 @@ document.addEventListener("click", (e) => {
     (panel.contains(b) || crumbs.contains(b) || openList.contains(b))
   ) {
     openList.hidePopover();
-    go(b.dataset["go"] ?? "");
+    const id = b.dataset["go"] ?? "";
+    send(id === "" ? { type: "home" } : { type: "jump", id });
   }
 });
 
@@ -519,9 +614,8 @@ byId("btn-home", HTMLButtonElement).addEventListener("click", () => {
   send({ type: "home" });
 });
 
-// A button that shows or hides an element, remembered per browser. When
-// storage is blocked, the element starts shown and the button still works
-// for the visit.
+// A button that shows or hides an element, remembered per browser. When storage is blocked, the
+// element starts shown and the button still works for the visit.
 function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string): void {
   const show = (visible: boolean): void => {
     target.hidden = !visible;
@@ -546,12 +640,7 @@ function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string)
   });
 }
 
-if (legend.childElementCount === 0) {
-  legend.remove();
-  legendButton.remove();
-} else {
-  bindToggle(legendButton, legend, "atlas.legend");
-}
+bindToggle(legendButton, legend, "atlas.legend");
 
 bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
 
@@ -562,63 +651,65 @@ document.addEventListener("keydown", (e) => {
     e.key === "Escape" &&
     !typing &&
     !openList.matches(":popover-open") &&
-    (place.zone !== null || place.node !== null)
+    place !== navigate(tree, place, { type: "escape" })
   ) {
-    send({ type: "back" });
+    send({ type: "escape" });
   }
 });
 
-// A click on the empty sheet goes back to the overview.
+// A click on the empty sheet deselects, then goes up a level.
 svg.addEventListener("click", () => {
-  if (place.zone !== null || place.node !== null) {
-    send({ type: "home" });
+  if (place !== navigate(tree, place, { type: "escape" })) {
+    send({ type: "escape" });
   }
 });
 
-// With the Config's overview ratio "screen", the overview is packed for the
-// aspect of the drawing area: when that aspect moves by more than RELAYOUT (a
-// resized window, the panel hidden or shown), the plan is laid out again once
-// the resizing settles.
+// Every view is laid out from scratch: after the fonts settle late, and, with the Config's
+// overview ratio "screen", when the aspect of the drawing area moves by more than RELAYOUT (a
+// resized window, the panel hidden or shown), once the resizing settles.
 const RELAYOUT = { change: 0.15, settleMs: 300 };
 
 let relayoutTimer: ReturnType<typeof setTimeout> | undefined;
 
+function relayout(): void {
+  for (const d of views.values()) {
+    d.layer.remove();
+  }
+
+  views.clear();
+  pending.clear();
+  builtFonts = fontKey();
+  builtAspect = aspect();
+  cam = null;
+  settle().catch(fail);
+}
+
 function relayoutIfNeeded(): void {
   if (
-    drawing === null ||
+    cam === null ||
     settings.ratio !== "screen" ||
     Math.abs(aspect() - builtAspect) / builtAspect < RELAYOUT.change
   ) {
     return;
   }
 
-  build().then(
-    (d) => {
-      drawing = d;
-      jumpTo(place);
-      render();
-    },
-    (error: unknown) => {
-      fail(error);
-    },
-  );
+  relayout();
 }
 
 new ResizeObserver(() => {
-  if (cam !== null) {
-    jumpTo(place);
+  if (cam !== null && cam.kind === "idle") {
+    jumpTo(cam.image.space);
   }
 
   clearTimeout(relayoutTimer);
   relayoutTimer = setTimeout(relayoutIfNeeded, RELAYOUT.settleMs);
 }).observe(svg);
 
-// Fonts: the measure must use the faces the page renders with, so layout
-// waits for them. document.fonts.ready alone is not enough: it only waits for
-// faces already requested, and Google Fonts splits each weight into
-// unicode-range subsets, fetched on first use. So each face is loaded with
-// the text the plan shows. A face that still arrives late (slow network)
-// changes the measured widths: everything is then laid out again.
+// Fonts: the measure must use the faces the page renders with, so layout waits for them.
+// document.fonts.ready alone is not enough: it only waits for faces already requested, and Google
+// Fonts splits each weight into unicode-range subsets, fetched on first use. So each face is loaded
+// with the text the map shows. A face that still arrives late (slow network) changes the measured
+// widths: everything is then laid out again.
 const FACES = [
   '600 16px "Barlow Condensed"',
   '700 16px "Barlow Condensed"',
@@ -629,86 +720,28 @@ const shownText = (): string =>
   [
     ...new Set(
       [
-        ...graph.plan.nodes.flatMap((n) => [n.label, n.sub]),
-        ...graph.plan.zones.flatMap((z) => [z.title.toUpperCase(), z.tag]),
-        ...graph.plan.edges.map((e) => e.label),
+        ...[...tree.nodes.values()].flatMap((n) => [n.label, n.label.toUpperCase(), n.sub]),
+        ...tree.map.links.map((l) => l.label),
       ].join(""),
     ),
   ].join("");
-
-// Lays out and draws both levels from scratch: the overview at x 0, the
-// detail to its right.
-async function build(): Promise<Drawing> {
-  svg.replaceChildren();
-  defs(svg);
-  builtFonts = fontKey();
-  builtAspect = aspect();
-  const grid = el("rect", { fill: "url(#grid)" }, svg);
-  const ovLayer = el("g", { class: "layer-ov" }, svg);
-
-  const packing: Packing =
-    settings.ratio === "screen"
-      ? { kind: "screen", aspect: builtAspect }
-      : { kind: "fixed", ratio: settings.ratio };
-
-  const ov = await drawOverview(graph, words, ovLayer, send, packing, settings.pins);
-  const dtX = ov.size.w + 4000;
-  const dtLayer = el("g", { class: "layer-dt" }, svg);
-  const dt = await drawDetail(graph, words, dtLayer, dtX, send);
-  grid.setAttribute("x", String(-ov.size.w));
-  grid.setAttribute("y", String(-ov.size.h * 2));
-  grid.setAttribute("width", String(dtX + dt.size.w + ov.size.w * 2));
-  grid.setAttribute("height", String(Math.max(ov.size.h, dt.size.h) * 5));
-
-  // What the camera frames for each zone: the zone, or for a zone that holds
-  // sub-zones its own bricks. Framed whole, such a zone's
-  // detail is too small to read, and each sub-zone is one click away.
-  const anchors = new Map(
-    graph.plan.zones.map((z): [string, Anchor] => {
-      const key = graph.zoneBox(z.id);
-
-      return [
-        z.id,
-        { ov: got(ov.rects, key, "overview rect"), dt: got(dt.rects, key, "detail rect") },
-      ];
-    }),
-  );
-
-  return { ov, dt, ovLayer, dtLayer, anchors };
-}
 
 async function start(): Promise<void> {
   applyPalette();
   const text = shownText();
   await Promise.all(FACES.map((f) => document.fonts.load(f, text)));
   await document.fonts.ready;
-  [drawing, threads] = await Promise.all([build(), loadThreads()]);
-  // A bare #id opens the page on that zone or brick, without a move.
-  const id = location.hash.slice(1);
-
-  if (graph.isZone(id)) {
-    place = navigate(place, { type: "zone", id }, graph.zoneOfNode);
-  } else if (graph.isNode(id)) {
-    place = navigate(place, { type: "node", id }, graph.zoneOfNode);
-  }
-
-  jumpTo(place);
+  builtFonts = fontKey();
+  builtAspect = aspect();
+  threads = await loadThreads();
+  // The URL's fragment opens the page on its place, without a move.
+  place = placeOfHash(tree, location.hash);
   render();
+  await settle();
   document.fonts.addEventListener("loadingdone", () => {
-    if (fontKey() === builtFonts) {
-      return;
+    if (fontKey() !== builtFonts) {
+      relayout();
     }
-
-    build().then(
-      (d) => {
-        drawing = d;
-        jumpTo(place);
-        render();
-      },
-      (error: unknown) => {
-        fail(error);
-      },
-    );
   });
 }
 

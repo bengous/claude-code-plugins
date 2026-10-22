@@ -1,5 +1,4 @@
-import type { Point } from "./machine.ts";
-import type { Info } from "./model.ts";
+import type { Point } from "./geometry.ts";
 
 const NS = "http://www.w3.org/2000/svg";
 
@@ -74,11 +73,28 @@ export function rounded(pts: readonly Point[], r: number): string {
   return `${d} L${fmt(last)}`;
 }
 
-// The badge of a zone or brick that carries open points, centered on (x, y).
-export function openBadge(g: SVGGElement, info: Info, x: number, y: number, r: number): void {
-  if ((info.open?.length ?? 0) > 0) {
-    el("circle", { cx: x, cy: y, r, class: "open-dot" }, g);
+/**
+ * The badge of an item whose subtree carries open points, centred on (x, y), with their count;
+ * `small` on a chip.
+ */
+export function openBadge(
+  g: SVGGElement,
+  count: number,
+  x: number,
+  y: number,
+  small: boolean,
+): void {
+  if (count === 0) {
+    return;
   }
+
+  const badge = el("g", { class: `open-badge${small ? " small" : ""}` }, g);
+  el("circle", { cx: x, cy: y, r: small ? 7 : 9, class: "open-dot" }, badge);
+  text(
+    badge,
+    { x, y: y + (small ? 3 : 4), class: "open-count", "text-anchor": "middle" },
+    String(count),
+  );
 }
 
 // Click and keyboard activation.
@@ -139,39 +155,11 @@ export function defs(svg: SVGSVGElement): void {
   }
 }
 
-export const markerOf = (kind: string | undefined): string =>
+export const markerOf = (kind: string): string =>
   kind === "deny" ? "url(#arr-deny)" : "url(#arr)";
 
-// What render() toggles: the drawn groups of each zone or brick, and each
-// drawn arrow with the bricks it joins.
-export type Registry = Map<string, SVGGElement[]>;
-
-// from, to: the boxes the arrow joins (a brick, or on the overview a zone or
-// an outside service). bricks: every brick at an end of the brick arrows it
-// stands for, so selecting or hovering any of them lights it.
-export type ArrowEl = {
-  readonly from: string;
-  readonly to: string;
-  readonly bricks: readonly string[];
-  readonly g: SVGGElement;
-  readonly path: SVGPathElement;
-  readonly marker: string;
-  readonly two: boolean;
-};
-
-export function register(map: Registry, id: string, g: SVGGElement): void {
-  const list = map.get(id) ?? [];
-  list.push(g);
-  map.set(id, list);
-}
-
 // An arrow's path with its arrowheads.
-export function arrowPath(
-  g: SVGGElement,
-  d: string,
-  kind: string | undefined,
-  two: boolean,
-): SVGPathElement {
+export function arrowPath(g: SVGGElement, d: string, kind: string, two: boolean): SVGPathElement {
   const path = el("path", { d }, g);
   const m = markerOf(kind);
   path.setAttribute("marker-end", m);
