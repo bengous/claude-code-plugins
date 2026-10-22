@@ -467,12 +467,15 @@ svg.addEventListener("pointerdown", (e) => {
 
   pointers.set(e.pointerId, [e.clientX, e.clientY]);
   starts.set(e.pointerId, [e.clientX, e.clientY]);
+});
 
-  // A pointer a script made up has no capture to take: the browser throws on it.
-  if (e.isTrusted) {
+// Captured only once a drag starts: a capture taken at pointerdown retargets the click to the
+// sheet, and no box or card would ever receive it. A pointer a script made up has no capture.
+function capture(e: PointerEvent): void {
+  if (e.isTrusted && !svg.hasPointerCapture(e.pointerId)) {
     svg.setPointerCapture(e.pointerId);
   }
-});
+}
 
 svg.addEventListener("pointermove", (e) => {
   const before = pointers.get(e.pointerId);
@@ -495,12 +498,14 @@ svg.addEventListener("pointermove", (e) => {
     }
 
     dragged = true;
+    capture(e);
     look(panned(vb, (now[0] - before[0]) * k, (now[1] - before[1]) * k, fitted));
 
     return;
   }
 
   dragged = true;
+  capture(e);
   const span = (p: Point): number => Math.hypot(p[0] - other[0], p[1] - other[1]);
   const mid = (p: Point): Point => [(p[0] + other[0]) / 2, (p[1] + other[1]) / 2];
   const [m0, m1] = [mid(before), mid(now)];
