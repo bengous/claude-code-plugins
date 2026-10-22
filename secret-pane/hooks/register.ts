@@ -436,6 +436,13 @@ export const register: Register = (on) => {
 
     if (verdict.decision !== "ask") return verdict;
 
+    if (e.approver === undefined) {
+      return {
+        decision: "deny",
+        reason: `${PLUGIN}: nobody can be asked to run this command here`,
+      };
+    }
+
     const choice = await $.ui
       .ask(`${PLUGIN}: run this command? Each placeholder stands for a kept value.\n${written}`, [
         RUN,

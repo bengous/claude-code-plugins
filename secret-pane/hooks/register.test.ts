@@ -796,6 +796,21 @@ test("a query of a permission is not the mod's: it runs nothing and asks nobody"
   expect(world.asked).toEqual([]);
 });
 
+// The kit raises a real call's check as for a background subagent: nobody can be asked.
+test("where nobody can be asked, a restored command the session would ask about is refused, saying so", async ($, on) => {
+  const world = await started($, on, {
+    verdict: () => ({ decision: "ask" }),
+    answer: () => "Run it",
+  });
+
+  const { tag } = await kept($, world);
+  const answer = await $.tool.call({ tool: "Bash", command: `echo '${tag}'` });
+
+  expect(answer).toMatchObject({ isError: true, text: expect.stringContaining("nobody can") });
+  expect(world.commands).toEqual([]);
+  expect(world.asked).toEqual([]);
+});
+
 test("/clear forgets every value: its placeholder then refuses the command", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
