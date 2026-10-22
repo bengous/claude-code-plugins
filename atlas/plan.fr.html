@@ -41,8 +41,10 @@
     levels. The header button "Points ouverts : N" lists them all, with the
     party each waits for; a row opens its zone or brick. The panel shows
     each point's id, text and thread, and a one-line reply form that posts to
-    serve.ts as human. The page reads threads.json again when its window
-    regains focus, so a reply from the terminal shows up.
+    serve.ts as human, with the token serve.ts wrote into the page: the
+    server refuses a write from any other page. The page reads threads.json
+    again when its window regains focus, so a reply from the terminal shows
+    up.
 
   Open points and threads (the field notes are on the types of atlas.ts):
   - An open point is { id, text } in a node's `open`; its thread is the list
@@ -50,13 +52,16 @@
     "text" }], without a date: git keeps the history.
   - A point waits for the party that did not write the last entry; a point
     without a thread waits for nobody.
-  - Read them in the terminal: bun atlas/check.ts --open
-  - Answer: bun atlas/reply.ts <id> --as agent "<text>". An agent always
-    writes as agent; the human answers from the panel or with --as human.
+  - Read them in the terminal: bun atlas/check.ts <map folder> --open
+  - Answer: bun atlas/reply.ts <map folder> <id> --as agent "<text>". An
+    agent always writes as agent; the human answers from the panel or with
+    --as human.
     An unknown id is refused.
   - A settled point: delete its `open` entry and its thread together.
 
-  Edit recipes (the fields are documented on the types of atlas.ts):
+  Edit recipes (the fields are documented on the types of atlas.ts), in the
+  map folder (map.ts, atlas.config.ts, threads.json; the sample's is
+  atlas/fixtures/sample):
   - Add a brick: a node without `children` in the `children` of its zone
     (map.ts); then its links (with `tags` when the link enters a
     third-party service) and its `couples`.
@@ -70,11 +75,13 @@
 
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.
-  2. bun atlas/check.ts   (ids, couplings, nesting, overview labels, tags,
-     open points, threads.json), then bun test atlas and the
+  2. bun atlas/check.ts <map folder>   (ids, couplings, nesting, overview
+     labels, tags, open points, threads.json), then bun test atlas and the
      repository's gates.
-  3. Look at the page: bun atlas/serve.ts [port] and open the address it
-     prints. Bun rebuilds on every save and reloads the open tab. Look at the
+  3. Look at the page: bun atlas/serve.ts <map folder> [port] and open the
+     address it prints. It rebuilds on every save in the map folder or the
+     engine and reloads the open tab; a build error, or a map the engine
+     cannot draw, shows an error page until the next good save. Look at the
      overview and at the zone you changed.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -404,5 +411,5 @@ svg text { text-rendering: geometricPrecision; }
   <aside class="panel" id="panel" aria-live="polite"></aside>
 </main>
 
-<!-- One module: engine.ts imports the data files and everything else; serve.ts bundles it. -->
+<!-- One module: engine.ts imports the map (atlas:map, atlas:config) and everything else; serve.ts bundles it. -->
 <script type="module" src="./engine.ts"></script>

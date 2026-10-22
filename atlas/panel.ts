@@ -1,8 +1,7 @@
 import type { OpenPoint, Pair } from "./atlas.ts";
-import { isNode, isZone, node, zone } from "./graph.ts";
+import type { Graph } from "./graph.ts";
 import type { Place } from "./machine.ts";
 import type { Info } from "./model.ts";
-import { PLAN } from "./plan.ts";
 import { esc } from "./svg.ts";
 import type { Entry, Threads, Who } from "./threads.ts";
 import { firstLine, openItems, waitsFor } from "./threads.ts";
@@ -51,13 +50,13 @@ const openSection = (open: readonly OpenPoint[] | undefined, state: ThreadState)
     ? ""
     : `<h3>Points ouverts</h3>${open.map((o) => openPoint(o, state)).join("")}`;
 
-function chip(id: string): string {
+function chip(graph: Graph, id: string): string {
   let item: { readonly color: string; readonly label: string } | null = null;
 
-  if (isNode(id)) {
-    item = { color: node(id).color, label: node(id).label };
-  } else if (isZone(id)) {
-    item = { color: zone(id).color, label: zone(id).title };
+  if (graph.isNode(id)) {
+    item = { color: graph.node(id).color, label: graph.node(id).label };
+  } else if (graph.isZone(id)) {
+    item = { color: graph.zone(id).color, label: graph.zone(id).title };
   }
 
   if (item === null) {
@@ -69,8 +68,8 @@ function chip(id: string): string {
   return `<button type="button" class="chip" data-go="${id}" style="--zc: var(${item.color})"><span class="dot"></span>${label}</button>`;
 }
 
-const pointList = (items: readonly Pair[]): string =>
-  `<ul class="points">${items.map(([id, t]) => `<li>${t} ${chip(id)}</li>`).join("")}</ul>`;
+const pointList = (graph: Graph, items: readonly Pair[]): string =>
+  `<ul class="points">${items.map(([id, t]) => `<li>${t} ${chip(graph, id)}</li>`).join("")}</ul>`;
 
 const pairs = (items: readonly Pair[], escape: boolean): string =>
   items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : v}</dd>`).join("");
@@ -78,7 +77,7 @@ const pairs = (items: readonly Pair[], escape: boolean): string =>
 const list = (items: readonly string[], escape: boolean): string =>
   items.map((i) => `<li>${escape ? esc(i) : i}</li>`).join("");
 
-function replaceSection(info: Info, coupled: readonly string[]): string {
+function replaceSection(graph: Graph, info: Info, coupled: readonly string[]): string {
   if (info.swap === undefined && coupled.length === 0) {
     return "";
   }
@@ -88,20 +87,20 @@ function replaceSection(info: Info, coupled: readonly string[]): string {
   const chips =
     coupled.length === 0
       ? ""
-      : `<p class="label">Change avec, entouré sur le plan :</p><div class="chips">${coupled.map((id) => chip(id)).join("")}</div>`;
+      : `<p class="label">Change avec, entouré sur le plan :</p><div class="chips">${coupled.map((id) => chip(graph, id)).join("")}</div>`;
 
   return `<h3>Pour remplacer</h3>${swap}${chips}`;
 }
 
 // The sections after the contract, in panel order: [heading, body] or "".
-function laterSections(info: Info, state: ThreadState): string {
+function laterSections(graph: Graph, info: Info, state: ThreadState): string {
   return [
     info.extend === undefined ? "" : `<h3>Pour étendre</h3><p>${info.extend}</p>`,
     info.pitfalls === undefined || info.pitfalls.length === 0
       ? ""
       : `<h3>Pièges</h3><ul>${list(info.pitfalls, false)}</ul>`,
-    info.seams === undefined ? "" : `<h3>Points d'extension</h3>${pointList(info.seams)}`,
-    info.traps === undefined ? "" : `<h3>Couplages à connaître</h3>${pointList(info.traps)}`,
+    info.seams === undefined ? "" : `<h3>Points d'extension</h3>${pointList(graph, info.seams)}`,
+    info.traps === undefined ? "" : `<h3>Couplages à connaître</h3>${pointList(graph, info.traps)}`,
     info.why === undefined || info.why.length === 0
       ? ""
       : `<h3>Pourquoi</h3><ul>${list(info.why, false)}</ul>`,
@@ -115,6 +114,7 @@ function laterSections(info: Info, state: ThreadState): string {
 }
 
 function renderInfo(
+  graph: Graph,
   info: Info,
   color: string,
   extra: string,
@@ -131,22 +131,22 @@ function renderInfo(
     info.io === undefined
       ? ""
       : `<h3>Contrat</h3><dl class="facts io">${pairs(info.io, false)}</dl>`,
-    replaceSection(info, coupled),
-    laterSections(info, state),
+    replaceSection(graph, info, coupled),
+    laterSections(graph, info, state),
     extra,
     info.see === undefined || info.see.length === 0
       ? ""
-      : `<h3>Voir aussi</h3><div class="chips">${info.see.map(chip).join("")}</div>`,
+      : `<h3>Voir aussi</h3><div class="chips">${info.see.map((id) => chip(graph, id)).join("")}</div>`,
     info.src === undefined ? "" : `<p class="src">Source : ${esc(info.src)}</p>`,
     "</div>",
   ].join("");
 }
 
 // Couplings are declared on either side; this makes them symmetric.
-export function coupledWith(id: string): string[] {
-  const set = new Set(node(id).couples);
+export function coupledWith(graph: Graph, id: string): string[] {
+  const set = new Set(graph.node(id).couples);
 
-  for (const n of PLAN.nodes) {
+  for (const n of graph.plan.nodes) {
     if (n.couples.includes(id)) {
       set.add(n.id);
     }
@@ -154,55 +154,60 @@ export function coupledWith(id: string): string[] {
 
   set.delete(id);
 
-  return [...set].filter((n) => isNode(n));
+  return [...set].filter((n) => graph.isNode(n));
 }
 
-function zoneTour(zid: string): string {
-  const order = PLAN.zoneOrder;
+function zoneTour(graph: Graph, zid: string): string {
+  const order = graph.plan.zoneOrder;
   const i = order.indexOf(zid);
-  const prev = zone(order[(i + order.length - 1) % order.length] ?? zid);
-  const next = zone(order[(i + 1) % order.length] ?? zid);
+  const prev = graph.zone(order[(i + order.length - 1) % order.length] ?? zid);
+  const next = graph.zone(order[(i + 1) % order.length] ?? zid);
 
   return `<div class="nav"><button type="button" data-go="${prev.id}">← ${esc(prev.title)}</button><button type="button" data-go="${next.id}">${esc(next.title)} →</button></div>`;
 }
 
-function overviewExtra(avoidError: string | null): string {
-  const zones = `<h3>Zones</h3><div class="chips">${PLAN.zoneOrder.map(chip).join("")}</div>`;
+function overviewExtra(graph: Graph, avoidError: string | null): string {
+  const chips = graph.plan.zoneOrder.map((id) => chip(graph, id)).join("");
+  const zones = `<h3>Zones</h3><div class="chips">${chips}</div>`;
 
   if (avoidError === null) {
     return zones;
   }
 
-  return `${zones}<h3>Flèches absentes</h3><p class="warn">libavoid ne s'est pas chargé : la vue d'ensemble n'a pas ses flèches. Le plan doit être servi par <code>bun atlas/serve.ts</code>, qui sert aussi <code>libavoid.wasm</code>. Erreur : <code>${esc(avoidError)}</code></p>`;
+  return `${zones}<h3>Flèches absentes</h3><p class="warn">libavoid ne s'est pas chargé : la vue d'ensemble n'a pas ses flèches. Le plan doit être servi par <code>bun atlas/serve.ts &lt;dossier du plan&gt;</code>, qui sert aussi <code>libavoid.wasm</code>. Erreur : <code>${esc(avoidError)}</code></p>`;
 }
 
 export function renderPanel(
+  graph: Graph,
   panel: HTMLElement,
   place: Place,
   avoidError: string | null,
   state: ThreadState,
 ): void {
   if (place.node !== null) {
-    const n = node(place.node);
+    const n = graph.node(place.node);
 
     const up =
       n.zone === null
         ? ""
-        : `<div class="nav"><button type="button" data-go="${n.zone}">↑ ${esc(zone(n.zone).title)}</button></div>`;
+        : `<div class="nav"><button type="button" data-go="${n.zone}">↑ ${esc(graph.zone(n.zone).title)}</button></div>`;
 
-    panel.innerHTML = renderInfo(n.info, n.color, "", coupledWith(n.id), [], state) + up;
+    panel.innerHTML =
+      renderInfo(graph, n.info, n.color, "", coupledWith(graph, n.id), [], state) + up;
   } else if (place.zone === null) {
     panel.innerHTML = renderInfo(
-      PLAN.overview,
+      graph,
+      graph.plan.overview,
       "--accent",
-      overviewExtra(avoidError),
+      overviewExtra(graph, avoidError),
       [],
       [],
       state,
     );
   } else {
-    const z = zone(place.zone);
-    panel.innerHTML = renderInfo(z.info, z.color, "", [], z.kw, state) + zoneTour(z.id);
+    const z = graph.zone(place.zone);
+    panel.innerHTML =
+      renderInfo(graph, z.info, z.color, "", [], z.kw, state) + zoneTour(graph, z.id);
   }
 
   panel.scrollTop = 0;
@@ -211,11 +216,12 @@ export function renderPanel(
 // The header button and the list it opens: one row per open point, a click
 // goes to its zone or brick.
 export function renderOpenList(
+  graph: Graph,
   button: HTMLButtonElement,
   menu: HTMLElement,
   state: ThreadState,
 ): void {
-  const items = openItems(PLAN);
+  const items = openItems(graph.plan);
 
   const count = (who: Who): number =>
     items.filter((i) => waitsFor(threadOf(state, i.id)) === who).length;
@@ -240,7 +246,7 @@ export function renderOpenList(
   menu.innerHTML = `<h2>Points ouverts</h2>${sum}<ul>${rows.join("")}</ul>`;
 }
 
-export function renderCrumbs(crumbs: HTMLElement, place: Place): void {
+export function renderCrumbs(graph: Graph, crumbs: HTMLElement, place: Place): void {
   const current = 'aria-current="true"';
 
   const parts = [
@@ -248,7 +254,7 @@ export function renderCrumbs(crumbs: HTMLElement, place: Place): void {
   ];
 
   if (place.zone !== null) {
-    const title = esc(zone(place.zone).title);
+    const title = esc(graph.zone(place.zone).title);
     parts.push(
       `<span class="sep">›</span><button type="button" data-go="${place.zone}" ${place.node === null ? current : ""}>${title}</button>`,
     );
@@ -256,7 +262,7 @@ export function renderCrumbs(crumbs: HTMLElement, place: Place): void {
 
   if (place.node !== null) {
     parts.push(
-      `<span class="sep">›</span><button type="button" ${current}>${esc(node(place.node).label)}</button>`,
+      `<span class="sep">›</span><button type="button" ${current}>${esc(graph.node(place.node).label)}</button>`,
     );
   }
 

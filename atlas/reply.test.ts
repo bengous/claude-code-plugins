@@ -77,10 +77,13 @@ describe("appendReply", () => {
 });
 
 describe("reply.ts command line", () => {
+  const sample = join(import.meta.dir, "fixtures", "sample");
+
   test("refuses an unknown id with exit code 1", () => {
     const run = Bun.spawnSync([
       process.execPath,
       join(import.meta.dir, "reply.ts"),
+      sample,
       "no-such-point",
       "--as",
       "agent",
@@ -95,6 +98,7 @@ describe("reply.ts command line", () => {
     const run = Bun.spawnSync([
       process.execPath,
       join(import.meta.dir, "reply.ts"),
+      sample,
       "backup-restore-untested",
       "--as",
       "codex",

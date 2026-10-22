@@ -1,4 +1,4 @@
-import { nestsZone, zone } from "./graph.ts";
+import type { Graph } from "./graph.ts";
 import type { Brick } from "./model.ts";
 import { el } from "./svg.ts";
 
@@ -95,11 +95,11 @@ export const TITLE = {
   ov: { big: "ov-big", title: "ov-title", tag: "ov-tag", k: 1.3 },
 } satisfies Record<Level, TitleStyle>;
 
-export function titleWidth(zid: string, level: Level): number {
-  const z = zone(zid);
+export function titleWidth(graph: Graph, zid: string, level: Level): number {
+  const z = graph.zone(zid);
   const t = TITLE[level];
 
-  return nestsZone(zid)
+  return graph.nestsZone(zid)
     ? textWidth(z.title.toUpperCase(), t.big) * 1.06 + textWidth(z.tag, t.tag) + 70 * t.k
     : Math.max(textWidth(z.title.toUpperCase(), t.title) * 1.06, textWidth(z.tag, t.tag)) +
         32 * t.k;

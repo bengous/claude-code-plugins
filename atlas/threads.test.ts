@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 
-import { PLAN } from "./plan.ts";
+import { planOf } from "./folder.ts";
 import { appendEntry, firstLine, openItems, readThreads, waitsFor } from "./threads.ts";
+
+const PLAN = await planOf(join(import.meta.dir, "fixtures", "sample"));
 
 describe("open points", () => {
   test("every open point has a unique id and a text", () => {

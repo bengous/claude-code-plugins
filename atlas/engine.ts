@@ -1,7 +1,8 @@
 /* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, and the JSON of threads.json, which readThreads parses: there is no earlier place to narrow them. */
 // The page's entry (plan.fr.html loads it; serve.ts bundles it). It draws the
-// plan from the data files and runs it; it holds no content: a new brick,
-// arrow or text belongs in a data file.
+// map it is given, atlas:map and atlas:config, which serve.ts resolves to the
+// files of a map folder; it holds no content: a new brick, arrow or text
+// belongs in the map's data.
 //
 // Two levels share one SVG:
 //   overview  where the page opens (overview.ts). Every zone is a box listing
@@ -20,9 +21,13 @@
 // ELK (layout.ts, overview.ts) sizes and places the boxes, libavoid
 // (avoid.ts) routes the overview's arrows. Text is measured from the rendered
 // fonts (measure.ts), so layout waits for them (start).
+import config from "atlas:config";
+import map from "atlas:map";
+
+import { toPlan } from "./adapter.ts";
 import type { Detail } from "./detail.ts";
 import { drawDetail } from "./detail.ts";
-import { got, zoneOfNode } from "./graph.ts";
+import { got, graphOf } from "./graph.ts";
 import type { Anchor, Camera, Image, NavEvent, Place, Rect, Target } from "./machine.ts";
 import { alignment, anchorOf, camera, navigate, shown } from "./machine.ts";
 import { fontKey } from "./measure.ts";
@@ -30,9 +35,10 @@ import type { Overview } from "./overview.ts";
 import { drawOverview } from "./overview.ts";
 import type { ThreadState } from "./panel.ts";
 import { coupledWith, renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
-import { PLAN, zoneBox } from "./plan.ts";
 import { defs, el, esc } from "./svg.ts";
-import { readThreads } from "./threads.ts";
+import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
+
+const graph = graphOf(toPlan(map, config));
 
 function byId<E extends Element>(id: string, kind: new () => E): E {
   const e = document.querySelector(`#${id}`);
@@ -54,8 +60,10 @@ const openButton = byId("btn-open", HTMLButtonElement);
 
 const openList = byId("open-list", HTMLElement);
 
-// Relative: a draft's page reads its own copy. serve.ts serves it.
+// serve.ts answers it from the map folder, and takes a reply posted to it.
 const THREADS_URL = "threads.json";
+
+const token = document.querySelector(`meta[name="${TOKEN_META}"]`)?.getAttribute("content") ?? "";
 
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -200,7 +208,7 @@ function jumpTo(p: Place): void {
 // levels: focused zone, selected brick, coupled bricks, hot arrows.
 function highlight(p: Place): void {
   const d = drawn();
-  const coupled = p.node === null ? [] : coupledWith(p.node);
+  const coupled = p.node === null ? [] : coupledWith(graph, p.node);
 
   for (const [id, gs] of d.dt.zoneEls) {
     for (const g of gs) {
@@ -208,8 +216,8 @@ function highlight(p: Place): void {
     }
   }
 
-  for (const map of [d.dt.nodeEls, d.ov.nodeEls]) {
-    for (const [id, gs] of map) {
+  for (const registry of [d.dt.nodeEls, d.ov.nodeEls]) {
+    for (const [id, gs] of registry) {
       for (const g of gs) {
         g.classList.toggle("selected", id === p.node);
         g.classList.toggle("coupled", coupled.includes(id));
@@ -245,7 +253,7 @@ function hoverOverview(target: EventTarget | null): void {
   const brick = over?.getAttribute("data-brick") ?? null;
   // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- the same `Element` as the line above.
   const zid = over?.getAttribute("data-zone") ?? null;
-  const box = zid === null ? null : zoneBox(PLAN, zid);
+  const box = zid === null ? null : graph.zoneBox(zid);
 
   for (const a of drawing.ov.arrows) {
     const lit =
@@ -267,9 +275,9 @@ svg.addEventListener("pointerleave", () => {
 });
 
 function render(): void {
-  renderPanel(panel, place, drawn().ov.avoidError, threads);
-  renderOpenList(openButton, openList, threads);
-  renderCrumbs(crumbs, place);
+  renderPanel(graph, panel, place, drawn().ov.avoidError, threads);
+  renderOpenList(graph, openButton, openList, threads);
+  renderCrumbs(graph, crumbs, place);
   highlight(place);
   // Keeps #id in the URL so a link reopens the same view.
   const id = place.node ?? place.zone;
@@ -280,14 +288,15 @@ function render(): void {
 // to it, the panel follows.
 function send(ev: NavEvent): void {
   const left = place.zone;
-  place = navigate(place, ev, zoneOfNode);
+  place = navigate(place, ev, graph.zoneOfNode);
   moveTo(place, place.zone ?? left);
   render();
 }
 
 // threads.json is read at start and each time the window regains focus (an
 // agent replies from the terminal); a reply from the page is POSTed to
-// serve.ts, which answers the updated threads.
+// serve.ts with the token it wrote into the page, and it answers the updated
+// threads.
 const failure = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -334,7 +343,7 @@ async function sendReply(form: HTMLFormElement): Promise<void> {
   try {
     const response = await fetch(THREADS_URL, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [TOKEN_HEADER]: token },
       body: JSON.stringify({ id: form.dataset["open"] ?? "", text: input.value }),
     });
 
@@ -372,7 +381,7 @@ addEventListener("focus", () => {
 function go(id: string): void {
   if (id === "") {
     send({ type: "home" });
-  } else if (PLAN.zones.some((z) => z.id === id)) {
+  } else if (graph.isZone(id)) {
     send({ type: "zone", id });
   } else {
     send({ type: "node", id });
@@ -495,9 +504,9 @@ const shownText = (): string =>
   [
     ...new Set(
       [
-        ...PLAN.nodes.flatMap((n) => [n.label, n.sub]),
-        ...PLAN.zones.flatMap((z) => [z.title.toUpperCase(), z.tag]),
-        ...PLAN.edges.map((e) => e.label),
+        ...graph.plan.nodes.flatMap((n) => [n.label, n.sub]),
+        ...graph.plan.zones.flatMap((z) => [z.title.toUpperCase(), z.tag]),
+        ...graph.plan.edges.map((e) => e.label),
       ].join(""),
     ),
   ].join("");
@@ -511,10 +520,10 @@ async function build(): Promise<Drawing> {
   builtAspect = aspect();
   const grid = el("rect", { fill: "url(#grid)" }, svg);
   const ovLayer = el("g", { class: "layer-ov" }, svg);
-  const ov = await drawOverview(ovLayer, send, builtAspect);
+  const ov = await drawOverview(graph, ovLayer, send, builtAspect);
   const dtX = ov.size.w + 4000;
   const dtLayer = el("g", { class: "layer-dt" }, svg);
-  const dt = await drawDetail(dtLayer, dtX, send);
+  const dt = await drawDetail(graph, dtLayer, dtX, send);
   grid.setAttribute("x", String(-ov.size.w));
   grid.setAttribute("y", String(-ov.size.h * 2));
   grid.setAttribute("width", String(dtX + dt.size.w + ov.size.w * 2));
@@ -524,8 +533,8 @@ async function build(): Promise<Drawing> {
   // sub-zones its own bricks. Framed whole, such a zone's
   // detail is too small to read, and each sub-zone is one click away.
   const anchors = new Map(
-    PLAN.zones.map((z): [string, Anchor] => {
-      const key = zoneBox(PLAN, z.id);
+    graph.plan.zones.map((z): [string, Anchor] => {
+      const key = graph.zoneBox(z.id);
 
       return [
         z.id,
@@ -545,10 +554,10 @@ async function start(): Promise<void> {
   // A bare #id opens the page on that zone or brick, without a move.
   const id = location.hash.slice(1);
 
-  if (PLAN.zones.some((z) => z.id === id)) {
-    place = navigate(place, { type: "zone", id }, zoneOfNode);
-  } else if (PLAN.nodes.some((n) => n.id === id)) {
-    place = navigate(place, { type: "node", id }, zoneOfNode);
+  if (graph.isZone(id)) {
+    place = navigate(place, { type: "zone", id }, graph.zoneOfNode);
+  } else if (graph.isNode(id)) {
+    place = navigate(place, { type: "node", id }, graph.zoneOfNode);
   }
 
   jumpTo(place);

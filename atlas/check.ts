@@ -1,13 +1,14 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
+import { THREADS_FILE, planOf } from "./folder.ts";
+import { graphOf } from "./graph.ts";
 import type { Brick, Edge, Plan, Zone } from "./model.ts";
-import { PLAN, zoneBox } from "./plan.ts";
 import type { Threads } from "./threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "./threads.ts";
 
-// Validates the plan's data and threads.json without a browser:
-//   bun atlas/check.ts          validate
-//   bun atlas/check.ts --open   list the open points
+// Validates a map folder's data and threads.json without a browser:
+//   bun atlas/check.ts <map folder>          validate
+//   bun atlas/check.ts <map folder> --open   list the open points
 // The types (atlas.ts) already hold the shape of every field, and toPlan
 // (adapter.ts) refuses a tree the engine cannot draw; this checks what they
 // cannot, and fails on what would break the page or mislead a reader:
@@ -26,8 +27,6 @@ import { firstLine, openItems, plainText, readThreads, waitsFor } from "./thread
 // Layout is not checked here: ELK and libavoid lay the plan out in the
 // browser, and nothing overlaps by construction. Look at the rendered page
 // (serve.ts) for the rest.
-export const THREADS_FILE = join(import.meta.dir, "threads.json");
-
 type Index = {
   readonly nodes: ReadonlyMap<string, Brick>;
   readonly zones: ReadonlyMap<string, Zone>;
@@ -115,14 +114,16 @@ function checkBricks(p: Plan, { nodes, zones }: Index, errors: string[]): void {
 // An overview label names the arrow between two boxes, as engine.ts sees
 // them: a zone that nests others keeps its own bricks in a box of their own.
 function checkArrows(p: Plan, { nodes, zones }: Index, errors: string[]): void {
+  const { zoneBox } = graphOf(p);
+
   const boxOf = (ref: string): string => {
     if (ref.startsWith("z:")) {
-      return zoneBox(p, ref.slice(2));
+      return zoneBox(ref.slice(2));
     }
 
     const zone = nodes.get(ref)?.zone ?? null;
 
-    return zone === null ? ref : zoneBox(p, zone);
+    return zone === null ? ref : zoneBox(zone);
   };
 
   const isRef = (ref: string): boolean =>
@@ -282,9 +283,19 @@ export function openReport(p: Plan, threads: Threads): string {
 }
 
 if (import.meta.main) {
-  const raw: unknown = await Bun.file(THREADS_FILE).json();
+  const open = process.argv.includes("--open");
+  const [dir, ...extra] = process.argv.slice(2).filter((a) => a !== "--open");
 
-  if (process.argv.includes("--open")) {
+  if (dir === undefined || extra.length > 0) {
+    console.error("usage: bun check.ts <map folder> [--open]");
+    process.exit(1);
+  }
+
+  const folder = resolve(dir);
+  const plan = await planOf(folder);
+  const raw: unknown = await Bun.file(join(folder, THREADS_FILE)).json();
+
+  if (open) {
     const { threads, errors } = readThreads(raw);
 
     if (errors.length > 0) {
@@ -292,11 +303,11 @@ if (import.meta.main) {
       process.exit(1);
     }
 
-    console.log(openReport(PLAN, threads));
+    console.log(openReport(plan, threads));
     process.exit(0);
   }
 
-  const errors = validate(PLAN, raw);
+  const errors = validate(plan, raw);
 
   if (errors.length > 0) {
     console.error(errors.join("\n"));
@@ -304,6 +315,6 @@ if (import.meta.main) {
   }
 
   console.log(
-    `plan ok: ${PLAN.zones.length} zones, ${PLAN.nodes.length} bricks, ${PLAN.edges.length} arrows`,
+    `plan ok: ${plan.zones.length} zones, ${plan.nodes.length} bricks, ${plan.edges.length} arrows`,
   );
 }

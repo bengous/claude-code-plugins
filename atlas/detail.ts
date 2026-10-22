@@ -1,16 +1,6 @@
 import { drawZone } from "./frame.ts";
-import {
-  OUT,
-  arrival,
-  links,
-  nestOrder,
-  nestsZone,
-  node,
-  outside,
-  parentMap,
-  realId,
-  roots,
-} from "./graph.ts";
+import type { Graph } from "./graph.ts";
+import { OUT, OWN, realId } from "./graph.ts";
 import type { Group, LayoutEdge, Leaf } from "./layout.ts";
 import { elkNested } from "./layout.ts";
 import type { NavEvent, Point, Rect } from "./machine.ts";
@@ -18,7 +8,6 @@ import type { Size } from "./measure.ts";
 import { cardSize, subLines, textHeight, textOf, textWidth, titleWidth } from "./measure.ts";
 import type { Brick } from "./model.ts";
 import { edgeText } from "./model.ts";
-import { OWN, PLAN, groupOf } from "./plan.ts";
 import type { ArrowEl, Registry } from "./svg.ts";
 import { arrowPath, el, onActivate, openBadge, register, rounded, text } from "./svg.ts";
 
@@ -32,14 +21,14 @@ export type Detail = {
 
 const MARGIN = 40;
 
-function groups(): Map<string, Group> {
+function groups(graph: Graph): Map<string, Group> {
   const all = new Map<string, Group>();
 
-  for (const z of PLAN.zones) {
-    const nesting = nestsZone(z.id);
+  for (const z of graph.plan.zones) {
+    const nesting = graph.nestsZone(z.id);
     all.set(z.id, {
       pad: nesting ? "[top=74,left=28,bottom=28,right=28]" : "[top=66,left=20,bottom=20,right=20]",
-      minW: titleWidth(z.id, "dt"),
+      minW: titleWidth(graph, z.id, "dt"),
     });
 
     if (nesting) {
@@ -56,29 +45,30 @@ function leafOf(id: string, n: Brick, group: string | null): Leaf {
   return { id, w, h, group };
 }
 
-const leaves = (): Leaf[] => [
-  ...PLAN.nodes.map((n) => leafOf(n.id, n, groupOf(PLAN, n))),
-  ...outside.filter((n) => n.side === "both").map((n) => leafOf(n.id + OUT, n, null)),
+const leaves = (graph: Graph): Leaf[] => [
+  ...graph.plan.nodes.map((n) => leafOf(n.id, n, graph.groupOf(n))),
+  ...graph.outside.filter((n) => n.side === "both").map((n) => leafOf(n.id + OUT, n, null)),
 ];
 
 // An arrow that leaves a service outside the server toward a brick inside is
 // laid out reversed: ELK's layers run left to right, so a pure source would
 // otherwise land on the left, among the inbound side.
-const layoutEdges = (): LayoutEdge[] =>
-  links.map((e) => ({
+const layoutEdges = (graph: Graph): LayoutEdge[] =>
+  graph.links.map((e) => ({
     from: e.from,
-    to: arrival(e.to),
+    to: graph.arrival(e.to),
     label: edgeText(e),
-    flip: node(e.from).side === "out" && node(e.to).zone !== null,
+    flip: graph.node(e.from).side === "out" && graph.node(e.to).zone !== null,
   }));
 
 function drawBrick(
+  graph: Graph,
   layer: SVGGElement,
   id: string,
   r: Rect,
   pick: (ev: NavEvent) => void,
 ): SVGGElement {
-  const n = node(realId(id));
+  const n = graph.node(realId(id));
   const t = textOf(n);
   const lines = subLines(n);
   const cls = `brick${n.zone === null ? " ext" : ""}${n.kind === "off" ? " off" : ""}`;
@@ -106,13 +96,14 @@ function drawBrick(
 }
 
 export async function drawDetail(
+  graph: Graph,
   layer: SVGGElement,
   x0: number,
   pick: (ev: NavEvent) => void,
 ): Promise<Detail> {
-  const all = leaves();
+  const all = leaves(graph);
 
-  const laid = await elkNested(groups(), parentMap(), all, layoutEdges(), (t) => ({
+  const laid = await elkNested(groups(graph), graph.parents, all, layoutEdges(graph), (t) => ({
     width: Math.ceil(textWidth(t, "elabel")) + 6,
     height: 10,
   }));
@@ -136,28 +127,28 @@ export async function drawDetail(
   const rects = new Map<string, Rect>();
   const zoneEls: Registry = new Map();
 
-  for (const zid of roots.flatMap((z) => nestOrder(z.id))) {
+  for (const zid of graph.roots.flatMap((z) => graph.nestOrder(z.id))) {
     rects.set(zid, box(zid));
 
-    if (nestsZone(zid)) {
+    if (graph.nestsZone(zid)) {
       rects.set(zid + OWN, box(zid + OWN));
     }
 
     register(
       zoneEls,
       zid,
-      drawZone(zl, zid, box(zid), "dt", (id) => pick({ type: "zone", id })),
+      drawZone(graph, zl, zid, box(zid), "dt", (id) => pick({ type: "zone", id })),
     );
   }
 
   const nodeEls: Registry = new Map();
 
   for (const l of all) {
-    register(nodeEls, realId(l.id), drawBrick(bl, l.id, box(l.id), pick));
+    register(nodeEls, realId(l.id), drawBrick(graph, bl, l.id, box(l.id), pick));
   }
 
   const arrows = laid.paths.map((p, i): ArrowEl => {
-    const e = links[i];
+    const e = graph.links[i];
 
     if (e === undefined) {
       throw new Error(`ELK returned an extra path ${i}`);

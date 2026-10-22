@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { toPlan } from "./adapter.ts";
-import config from "./atlas.config.ts";
 import type { AtlasMap, Config, Link, Node } from "./atlas.ts";
-import map from "./map.ts";
+import config from "./fixtures/sample/atlas.config.ts";
+import map from "./fixtures/sample/map.ts";
 import type { Plan } from "./model.ts";
 
 const SAMPLE: Plan = {

@@ -4,6 +4,12 @@
 // reply.ts share it, and only reply.ts and serve.ts touch the file.
 import type { Plan } from "./model.ts";
 
+// serve.ts writes a token of its own into the page it serves, under this meta name, and takes a
+// reply posted to threads.json only with that token in this header.
+export const TOKEN_META = "atlas-token";
+
+export const TOKEN_HEADER = "x-atlas-token";
+
 export const WHO = ["human", "agent"] as const;
 
 export type Who = (typeof WHO)[number];

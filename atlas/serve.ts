@@ -1,82 +1,222 @@
-/* oxlint-disable anti-slop/no-runtime-typeof -- isBundle and isReply ARE the boundary parsers of what a dynamic import answers and what the page posts: there is no earlier place to narrow them. */
-import { existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+/* oxlint-disable anti-slop/no-runtime-typeof -- isReply IS the boundary parser of what the page posts: there is no earlier place to narrow it. */
+import { statSync, watch } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
-import type { HTMLBundle } from "bun";
+import type { BuildArtifact, BunPlugin, Server } from "bun";
 
-import live from "./plan.fr.html";
+import { CONFIG_FILE, MAP_FILE, THREADS_FILE } from "./folder.ts";
+import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 
-// Serves the plan and its drafts (drafts/<name>/, a copy of this folder)
-// over HTTP. Each page is an HTML import: Bun bundles its TypeScript on
-// request, and in development mode reloads the open tab when a source
-// changes. libavoid.wasm is answered next to each page, from the installed
-// libavoid-js package: avoid.ts fetches it by that relative URL. threads.json
-// is served the same way, from the page's own folder; a POST to the live
-// /threads.json ({ id, text }) adds the human's reply through reply.ts and
-// answers the updated threads. A draft's threads are read-only from its page.
-// Run: bun atlas/serve.ts [port]
+// Serves the page of one map folder:
+//   bun atlas/serve.ts <map folder> [port]   prints the page's address once it listens; port 0 or
+//                                            none takes a free one
+// Bun.build bundles the page, atlas:map and atlas:config resolved to the folder's files, and the
+// server answers the outputs from memory. A save in the folder or in the page's sources rebuilds it
+// and reloads every open tab through a server-sent event. A failed build, or data the engine
+// cannot draw, answers an error page instead, which reloads on the next save.
 const DIR = import.meta.dir;
-
-const DRAFTS = join(DIR, "drafts");
 
 const PAGE = "plan.fr.html";
 
-const WASM = "libavoid.wasm";
+const EVENTS = "/events";
 
-// The package's exports list only its entry point, so the WebAssembly is
-// found beside that entry, never copied into this folder.
-const WASM_FILE = join(dirname(Bun.resolveSync("libavoid-js", DIR)), WASM);
+const SETTLE_MS = 50;
 
-const DRAFT_PAGE = /^\/drafts\/([a-z0-9][a-z0-9-]*)\/plan\.fr\.html$/u;
+// The package's exports list only its entry point, so the WebAssembly is found beside that entry,
+// never copied into this folder.
+const WASM_FILE = join(dirname(Bun.resolveSync("libavoid-js", DIR)), "libavoid.wasm");
 
-const THREADS = "threads.json";
+type Bundle =
+  | { readonly kind: "ok"; readonly files: ReadonlyMap<string, BuildArtifact> }
+  | { readonly kind: "error"; readonly message: string };
 
-const DRAFT_FILE = /^\/drafts\/([a-z0-9][a-z0-9-]*)\/(libavoid\.wasm|threads\.json)$/u;
+const USAGE = "usage: bun serve.ts <map folder> [port]";
 
-const port = Number(process.argv[2] ?? 8765);
+const [dirArg, portArg = "0", ...extra] = process.argv.slice(2);
 
-function isBundle(module: unknown): module is { default: HTMLBundle } {
-  return typeof module === "object" && module !== null && "default" in module;
+if (dirArg === undefined || extra.length > 0 || !/^\d+$/u.test(portArg)) {
+  console.error(USAGE);
+  process.exit(1);
 }
 
-async function draftPage(name: string): Promise<[string, HTMLBundle]> {
-  const module: unknown = await import(join(DRAFTS, name, PAGE));
+const folder = resolve(dirArg);
 
-  if (!isBundle(module)) {
-    throw new TypeError(`drafts/${name}/${PAGE} is not an HTML import`);
-  }
-
-  return [`/drafts/${name}/${PAGE}`, module.default];
+if (statSync(folder, { throwIfNoEntry: false })?.isDirectory() !== true) {
+  console.error(`serve: ${folder} is not a folder\n${USAGE}`);
+  process.exit(1);
 }
 
-// The live page and every draft that exists now; a draft created later is
-// added by fetch() on its first request.
-async function pages(): Promise<Map<string, HTMLBundle>> {
-  const names = existsSync(DRAFTS)
-    ? readdirSync(DRAFTS).filter((n) => existsSync(join(DRAFTS, n, PAGE)))
-    : [];
+// Written into every page this server answers: a reply without it is refused, so another page open
+// in the browser cannot write into a thread.
+const token = crypto.randomUUID();
 
-  return new Map([[`/${PAGE}`, live], ...(await Promise.all(names.map((n) => draftPage(n))))]);
+const mapResolver: BunPlugin = {
+  name: "atlas-map",
+  setup(build) {
+    build.onResolve({ filter: /^atlas:(?:map|config)$/u }, ({ path }) => ({
+      path: join(folder, path === "atlas:map" ? MAP_FILE : CONFIG_FILE),
+    }));
+  },
+};
+
+// `String(log)` drops where the error is; its position keeps the file, the line and the column.
+function located(log: BuildMessage | ResolveMessage): string {
+  const at = log.position;
+
+  return at === null
+    ? log.message
+    : `${at.file}:${at.line}:${at.column}: ${log.message}\n    ${at.lineText}`;
 }
 
-function staticFile(path: string): string | null {
-  if (path === `/${WASM}`) {
-    return WASM_FILE;
+async function bundle(): Promise<Bundle> {
+  const built = await Bun.build({
+    entrypoints: [join(DIR, PAGE)],
+    target: "browser",
+    plugins: [mapResolver],
+    throw: false,
+  });
+
+  if (!built.success) {
+    return { kind: "error", message: built.logs.map(located).join("\n\n") };
   }
 
-  if (path === `/${THREADS}`) {
-    return join(DIR, THREADS);
+  return {
+    kind: "ok",
+    files: new Map(built.outputs.map((o): [string, BuildArtifact] => [`/${basename(o.path)}`, o])),
+  };
+}
+
+// The page throws on data toPlan refuses, so the folder is loaded here first, in a fresh process:
+// this one keeps the first evaluation of every module it imports.
+async function drawable(): Promise<string | null> {
+  const run = Bun.spawn([process.execPath, join(DIR, "folder.ts"), folder], {
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+
+  const [code, error] = await Promise.all([run.exited, new Response(run.stderr).text()]);
+
+  return code === 0 ? null : `the map in ${folder} cannot be drawn: ${error.trim()}`;
+}
+
+async function compile(): Promise<Bundle> {
+  const [bundled, refusal] = await Promise.all([bundle(), drawable()]);
+
+  return bundled.kind === "ok" && refusal !== null ? { kind: "error", message: refusal } : bundled;
+}
+
+let current = await compile();
+
+if (current.kind === "error") {
+  console.error(current.message);
+}
+
+const tabs = new Set<ReadableStreamDefaultController<string>>();
+
+function tell(tab: ReadableStreamDefaultController<string>, event: string, data: string): void {
+  try {
+    tab.enqueue(`event: ${event}\ndata: ${data}\n\n`);
+  } catch {
+    // The tab closed before its stream was cancelled: it hears nothing more.
+    tabs.delete(tab);
+  }
+}
+
+// Appended to every page this server answers. A tab reloads on `reload`, and on a `server` event
+// naming another token: the server it loaded from was replaced, and its token with it.
+const LIVE = [
+  `<meta name="${TOKEN_META}" content="${token}">`,
+  "<script>{",
+  `  const events = new EventSource("${EVENTS}");`,
+  `  events.addEventListener("reload", () => location.reload());`,
+  `  events.addEventListener("server", (e) => { if (e.data !== "${token}") location.reload(); });`,
+  "}</script>",
+].join("\n");
+
+function events(request: Request, server: Server<undefined>): Response {
+  server.timeout(request, 0);
+  let mine: ReadableStreamDefaultController<string> | undefined;
+
+  const stream = new ReadableStream<string>({
+    start(controller) {
+      mine = controller;
+      tabs.add(controller);
+      tell(controller, "server", token);
+    },
+    cancel() {
+      if (mine !== undefined) {
+        tabs.delete(mine);
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "text/event-stream", "cache-control": "no-store" },
+  });
+}
+
+async function rebuild(): Promise<void> {
+  const started = performance.now();
+  current = await compile();
+
+  for (const tab of tabs) {
+    tell(tab, "reload", "");
   }
 
-  const draft = DRAFT_FILE.exec(path);
-  const name = draft?.[1];
-  const file = draft?.[2];
+  const verdict = current.kind === "ok" ? "built" : "failed";
+  const ms = Math.round(performance.now() - started);
+  console.log(`atlas: ${verdict} in ${ms} ms, reload sent to ${tabs.size} tab(s)`);
 
-  if (name === undefined || file === undefined) {
-    return null;
+  if (current.kind === "error") {
+    console.error(current.message);
+  }
+}
+
+let settle: ReturnType<typeof setTimeout> | undefined;
+
+let builds = Promise.resolve();
+
+// threads.json changes on every reply, and the page reads it again by itself.
+function changed(file: string | null): void {
+  if (file !== null && basename(file) === THREADS_FILE) {
+    return;
   }
 
-  return file === WASM && existsSync(join(DRAFTS, name)) ? WASM_FILE : join(DRAFTS, name, file);
+  clearTimeout(settle);
+  settle = setTimeout(() => {
+    builds = builds.then(rebuild);
+  }, SETTLE_MS);
+}
+
+// A directory's watch survives an atomic save, a temporary file renamed over the old one; the
+// page's sources sit at the top of this folder.
+watch(folder, { recursive: true }, (_, file) => {
+  changed(file);
+});
+
+watch(DIR, (_, file) => {
+  changed(file);
+});
+
+async function page(): Promise<Response> {
+  if (current.kind === "error") {
+    const shown = `<!doctype html><meta charset="utf-8"><title>atlas: no map to show</title><pre>${Bun.escapeHTML(current.message)}</pre>`;
+
+    return new Response(shown + LIVE, {
+      status: 500,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+
+  const html = current.files.get(`/${PAGE}`);
+
+  if (html === undefined) {
+    throw new Error(`the build has no ${PAGE}`);
+  }
+
+  return new Response((await html.text()) + LIVE, {
+    headers: { "content-type": html.type, "cache-control": "no-store" },
+  });
 }
 
 const isReply = (v: unknown): v is { readonly id: string; readonly text: string } =>
@@ -87,10 +227,29 @@ const isReply = (v: unknown): v is { readonly id: string; readonly text: string 
   "text" in v &&
   typeof v.text === "string";
 
-// FIXME: no Origin, content-type or token check: any page open in the browser can POST a
-// text/plain body here, which a browser sends cross-origin without a preflight, and write into a
-// thread as human.
+const isJson = (type: string | null): boolean =>
+  type?.split(";")[0]?.trim().toLowerCase() === "application/json";
+
+// The page's own origin, from the port this server listens on: the request's Host names whatever
+// address the browser used, a name rebound to this machine included.
+const isOwn = (origin: string | null): boolean =>
+  origin === `http://127.0.0.1:${server.port}` || origin === `http://localhost:${server.port}`;
+
+// A browser sends a cross-origin text/plain POST without asking first, so the content type, the
+// Origin and the token are all required: a page elsewhere can set none of them to this server's.
 async function reply(request: Request): Promise<Response> {
+  if (!isOwn(request.headers.get("origin"))) {
+    return new Response("a reply comes from this server's own page", { status: 403 });
+  }
+
+  if (request.headers.get(TOKEN_HEADER) !== token) {
+    return new Response("a reply carries this server's token: reload the page", { status: 403 });
+  }
+
+  if (!isJson(request.headers.get("content-type"))) {
+    return new Response("a reply is application/json", { status: 415 });
+  }
+
   const body: unknown = await request.json().catch(() => null);
 
   if (!isReply(body)) {
@@ -98,11 +257,8 @@ async function reply(request: Request): Promise<Response> {
   }
 
   const run = Bun.spawn(
-    [process.execPath, join(DIR, "reply.ts"), body.id, "--as", "human", body.text],
-    {
-      stdout: "ignore",
-      stderr: "pipe",
-    },
+    [process.execPath, join(DIR, "reply.ts"), folder, body.id, "--as", "human", body.text],
+    { stdout: "ignore", stderr: "pipe" },
   );
 
   const [code, error] = await Promise.all([run.exited, new Response(run.stderr).text()]);
@@ -111,49 +267,42 @@ async function reply(request: Request): Promise<Response> {
     return new Response(error.trim(), { status: 400 });
   }
 
-  return new Response(Bun.file(join(DIR, THREADS)), {
-    headers: { "content-type": "application/json" },
+  return new Response(Bun.file(join(folder, THREADS_FILE)), {
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }
 
-async function handle(request: Request): Promise<Response> {
-  const path = new URL(request.url).pathname;
+async function threads(): Promise<Response> {
+  const file = Bun.file(join(folder, THREADS_FILE));
 
-  if (path === "/") {
-    return Response.redirect(`/${PAGE}`, 302);
-  }
-
-  const draft = DRAFT_PAGE.exec(path)?.[1];
-
-  if (draft !== undefined && existsSync(join(DRAFTS, draft, PAGE))) {
-    server.reload({ routes: Object.fromEntries(await pages()), fetch: handle });
-
-    return Response.redirect(path, 307);
-  }
-
-  if (path === `/${THREADS}` && request.method === "POST") {
-    return reply(request);
-  }
-
-  const file = staticFile(path);
-
-  if (file !== null && existsSync(file)) {
-    return request.method === "GET"
-      ? new Response(Bun.file(file), { headers: { "cache-control": "no-store" } })
-      : new Response("read-only here: a draft takes replies through its own reply.ts", {
-          status: 405,
-        });
-  }
-
-  return new Response("not found", { status: 404 });
+  return (await file.exists())
+    ? new Response(file, { headers: { "cache-control": "no-store" } })
+    : new Response(`no ${THREADS_FILE} in ${folder}`, { status: 404 });
 }
 
 const server = Bun.serve({
   hostname: "127.0.0.1",
-  port,
-  development: true,
-  routes: Object.fromEntries(await pages()),
-  fetch: handle,
+  port: Number(portArg),
+  reusePort: false,
+  routes: {
+    "/": Response.redirect(`/${PAGE}`, 302),
+    [`/${PAGE}`]: { GET: page },
+    [EVENTS]: { GET: events },
+    "/libavoid.wasm": {
+      GET: () => new Response(Bun.file(WASM_FILE), { headers: { "cache-control": "no-store" } }),
+    },
+    [`/${THREADS_FILE}`]: { GET: threads, POST: reply },
+  },
+  fetch(request) {
+    const file =
+      request.method === "GET" && current.kind === "ok"
+        ? current.files.get(new URL(request.url).pathname)
+        : undefined;
+
+    return file === undefined
+      ? new Response("not found", { status: 404 })
+      : new Response(file, { headers: { "content-type": file.type, "cache-control": "no-store" } });
+  },
 });
 
 console.log(`${server.url.href}${PAGE}`);

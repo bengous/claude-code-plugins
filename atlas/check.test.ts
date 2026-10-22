@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 
-import { THREADS_FILE, validate } from "./check.ts";
+import { validate } from "./check.ts";
+import { THREADS_FILE, planOf } from "./folder.ts";
 import type { Brick, Plan } from "./model.ts";
-import { PLAN } from "./plan.ts";
 
-const THREADS: unknown = await Bun.file(THREADS_FILE).json();
+const SAMPLE = join(import.meta.dir, "fixtures", "sample");
+
+const PLAN = await planOf(SAMPLE);
+
+const THREADS: unknown = await Bun.file(join(SAMPLE, THREADS_FILE)).json();
 
 const withOpen = (id: string, text: string): Plan => ({
   ...PLAN,

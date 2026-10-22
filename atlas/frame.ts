@@ -1,16 +1,16 @@
-import { nestsZone, zone } from "./graph.ts";
+import type { Graph } from "./graph.ts";
 import type { Rect } from "./machine.ts";
 import type { Level } from "./measure.ts";
 import { TITLE, textWidth } from "./measure.ts";
 import type { Zone } from "./model.ts";
 import { el, onActivate, openBadge, text } from "./svg.ts";
 
-function zoneKind(z: Zone): string {
+function zoneKind(graph: Graph, z: Zone): string {
   if (z.ext === true) {
     return "ext";
   }
 
-  if (!nestsZone(z.id)) {
+  if (!graph.nestsZone(z.id)) {
     return "module";
   }
 
@@ -18,16 +18,17 @@ function zoneKind(z: Zone): string {
 }
 
 export function drawZone(
+  graph: Graph,
   layer: SVGGElement,
   zid: string,
   r: Rect,
   level: Level,
   onPick: (zid: string) => void,
 ): SVGGElement {
-  const z = zone(zid);
+  const z = graph.zone(zid);
   const t = TITLE[level];
   const k = t.k;
-  const kind = zoneKind(z);
+  const kind = zoneKind(graph, z);
   const g = el("g", { class: `zone ${kind}`, style: `--zc: var(${z.color})` }, layer);
   el(
     "rect",
@@ -35,7 +36,7 @@ export function drawZone(
     g,
   );
 
-  if (nestsZone(zid)) {
+  if (graph.nestsZone(zid)) {
     text(g, { x: r.x + 22 * k, y: r.y + 40 * k, class: t.big }, z.title);
     const tagX = r.x + 34 * k + textWidth(z.title.toUpperCase(), t.big) * 1.06;
     text(g, { x: tagX, y: r.y + 38 * k, class: t.tag }, z.tag);

@@ -23,27 +23,13 @@ import ELK from "elkjs/lib/elk.bundled.js";
 
 import { routeLinks } from "./avoid.ts";
 import { drawZone } from "./frame.ts";
-import {
-  OUT,
-  arrival,
-  got,
-  isZone,
-  isZoneRef,
-  kidsOfZone,
-  links,
-  nestOrder,
-  nestsZone,
-  node,
-  outside,
-  realId,
-  zone,
-} from "./graph.ts";
+import type { Graph } from "./graph.ts";
+import { OUT, OWN, got, isZoneRef, realId } from "./graph.ts";
 import { ROOT_COORDS, rectOf } from "./layout.ts";
 import type { NavEvent, Point, Rect } from "./machine.ts";
 import type { Size } from "./measure.ts";
 import { textWidth, titleWidth } from "./measure.ts";
-import type { Edge } from "./model.ts";
-import { OWN, PLAN, groupOf, zoneBox } from "./plan.ts";
+import type { Edge, Zone } from "./model.ts";
 import type { ArrowEl, Registry } from "./svg.ts";
 import { arrowPath, el, onActivate, openBadge, register, rounded, text } from "./svg.ts";
 
@@ -87,10 +73,13 @@ const PACK_GAP = 56;
 
 const MARGIN = 40;
 
-function chipBlock(id: string, ids: readonly string[], header: boolean): Block {
-  const widths = ids.map((b) => Math.ceil(textWidth(node(b).label, "ov-chip-t")) + 2 * CHIP.pad);
+function chipBlock(graph: Graph, id: string, ids: readonly string[], header: boolean): Block {
+  const widths = ids.map(
+    (b) => Math.ceil(textWidth(graph.node(b).label, "ov-chip-t")) + 2 * CHIP.pad,
+  );
+
   const total = widths.reduce((a, w) => a + w + CHIP.gap, 0);
-  const headW = header ? titleWidth(id, "ov") : 0;
+  const headW = header ? titleWidth(graph, id, "ov") : 0;
   // Chips wrap at a width that makes the block about 2.6 times wider than tall.
   const target = Math.max(headW, Math.min(CHIP.maxW, Math.sqrt(total * (CHIP.h + CHIP.gap) * 2.6)));
   const chips: Chip[] = [];
@@ -126,20 +115,20 @@ function chipBlock(id: string, ids: readonly string[], header: boolean): Block {
   };
 }
 
-function blocksOf(): Map<string, Block> {
+function blocksOf(graph: Graph): Map<string, Block> {
   const blocks = new Map<string, Block>();
 
-  for (const z of PLAN.zones) {
-    const own = PLAN.nodes.filter((n) => n.zone === z.id).map((n) => n.id);
+  for (const z of graph.plan.zones) {
+    const own = graph.plan.nodes.filter((n) => n.zone === z.id).map((n) => n.id);
 
-    if (nestsZone(z.id)) {
-      blocks.set(z.id + OWN, chipBlock(z.id + OWN, own, false));
+    if (graph.nestsZone(z.id)) {
+      blocks.set(z.id + OWN, chipBlock(graph, z.id + OWN, own, false));
     } else {
-      blocks.set(z.id, chipBlock(z.id, own, true));
+      blocks.set(z.id, chipBlock(graph, z.id, own, true));
     }
   }
 
-  for (const n of outside) {
+  for (const n of graph.outside) {
     const pill = (): Block => ({
       w: Math.ceil(textWidth(n.label, "ov-ext-t")) + 44,
       h: 52,
@@ -166,15 +155,15 @@ function blocksOf(): Map<string, Block> {
 // (a "z:" arrow, a Link with a zone end) names the arrow; with `two`, it also merges
 // both directions into one arrow. Without a label, the arrow carries the
 // first two labels of its bricks.
-const refBox = (ref: string, arriving: boolean): string => {
+const refBox = (graph: Graph, ref: string, arriving: boolean): string => {
   if (!isZoneRef(ref)) {
-    return arriving ? arrival(ref) : ref;
+    return arriving ? graph.arrival(ref) : ref;
   }
 
-  return zoneBox(PLAN, ref.slice(2));
+  return graph.zoneBox(ref.slice(2));
 };
 
-const boxOfNode = (id: string): string => groupOf(PLAN, node(id)) ?? id;
+const boxOfNode = (graph: Graph, id: string): string => graph.groupOf(graph.node(id)) ?? id;
 
 type FlowSum = {
   from: string;
@@ -186,20 +175,20 @@ type FlowSum = {
   named: Edge | undefined;
 };
 
-function flowsOf(): Flow[] {
+function flowsOf(graph: Graph): Flow[] {
   const named = new Map<string, Edge>();
 
-  for (const e of PLAN.edges) {
+  for (const e of graph.plan.edges) {
     if (isZoneRef(e.from) || isZoneRef(e.to)) {
-      named.set(`${refBox(e.from, false)}>${refBox(e.to, true)}`, e);
+      named.set(`${refBox(graph, e.from, false)}>${refBox(graph, e.to, true)}`, e);
     }
   }
 
   const sums = new Map<string, FlowSum>();
 
-  for (const e of links) {
-    let a = boxOfNode(e.from);
-    let b = arrival(e.to) === e.to ? boxOfNode(e.to) : arrival(e.to);
+  for (const e of graph.links) {
+    let a = boxOfNode(graph, e.from);
+    let b = graph.arrival(e.to) === e.to ? boxOfNode(graph, e.to) : graph.arrival(e.to);
 
     if (a === b) {
       continue;
@@ -248,7 +237,12 @@ const packedLeaf = (blocks: ReadonlyMap<string, Block>, id: string): ElkNode => 
   return { id, width: b.w, height: b.h };
 };
 
-function pack(blocks: ReadonlyMap<string, Block>, zid: string, ratio: number): ElkNode {
+function pack(
+  graph: Graph,
+  blocks: ReadonlyMap<string, Block>,
+  zid: string,
+  ratio: number,
+): ElkNode {
   return {
     id: zid,
     layoutOptions: {
@@ -257,30 +251,33 @@ function pack(blocks: ReadonlyMap<string, Block>, zid: string, ratio: number): E
       "elk.padding": "[top=96,left=30,bottom=30,right=30]",
       "elk.spacing.nodeNode": String(PACK_GAP),
       "elk.nodeSize.constraints": "MINIMUM_SIZE",
-      "elk.nodeSize.minimum": `(${Math.ceil(titleWidth(zid, "ov"))}, 90)`,
+      "elk.nodeSize.minimum": `(${Math.ceil(titleWidth(graph, zid, "ov"))}, 90)`,
       ...ROOT_COORDS,
     },
     children: [
-      ...kidsOfZone(zid).map((k) =>
-        nestsZone(k) ? pack(blocks, k, ratio) : packedLeaf(blocks, k),
-      ),
+      ...graph
+        .kidsOfZone(zid)
+        .map((k) => (graph.nestsZone(k) ? pack(graph, blocks, k, ratio) : packedLeaf(blocks, k))),
       packedLeaf(blocks, zid + OWN),
     ],
   };
 }
 
-const servers = PLAN.zones.filter((z) => z.parent === undefined && z.ext !== true);
+const serversOf = (graph: Graph): Zone[] =>
+  graph.plan.zones.filter((z) => z.parent === undefined && z.ext !== true);
 
 async function packServers(
+  graph: Graph,
   blocks: ReadonlyMap<string, Block>,
   rect: Map<string, Rect>,
   ratio: number,
 ): Promise<Size> {
+  const servers = serversOf(graph);
   const [only] = servers;
 
   const center: ElkNode =
     servers.length === 1 && only !== undefined
-      ? pack(blocks, only.id, ratio)
+      ? pack(graph, blocks, only.id, ratio)
       : {
           id: "center",
           layoutOptions: {
@@ -289,7 +286,7 @@ async function packServers(
             "elk.spacing.nodeNode": String(PACK_GAP),
             ...ROOT_COORDS,
           },
-          children: servers.map((z) => pack(blocks, z.id, ratio)),
+          children: servers.map((z) => pack(graph, blocks, z.id, ratio)),
         };
 
   const laid = await new ELK().layout(center);
@@ -311,12 +308,12 @@ async function packServers(
   return size;
 }
 
-function sideOf(id: string, b: Block): "in" | "out" | null {
+function sideOf(graph: Graph, id: string, b: Block): "in" | "out" | null {
   if (b.ext !== null) {
-    return id.endsWith(OUT) || node(id).side === "out" ? "out" : "in";
+    return id.endsWith(OUT) || graph.node(id).side === "out" ? "out" : "in";
   }
 
-  return isZone(id) && zone(id).ext === true ? (zone(id).side ?? null) : null;
+  return graph.isZone(id) && graph.zone(id).ext === true ? (graph.zone(id).side ?? null) : null;
 }
 
 // One side column: each box as near as it can get to the mean height of the
@@ -377,19 +374,20 @@ const clampRatio = (r: number): number => Math.min(RATIO.max, Math.max(RATIO.min
 // screen: width / height of the drawing area. The server boxes aim at the
 // aspect that, with the side columns added, matches it.
 async function place(
+  graph: Graph,
   blocks: ReadonlyMap<string, Block>,
   flows: readonly Flow[],
   screen: number,
 ): Promise<Placed> {
   const ids = [...blocks.keys()];
-  const left = ids.filter((id) => sideOf(id, got(blocks, id, "overview block")) === "in");
-  const right = ids.filter((id) => sideOf(id, got(blocks, id, "overview block")) === "out");
+  const left = ids.filter((id) => sideOf(graph, id, got(blocks, id, "overview block")) === "in");
+  const right = ids.filter((id) => sideOf(graph, id, got(blocks, id, "overview block")) === "out");
   const leftW = Math.max(0, ...left.map((id) => got(blocks, id, "overview block").w));
   const rightW = Math.max(0, ...right.map((id) => got(blocks, id, "overview block").w));
   const sidesW = leftW + rightW + 2 * COL_GAP + 2 * MARGIN;
   let ratio = clampRatio(screen);
   let packed = new Map<string, Rect>();
-  let server = await packServers(blocks, packed, ratio);
+  let server = await packServers(graph, blocks, packed, ratio);
 
   for (let pass = 1; pass < RATIO.passes; pass++) {
     const next = clampRatio(screen - sidesW / Math.max(1, server.h));
@@ -400,7 +398,7 @@ async function place(
 
     ratio = next;
     packed = new Map<string, Rect>();
-    server = await packServers(blocks, packed, ratio);
+    server = await packServers(graph, blocks, packed, ratio);
   }
 
   const sx = leftW + COL_GAP;
@@ -506,8 +504,8 @@ function labelSpots(
   });
 }
 
-function drawPill(layer: SVGGElement, r: Rect, id: string, pick: Pick): SVGGElement {
-  const n = node(id);
+function drawPill(graph: Graph, layer: SVGGElement, r: Rect, id: string, pick: Pick): SVGGElement {
+  const n = graph.node(id);
   const g = el("g", { class: "ov-ext", "data-brick": id }, layer);
   el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 26 }, g);
   text(g, { x: r.x + r.w / 2, y: r.y + 33, class: "ov-ext-t", "text-anchor": "middle" }, n.label);
@@ -519,8 +517,15 @@ function drawPill(layer: SVGGElement, r: Rect, id: string, pick: Pick): SVGGElem
   return g;
 }
 
-function drawChip(layer: SVGGElement, r: Rect, b: Block, c: Chip, pick: Pick): SVGGElement {
-  const n = node(c.id);
+function drawChip(
+  graph: Graph,
+  layer: SVGGElement,
+  r: Rect,
+  b: Block,
+  c: Chip,
+  pick: Pick,
+): SVGGElement {
+  const n = graph.node(c.id);
 
   const g = el(
     "g",
@@ -547,6 +552,7 @@ function drawChip(layer: SVGGElement, r: Rect, b: Block, c: Chip, pick: Pick): S
 type Boxes = { readonly rects: ReadonlyMap<string, Rect>; readonly nodeEls: Registry };
 
 function drawBoxes(
+  graph: Graph,
   frames: SVGGElement,
   chips: SVGGElement,
   blocks: ReadonlyMap<string, Block>,
@@ -560,28 +566,32 @@ function drawBoxes(
     pick({ type: "zone", id });
   };
 
-  for (const z of servers.flatMap((s) => nestOrder(s.id)).filter((zid) => nestsZone(zid))) {
+  const nesting = serversOf(graph)
+    .flatMap((s) => graph.nestOrder(s.id))
+    .filter((zid) => graph.nestsZone(zid));
+
+  for (const z of nesting) {
     const r = got(rect, z, "overview rect");
     rects.set(z, r);
-    drawZone(frames, z, r, "ov", onZone);
+    drawZone(graph, frames, z, r, "ov", onZone);
   }
 
   for (const [id, b] of blocks) {
     const r = got(rect, id, "overview rect");
 
     if (b.ext !== null) {
-      register(nodeEls, b.ext, drawPill(chips, r, b.ext, pick));
+      register(nodeEls, b.ext, drawPill(graph, chips, r, b.ext, pick));
       continue;
     }
 
     rects.set(id, r);
 
     if (b.header) {
-      drawZone(frames, id, r, "ov", onZone).dataset["zone"] = id;
+      drawZone(graph, frames, id, r, "ov", onZone).dataset["zone"] = id;
     }
 
     for (const c of b.chips) {
-      register(nodeEls, c.id, drawChip(chips, r, b, c, pick));
+      register(nodeEls, c.id, drawChip(graph, chips, r, b, c, pick));
     }
   }
 
@@ -646,21 +656,22 @@ async function routeFlows(
 
 // screen: width / height of the drawing area the overview should fill.
 export async function drawOverview(
+  graph: Graph,
   layer: SVGGElement,
   pick: Pick,
   screen: number,
 ): Promise<Overview> {
-  const blocks = blocksOf();
-  const flows = flowsOf();
-  const { rect, size } = await place(blocks, flows, screen);
+  const blocks = blocksOf(graph);
+  const flows = flowsOf(graph);
+  const { rect, size } = await place(graph, blocks, flows, screen);
 
   // 3. Arrows, around every box and the title strip of each nesting zone.
-  const strips = PLAN.zones
-    .filter((z) => nestsZone(z.id))
+  const strips = graph.plan.zones
+    .filter((z) => graph.nestsZone(z.id))
     .map((z): Rect => {
       const r = got(rect, z.id, "overview rect");
 
-      return { x: r.x, y: r.y, w: titleWidth(z.id, "ov") + 20, h: 84 };
+      return { x: r.x, y: r.y, w: titleWidth(graph, z.id, "ov") + 20, h: 84 };
     });
 
   const boxes = new Map(
@@ -673,7 +684,7 @@ export async function drawOverview(
   const frames = el("g", {}, layer);
   const arrowLayer = el("g", {}, layer);
   const chips = el("g", {}, layer);
-  const { rects, nodeEls } = drawBoxes(frames, chips, blocks, rect, pick);
+  const { rects, nodeEls } = drawBoxes(graph, frames, chips, blocks, rect, pick);
   const arrows = drawFlows(arrowLayer, routes, flows, spots);
 
   return { size, rects, nodeEls, arrows, avoidError: error };
