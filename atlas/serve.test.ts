@@ -286,6 +286,46 @@ describe("serve.ts", () => {
     WAIT_MS * 3,
   );
 
+  test(
+    "a change to threads.json alone builds nothing: the page reads it by itself",
+    async () => {
+      const { log, events } = served();
+      log.skip();
+      events.skip();
+      const file = join(dir, THREADS_FILE);
+      writeFileSync(file, await Bun.file(file).text());
+      await Bun.sleep(1000);
+      saveAtomically(join(dir, MAP_FILE), original.replace("Nightly backup", "Weekly backup"));
+      const build = await within(log.next(isBuild), "build");
+
+      expect(build).toContain("reload sent");
+
+      await reloadedTo((p) => p.script.includes("Weekly backup"));
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+
+  test(
+    "the error page escapes the text of the error",
+    async () => {
+      served().events.skip();
+
+      saveAtomically(
+        join(dir, MAP_FILE),
+        original.replace('id: "web"', 'id: "<i>x"').replace('id: "catalog"', 'id: "<i>x"'),
+      );
+
+      const refused = await reloadedTo((p) => p.html.includes(": a second node has this id"));
+
+      expect(refused.html).toContain("node &lt;i&gt;x: a second node has this id");
+      expect(refused.html).not.toContain("<i>x");
+
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+
   // A build bundles the page and loads the data in another process, each reading the folder when
   // it gets there: a save that lands between them makes a page of two saves, which the build the
   // save triggers then replaces. Each test waits for the page of its own save.
@@ -425,6 +465,16 @@ describe("a reply posted to threads.json", () => {
         { who: "agent", text: "The dump runs each night; no restore from it was ever measured." },
         { who: "human", text: "A restore was tried." },
       ],
+    });
+  });
+
+  test("from the page opened as localhost is written too", async () => {
+    const { port } = served();
+    const response = await post({ ...(await own()), origin: `http://localhost:${port}` });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(await threads())).toMatchObject({
+      "backup-restore-untested": [{ who: "agent" }, { who: "human" }, { who: "human" }],
     });
   });
 });
