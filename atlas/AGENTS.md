@@ -17,8 +17,11 @@ export), `threads.json` (the thread of each open point, by open id), a `.gitigno
 `drafts/`, and the two files `sync` writes and `check` compares byte for byte: `atlas.d.ts`, a
 copy of `atlas.ts` its data imports its types from, and `tsconfig.json`, a copy of the
 template's. It needs no `package.json`: its data imports types only. Its data files are its `.ts`
-files but `atlas.d.ts`. Its drafts sit in `drafts/<name>/`, which its check leaves out; each
-holds a copy of the map's own files, a map folder of its own.
+files but `atlas.d.ts`, in sub-folders too: a large map keeps each branch in `parts/<branch>.ts`,
+which exports its `node` and its `links` with types from `../atlas.d.ts`, and `map.ts` assembles
+them (parts.spec.ts holds check, fmt and the page's bundle to it). Its drafts sit in
+`drafts/<name>/`, which its check leaves out; each holds a copy of the map's own files, a map folder
+of its own.
 
 ```
 cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft,
