@@ -32,6 +32,26 @@ export const HOME: Place = { path: [], selected: null };
 /** The open container: null for the root. */
 export const openOf = (place: Place): string | null => place.path.at(-1) ?? null;
 
+/**
+ * The place as the tree can show it: its path cut where it stops being a chain of containers down
+ * from the root (a stale or hand-made path), and its selection dropped when that view does not show
+ * it. A place the tree shows comes back as it is.
+ */
+export function normalised(tree: Tree, place: Place): Place {
+  const broken = place.path.findIndex((id, i) => {
+    const chain = tree.nodes.get(id)?.children === undefined ? [] : chainOf(tree, id);
+
+    return chain.length !== i + 1 || (i > 0 && chain[i - 1] !== place.path[i - 1]);
+  });
+
+  const path = broken === -1 ? place.path : place.path.slice(0, broken);
+  const open = path.at(-1) ?? null;
+  const shown = place.selected !== null && showsIn(tree, open, place.selected);
+  const selected = shown ? place.selected : null;
+
+  return path === place.path && selected === place.selected ? place : { path, selected };
+}
+
 function placeOf(tree: Tree, id: string): Place {
   const node = tree.nodes.get(id);
 
@@ -58,9 +78,10 @@ const SEPARATOR = "/";
  * ("" for the root's view), or, when no jump lands there (a selected ghost or container, a
  * selection on the root's view other than an outside leaf), the open container and the selection
  * as `<open>/<selected>`, the root's view written as nothing before the slash. Each id is
- * percent-encoded.
+ * percent-encoded. A place is written as the tree can show it (normalised).
  */
-export function hashOf(tree: Tree, place: Place): string {
+export function hashOf(tree: Tree, given: Place): string {
+  const place = normalised(tree, given);
   const open = openOf(place);
   const bare = place.selected ?? open;
 
@@ -117,7 +138,10 @@ export function placeOfHash(tree: Tree, hash: string): Place {
   return navigate(tree, { path: chainOf(tree, open), selected: null }, select);
 }
 
-export function navigate(tree: Tree, place: Place, event: PlaceEvent): Place {
+/** The place an event leads to, from `given` as the tree can show it (normalised). */
+export function navigate(tree: Tree, given: Place, event: PlaceEvent): Place {
+  const place = normalised(tree, given);
+
   switch (event.type) {
     case "enter": {
       const child = childrenOf(tree, openOf(place)).find((c) => c.id === event.id);
@@ -171,9 +195,12 @@ export type Crumb =
 
 /**
  * The breadcrumb: the root, each container of the path, then the selection, box or ghost, marked
- * selected. Two places never share a breadcrumb.
+ * selected. Two places never share a breadcrumb. A place is read as the tree can show it
+ * (normalised).
  */
-export function crumbsOf(tree: Tree, place: Place): Crumb[] {
+export function crumbsOf(tree: Tree, given: Place): Crumb[] {
+  const place = normalised(tree, given);
+
   const crumb = (id: string, selected: boolean): Crumb => ({
     kind: "node",
     id,
