@@ -2,16 +2,29 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
-  mkdirSync,
-  readdirSync,
+  lstatSync,
   readFileSync,
-  rmSync,
+  readdirSync,
+  realpathSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { toPlan } from "./adapter.ts";
 import { checkMap, openReport } from "./check.ts";
+import {
+  DRAFTS,
+  DraftError,
+  TSCONFIG_FILE,
+  TYPES_FILE,
+  adoptDraft,
+  dataFilesOf,
+  dropDraft,
+  ignoreDrafts,
+  makeDraft,
+  messageOf,
+} from "./drafts.ts";
 import { MAP_FILE, THREADS_FILE, loadFolder, planOf } from "./folder.ts";
+import type { Plan } from "./model.ts";
 import { ReplyError, appendReply } from "./reply.ts";
 import { WHO, openItems, readThreads } from "./threads.ts";
 
@@ -23,25 +36,24 @@ const TYPES_SOURCE = join(ROOT, "atlas.ts");
 
 const TEMPLATE = join(ROOT, "template");
 
-const TYPES_FILE = "atlas.d.ts";
-
-const TSCONFIG_FILE = "tsconfig.json";
-
-const DRAFTS = "drafts";
-
-const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-
 const USAGE = `usage: bun ${CLI} <command> …
   new <dir>                                         scaffold an empty map folder
   sync <dir>                                        write the plugin's atlas.d.ts and tsconfig.json into it
   check <dir> [--open]                              validate the map, type-check, lint and format-check it,
-                                                    compare atlas.d.ts with the plugin's; --open lists the open points
+                                                    compare atlas.d.ts and tsconfig.json with the plugin's;
+                                                    --open lists the open points
   fmt <dir>                                         format the files check format-checks, in place
   reply <dir> <open id> --as agent|human "<text>"   add an entry to an open point's thread
-  draft <dir> <name> [--adopt | --drop]             copy the map into <dir>/drafts/<name> and print its path;
-                                                    --adopt makes the map the draft and deletes it, --drop deletes it`;
+  draft <dir> <name> [--adopt | --drop]             copy the map into <dir>/${DRAFTS}/<name> and print its path;
+                                                    --adopt copies its data files back and deletes it,
+                                                    --drop deletes it`;
 
 class CliError extends Error {}
+
+const quote = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'`;
+
+const hint = (command: string, dir: string): string =>
+  `run bun ${quote(CLI)} ${command} ${quote(dir)}`;
 
 type Parsed = { readonly positionals: readonly string[]; readonly flags: ReadonlySet<string> };
 
@@ -63,7 +75,7 @@ function mapFolder(arg: string): string {
     throw new CliError(`${dir} holds no ${MAP_FILE}: not a map folder`);
   }
 
-  return dir;
+  return realpathSync(dir);
 }
 
 function one(positionals: readonly string[]): string {
@@ -76,16 +88,40 @@ function one(positionals: readonly string[]): string {
   return dir;
 }
 
+async function loading<T>(load: () => Promise<T>, then: string): Promise<T> {
+  try {
+    return await load();
+  } catch (error: unknown) {
+    throw new CliError(`the map does not load: ${messageOf(error)}${then}`);
+  }
+}
+
+const loadPlan = async (dir: string, then: string): Promise<Plan> =>
+  await loading(() => planOf(dir), then);
+
+const whereFix = (dir: string): string => `; ${hint("check", dir)} to see where`;
+
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- threads.json as JSON.parse leaves it: readThreads, which checkMap also runs, is its parser.
+async function readJson(file: string): Promise<unknown> {
+  try {
+    return await Bun.file(file).json();
+  } catch (error: unknown) {
+    throw new CliError(`${file}: ${messageOf(error)}`);
+  }
+}
+
 function sync(dir: string): void {
   copyFileSync(TYPES_SOURCE, join(dir, TYPES_FILE));
   copyFileSync(join(TEMPLATE, TSCONFIG_FILE), join(dir, TSCONFIG_FILE));
+  ignoreDrafts(dir);
 }
 
 function scaffold(arg: string): string {
   const dir = resolve(arg);
+  const entry = lstatSync(dir, { throwIfNoEntry: false });
 
-  if (existsSync(dir) && readdirSync(dir).length > 0) {
-    throw new CliError(`${dir} is not empty: new scaffolds a map folder in an empty one`);
+  if (entry !== undefined && (!entry.isDirectory() || readdirSync(dir).length > 0)) {
+    throw new CliError(`${dir} is not an empty folder: new scaffolds a map folder in one`);
   }
 
   cpSync(TEMPLATE, dir, { recursive: true });
@@ -98,8 +134,8 @@ type Step = { readonly name: string; readonly ok: boolean; readonly report: stri
 
 async function planStep(dir: string): Promise<Step> {
   try {
-    const { map, config } = await loadFolder(dir);
-    const errors = checkMap(map, config, await Bun.file(join(dir, THREADS_FILE)).json());
+    const { map, config } = await loading(() => loadFolder(dir), "");
+    const errors = checkMap(map, config, await readJson(join(dir, THREADS_FILE)));
 
     if (errors.length > 0) {
       return { name: "plan", ok: false, report: errors.join("\n") };
@@ -113,31 +149,23 @@ async function planStep(dir: string): Promise<Step> {
       report: `${plan.zones.length} zones, ${plan.nodes.length} bricks, ${plan.edges.length} arrows`,
     };
   } catch (error: unknown) {
-    return {
-      name: "plan",
-      ok: false,
-      report: error instanceof Error ? error.message : String(error),
-    };
+    if (!(error instanceof CliError)) {
+      throw error;
+    }
+
+    return { name: "plan", ok: false, report: error.message };
   }
 }
 
 const bin = (pkg: string, path: string): string =>
   join(dirname(Bun.resolveSync(`${pkg}/package.json`, ROOT)), path);
 
-// Every source is named: a walk from the folder skips it whole when it sits under an ignored
-// directory, as a draft does under its map's .gitignore.
-const sourcesOf = (dir: string): string[] =>
-  [...new Bun.Glob("**/*.ts").scanSync({ cwd: dir })]
-    .filter((file) => !file.startsWith(`${DRAFTS}/`))
-    .toSorted();
-
-const oxfmt = (sources: readonly string[], mode: "--check" | "--write"): string[] => [
+const oxfmt = (files: readonly string[], mode: "--check" | "--write"): string[] => [
   bin("oxfmt", "bin/oxfmt"),
   "-c",
   join(ROOT, "lint", "oxfmtrc.json"),
   mode,
-  ...sources,
-  TSCONFIG_FILE,
+  ...files,
 ];
 
 type ToolRun = { readonly ok: boolean; readonly output: string };
@@ -154,7 +182,9 @@ function runTool(dir: string, argv: readonly string[]): ToolRun {
 type Tool = { readonly name: string; readonly argv: readonly string[]; readonly fix: string };
 
 function toolSteps(dir: string): Step[] {
-  const sources = sourcesOf(dir);
+  // Every file is named: oxlint's and oxfmt's own walks skip a folder whole when it sits under an
+  // ignored directory, as a draft does under its map's .gitignore.
+  const files = dataFilesOf(dir);
 
   const tools: readonly Tool[] = [
     {
@@ -177,11 +207,11 @@ function toolSteps(dir: string): Step[] {
         "--disable-nested-config",
         "--format",
         "unix",
-        ...sources,
+        ...files,
       ],
       fix: "",
     },
-    { name: "oxfmt", argv: oxfmt(sources, "--check"), fix: `\nrun bun ${CLI} fmt ${dir}` },
+    { name: "oxfmt", argv: oxfmt(files, "--check"), fix: `\n${hint("fmt", dir)}` },
   ];
 
   return tools.map(({ name, argv, fix }) => {
@@ -192,32 +222,33 @@ function toolSteps(dir: string): Step[] {
 }
 
 function format(dir: string): void {
-  const { ok, output } = runTool(dir, oxfmt(sourcesOf(dir), "--write"));
+  const { ok, output } = runTool(dir, oxfmt(dataFilesOf(dir), "--write"));
 
   if (!ok) {
     throw new CliError(output);
   }
 }
 
-function typesStep(dir: string): Step {
-  const file = join(dir, TYPES_FILE);
-  const fix = `run bun ${CLI} sync ${dir}`;
+function generatedStep(dir: string, name: string, source: string): Step {
+  const file = join(dir, name);
+  const fix = hint("sync", dir);
 
   if (!existsSync(file)) {
-    return { name: TYPES_FILE, ok: false, report: `${file} is missing: ${fix}` };
+    return { name, ok: false, report: `${file} is missing: ${fix}` };
   }
 
-  return readFileSync(file).equals(readFileSync(TYPES_SOURCE))
-    ? { name: TYPES_FILE, ok: true, report: "" }
-    : {
-        name: TYPES_FILE,
-        ok: false,
-        report: `${file} differs from the plugin's atlas.ts, stale or edited by hand: ${fix}`,
-      };
+  return readFileSync(file).equals(readFileSync(source))
+    ? { name, ok: true, report: "" }
+    : { name, ok: false, report: `${file} differs from ${source}, stale or edited: ${fix}` };
 }
 
 async function check(dir: string): Promise<number> {
-  const steps = [await planStep(dir), ...toolSteps(dir), typesStep(dir)];
+  const steps = [
+    await planStep(dir),
+    ...toolSteps(dir),
+    generatedStep(dir, TYPES_FILE, TYPES_SOURCE),
+    generatedStep(dir, TSCONFIG_FILE, join(TEMPLATE, TSCONFIG_FILE)),
+  ];
 
   for (const { name, ok, report } of steps) {
     if (ok) {
@@ -239,8 +270,8 @@ async function check(dir: string): Promise<number> {
 }
 
 async function listOpen(dir: string): Promise<number> {
-  const plan = await planOf(dir);
-  const { threads, errors } = readThreads(await Bun.file(join(dir, THREADS_FILE)).json());
+  const plan = await loadPlan(dir, whereFix(dir));
+  const { threads, errors } = readThreads(await readJson(join(dir, THREADS_FILE)));
 
   if (errors.length > 0) {
     throw new CliError(errors.join("\n"));
@@ -271,22 +302,16 @@ async function reply(args: readonly string[]): Promise<number> {
   }
 
   const dir = mapFolder(dirArg);
-  const known = new Set(openItems(await planOf(dir)).map((o) => o.id));
-  const threads = await appendReply(join(dir, THREADS_FILE), known, id, who, text);
+  const file = join(dir, THREADS_FILE);
+  const known = new Set(openItems(await loadPlan(dir, whereFix(dir))).map((o) => o.id));
+  await readJson(file);
+  const threads = await appendReply(file, known, id, who, text);
 
   console.log(
     `${id}: ${threads[id]?.length ?? 0} entries, waits for ${who === "agent" ? "human" : "agent"}`,
   );
 
   return 0;
-}
-
-const entries = (dir: string): string[] => readdirSync(dir).filter((name) => name !== DRAFTS);
-
-function copyEntries(from: string, to: string): void {
-  for (const name of entries(from)) {
-    cpSync(join(from, name), join(to, name), { recursive: true });
-  }
 }
 
 function draft(args: readonly string[]): number {
@@ -297,39 +322,15 @@ function draft(args: readonly string[]): number {
     throw new CliError(USAGE);
   }
 
-  if (!KEBAB.test(name)) {
-    throw new CliError(`draft name ${name}: kebab-case, as split-storage`);
-  }
-
   const dir = mapFolder(dirArg);
-  const path = join(dir, DRAFTS, name);
-
-  if (flags.size === 0) {
-    if (existsSync(path)) {
-      throw new CliError(`${path} exists: adopt it (--adopt) or drop it (--drop) first`);
-    }
-
-    mkdirSync(path, { recursive: true });
-    copyEntries(dir, path);
-    console.log(path);
-
-    return 0;
-  }
-
-  if (!existsSync(join(path, MAP_FILE))) {
-    throw new CliError(`no draft ${name}: ${path} holds no ${MAP_FILE}`);
-  }
 
   if (flags.has("--adopt")) {
-    for (const entry of entries(dir)) {
-      rmSync(join(dir, entry), { recursive: true });
-    }
-
-    copyEntries(path, dir);
+    console.log(`adopted ${adoptDraft(dir, name)} into ${dir}`);
+  } else if (flags.has("--drop")) {
+    console.log(`dropped ${dropDraft(dir, name)}`);
+  } else {
+    console.log(makeDraft(dir, name));
   }
-
-  rmSync(path, { recursive: true });
-  console.log(flags.has("--adopt") ? `adopted ${path} into ${dir}` : `dropped ${path}`);
 
   return 0;
 }
@@ -392,7 +393,9 @@ if (import.meta.main) {
   try {
     process.exitCode = await run(command, args);
   } catch (error: unknown) {
-    if (!(error instanceof CliError || error instanceof ReplyError)) {
+    if (
+      !(error instanceof CliError || error instanceof DraftError || error instanceof ReplyError)
+    ) {
       throw error;
     }
 

@@ -74,9 +74,12 @@
   - A new map: bun atlas/cli.ts new <dir>, then replace its placeholder
     nodes.
   - A change to try before it counts: bun atlas/cli.ts draft <map folder>
-    <name> copies the map into drafts/<name> and prints that path; edit and
-    check the draft there, then the same command with --adopt makes the map
-    the draft, or with --drop deletes the draft.
+    <name> copies the map's own files into drafts/<name> and prints that
+    path; edit and check the draft there, then the same command with
+    --adopt copies the draft's data files (its .ts files but atlas.d.ts)
+    over the map's and deletes the draft, or with --drop deletes it. The
+    map's threads.json stays the map's; --adopt refuses while the map's
+    data files differ from those the draft started from.
   - Add a brick: a node without `children` in the `children` of its zone
     (map.ts); then its links (with `tags` from the Config's list, required
     when the link enters a third-party service and the Config says so) and
@@ -94,10 +97,10 @@
   1. bun install --cwd atlas --frozen-lockfile, once.
   2. bun atlas/cli.ts check <map folder>: the plan (ids, couplings,
      nesting, overview labels, tags, open points, threads.json), then tsgo,
-     oxlint and oxfmt on the folder's files, then its atlas.d.ts against
-     the plugin's atlas.ts (stale: bun atlas/cli.ts sync <map folder>). It
-     exits 1 on any failure; bun atlas/cli.ts fmt <map folder> fixes what
-     oxfmt reports. Then bun test atlas and the repository's gates.
+     oxlint and oxfmt on its data files, then its atlas.d.ts and
+     tsconfig.json against the plugin's (stale or edited: bun atlas/cli.ts
+     sync <map folder>). It exits 1 on any failure; bun atlas/cli.ts fmt
+     <map folder> fixes what oxfmt reports. Then bun test atlas and the repository's gates.
   3. Look at the page: bun atlas/serve.ts <map folder> [port] and open the
      address it prints. It rebuilds on every save in the map folder or the
      engine, and reloads the open tab when the page changed; a build error,

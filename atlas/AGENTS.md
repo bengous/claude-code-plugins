@@ -10,18 +10,21 @@ the data has a position or a size. Open points carry threads between the human a
 Content lives only in a map folder; the engine's modules change only for behaviour. A map folder
 holds `map.ts` (its AtlasMap, the default export), `atlas.config.ts` (its Config, the default
 export), `threads.json` (the thread of each open point, by open id), and the two files `sync`
-writes: `atlas.d.ts`, a byte copy of `atlas.ts` its data imports its types from, and
-`tsconfig.json`. It needs no `package.json`: its data imports types only. Its drafts sit in
-`drafts/<name>/`, each a map folder of its own, which the folder's check leaves out.
+writes and `check` compares byte for byte: `atlas.d.ts`, a copy of `atlas.ts` its data imports
+its types from, and `tsconfig.json`, a copy of the template's. It needs no `package.json`: its
+data imports types only. Its data files are its `.ts` files but `atlas.d.ts`. Its drafts sit in
+`drafts/<name>/`, which its `.gitignore` lists and its check leaves out; each holds a copy of the
+map's own files, a map folder of its own.
 
 ```
 cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft
                      (cli.spec.ts, on copies in temporary folders)
+drafts.ts            a map folder's data files, and its drafts: made, adopted, dropped
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, overview
                      packing, tags, legend labels, step words); the source of a map's atlas.d.ts
 template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes
-lint/                the oxlint and oxfmt configs `check` and `fmt` run on a map folder
+lint/                the oxlint and oxfmt configs `check` and `fmt` run on a map's data files
 fixtures/sample/     the sample map folder
 folder.ts            the map folder's files (loadFolder), and the plan its data makes (planOf)
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
@@ -68,12 +71,12 @@ Every command runs from the repository root.
 bun install --cwd atlas --frozen-lockfile   # once; Claude Code does it at the plugin's cache
 bun atlas/cli.ts new <dir>                  # scaffold a map folder in an empty or new folder
 bun atlas/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin
-bun atlas/cli.ts check <map folder>         # the plan, tsgo, oxlint, oxfmt, atlas.d.ts; exit 1 on any failure
+bun atlas/cli.ts check <map folder>         # the plan, tsgo, oxlint, oxfmt, the two copies; exit 1 on any failure
 bun atlas/cli.ts check <map folder> --open  # list the open points and whom each waits for
 bun atlas/cli.ts fmt <map folder>           # format in place the files check format-checks
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
-bun atlas/cli.ts draft <map folder> <name>  # copy the map into drafts/<name> and print its path
-bun atlas/cli.ts draft <map folder> <name> --adopt   # the map becomes the draft, which is deleted; --drop deletes it
+bun atlas/cli.ts draft <map folder> <name>  # copy the map's own files into drafts/<name> and print its path
+bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files replace the map's, then it is deleted; --drop deletes it
 bun test atlas                              # the engine's suites
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
 ```

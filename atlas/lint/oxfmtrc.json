@@ -1,4 +1,12 @@
 {
   "$schema": "../node_modules/oxfmt/configuration_schema.json",
+  // Every option an .editorconfig above the map folder could set, pinned: oxfmt reads one even
+  // with -c, and the same map would format differently from one repository to the next.
+  "useTabs": false,
+  "tabWidth": 2,
+  "printWidth": 100,
+  "endOfLine": "lf",
+  "insertFinalNewline": true,
+  "singleQuote": false,
   "sortImports": true
 }

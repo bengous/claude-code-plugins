@@ -1,5 +1,19 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,11 +22,13 @@ import { readThreads } from "./threads.ts";
 
 const CLI = join(import.meta.dir, "cli.ts");
 
+const TYPES_SOURCE = join(import.meta.dir, "atlas.ts");
+
 const SAMPLE = join(import.meta.dir, "fixtures", "sample");
 
 const TEMPLATE = join(import.meta.dir, "template");
 
-const TMP = mkdtempSync(join(tmpdir(), "atlas-cli-"));
+const TMP = realpathSync(mkdtempSync(join(tmpdir(), "atlas-cli-")));
 
 afterAll(() => {
   rmSync(TMP, { recursive: true });
@@ -26,11 +42,13 @@ function cli(...args: readonly string[]): Run {
   return { code: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };
 }
 
+const hint = (command: string, dir: string): string => `run bun '${CLI}' ${command} '${dir}'`;
+
 let folders = 0;
 
-function copyOf(source: string): string {
+function copyOf(source: string, parent = TMP): string {
   folders += 1;
-  const dir = join(TMP, `copy-${folders}`);
+  const dir = join(parent, `copy ${folders}`);
   cpSync(source, dir, { recursive: true });
 
   return dir;
@@ -60,7 +78,19 @@ async function lineOf(file: string, needle: string): Promise<number> {
 
 const listing = (dir: string): string[] => readdirSync(dir).toSorted();
 
-const OK = ["tsgo: ok", "oxlint: ok", "oxfmt: ok", "atlas.d.ts: ok"].join("\n");
+const snapshot = (dir: string): ReadonlyMap<string, string> =>
+  new Map(
+    [...new Bun.Glob("**/*").scanSync({ cwd: dir, dot: true })].flatMap((file) =>
+      file.startsWith("drafts/") ? [] : [[file, readFileSync(join(dir, file), "utf8")] as const],
+    ),
+  );
+
+const OK = ["tsgo: ok", "oxlint: ok", "oxfmt: ok", "atlas.d.ts: ok", "tsconfig.json: ok"].join(
+  "\n",
+);
+
+const isOneLine = (text: string): boolean =>
+  text.endsWith("\n") && !text.slice(0, -1).includes("\n");
 
 test("an unknown command prints the usage", () => {
   const run = cli("nope");
@@ -91,12 +121,20 @@ describe("new", () => {
     });
   });
 
-  test("refuses a folder that is not empty", () => {
+  test("refuses a folder that is not empty, and a file, in one line", () => {
     const dir = sampleCopy();
-    const run = cli("new", dir);
+    const file = join(dir, "map.ts");
 
-    expect(run.code).toBe(1);
-    expect(run.stderr).toContain(`${dir} is not empty`);
+    expect(cli("new", dir)).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: `new: ${dir} is not an empty folder: new scaffolds a map folder in one\n`,
+    });
+    expect(cli("new", file)).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: `new: ${file} is not an empty folder: new scaffolds a map folder in one\n`,
+    });
   });
 });
 
@@ -149,7 +187,7 @@ describe("check", () => {
 
     expect(stale.code).toBe(1);
     expect(stale.stdout).toContain(
-      `atlas.d.ts: failed\n${types} differs from the plugin's atlas.ts, stale or edited by hand: run bun ${CLI} sync ${dir}`,
+      `atlas.d.ts: failed\n${types} differs from ${TYPES_SOURCE}, stale or edited: ${hint("sync", dir)}\n`,
     );
     expect(stale.stderr).toBe("check: atlas.d.ts failed\n");
 
@@ -161,12 +199,65 @@ describe("check", () => {
     expect(cli("check", dir).code).toBe(0);
   });
 
+  test("reports a tsconfig.json that differs from the template, as one that hides a file from tsgo", async () => {
+    const dir = sampleCopy();
+    const tsconfig = join(dir, "tsconfig.json");
+    await edit(tsconfig, '"exclude": ["drafts"]', '"exclude": ["drafts", "map.ts"]');
+    await edit(join(dir, "map.ts"), 'label: "Clients"', "label: 42");
+    const hidden = cli("check", dir);
+
+    expect(hidden.code).toBe(1);
+    expect(hidden.stdout).toContain("tsgo: ok\n");
+    expect(hidden.stdout).toContain(
+      `tsconfig.json: failed\n${tsconfig} differs from ${join(TEMPLATE, "tsconfig.json")}, stale or edited: ${hint("sync", dir)}\n`,
+    );
+    expect(hidden.stderr).toBe("check: tsconfig.json failed\n");
+
+    cli("sync", dir);
+
+    expect(cli("check", dir).stderr).toBe("check: tsgo failed\n");
+  });
+
+  test("an .editorconfig above the map folder changes nothing check or fmt does", () => {
+    const parent = join(TMP, "editor");
+    mkdirSync(parent);
+    writeFileSync(
+      join(parent, ".editorconfig"),
+      "root = true\n\n[*]\nindent_style = tab\nindent_size = 4\ntab_width = 4\nmax_line_length = 40\nend_of_line = crlf\ninsert_final_newline = false\nquote_type = single\n",
+    );
+    const dir = copyOf(SAMPLE, parent);
+    const before = snapshot(dir);
+
+    expect(cli("check", dir).code).toBe(0);
+    expect(cli("fmt", dir).code).toBe(0);
+    expect(snapshot(dir)).toEqual(before);
+  });
+
   test("--open lists the open points", () => {
     const run = cli("check", sampleCopy(), "--open");
 
     expect(run.code).toBe(0);
     expect(run.stdout).toContain("backup-restore-untested  brick backup  waits: human");
     expect(run.stdout).toContain("1 open points: 0 wait for agent, 1 wait for human");
+  });
+
+  test("--open reports a map that does not load, and a missing threads.json, in one line", async () => {
+    const broken = sampleCopy();
+    await edit(join(broken, "map.ts"), "export default {", "export default { ;");
+    const run = cli("check", broken, "--open");
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toStartWith("check: the map does not load: ");
+    expect(run.stderr).toContain(hint("check", broken));
+    expect(isOneLine(run.stderr)).toBe(true);
+
+    const bare = sampleCopy();
+    rmSync(join(bare, THREADS_FILE));
+    const missing = cli("check", bare, "--open");
+
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toStartWith(`check: ${join(bare, THREADS_FILE)}: `);
+    expect(isOneLine(missing.stderr)).toBe(true);
   });
 
   test("refuses a folder without map.ts", () => {
@@ -192,7 +283,7 @@ describe("fmt", () => {
     expect(misformatted.stdout).toContain("oxfmt: failed\n");
     expect(misformatted.stdout).toContain("\natlas.config.ts (");
     expect(misformatted.stdout).not.toContain("drafts/");
-    expect(misformatted.stdout).toContain(`\nrun bun ${CLI} fmt ${dir}\n`);
+    expect(misformatted.stdout).toContain(`\n${hint("fmt", dir)}\n`);
 
     expect(cli("fmt", dir)).toEqual({ code: 0, stdout: `${dir}: formatted\n`, stderr: "" });
     expect(await Bun.file(config).text()).toBe(formatted);
@@ -208,6 +299,27 @@ describe("fmt", () => {
     expect(run.code).toBe(1);
     expect(run.stderr).toStartWith("fmt: ");
     expect(run.stderr).toContain("atlas.config.ts");
+  });
+});
+
+describe("sync", () => {
+  test("adds drafts/ to the map's .gitignore once, as draft does", () => {
+    const dir = sampleCopy();
+    const ignore = join(dir, ".gitignore");
+    cli("sync", dir);
+
+    expect(readFileSync(ignore, "utf8")).toBe("drafts/\n");
+
+    cli("sync", dir);
+
+    expect(readFileSync(ignore, "utf8")).toBe("drafts/\n");
+
+    const other = sampleCopy();
+    writeFileSync(join(other, ".gitignore"), "node_modules");
+    cli("draft", other, "first");
+    cli("draft", other, "second");
+
+    expect(readFileSync(join(other, ".gitignore"), "utf8")).toBe("node_modules\ndrafts/\n");
   });
 });
 
@@ -244,18 +356,43 @@ describe("reply", () => {
     expect(run.code).toBe(1);
     expect(run.stderr).toContain("--as takes human or agent");
   });
+
+  test("reports a map that does not load in one line", async () => {
+    const dir = sampleCopy();
+    await edit(join(dir, "map.ts"), "export default {", "export default { ;");
+    const run = cli("reply", dir, "backup-restore-untested", "--as", "agent", "x");
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toStartWith("reply: the map does not load: ");
+    expect(isOneLine(run.stderr)).toBe(true);
+  });
 });
 
 describe("draft", () => {
-  test("copies the map into drafts/<name>, a map folder its own check reads", async () => {
+  test("copies the map's own files, never a dot entry nor another file", () => {
     const dir = fresh();
+    mkdirSync(join(dir, ".git"));
+    writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(dir, "notes.txt"), "the map's notes\n");
     const run = cli("draft", dir, "split");
     const path = join(dir, "drafts", "split");
 
     expect(run).toEqual({ code: 0, stdout: `${path}\n`, stderr: "" });
-    expect(listing(path)).toEqual(listing(dir).filter((name) => name !== "drafts"));
+    expect(listing(path)).toEqual([
+      ".base",
+      "atlas.config.ts",
+      "atlas.d.ts",
+      "map.ts",
+      "threads.json",
+      "tsconfig.json",
+    ]);
     expect(cli("check", path).code).toBe(0);
+  });
 
+  test("a broken draft leaves the map's check green, and its own check reports it", async () => {
+    const dir = fresh();
+    const path = join(dir, "drafts", "broken");
+    cli("draft", dir, "broken");
     await edit(join(path, "map.ts"), 'label: "Part"', "label: 42");
     await edit(join(path, "map.ts"), "\nexport default", "\nconst unused = 1;\n\nexport default");
     await edit(join(path, "atlas.config.ts"), "palette: {", "palette:   {");
@@ -264,14 +401,33 @@ describe("draft", () => {
     expect(cli("check", path).stderr).toBe("check: tsgo, oxlint, oxfmt failed\n");
   });
 
-  test("--adopt makes the map the draft and deletes it", async () => {
+  test("copies a link as a link", () => {
+    const dir = fresh();
+    symlinkSync("map.ts", join(dir, "alias.ts"));
+    cli("draft", dir, "linked");
+    const alias = join(dir, "drafts", "linked", "alias.ts");
+
+    expect(lstatSync(alias).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(alias)).toBe("map.ts");
+  });
+
+  test("--adopt copies the draft's data files back and keeps every other file of the map", async () => {
     const dir = fresh();
     const path = join(dir, "drafts", "rename");
+    mkdirSync(join(dir, ".git"));
+    writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(dir, "notes.txt"), "the map's notes\n");
+    writeFileSync(join(dir, "old.ts"), "export const old = 1;\n");
     cli("draft", dir, "rename");
+
     await edit(join(path, "map.ts"), 'label: "Part"', 'label: "Core"');
-    await Bun.write(join(path, "notes.txt"), "kept\n");
-    await Bun.write(join(dir, "gone.txt"), "removed\n");
-    const draftMap = await Bun.file(join(path, "map.ts")).text();
+    writeFileSync(join(path, "extra.ts"), "export const extra = 1;\n");
+    rmSync(join(path, "old.ts"));
+    await edit(join(path, "tsconfig.json"), '"exclude": ["drafts"]', '"exclude": []');
+    writeFileSync(join(path, THREADS_FILE), '{ "draft-only": [] }\n');
+    writeFileSync(join(dir, THREADS_FILE), '{ "live-only": [] }\n');
+    const tsconfig = readFileSync(join(dir, "tsconfig.json"), "utf8");
+    const draftMap = readFileSync(join(path, "map.ts"), "utf8");
 
     expect(cli("draft", dir, "rename", "--adopt")).toEqual({
       code: 0,
@@ -279,18 +435,55 @@ describe("draft", () => {
       stderr: "",
     });
     expect(existsSync(path)).toBe(false);
-    expect(await Bun.file(join(dir, "map.ts")).text()).toBe(draftMap);
-    expect(existsSync(join(dir, "notes.txt"))).toBe(true);
-    expect(existsSync(join(dir, "gone.txt"))).toBe(false);
-    expect(cli("check", dir).code).toBe(0);
+    expect(readFileSync(join(dir, "map.ts"), "utf8")).toBe(draftMap);
+    expect(existsSync(join(dir, "extra.ts"))).toBe(true);
+    expect(existsSync(join(dir, "old.ts"))).toBe(false);
+    expect(readFileSync(join(dir, THREADS_FILE), "utf8")).toBe('{ "live-only": [] }\n');
+    expect(readFileSync(join(dir, "tsconfig.json"), "utf8")).toBe(tsconfig);
+    expect(readFileSync(join(dir, ".git", "HEAD"), "utf8")).toBe("ref: refs/heads/main\n");
+    expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("the map's notes\n");
+    expect(listing(join(dir, "drafts"))).toEqual([]);
   });
 
-  test("--drop deletes it and leaves the map as it was", async () => {
+  test("--adopt refuses, changing nothing, when the map's data changed since the draft", async () => {
+    const dir = fresh();
+    const path = join(dir, "drafts", "late");
+    cli("draft", dir, "late");
+    await edit(join(dir, "map.ts"), 'label: "Part"', 'label: "Live"');
+    await edit(join(path, "map.ts"), 'label: "Part"', 'label: "Draft"');
+    const before = snapshot(dir);
+    const run = cli("draft", dir, "late", "--adopt");
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toStartWith(
+      "draft: the map's data changed since the draft was made (map.ts)",
+    );
+    expect(snapshot(dir)).toEqual(before);
+    expect(readFileSync(join(path, "map.ts"), "utf8")).toContain('label: "Draft"');
+  });
+
+  test("--adopt with a draft file it cannot read changes nothing", () => {
+    const dir = fresh();
+    const path = join(dir, "drafts", "locked");
+    cli("draft", dir, "locked");
+    writeFileSync(join(path, "extra.ts"), "export const extra = 1;\n");
+    chmodSync(join(path, "extra.ts"), 0o000);
+    const before = snapshot(dir);
+    const run = cli("draft", dir, "locked", "--adopt");
+    chmodSync(join(path, "extra.ts"), 0o644);
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toEndWith(": nothing was changed\n");
+    expect(snapshot(dir)).toEqual(before);
+    expect(listing(join(dir, "drafts"))).toEqual(["locked"]);
+  });
+
+  test("--drop deletes it and leaves the map as it was", () => {
     const dir = fresh();
     const path = join(dir, "drafts", "trial");
-    const map = await Bun.file(join(dir, "map.ts")).text();
+    const before = snapshot(dir);
     cli("draft", dir, "trial");
-    await edit(join(path, "map.ts"), 'label: "Part"', 'label: "Core"');
+    writeFileSync(join(path, "map.ts"), "export default {};\n");
 
     expect(cli("draft", dir, "trial", "--drop")).toEqual({
       code: 0,
@@ -298,7 +491,30 @@ describe("draft", () => {
       stderr: "",
     });
     expect(existsSync(path)).toBe(false);
-    expect(await Bun.file(join(dir, "map.ts")).text()).toBe(map);
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  test("refuses a drafts folder or a draft that is a link, and deletes nothing outside", () => {
+    const dir = fresh();
+    const outside = join(TMP, "outside");
+    mkdirSync(join(outside, "victim"), { recursive: true });
+    writeFileSync(join(outside, "victim", "map.ts"), "export default {};\n");
+    symlinkSync(outside, join(dir, "drafts"));
+
+    expect(cli("draft", dir, "victim", "--drop").stderr).toBe(
+      `draft: ${join(dir, "drafts")} is a link: a draft lives inside its map folder\n`,
+    );
+    expect(cli("draft", dir, "other").code).toBe(1);
+
+    rmSync(join(dir, "drafts"));
+    mkdirSync(join(dir, "drafts"));
+    symlinkSync(join(outside, "victim"), join(dir, "drafts", "victim"));
+
+    expect(cli("draft", dir, "victim", "--drop").stderr).toBe(
+      `draft: ${join(dir, "drafts", "victim")} is a link: a draft lives inside its map folder\n`,
+    );
+    expect(cli("draft", dir, "victim", "--adopt").code).toBe(1);
+    expect(existsSync(join(outside, "victim", "map.ts"))).toBe(true);
   });
 
   test("refuses a name taken, a draft that does not exist, and a name not in kebab-case", () => {
