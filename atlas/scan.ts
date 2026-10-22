@@ -29,7 +29,7 @@ export type Env = { readonly note: string; readonly vars: readonly EnvVar[] };
 export const FILES_SHOWN = 10;
 
 export const IMPORTS_NOTE =
-  "Approximate, by pattern: TS/JS import, export from, import() and require, and Python import statements, counted between the directories of the top two levels ('.' is the root's own files). A relative path is resolved; a bare name counts when it names a package.json of the repository or a top-level Python package in it. Path aliases and imports built at run time are missed.";
+  'Approximate, by pattern: TS/JS from "…", import "…", import() and require, and Python import statements, counted between the directories of the top two levels (\'.\' is the root\'s own files). A relative path is resolved; a bare name counts when it names a package.json of the repository or a top-level Python package in it. Path aliases and imports built at run time are missed.';
 
 export const ENV_NOTE =
   "By pattern: process.env, Bun.env, import.meta.env and Deno.env in TS/JS; os.environ and getenv in Python; os.Getenv and os.LookupEnv in Go; env::var and env! in Rust; environment and ${…} in compose files; ENV and ARG in Dockerfiles; the keys of .env.example and its kin. A .env file is never read, and shell scripts are not scanned.";
@@ -49,13 +49,15 @@ export const isScanned = (path: string): boolean =>
   path.endsWith(".rs") ||
   ENV_SAMPLE.test(posix.basename(path));
 
+// Each one linear: an import or an export from a module is read off its `from "…"` alone, which
+// only such a statement holds, never by spanning the statement from its keyword.
 const JS_SPECIFIERS = [
-  /(?:^|[^\w$.])(?:import|export)\s[^'"`;]*?\bfrom\s*['"]([^'"\n]+)['"]/gu,
+  /(?:^|[^\w$.])from\s*['"]([^'"\n]+)['"]/gu,
   /(?:^|[^\w$.])import\s*['"]([^'"\n]+)['"]/gu,
   /(?:^|[^\w$.])(?:import|require)\s*\(\s*['"]([^'"\n]+)['"]\s*\)/gu,
 ];
 
-const PY_FROM = /^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import\b/gmu;
+const PY_FROM = /^[ \t]*from[ \t]+(\.*\w*(?:\.\w+)*)[ \t]+import\b/gmu;
 
 const PY_IMPORT =
   /^[ \t]*import[ \t]+([\w.]+(?:[ \t]+as[ \t]+\w+)?(?:[ \t]*,[ \t]*[\w.]+(?:[ \t]+as[ \t]+\w+)?)*)/gmu;
@@ -138,11 +140,12 @@ function jsTarget(tree: Tree, path: string): string | null {
 }
 
 function packageOf(tree: Tree, specifier: string): string | null {
-  const names = [...tree.packages.keys()].filter(
-    (name) => specifier === name || specifier.startsWith(`${name}/`),
-  );
+  const segments = specifier.split("/");
 
-  const name = names.toSorted((a, b) => b.length - a.length)[0];
+  // A package name is one segment, or two under a scope: the longer one wins.
+  const name = [segments.slice(0, 2).join("/"), segments[0] ?? ""].find((candidate) =>
+    tree.packages.has(candidate),
+  );
 
   if (name === undefined) return null;
   const dir = tree.packages.get(name) ?? ".";

@@ -1,10 +1,20 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { Inventory } from "./inventory.ts";
-import { FILE_BYTES, printed } from "./inventory.ts";
+import type { Inventory, Summary } from "./inventory.ts";
+import { FILE_BYTES, inventoryOf, printed } from "./inventory.ts";
+import { listed } from "./listing.ts";
 import type { Manifest } from "./manifests.ts";
 import { ENV_NOTE, IMPORTS_NOTE } from "./scan.ts";
 
@@ -97,7 +107,8 @@ describe("a TypeScript repository under git", () => {
         "",
       ].join("\n"),
       "lib/helper.ts": "export const helper = 1;\n",
-      "bin/shop.ts": 'import "../src/server.ts";\nawait import("../lib/helper.ts");\n',
+      "bin/shop.ts":
+        'import "../src/server.ts";\nimport "@shop/db/index.ts";\nawait import("../lib/helper.ts");\n',
       "src/generated.ts": `export const big = process.env.BIG_ONE;\n// ${"x".repeat(FILE_BYTES)}\n`,
       ".gitignore": "dist/\n*.log\n",
       "dist/bundle.js": "process.env.IGNORED_BY_GIT;\n",
@@ -132,8 +143,10 @@ describe("a TypeScript repository under git", () => {
     expect(inv.skipped).toEqual({
       tooLarge: ["src/generated.ts"],
       links: ["src/outside.ts"],
+      unreadable: [],
       unscanned: 0,
     });
+    expect(inv.warnings).toEqual([]);
   });
 
   test("counts the directories of the top two levels, files at any depth", () => {
@@ -181,6 +194,7 @@ describe("a TypeScript repository under git", () => {
       note: IMPORTS_NOTE,
       edges: [
         { from: "bin", to: "lib", count: 1 },
+        { from: "bin", to: "packages/db", count: 1 },
         { from: "bin", to: "src", count: 1 },
         { from: "src", to: "packages/db", count: 1 },
         { from: "src", to: "src/web", count: 1 },
@@ -206,6 +220,28 @@ describe("a TypeScript repository under git", () => {
     expect(first.stdout).toContain(
       '\n    {"path":"bin","files":1,"languages":{"TypeScript":1}},\n',
     );
+  });
+
+  test("--summary keeps the manifests, the top-level directories, the edges and the names read", () => {
+    const run = cli("inventory", dir, "--summary");
+
+    expect(run.code).toBe(0);
+
+    // SAFETY: the command prints a Summary; the assertions read every field they rely on.
+    const summary = JSON.parse(run.stdout) as Summary;
+
+    expect(summary.dirs).toEqual([
+      { path: ".github", files: 1 },
+      { path: "bin", files: 1 },
+      { path: "lib", files: 1 },
+      { path: "packages", files: 2 },
+      { path: "src", files: 3 },
+    ]);
+    expect(summary.manifests).toEqual(inv.manifests);
+    expect(summary.imports).toEqual(inv.imports.edges);
+    expect(summary.env).toEqual(["DATABASE_URL", "PORT", "THEME"]);
+    expect(summary.skipped).toEqual({ tooLarge: 1, links: 1, unreadable: 0, unscanned: 0 });
+    expect(run.stdout.length).toBeLessThan(cli("inventory", dir).stdout.length);
   });
 });
 
@@ -443,6 +479,131 @@ describe("an infrastructure repository: compose, Nix, CI", () => {
       entries: [],
       dependencies: [],
     });
+  });
+});
+
+const git = (dir: string, ...args: readonly string[]): void => {
+  if (Bun.spawnSync(["git", "-C", dir, ...args], { env: GIT_ENV }).exitCode !== 0) {
+    throw new Error(`git ${args.join(" ")} in ${dir} failed`);
+  }
+};
+
+describe("a path it cannot list or read is set aside with its code, and the rest is read", () => {
+  test("outside git: a folder it may not read, a name that is not UTF-8, a name with a backslash", () => {
+    const dir = repo(
+      "odd-walk",
+      {
+        "ok.ts": "process.env.OK_VAR;\n",
+        "back\\slash.ts": "process.env.BACKSLASH_VAR;\n",
+        "locked/x.ts": "process.env.LOCKED_VAR;\n",
+      },
+      false,
+    );
+
+    mkdirSync(Buffer.concat([Buffer.from(`${dir}/`), Buffer.from([0x62, 0xff])]));
+    chmodSync(join(dir, "locked"), 0o000);
+    const inv = inventory(dir);
+    chmodSync(join(dir, "locked"), 0o755);
+
+    expect(inv.files).toBe(2);
+    expect(inv.env.vars.map((v) => v.name)).toEqual(["BACKSLASH_VAR", "OK_VAR"]);
+    expect(inv.skipped.unreadable).toEqual([
+      { path: "b�", code: "ENOENT" },
+      { path: "locked", code: "EACCES" },
+    ]);
+  });
+
+  test("under git: a file whose folder became a file, and one under a loop of links", () => {
+    const dir = repo(
+      "odd-git",
+      { "a/b.ts": "1;\n", "loop/x.ts": "2;\n", "fine.ts": "process.env.FINE_VAR;\n" },
+      true,
+    );
+
+    git(dir, "add", "-A");
+    rmSync(join(dir, "a"), { recursive: true });
+    writeFileSync(join(dir, "a"), "now a file\n");
+    rmSync(join(dir, "loop"), { recursive: true });
+    symlinkSync("loop", join(dir, "loop"));
+    const inv = inventory(dir);
+
+    expect(inv.skipped.unreadable).toEqual([
+      { path: "a/b.ts", code: "ENOTDIR" },
+      { path: "loop/x.ts", code: "ELOOP" },
+    ]);
+    expect(inv.env.vars.map((v) => v.name)).toEqual(["FINE_VAR"]);
+  });
+});
+
+describe("what it lists", () => {
+  test("outside git, the root's .gitignore applies: names, folders, anchored paths, globs, a path taken back", () => {
+    const dir = repo(
+      "ignored-walk",
+      {
+        ".gitignore": "# built\nbuild/\n*.log\n!keep.log\n/secret.py\n**/gen/*.py\n",
+        "build/x.py": "",
+        "a.log": "",
+        "keep.log": "",
+        "secret.py": "",
+        "sub/secret.py": "",
+        "sub/gen/y.py": "",
+        "main.py": "",
+      },
+      false,
+    );
+
+    expect(listed(dir).files).toEqual([".gitignore", "keep.log", "main.py", "sub/secret.py"]);
+  });
+
+  test("a folder git lists nothing in, though it holds files, says so", () => {
+    const outer = repo("enclosing", { ".gitignore": "inner/\n", "inner/a.ts": "1;\n" }, true);
+    const inv = inventory(join(outer, "inner"));
+
+    expect(inv.listing).toBe("git");
+    expect(inv.files).toBe(0);
+    expect(inv.warnings).toEqual([expect.stringContaining("git lists no file in this folder")]);
+  });
+
+  test("git runs no hook of the repository's own, its fsmonitor among them", () => {
+    const dir = repo("monitored", { "a.ts": "1;\n" }, true);
+    const marker = join(TMP, "fsmonitor-ran");
+    writeFileSync(join(dir, "hook.sh"), `#!/bin/sh\necho ran >> '${marker}'\nexit 1\n`);
+    chmodSync(join(dir, "hook.sh"), 0o755);
+    git(dir, "add", "a.ts");
+    git(dir, "config", "core.fsmonitor", join(dir, "hook.sh"));
+
+    expect(inventory(dir).files).toBe(2);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("go.mod's main packages and requirements, from the files the pass reads, within its limit", () => {
+    const dir = repo(
+      "go-limit",
+      {
+        "go.mod": [
+          "module example.com/x",
+          "",
+          "require (",
+          "\tgithub.com/a/b v1.0.0 // indirect",
+          ")",
+          "require c.io/d v2.0.0",
+          "",
+        ].join("\n"),
+        "a/main.go": "package main\n",
+        "b/main.go": "package main\n",
+        "c/lib.go": "package lib\n",
+      },
+      false,
+    );
+
+    expect(manifest(inventoryOf(dir), "go.mod")).toEqual({
+      kind: "go.mod",
+      path: "go.mod",
+      name: "example.com/x",
+      entries: ["a", "b"],
+      dependencies: ["c.io/d", "github.com/a/b"],
+    });
+    expect(manifest(inventoryOf(dir, 1), "go.mod")).toMatchObject({ entries: ["a"] });
   });
 });
 

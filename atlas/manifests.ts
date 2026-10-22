@@ -73,13 +73,19 @@ export type Manifest =
   | (Of<"gitlab-ci"> & { readonly stages: readonly string[]; readonly jobs: readonly string[] })
   | (Of<ManifestKind> & { readonly error: string });
 
+/** Why a manifest's text could not be read: too large, a link, or the system's error. */
+export type Unread = { readonly unread: string };
+
 /** A manifest and the environment variables it sets or reads. */
 export type Stated = { readonly manifest: Manifest; readonly env: readonly string[] };
 
-/** The repository's files, by path from its root, and their text when it can be read. */
+/**
+ * The repository's files, by path from its root, and the directories holding a Go file of the
+ * package main, as the inventory's one pass over the code found them.
+ */
 export type Repo = {
   readonly files: ReadonlySet<string>;
-  readonly read: (path: string) => string | null;
+  readonly goMains: ReadonlySet<string>;
 };
 
 const COMPOSE = /^(?:docker-)?compose(?:\.[\w-]+)?\.ya?ml$/u;
@@ -213,32 +219,42 @@ function requirements(path: string, text: string): Manifest {
   };
 }
 
-const GO_MAIN = /^package main\b/mu;
+/** Whether a Go file's text declares the package main. */
+export const isGoMain = (text: string): boolean => /^package main\b/mu.test(text);
+
+/** The modules a go.mod requires, line by line: `require x v` and the lines of `require ( … )`. */
+function goRequired(text: string): string[] {
+  const required: string[] = [];
+  let inBlock = false;
+
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\/\/.*$/u, "").trim();
+
+    if (inBlock) {
+      if (line.startsWith(")")) inBlock = false;
+      else if (line !== "") required.push(line.split(/\s+/u)[0] ?? "");
+    } else if (/^require\s*\($/u.test(line)) {
+      inBlock = true;
+    } else if (line.startsWith("require ")) {
+      required.push(line.split(/\s+/u)[1] ?? "");
+    }
+  }
+
+  return required.filter((module) => module !== "");
+}
 
 function goMod(path: string, text: string, repo: Repo): Manifest {
-  const block = /^require\s*\(([^)]*)\)/gmu;
-  const single = /^require\s+(\S+)\s+\S+/gmu;
-
-  const required = [
-    ...[...text.matchAll(block)].flatMap(([, body]) =>
-      (body ?? "").split("\n").flatMap((line) => /^\s*(\S+)\s+\S+/u.exec(line)?.[1] ?? []),
-    ),
-    ...[...text.matchAll(single)].flatMap(([, module]) => module ?? []),
-  ];
-
   const dir = posix.dirname(path);
-  const inModule = (file: string): boolean => dir === "." || file.startsWith(`${dir}/`);
 
-  const mains = [...repo.files].filter(
-    (file) => file.endsWith(".go") && inModule(file) && GO_MAIN.test(repo.read(file) ?? ""),
-  );
+  const inModule = (main: string): boolean =>
+    dir === "." || main === dir || main.startsWith(`${dir}/`);
 
   return {
     kind: "go.mod",
     path,
     name: /^module\s+(\S+)/mu.exec(text)?.[1] ?? null,
-    entries: sorted(mains.map((file) => posix.dirname(file))),
-    dependencies: sorted(required.filter((module) => module !== "//")),
+    entries: sorted([...repo.goMains].filter((main) => inModule(main))),
+    dependencies: sorted(goRequired(text)),
   };
 }
 
@@ -385,12 +401,35 @@ const NIX_MODULE = /^(?:\s*#[^\n]*\n)*\s*\{[^}]*\b(?:config|lib|pkgs)\b[^}]*\}\s
 const NIX_SERVICES =
   /\bservices\.([\w-]+)\.enable\s*=\s*true|\bservices\.([\w-]+)\s*=\s*\{\s*enable\s*=\s*true|\bsystemd\.services\.([\w-]+)|\boci-containers\.containers\.([\w-]+)/gu;
 
+/** A module's arguments open its text: its head is enough, and the pattern never reads past it. */
+const NIX_HEAD = 2000;
+
+/**
+ * The text of each `imports = [ … ]` list: each opening found once, each list ended by the next
+ * `]` after it, both walked forward, so no list is searched for twice.
+ */
+function nixImportLists(text: string): string[] {
+  const lists: string[] = [];
+  let close = 0;
+
+  for (const opening of text.matchAll(/\bimports\s*=\s*\[/gu)) {
+    const start = opening.index + opening[0].length;
+
+    if (close !== -1 && close < start) close = text.indexOf("]", start);
+
+    if (close === -1) break;
+    lists.push(text.slice(start, close));
+  }
+
+  return lists;
+}
+
 function nixModule(path: string, text: string): Manifest | null {
-  if (!NIX_MODULE.test(text)) return null;
+  if (!NIX_MODULE.test(text.slice(0, NIX_HEAD))) return null;
   const dir = posix.dirname(path);
 
-  const imports = [...text.matchAll(/\bimports\s*=\s*\[([^\]]*)\]/gu)].flatMap(([, list]) =>
-    (list ?? "")
+  const imports = nixImportLists(text).flatMap((list) =>
+    list
       .split(/\s+/u)
       .filter((word) => word.startsWith("./") || word.startsWith("../"))
       .map((word) => posix.normalize(posix.join(dir, word))),
@@ -485,7 +524,7 @@ function parsed(kind: ManifestKind | "nix", path: string, text: string, repo: Re
 export function stated(
   kind: ManifestKind | "nix",
   path: string,
-  text: string | { readonly unread: string },
+  text: string | Unread,
   repo: Repo,
 ): Stated | null {
   const named = kind === "nix" ? "nix module" : kind;

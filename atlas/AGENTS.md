@@ -27,11 +27,13 @@ of its own.
 cli.ts               the one command line of agents and skills, and of the mod's tools: new, sync,
                      check, fmt, reply, draft, query (one node as JSON, read from tree.ts),
                      inventory (cli.spec.ts, on copies in temporary folders)
-inventory.ts         what a repository holds, as JSON, model-free: the files git lists, or a walk;
-                     directories of the top two levels; the manifests (manifests.ts, their
-                     boundary parsers); the imports between those directories and the environment
-                     variables read, by pattern (scan.ts) (inventory.spec.ts, on repositories it
-                     writes in temporary folders)
+inventory.ts         what a repository holds, as JSON, model-free, and its summary: the files
+                     listing.ts lists (git, or a walk honouring the root's .gitignore, every path
+                     it cannot read set aside with its code); directories of the top two levels;
+                     the manifests (manifests.ts, their boundary parsers); the imports between
+                     those directories and the environment variables read, by pattern (scan.ts),
+                     in one pass that keeps no text (inventory.spec.ts, on repositories it writes
+                     in temporary folders; scan.spec.ts bounds every pattern on crafted files)
 drafts.ts            a map folder's data files, and its drafts: made, adopted, dropped
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
@@ -160,7 +162,7 @@ bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an 
 bun atlas/cli.ts draft <map folder> <name>  # copy the map's own files into drafts/<name> and print its path
 bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files and threads.json replace the map's, then it is deleted; --drop deletes it
 bun atlas/cli.ts query <map folder> <node id>   # one node as JSON: path, children, links, couplings, fields, sources
-bun atlas/cli.ts inventory <repo>           # what a repository holds, as JSON
+bun atlas/cli.ts inventory <repo> [--summary]   # what a repository holds, as JSON; --summary for a first read
 bun test atlas                              # the engine's suites, *.spec.ts
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
 claude plugin validate atlas                # what the mod hooks and calls

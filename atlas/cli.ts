@@ -25,7 +25,7 @@ import {
 } from "./drafts.ts";
 import { drawableOf } from "./drawable.ts";
 import { MAP_FILE, THREADS_FILE, loadFolder } from "./folder.ts";
-import { InventoryError, inventoryOf, printed } from "./inventory.ts";
+import { InventoryError, inventoryOf, printed, summaryOf } from "./inventory.ts";
 import { ReplyError, appendReply } from "./reply.ts";
 import { WHO, openItems, readThreads } from "./threads.ts";
 import type { Tree } from "./tree.ts";
@@ -56,9 +56,11 @@ const USAGE = `usage: bun ${CLI} <command> …
   query <dir> <node id>                             print one node as JSON: its path from the root, its
                                                     children, its links both ways, its couplings, its
                                                     panel's fields and its sources
-  inventory <repo>                                  print what a repository holds as JSON: its manifests,
+  inventory <repo> [--summary]                      print what a repository holds as JSON: its manifests,
                                                     its directories of the top two levels, the imports
-                                                    between them and the environment variables it reads`;
+                                                    between them and the environment variables it reads;
+                                                    --summary keeps the manifests, the top-level
+                                                    directories, the edges and the variables' names`;
 
 class CliError extends Error {}
 
@@ -461,7 +463,9 @@ async function run(command: Command, args: readonly string[]): Promise<number> {
     }
 
     case "inventory": {
-      console.log(printed(inventoryOf(one(parse(args, []).positionals))));
+      const { positionals, flags } = parse(args, ["--summary"]);
+      const inventory = inventoryOf(one(positionals));
+      console.log(printed(flags.has("--summary") ? summaryOf(inventory) : inventory));
 
       return 0;
     }
