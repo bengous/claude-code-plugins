@@ -1,6 +1,7 @@
 import type { EngineInterface, Register, Timer } from "claude-code";
 
 import type { Selection } from "../wire.ts";
+import type { MapRecord } from "./parse.ts";
 import {
   argumentsOf,
   parseMapRecord,
@@ -103,6 +104,12 @@ const mapKey = (folder: string): string => `map:${folder}`;
 const sessionKey = (id: string): string => `session:${id}`;
 
 const selectionKey = (folder: string): string => `selection:${folder}`;
+
+const sameRecord = (a: MapRecord | null, b: MapRecord | null): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
+
+/** Whether another session's claim, written `at`, may still be starting the server at `now`; one dated ahead of `now` is not. */
+const isStanding = (at: number, now: number): boolean => at <= now && now - at < CLAIM_MS;
 
 const portOf = (board: Live): number => (board.kind === "owned" ? board.child.port : board.port);
 
@@ -313,6 +320,17 @@ async function release(host: Host, folder: string, me: string): Promise<void> {
   if (record?.kind === "claimed" && record.session === me) await host.storeDelete(mapKey(folder));
 }
 
+/** release, after a start a failing store or clock broke: what is left of the claim, said, when it fails too. */
+async function releaseAfterFailure(host: Host, folder: string): Promise<string> {
+  try {
+    await release(host, folder, await host.sessionId());
+
+    return "";
+  } catch (failed) {
+    return `; its claim stays until it lapses (${String(failed)})`;
+  }
+}
+
 export const register: Register = (on) => {
   const boards = new Map<string, Board>();
 
@@ -345,7 +363,7 @@ export const register: Register = (on) => {
     const answer = await host
       .ask(
         `Let atlas run the map in ${folder}? It is outside this session's folder, and its map.ts and atlas.config.ts run as code.`,
-        [RUN, REFUSE],
+        [REFUSE, RUN],
       )
       .catch(() => null);
 
@@ -410,10 +428,13 @@ export const register: Register = (on) => {
   }
 
   /**
-   * Waits until this session may start `folder`'s server: `{ join }` once another session's
-   * server answers for it, else `{ start }` with the port its last server had, once this session's
-   * claim on the folder still stands CLAIM_SETTLE_MS after it was written, so of two sessions that
-   * claim at once one starts it. A claim of another session younger than CLAIM_MS is waited out.
+   * Waits until this session may start `folder`'s server: `{ join }` once a server answers for it
+   * on this session's own port or on the one the store names, whichever session started it, else
+   * `{ start }` with the port its last server had, once this session's claim on the folder still
+   * stands CLAIM_SETTLE_MS after it was written, so of two sessions that claim at once one starts
+   * it. A standing claim of another session is waited out. A probe may wait long on a port that
+   * never answers: the record is read again right before the claim is written, and looked at anew
+   * when another session wrote it meanwhile.
    */
   async function claimed(
     host: Host,
@@ -421,23 +442,28 @@ export const register: Register = (on) => {
     me: string,
     port: Port,
   ): Promise<{ readonly join: number } | { readonly start: number | null } | null> {
-    let kept = port.own;
+    let own = port.own;
 
     for (;;) {
       const record = await host.mapRecord(from.folder);
-      const known = kept ?? (record?.kind === "live" ? record.port : port.last);
+      const recorded = record?.kind === "live" ? record.port : port.last;
+      const known = [...new Set([own, recorded])].filter((p): p is number => p !== null);
 
-      if (!holds(from)) return null;
+      for (const candidate of known) {
+        if (!holds(from)) return null;
 
-      if (known !== null && (await probe(host, known))?.folder === from.folder) {
-        return { join: known };
+        if ((await probe(host, candidate))?.folder === from.folder) return { join: candidate };
       }
 
+      if (!holds(from)) return null;
       const now = await host.now();
+      const fresh = await host.mapRecord(from.folder);
 
-      if (record?.kind === "claimed" && record.session !== me && now - record.at < CLAIM_MS) {
+      if (!sameRecord(fresh, record)) continue;
+
+      if (fresh?.kind === "claimed" && fresh.session !== me && isStanding(fresh.at, now)) {
         await host.sleep(CLAIM_POLL_MS);
-        kept = null;
+        own = null;
         continue;
       }
 
@@ -445,8 +471,8 @@ export const register: Register = (on) => {
       await host.sleep(CLAIM_SETTLE_MS);
       const after = await host.mapRecord(from.folder);
 
-      if (after?.kind === "claimed" && after.session === me) return { start: known };
-      kept = null;
+      if (after?.kind === "claimed" && after.session === me) return { start: own ?? recorded };
+      own = null;
     }
   }
 
@@ -511,7 +537,12 @@ export const register: Register = (on) => {
       return;
     }
 
-    await host.storeSet(mapKey(folder), { kind: "live", port: child.port, session: me });
+    try {
+      await host.storeSet(mapKey(folder), { kind: "live", port: child.port, session: me });
+    } catch (cause) {
+      child.end();
+      throw cause;
+    }
 
     if (!holds(from)) {
       child.end();
@@ -531,6 +562,31 @@ export const register: Register = (on) => {
 
     become(host, folder, owned);
     background(host, "the server's read loop", follow(host, owned));
+  }
+
+  /**
+   * attach, which a store or a clock that fails leaves halfway: the board is dropped, so that
+   * /atlas:board starts it again, and its claim with it. Answers why it failed, logged, or null.
+   */
+  async function attached(
+    host: Host,
+    from: Starting,
+    ends: readonly number[],
+    port: Port,
+  ): Promise<string | null> {
+    try {
+      await attach(host, from, ends, port);
+
+      return null;
+    } catch (cause) {
+      if (holds(from)) become(host, from.folder, null);
+
+      const claim = await releaseAfterFailure(host, from.folder);
+      const reason = `atlas: the board of ${from.folder} did not start: ${String(cause)}${claim}; run /atlas:board`;
+      host.log(reason);
+
+      return reason;
+    }
   }
 
   /** What a server that stopped answering leaves: another attach on its port, or `lost` past the crash window. */
@@ -555,7 +611,7 @@ export const register: Register = (on) => {
     // session's that ended is looked up again, as a third session may have revived it meanwhile,
     // and comes back on its old port when the store names none, its session gone and its record
     // with it.
-    await attach(
+    await attached(
       host,
       starting,
       ends,
@@ -656,7 +712,7 @@ export const register: Register = (on) => {
     for (const folder of record.folders) {
       const starting: Starting = { kind: "starting", folder };
       become(host, folder, starting);
-      await attach(host, starting, [], NO_PORT);
+      await attached(host, starting, [], NO_PORT);
     }
 
     return result;
@@ -719,12 +775,15 @@ export const register: Register = (on) => {
 
     const starting: Starting = { kind: "starting", folder };
     become(host, folder, starting);
-    await attach(
+
+    const failed = await attached(
       host,
       starting,
       [],
       was?.kind === "lost" ? { own: was.port, last: null } : NO_PORT,
     );
+
+    if (failed !== null) return said(failed);
     const now = boards.get(folder);
 
     if (!isLive(now)) {

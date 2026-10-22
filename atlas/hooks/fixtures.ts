@@ -82,6 +82,10 @@ export type World = {
   dropping: string | undefined;
   /** Runs after each write of the module's to the store: another session writing right after it. */
   afterSet: (key: string) => void;
+  /** A reason to refuse a write of the module's to the store, as a store that fails; none by default. */
+  refuse: (key: string, value: Stored) => string | undefined;
+  /** Runs as each heartbeat or probe reaches `port`, before it is answered: another session acting while this one waits on it. */
+  probing: (port: number) => void;
   /** Every atlas server listening, by port: the folder it serves, whoever started it. */
   readonly servers: Map<number, string>;
   nextPort: number;
@@ -267,6 +271,8 @@ export function world(on: On, options: WorldOptions = {}): World {
     noOpener: undefined,
     dropping: undefined,
     afterSet: () => {},
+    refuse: () => {},
+    probing: () => {},
     servers: new Map(),
     nextPort: FIRST_PORT,
     clock: mock.clock(on),
@@ -290,6 +296,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     if (pathname !== "/heartbeat" || e.init?.method !== "POST")
       return { deny: `unexpected ${e.url}` };
     built.beats.push({ port: Number(port), secret: e.init.headers?.[HEARTBEAT_HEADER] ?? null });
+    built.probing(Number(port));
     const folder = built.servers.get(Number(port));
 
     return folder === undefined
@@ -351,7 +358,11 @@ export function world(on: On, options: WorldOptions = {}): World {
 
   on("store.set", (_, e) => {
     // SAFETY: the module stores its own records alone, which its parsers read back.
-    built.store.set(e.key, e.value as Stored);
+    const value = e.value as Stored;
+    const refused = built.refuse(e.key, value);
+
+    if (refused !== undefined) return { deny: refused };
+    built.store.set(e.key, value);
     built.afterSet(e.key);
 
     return { value: undefined };

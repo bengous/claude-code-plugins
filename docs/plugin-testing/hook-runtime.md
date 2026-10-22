@@ -178,7 +178,10 @@ plugins (September 2026), unless a line says otherwise.
   session: a running session's `$.store.get` saw a value another `claude`
   process set within a second. Measured on Claude Code 2.1.308, Linux,
   2026-10-22, with two `claude -p` sessions of a probe module, one reading
-  every second, the other writing once.
+  every second, the other writing once. `$.store.set` and `$.store.delete`
+  take `<store file>.lock` and rewrite the whole file; `get` and `keys` read
+  it afresh on every call. Read in the Claude Code 2.1.308 bundle, 2026-10-22,
+  by the review of `atlas`'s hooks module.
 
 - Saving a file under `--plugin-dir` prints `<plugin>: reloaded (N hooks: …)`
   and raises `session.start` again for that plugin alone, so a mode kept in

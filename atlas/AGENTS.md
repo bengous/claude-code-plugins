@@ -83,10 +83,15 @@ The mod keeps one server per map folder, whichever session asks. Its store keeps
 of a session starting one, under `session:<id>` the folders a session shows (a reload attaches
 them again), and under `selection:<folder>` the page's last selection, which every session showing
 that map adds to its next prompt's context once. A session claims the folder before it starts a
-server and starts it only if its claim still stands `CLAIM_SETTLE_MS` later; another session's
-fresh claim is waited out, and a server is forgotten only while the store still names it. That
-`$.store` holds against two sessions writing at once is not measured: one probe saw another
-process's write within a second (`docs/plugin-testing/hook-runtime.md`). The first session to
+server and starts it only if its claim still stands `CLAIM_SETTLE_MS` later. Before it claims, it
+probes both its own last port and the one the store names, and reads the record again, as a probe
+may wait long on a port: what another session wrote meanwhile is looked at anew. Another session's
+claim younger than `CLAIM_MS`, and not dated ahead of the clock, is waited out, and a server is
+forgotten only while the store still names it. `$.store.set` and `$.store.delete` take a lock and
+rewrite the store's file, and `get` reads it afresh, so each write lands whole and the next read
+sees it (`docs/plugin-testing/hook-runtime.md`); a read and the write after it are not one step,
+which the settle covers. A start that a failing store or clock breaks drops the board and its
+claim, and says why. The first session to
 ask spawns `serve.ts --heartbeat` with a secret of its own in `$ATLAS_HEARTBEAT`, reads its
 stdout, and beats it with that secret; another session joins it and only probes it, so the server
 never outlives the session that reads it: it leaves once its parent process changes (a `claude`

@@ -319,6 +319,75 @@ describe("one server per map folder", () => {
     expect(seen.store.get(MAP_KEY)).toEqual(mine(FIRST_PORT));
   });
 
+  test("another session's claim dated ahead of this session's clock is taken over", async ($, on) => {
+    const seen = world(on);
+    const ahead = seen.clock.now() + CLAIM_MS * 10;
+    seen.store.set(MAP_KEY, { kind: "claimed", session: OTHER_SESSION, at: ahead });
+    const showing = $.skill.prompt(board("docs/map"));
+    await drain(seen);
+
+    expect(running(seen)).toHaveLength(1);
+    expect(seen.store.get(MAP_KEY)).toEqual(mine(FIRST_PORT));
+
+    await settled(seen, showing);
+  });
+
+  test("a claim another session writes while this one probes is waited out, not written over", async ($, on) => {
+    const seen = world(on, { stored: new Map([[MAP_KEY, THEIRS_RECORD]]) });
+    const theirs = { kind: "claimed", session: OTHER_SESSION, at: seen.clock.now() } as const;
+
+    // Another session claims the folder while this one waits on the port of its server, gone.
+    seen.probing = (port) => {
+      if (port === THEIRS) seen.store.set(MAP_KEY, theirs);
+    };
+
+    const showing = $.skill.prompt(board("docs/map"));
+    await drain(seen);
+
+    expect(seen.children).toEqual([]);
+    expect(seen.store.get(MAP_KEY)).toEqual(theirs);
+
+    seen.servers.set(THEIRS + 1, MAP);
+    seen.store.set(MAP_KEY, { kind: "live", port: THEIRS + 1, session: OTHER_SESSION });
+    const result = await settled(seen, showing);
+
+    expect(seen.children).toEqual([]);
+    expect(result.text).toContain(`${page(THEIRS + 1)} in a browser.`);
+  });
+
+  test("a server another session starts while this one probes is joined, not claimed over", async ($, on) => {
+    const seen = world(on, { stored: new Map([[MAP_KEY, THEIRS_RECORD]]) });
+    const started = { kind: "live", port: THEIRS + 1, session: OTHER_SESSION } as const;
+
+    seen.probing = (port) => {
+      if (port !== THEIRS) return;
+      seen.servers.set(THEIRS + 1, MAP);
+      seen.store.set(MAP_KEY, started);
+    };
+
+    const result = await settled(seen, $.skill.prompt(board("docs/map")));
+
+    expect(seen.children).toEqual([]);
+    expect(seen.store.get(MAP_KEY)).toEqual(started);
+    expect(result.text).toContain(`${page(THEIRS + 1)} in a browser.`);
+  });
+
+  test("a server of this session's that ends is not started again over another session's that answers: that one is joined", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    seen.servers.set(THEIRS, MAP);
+    seen.store.set(MAP_KEY, THEIRS_RECORD);
+    seen.children[0]?.exit(ENDED);
+    await drain(seen);
+
+    expect(seen.children).toHaveLength(1);
+    expect(seen.store.get(MAP_KEY)).toEqual(THEIRS_RECORD);
+
+    const again = await settled(seen, $.skill.prompt(board("docs/map")));
+
+    expect(again.text).toContain(`It stays at ${page(THEIRS)}.`);
+  });
+
   test("a joined server that stops answering is looked up again: another session's revival is joined", async ($, on) => {
     const seen = world(on, { stored: new Map([[MAP_KEY, THEIRS_RECORD]]) });
     seen.servers.set(THEIRS, MAP);
@@ -480,6 +549,61 @@ describe("the server's life", () => {
 
     expect(seen.children).toEqual([]);
     expect(seen.logs.join("\n")).toContain("the session's record does not read");
+  });
+});
+
+describe("a store that fails", () => {
+  const LOCKED = "the store's file is locked";
+
+  test("as /atlas:board records its server leaves no board starting: it says why, ends the server and drops the claim", async ($, on) => {
+    const seen = world(on);
+    seen.refuse = (key, value) => (key === MAP_KEY && "port" in value ? LOCKED : undefined);
+    const result = await settled(seen, $.skill.prompt(board("docs/map")));
+
+    expect(result.text).toContain(`atlas: the board of ${MAP} did not start: `);
+    expect(result.text).toContain(LOCKED);
+    expect(running(seen)).toEqual([]);
+    expect(seen.store.has(MAP_KEY)).toBe(false);
+
+    seen.refuse = () => {};
+
+    const again = await settled(seen, $.skill.prompt(board("docs/map")));
+
+    expect(again.text).toContain(`atlas shows the map ${MAP}.`);
+  });
+
+  test("as a reload claims a board says why, and /atlas:board starts it afresh", async ($, on) => {
+    const seen = world(on, {
+      stored: new Map<string, Stored>([[SESSION_KEY, { folders: [MAP] }]]),
+    });
+
+    seen.refuse = (key) => (key === MAP_KEY ? LOCKED : undefined);
+    await settled(seen, $.session.start(SESSION));
+
+    expect(seen.logs.join("\n")).toContain(`atlas: the board of ${MAP} did not start: `);
+    expect(seen.children).toEqual([]);
+
+    seen.refuse = () => {};
+
+    const again = await settled(seen, $.skill.prompt(board("docs/map")));
+
+    expect(again.text).toContain(`atlas shows the map ${MAP}.`);
+  });
+
+  test("as a server that ended is revived says why, and /atlas:board starts it afresh", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    seen.refuse = (key) => (key === MAP_KEY ? LOCKED : undefined);
+    seen.children[0]?.exit(ENDED);
+    await drain(seen);
+
+    expect(seen.logs.join("\n")).toContain(`atlas: the board of ${MAP} did not start: `);
+
+    seen.refuse = () => {};
+
+    const again = await settled(seen, $.skill.prompt(board("docs/map")));
+
+    expect(again.text).toContain(`atlas shows the map ${MAP}.`);
   });
 });
 
@@ -847,12 +971,12 @@ describe("a map folder outside the session's folder", () => {
   const CHECK_ELSEWHERE = { tool: "mcp__atlas__atlas_check", folder: ELSEWHERE } as const;
   const OUTSIDE = `atlas: ${ELSEWHERE} is outside this session's folder and no board of this session shows it`;
 
-  test("runs nothing the person refuses, once asked", async ($, on) => {
+  test("runs nothing the person refuses, once asked with refusing offered first", async ($, on) => {
     const seen = world(on, { files: [...MAPS, `${ELSEWHERE}/atlas.config.ts`] });
     seen.pick = "Refuse";
 
     expect(await $.tool.call(CHECK_ELSEWHERE)).toEqual({ deny: `${OUTSIDE}; the user refused` });
-    expect(seen.asked).toEqual([["Run it", "Refuse"]]);
+    expect(seen.asked).toEqual([["Refuse", "Run it"]]);
     expect(seen.runs).toEqual([]);
   });
 
