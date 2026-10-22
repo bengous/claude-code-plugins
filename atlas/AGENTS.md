@@ -34,6 +34,17 @@ legend.ts            the legend's lines, one per arrow kind or node mark the map
                      (legend.spec.ts)
 reply.ts             adds an entry to a thread of a map folder (reply.test.ts)
 machine.ts           the two state machines, navigation and camera, pure (machine.test.ts)
+tree.ts              the tree indexed for views at any depth: each node's chain from the root,
+                     open points counted down each subtree, couplings both ways, and what stands
+                     for a node in a container's view (a child, or a ghost); refuses what no view
+                     can show (tree.spec.ts)
+view.ts              the view of any container, pure: its children as boxes, a container child's
+                     children as its chips; its links lifted to one arrow per pair; its outer
+                     neighbours as ghosts in side columns; the couplings a selection outlines and
+                     the arrows it lights; the legend lines it uses (view.spec.ts)
+navigation.ts        where the reader stands at any depth, pure: the path to the open container
+                     and the selection, their events, and the breadcrumb (navigation.spec.ts)
+fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 engine.ts            the page's entry: draws the map it imports, paints the camera, takes input
 overview.ts          the overview drawing
 flows.ts             the overview's arrows: the leaves' arrows grouped by the boxes they join
@@ -50,6 +61,9 @@ serve.ts             serves one map folder's page, rebuilt and reloaded on save,
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.test.ts)
 ```
+
+The page draws the two levels of `model.ts`; `tree.ts`, `view.ts` and `navigation.ts` compute the
+views on any number of levels, which no drawing reads.
 
 `package.json` pins the libraries, elkjs (EPL-2.0) and libavoid-js (LGPL-2.1-or-later,
 github.com/Aksem/libavoid-js), and the checkers tsgo, oxlint and oxfmt, as runtime dependencies.
