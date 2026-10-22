@@ -67,7 +67,8 @@ serve.ts             serves one map folder's page, rebuilt and reloaded on save,
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.spec.ts)
 wire.ts              what crosses between the page, serve.ts and the mod: routes, a selection,
-                     the server's JSON line
+                     the server's JSON line; bunFlags, which every bun atlas starts takes
+child.bunfig.toml    the empty Bun configuration bunFlags names
 open.ts              hands an address to the desktop's browser, detached, for the mod (open.spec.ts)
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
@@ -145,6 +146,11 @@ Each module explains its own where it bites.
   `legend.ts`): a kind the map never uses has no line.
 - Layout runs in the browser only. To script it (a check, a benchmark), run elkjs under Node:
   under Bun its constructor fails.
+- A map folder's files are code: its `map.ts` and `atlas.config.ts` run in every command on it,
+  and a `bunfig.toml` or a `.env` in the folder a bun starts in preloads more. Every bun atlas
+  starts, from the mod, `serve.ts` or `cli.ts`, takes `bunFlags` (`wire.ts`) before its script,
+  and the mod's tools run a map outside the session's folder, that no board of the session shows,
+  only once the person allows it.
 - `claude plugin test atlas` runs every `*.test.ts` under `atlas/` in the engine's environment,
   where a `bun:test` suite fails: the engine's suites are `*.spec.ts`, and the root `bunfig.toml`
   keeps `bun test` off `atlas/**/*.test.ts`.

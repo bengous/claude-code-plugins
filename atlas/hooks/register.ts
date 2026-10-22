@@ -200,6 +200,8 @@ function hostOf($: EngineInterface): Host {
     repeat: (ms, fn) => $.clock.every(ms, fn),
     now: () => $.clock.now(),
     list: (path) => $.fs.list(path),
+    cwd: () => $.session.cwd(),
+    ask: (question, options) => $.ui.ask(question, options),
     place: async (path) => {
       const absolute = path.startsWith("/") ? path : `${await $.session.cwd()}/${path}`;
 
@@ -264,6 +266,13 @@ async function toolFolder(
     : { deny: `atlas: ${path} is no map folder: it holds no ${CONFIG_FILE}` };
 }
 
+const isUnder = (path: string, dir: string): boolean =>
+  dir === "/" || path === dir || path.startsWith(`${dir}/`);
+
+const RUN = "Run it";
+
+const REFUSE = "Refuse";
+
 /** Drops the records of a server this session started and that is gone: its address and its selection. */
 async function forget(host: Host, owned: Owned): Promise<void> {
   const record = await host.mapRecord(owned.folder);
@@ -280,6 +289,46 @@ export const register: Register = (on) => {
 
   /** The session the boards' record is kept under: a `/clear` or a `/resume` moves it. */
   let owner: string | null = null;
+
+  /** The map folders outside the session's folder the person let the tools run, this session. */
+  const allowed = new Set<string>();
+
+  /**
+   * A tool's map folder, or why the tool refuses it. A map's files are code the tool runs, and the
+   * tool's hook answers with no permission prompt: a folder outside the session's directory that
+   * no board of this session shows runs only once the person allows it.
+   */
+  async function toolMap(
+    host: Host,
+    path: string | null,
+  ): Promise<{ folder: string } | { deny: string }> {
+    const placed = await toolFolder(host, path);
+
+    if ("deny" in placed || boards.has(placed.folder) || allowed.has(placed.folder)) return placed;
+    const { folder } = placed;
+    const cwd = await host.place(await host.cwd());
+
+    if (cwd !== null && isUnder(folder, cwd)) return placed;
+
+    const answer = await host
+      .ask(
+        `Let atlas run the map in ${folder}? It is outside this session's folder, and its map.ts and atlas.config.ts run as code.`,
+        [RUN, REFUSE],
+      )
+      .catch(() => null);
+
+    if (answer === RUN) {
+      allowed.add(folder);
+
+      return placed;
+    }
+
+    const why = answer === null ? "nobody could be asked to run its code" : "the user refused";
+
+    return {
+      deny: `atlas: ${folder} is outside this session's folder and no board of this session shows it; ${why}`,
+    };
+  }
 
   function lostText(): string | undefined {
     const lost = [...boards.values()].find((board) => board.kind === "lost");
@@ -658,7 +707,7 @@ export const register: Register = (on) => {
 
   on("tool.call", { tool: "mcp__atlas__atlas_open_points" }, async ($, e) => {
     const host = hostOf($);
-    const placed = await toolFolder(host, textArgument(e.folder));
+    const placed = await toolMap(host, textArgument(e.folder));
 
     if ("deny" in placed) return placed;
     const ran = await runScript(host, SCRIPTS.open(host.pluginRoot, placed.folder), placed.folder);
@@ -668,7 +717,7 @@ export const register: Register = (on) => {
 
   on("tool.call", { tool: "mcp__atlas__atlas_reply" }, async ($, e) => {
     const host = hostOf($);
-    const placed = await toolFolder(host, textArgument(e.folder));
+    const placed = await toolMap(host, textArgument(e.folder));
 
     if ("deny" in placed) return placed;
     const id = textArgument(e.id);
@@ -688,7 +737,7 @@ export const register: Register = (on) => {
 
   on("tool.call", { tool: "mcp__atlas__atlas_query" }, async ($, e) => {
     const host = hostOf($);
-    const placed = await toolFolder(host, textArgument(e.folder));
+    const placed = await toolMap(host, textArgument(e.folder));
 
     if ("deny" in placed) return placed;
     const id = textArgument(e.id);
@@ -706,7 +755,7 @@ export const register: Register = (on) => {
 
   on("tool.call", { tool: "mcp__atlas__atlas_check" }, async ($, e) => {
     const host = hostOf($);
-    const placed = await toolFolder(host, textArgument(e.folder));
+    const placed = await toolMap(host, textArgument(e.folder));
 
     if ("deny" in placed) return placed;
     const ran = await runScript(host, SCRIPTS.check(host.pluginRoot, placed.folder), placed.folder);

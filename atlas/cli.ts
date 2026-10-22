@@ -27,6 +27,7 @@ import { MAP_FILE, THREADS_FILE, loadFolder, planOf } from "./folder.ts";
 import type { Plan } from "./model.ts";
 import { ReplyError, appendReply } from "./reply.ts";
 import { WHO, openItems, readThreads } from "./threads.ts";
+import { bunFlags } from "./wire.ts";
 
 const ROOT = import.meta.dir;
 
@@ -173,7 +174,7 @@ const oxfmt = (files: readonly string[], mode: "--check" | "--write"): string[] 
 type ToolRun = { readonly ok: boolean; readonly output: string };
 
 function runTool(dir: string, argv: readonly string[]): ToolRun {
-  const tool = Bun.spawnSync([process.execPath, ...argv], { cwd: dir });
+  const tool = Bun.spawnSync([process.execPath, ...bunFlags(ROOT), ...argv], { cwd: dir });
 
   return {
     ok: tool.exitCode === 0,

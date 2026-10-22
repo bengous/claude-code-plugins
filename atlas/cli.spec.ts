@@ -19,6 +19,7 @@ import { join } from "node:path";
 
 import { THREADS_FILE } from "./folder.ts";
 import { readThreads } from "./threads.ts";
+import { bunFlags } from "./wire.ts";
 
 const CLI = join(import.meta.dir, "cli.ts");
 
@@ -691,5 +692,34 @@ describe("draft", () => {
     expect(cli("draft", dir, "taken").stderr).toContain("exists: adopt it (--adopt) or drop it");
     expect(cli("draft", dir, "missing", "--adopt").stderr).toContain("no draft missing");
     expect(cli("draft", dir, "Not_Kebab").stderr).toContain("kebab-case");
+  });
+});
+
+/** A map folder that preloads code into any bun started in it, through bunfig.toml and .env. */
+function planted(dir: string): string {
+  const marker = join(dir, "preloaded");
+
+  writeFileSync(
+    join(dir, "planted.ts"),
+    `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(marker)}, \`\${process.argv.join(" ")}\\n\`);\n`,
+  );
+  writeFileSync(join(dir, "bunfig.toml"), 'preload = ["./planted.ts"]\n');
+  writeFileSync(join(dir, ".env"), "BUN_OPTIONS=--preload ./planted.ts\n");
+
+  return marker;
+}
+
+describe("a map folder's own Bun configuration", () => {
+  test("check, started in the folder as the hooks module starts it, runs no preload the folder plants", () => {
+    const dir = sampleCopy();
+    const marker = planted(dir);
+
+    const run = Bun.spawnSync([process.execPath, ...bunFlags(import.meta.dir), CLI, "check", dir], {
+      cwd: dir,
+    });
+
+    expect(run.stdout.toString()).toContain("plan: ok");
+    expect(run.stdout.toString()).toContain("tsgo:");
+    expect(existsSync(marker) ? readFileSync(marker, "utf8") : "").toBe("");
   });
 });

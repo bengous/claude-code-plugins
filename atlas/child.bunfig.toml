@@ -1,0 +1,2 @@
+# The Bun configuration of every bun process atlas starts (bunFlags in wire.ts): empty, so the
+# bunfig.toml of the folder a process starts in, often a map folder, is never read.

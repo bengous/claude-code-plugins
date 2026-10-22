@@ -12,7 +12,7 @@ import type {
 } from "claude-code";
 
 import type { Beat, Selection } from "../wire.ts";
-import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH } from "../wire.ts";
+import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH, bunFlags } from "../wire.ts";
 import { type MapRecord, parseBeat, readyPort, type SessionRecord } from "./parse.ts";
 
 /**
@@ -32,6 +32,10 @@ export type Host = {
   /** `$.clock.now()`: milliseconds since the epoch, as the engine's clock reads them. */
   readonly now: () => Promise<number>;
   readonly list: (path: string) => Promise<FsEntry[]>;
+  /** `$.session.cwd()`: the session's working directory, which follows Claude's `cd`. */
+  readonly cwd: () => Promise<string>;
+  /** `$.ui.ask`: the label the person picked; rejects when nobody can be asked, or nobody answered. */
+  readonly ask: (question: string, options: readonly string[]) => Promise<string>;
   /** Where `path` lands, relative to the session's working directory, every link followed; `null` for nowhere. */
   readonly place: (path: string) => Promise<string | null>;
   readonly exists: (path: string) => Promise<boolean>;
@@ -103,7 +107,7 @@ async function* linesOf(
  * child that gives none is ended.
  */
 export async function start(host: Host, folder: string, port: number): Promise<Started> {
-  const argv = ["bun", `${host.pluginRoot}/serve.ts`, folder, String(port), "--heartbeat"];
+  const argv = bunScript(host.pluginRoot, "serve.ts", folder, String(port), "--heartbeat");
   const secret = crypto.randomUUID();
   const heard = { stderr: "" };
   const stream = host.spawn({ argv, cwd: folder, env: { [HEARTBEAT_ENV]: secret } });
@@ -172,27 +176,24 @@ export function beat(host: Host, child: Child): Promise<Beat | null> {
 /** Hands the page's address to the desktop's browser (`open.ts`); the reason when none opened. */
 export async function openBrowser(host: Host, url: string): Promise<string | null> {
   const ran = await host
-    .run(["bun", `${host.pluginRoot}/open.ts`, url])
+    .run(bunScript(host.pluginRoot, "open.ts", url))
     .catch((cause: unknown) => ({ exitCode: 1, stderr: String(cause) }));
 
   return ran.exitCode === 0 ? null : ran.stderr.trim() || `open.ts exited ${ran.exitCode}`;
 }
 
+/** The command line of one of the plugin's scripts, with the flags every bun of atlas takes. */
+export function bunScript(root: string, script: string, ...args: readonly string[]): string[] {
+  return ["bun", ...bunFlags(root), `${root}/${script}`, ...args];
+}
+
 /** The engine's command lines the agent's tools run, each on a map folder. */
 export const SCRIPTS = {
-  open: (root: string, folder: string) => ["bun", `${root}/cli.ts`, "check", folder, "--open"],
-  check: (root: string, folder: string) => ["bun", `${root}/cli.ts`, "check", folder],
-  reply: (root: string, folder: string, id: string, text: string) => [
-    "bun",
-    `${root}/cli.ts`,
-    "reply",
-    folder,
-    id,
-    "--as",
-    "agent",
-    text,
-  ],
-  query: (root: string, folder: string, id: string) => ["bun", `${root}/query.ts`, folder, id],
+  open: (root: string, folder: string) => bunScript(root, "cli.ts", "check", folder, "--open"),
+  check: (root: string, folder: string) => bunScript(root, "cli.ts", "check", folder),
+  reply: (root: string, folder: string, id: string, text: string) =>
+    bunScript(root, "cli.ts", "reply", folder, id, "--as", "agent", text),
+  query: (root: string, folder: string, id: string) => bunScript(root, "query.ts", folder, id),
 } as const;
 
 /** A command line's end: whether it exited 0, and what it wrote, stdout then stderr. */

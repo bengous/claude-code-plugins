@@ -16,6 +16,7 @@ import {
   HEARTBEAT_HEADER,
   HEARTBEAT_PATH,
   SELECTION_PATH,
+  bunFlags,
 } from "./wire.ts";
 
 // Serves the page of one map folder:
@@ -185,7 +186,7 @@ function labelsIn(text: string): ReadonlyMap<string, string> | null {
 // this one keeps the first evaluation of every module it imports. Its labels are the ids a
 // selection may name.
 async function drawable(): Promise<Drawable> {
-  const run = Bun.spawn([process.execPath, join(DIR, "folder.ts"), folder], {
+  const run = Bun.spawn([process.execPath, ...bunFlags(DIR), join(DIR, "folder.ts"), folder], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -417,7 +418,17 @@ async function reply(request: Request): Promise<Response> {
   }
 
   const run = Bun.spawn(
-    [process.execPath, join(DIR, "cli.ts"), "reply", folder, body.id, "--as", "human", body.text],
+    [
+      process.execPath,
+      ...bunFlags(DIR),
+      join(DIR, "cli.ts"),
+      "reply",
+      folder,
+      body.id,
+      "--as",
+      "human",
+      body.text,
+    ],
     { stdout: "ignore", stderr: "pipe" },
   );
 

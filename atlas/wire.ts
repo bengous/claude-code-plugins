@@ -33,3 +33,15 @@ export type Beat = { readonly folder: string };
 // One line of serve.ts's stdout, as JSON, after its first line (the page's address). Its other
 // lines (a rebuild's) are plain text.
 export type ServerLine = { readonly type: "selection" } & Selection;
+
+// The flags every bun process atlas starts takes before its script, `root` the plugin's folder.
+// Bun reads bunfig.toml and .env from its working directory, which is often a map folder: a
+// bunfig.toml there preloads code, and a .env setting BUN_OPTIONS preloads code in each bun the
+// process starts. --config=<file> keeps the first out, written with `=` (`--config <file>` still
+// read it), and --no-env-file the second. Measured on Bun 1.4.3, Linux.
+export const CHILD_BUNFIG = "child.bunfig.toml";
+
+export const bunFlags = (root: string): readonly string[] => [
+  `--config=${root}/${CHILD_BUNFIG}`,
+  "--no-env-file",
+];

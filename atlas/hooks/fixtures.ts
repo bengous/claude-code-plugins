@@ -25,6 +25,9 @@ export const OTHER_MAP = `${CWD}/maps/other`;
 
 export const DRAFT = `${MAP}/drafts/rewire`;
 
+/** A map folder outside the session's directory. */
+export const ELSEWHERE = "/elsewhere/map";
+
 /** A link to the map folder: the module keys a map by where it lands. */
 export const LINKED = "/work/linked-map";
 
@@ -39,6 +42,9 @@ export type Child = {
   readonly argv: readonly string[];
   readonly cwd: string | undefined;
   readonly env: Readonly<Record<string, string>>;
+  /** What the module asked of serve.ts: the folder it serves and the port it asked for, "0" a free one. */
+  readonly folder: string;
+  readonly asked: string;
   /** Takes `port`, which it frees as it ends. */
   readonly listen: (port: number) => void;
   /** Writes each line on stdout, all of them in one piece. */
@@ -103,7 +109,7 @@ type Life = { end: End | null; killed: boolean; port: number | null; wake: () =>
 
 /** serve.ts as it starts: a port another server holds is refused, port 0 is a free one. */
 export const STARTS: Spawn = (child, seen) => {
-  const port = Number(child.argv[3] ?? "0");
+  const port = Number(child.asked);
 
   if (port !== 0 && seen.servers.has(port)) {
     child.exit({ code: 1, signal: null });
@@ -117,7 +123,8 @@ export const STARTS: Spawn = (child, seen) => {
   child.write(`${page(given)}page.html`);
 };
 
-const MAPS = [MAP, OTHER_MAP, DRAFT].map((folder) => `${folder}/atlas.config.ts`);
+/** The files the world holds unless a test names others: the map folders under the session's directory. */
+export const MAPS = [MAP, OTHER_MAP, DRAFT].map((folder) => `${folder}/atlas.config.ts`);
 
 function reply(status: number, text = ""): HttpResponse {
   return { status, ok: status < 300, headers: {}, text };
@@ -197,13 +204,17 @@ function children(on: On, seen: World, spawn: Spawn): void {
       ended({ exit: { code: null, signal: "SIGTERM" } });
     });
 
+    const at = e.argv.findIndex((arg) => arg.endsWith("/serve.ts"));
+
     const child: Child = {
       argv: e.argv,
       cwd: e.cwd,
       env: e.env ?? {},
+      folder: e.argv[at + 1] ?? "",
+      asked: e.argv[at + 2] ?? "0",
       listen: (port) => {
         life.port = port;
-        seen.servers.set(port, e.argv[2] ?? "");
+        seen.servers.set(port, child.folder);
       },
       write: (...lines) => {
         pieces.push({ stream: "stdout", text: lines.map((line) => `${line}\n`).join("") });
@@ -282,7 +293,7 @@ export function world(on: On, options: WorldOptions = {}): World {
 
   on("process.run", (_, e) => {
     built.runs.push({ argv: e.argv, cwd: e.init?.cwd });
-    const isOpener = e.argv[1]?.endsWith("/open.ts") === true;
+    const isOpener = e.argv.some((arg) => arg.endsWith("/open.ts"));
 
     if (isOpener && built.noOpener !== undefined) {
       return {
@@ -393,6 +404,6 @@ export function world(on: On, options: WorldOptions = {}): World {
 /** The serve.ts children still running. */
 export function running(seen: World): Child[] {
   return seen.children.filter(
-    (child) => child.argv[1]?.endsWith("/serve.ts") === true && child.alive(),
+    (child) => child.argv.some((arg) => arg.endsWith("/serve.ts")) && child.alive(),
   );
 }

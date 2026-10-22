@@ -11,9 +11,11 @@ import { HEARTBEAT_ENV } from "../wire.ts";
 import {
   CWD,
   DRAFT,
+  ELSEWHERE,
   FIRST_PORT,
   LINKED,
   MAP,
+  MAPS,
   OTHER_MAP,
   page,
   running,
@@ -34,6 +36,9 @@ function board(...words: readonly string[]): SkillPromptArgs {
 }
 
 const STOP: SkillPromptArgs = { skill: "atlas:stop", text: "t" };
+
+/** What every bun of atlas takes first: the plugin's empty bunfig and no .env (bunFlags in wire.ts). */
+const FLAGS = [expect.stringMatching(/^--config=.+\/child\.bunfig\.toml$/u), "--no-env-file"];
 
 const SESSION: SessionStartInput = { surface: "terminal", isInteractive: true, cwd: CWD };
 
@@ -80,7 +85,7 @@ describe("/atlas:board", () => {
     const result = await $.skill.prompt(board("docs/map"));
 
     expect(seen.children.map((child) => [child.argv, child.cwd])).toEqual([
-      [["bun", expect.stringContaining("/serve.ts"), MAP, "0", "--heartbeat"], MAP],
+      [["bun", ...FLAGS, expect.stringContaining("/serve.ts"), MAP, "0", "--heartbeat"], MAP],
     ]);
     expect(result.text).toContain(
       `atlas shows the map ${MAP}.\nOpen ${page(FIRST_PORT)} in a browser.`,
@@ -107,7 +112,7 @@ describe("/atlas:board", () => {
 
     await $.skill.prompt(board());
 
-    expect(seen.children[0]?.argv[2]).toBe(MAP);
+    expect(seen.children[0]?.folder).toBe(MAP);
   });
 
   test("with several, the person picks one, a map folder's drafts left out", async ($, on) => {
@@ -116,7 +121,7 @@ describe("/atlas:board", () => {
     await $.skill.prompt(board());
 
     expect(seen.asked).toEqual([["docs/map", "maps/other"]]);
-    expect(seen.children[0]?.argv[2]).toBe(OTHER_MAP);
+    expect(seen.children[0]?.folder).toBe(OTHER_MAP);
   });
 
   test("with several and nobody to ask, it lists them and starts nothing", async ($, on) => {
@@ -143,7 +148,7 @@ describe("/atlas:board", () => {
     const seen = world(on);
     await $.skill.prompt(board("docs/map", "rewire"));
 
-    expect(seen.children[0]?.argv[2]).toBe(DRAFT);
+    expect(seen.children[0]?.folder).toBe(DRAFT);
   });
 
   test("a draft the map folder does not have starts nothing, and says where drafts are", async ($, on) => {
@@ -204,7 +209,7 @@ describe("one server per map folder", () => {
     seen.servers.delete(THEIRS);
     await seen.clock.advance(HEARTBEAT_MS);
 
-    expect(running(seen).map((child) => child.argv[3])).toEqual([String(THEIRS)]);
+    expect(running(seen).map((child) => child.asked)).toEqual([String(THEIRS)]);
     expect(seen.store.get(MAP_KEY)).toEqual({ port: THEIRS });
   });
 
@@ -212,7 +217,7 @@ describe("one server per map folder", () => {
     const seen = world(on, { stored: new Map([[MAP_KEY, { port: THEIRS }]]) });
     await $.skill.prompt(board("docs/map"));
 
-    expect(seen.children.map((child) => child.argv[3])).toEqual([String(THEIRS)]);
+    expect(seen.children.map((child) => child.asked)).toEqual([String(THEIRS)]);
   });
 
   test("a port that serves another map since starts it on a free one", async ($, on) => {
@@ -220,7 +225,7 @@ describe("one server per map folder", () => {
     seen.servers.set(THEIRS, OTHER_MAP);
     const result = await $.skill.prompt(board("docs/map"));
 
-    expect(seen.children.map((child) => child.argv[3])).toEqual([String(THEIRS), "0"]);
+    expect(seen.children.map((child) => child.asked)).toEqual([String(THEIRS), "0"]);
     expect(seen.store.get(MAP_KEY)).toEqual({ port: FIRST_PORT });
     expect(result.text).toContain(page(FIRST_PORT));
   });
@@ -257,7 +262,7 @@ describe("the server's life", () => {
     seen.children[0]?.exit(ENDED);
     await seen.clock.settle();
 
-    expect(running(seen).map((child) => child.argv[3])).toEqual([String(FIRST_PORT)]);
+    expect(running(seen).map((child) => child.asked)).toEqual([String(FIRST_PORT)]);
     expect(seen.children).toHaveLength(2);
   });
 
@@ -312,7 +317,7 @@ describe("the server's life", () => {
 
     await $.session.start(SESSION);
 
-    expect(running(seen).map((child) => child.argv[3])).toEqual([String(FIRST_PORT)]);
+    expect(running(seen).map((child) => child.asked)).toEqual([String(FIRST_PORT)]);
   });
 
   test("a session with no record attaches nothing", async ($, on) => {
@@ -417,7 +422,7 @@ describe("the browser", () => {
     const result = await $.skill.prompt(board("docs/map"));
 
     expect(seen.runs.map((ran) => ran.argv)).toEqual([
-      ["bun", expect.stringContaining("/open.ts"), page(FIRST_PORT)],
+      ["bun", ...FLAGS, expect.stringContaining("/open.ts"), page(FIRST_PORT)],
     ]);
     expect(result.text).toContain(`The system browser opens ${page(FIRST_PORT)}`);
   });
@@ -551,7 +556,10 @@ describe("the agent's tools", () => {
     const result = await $.tool.call({ tool: "mcp__atlas__atlas_open_points", folder: "docs/map" });
 
     expect(seen.runs).toEqual([
-      { argv: ["bun", expect.stringContaining("/cli.ts"), "check", MAP, "--open"], cwd: MAP },
+      {
+        argv: ["bun", ...FLAGS, expect.stringContaining("/cli.ts"), "check", MAP, "--open"],
+        cwd: MAP,
+      },
     ]);
     expect(result).toEqual({ result: OPEN_POINTS });
   });
@@ -570,6 +578,7 @@ describe("the agent's tools", () => {
     expect(seen.runs.map((ran) => ran.argv)).toEqual([
       [
         "bun",
+        ...FLAGS,
         expect.stringContaining("/cli.ts"),
         "reply",
         MAP,
@@ -608,7 +617,7 @@ describe("the agent's tools", () => {
     });
 
     expect(seen.runs.map((ran) => ran.argv)).toEqual([
-      ["bun", expect.stringContaining("/query.ts"), MAP, "server"],
+      ["bun", ...FLAGS, expect.stringContaining("/query.ts"), MAP, "server"],
     ]);
     expect(result).toEqual({ result: node });
   });
@@ -643,5 +652,47 @@ describe("the agent's tools", () => {
     expect(missing).toEqual({ deny: "atlas: nowhere does not exist" });
     expect(notMap).toEqual({ deny: "atlas: docs is no map folder: it holds no atlas.config.ts" });
     expect(seen.runs).toEqual([]);
+  });
+});
+
+describe("a map folder outside the session's folder", () => {
+  const CHECK_ELSEWHERE = { tool: "mcp__atlas__atlas_check", folder: ELSEWHERE } as const;
+  const OUTSIDE = `atlas: ${ELSEWHERE} is outside this session's folder and no board of this session shows it`;
+
+  test("runs nothing the person refuses, once asked", async ($, on) => {
+    const seen = world(on, { files: [...MAPS, `${ELSEWHERE}/atlas.config.ts`] });
+    seen.pick = "Refuse";
+
+    expect(await $.tool.call(CHECK_ELSEWHERE)).toEqual({ deny: `${OUTSIDE}; the user refused` });
+    expect(seen.asked).toEqual([["Run it", "Refuse"]]);
+    expect(seen.runs).toEqual([]);
+  });
+
+  test("runs nothing where nobody can be asked", async ($, on) => {
+    const seen = world(on, { files: [...MAPS, `${ELSEWHERE}/atlas.config.ts`] });
+
+    expect(await $.tool.call(CHECK_ELSEWHERE)).toEqual({
+      deny: `${OUTSIDE}; nobody could be asked to run its code`,
+    });
+    expect(seen.runs).toEqual([]);
+  });
+
+  test("runs once allowed, and is not asked about again this session", async ($, on) => {
+    const seen = world(on, { files: [...MAPS, `${ELSEWHERE}/atlas.config.ts`] });
+    seen.pick = "Run it";
+    await $.tool.call(CHECK_ELSEWHERE);
+    await $.tool.call(CHECK_ELSEWHERE);
+
+    expect(seen.asked).toHaveLength(1);
+    expect(seen.runs.map((ran) => ran.cwd)).toEqual([ELSEWHERE, ELSEWHERE]);
+  });
+
+  test("runs unasked when a board of this session shows it: the person named it", async ($, on) => {
+    const seen = world(on, { files: [...MAPS, `${ELSEWHERE}/atlas.config.ts`] });
+    await $.skill.prompt(board(ELSEWHERE));
+    await $.tool.call(CHECK_ELSEWHERE);
+
+    expect(seen.asked).toEqual([]);
+    expect(seen.runs.map((ran) => ran.cwd)).toEqual([ELSEWHERE]);
   });
 });

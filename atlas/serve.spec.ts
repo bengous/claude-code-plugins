@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -8,7 +16,13 @@ import type { Subprocess } from "bun";
 import { MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 import type { Selected, Selection } from "./wire.ts";
-import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH, SELECTION_PATH } from "./wire.ts";
+import {
+  HEARTBEAT_ENV,
+  HEARTBEAT_HEADER,
+  HEARTBEAT_PATH,
+  SELECTION_PATH,
+  bunFlags,
+} from "./wire.ts";
 
 const SAMPLE = join(import.meta.dir, "fixtures", "sample");
 
@@ -769,4 +783,46 @@ describe("serve.ts --heartbeat", () => {
     expect(await proc.exited).toBe(1);
     expect(await new Response(proc.stderr).text()).toContain(HEARTBEAT_ENV);
   });
+});
+
+describe("a map folder's own Bun configuration", () => {
+  test(
+    "serve.ts, started in the folder as the hooks module starts it, runs no preload the folder plants, in a build or a reply",
+    async () => {
+      const copy = mkdtempSync(join(tmpdir(), "atlas-planted-"));
+      cpSync(SAMPLE, copy, { recursive: true });
+      const marker = join(copy, "preloaded");
+
+      writeFileSync(
+        join(copy, "planted.ts"),
+        `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(marker)}, \`\${process.argv.join(" ")}\\n\`);\n`,
+      );
+      writeFileSync(join(copy, "bunfig.toml"), 'preload = ["./planted.ts"]\n');
+      writeFileSync(join(copy, ".env"), "BUN_OPTIONS=--preload ./planted.ts\n");
+
+      const proc = Bun.spawn([process.execPath, ...bunFlags(import.meta.dir), SERVE, copy, "0"], {
+        cwd: copy,
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+
+      try {
+        const at = new URL(await firstLine(proc.stdout, "ready line")).origin;
+        const html = await (await fetch(`${at}/atlas.html`)).text();
+
+        const replied = await fetch(`${at}/${THREADS_FILE}`, {
+          method: "POST",
+          headers: { origin: at, "content-type": "application/json", [TOKEN_HEADER]: token(html) },
+          body: JSON.stringify({ id: "backup-restore-untested", text: "A planted folder." }),
+        });
+
+        expect(replied.status).toBe(200);
+        expect(existsSync(marker) ? readFileSync(marker, "utf8") : "").toBe("");
+      } finally {
+        proc.kill();
+        rmSync(copy, { recursive: true, force: true });
+      }
+    },
+    WAIT_MS,
+  );
 });
