@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-shape-in-symbol-names, anti-slop/no-runtime-typeof -- libavoid's own API names its obstacle class ShapeRef and its pins ShapeConnectionPin, names that are the library's, not ours; and isAvoid IS the boundary parser of the module the WebAssembly loader hands back untyped. */
 import { AvoidLib } from "libavoid-js";
 
+import type { Pins } from "./atlas.ts";
 import type { Point, Rect } from "./machine.ts";
 
 // libavoid routes the overview's arrows orthogonally, around every box, and
@@ -11,10 +12,10 @@ import type { Point, Rect } from "./machine.ts";
 //   - the embind enums are objects: pass RouterFlag.OrthogonalRouting.value,
 //     not the enum, or the constructor throws "Cannot convert undefined";
 //   - ConnDirFlags is not exported: DIR below holds libavoid's values;
-//   - pins: several shared pins per side, with nudgeSharedPathsWithCommonEndPoint
-//     off, so arrows into the same box can end at the same pin and run as one
-//     trunk. With exclusive pins no two arrows share an end, and that option
-//     changes nothing;
+//   - pins, several per side, follow the Config's `pins`: "shared" pins with
+//     nudgeSharedPathsWithCommonEndPoint off let arrows into the same box end
+//     at the same pin and run as one trunk; "exclusive" pins give each arrow
+//     its own end, with that option on;
 //   - router.delete() frees the WebAssembly memory of the whole routing.
 //
 // The part of libavoid this plan calls. The package's own types leave the
@@ -120,7 +121,7 @@ function obstacle(A: AvoidApi, router: Router, r: Rect): Obstacle {
   );
 }
 
-function pins(A: AvoidApi, o: Obstacle): void {
+function addPins(A: AvoidApi, o: Obstacle, mode: Pins): void {
   for (const t of PIN_STEPS) {
     for (const [x, y, dir] of [
       [t, 0, DIR.up],
@@ -128,7 +129,7 @@ function pins(A: AvoidApi, o: Obstacle): void {
       [0, t, DIR.left],
       [1, t, DIR.right],
     ] as const) {
-      new A.ShapeConnectionPin(o, PIN_CLASS, x, y, true, 0, dir).setExclusive(false);
+      new A.ShapeConnectionPin(o, PIN_CLASS, x, y, true, 0, dir).setExclusive(mode === "exclusive");
     }
   }
 }
@@ -147,6 +148,7 @@ export async function routeLinks(
   boxes: ReadonlyMap<string, Rect>,
   extra: readonly Rect[],
   links: readonly Link[],
+  pins: Pins,
 ): Promise<Point[][]> {
   const A = await load();
   const router = new A.Router(A.RouterFlag.OrthogonalRouting.value);
@@ -156,13 +158,16 @@ export async function routeLinks(
     router.setRoutingParameter(A.RoutingParameter.idealNudgingDistance, 12);
     router.setRoutingParameter(A.RoutingParameter.segmentPenalty, 60);
     router.setRoutingOption(A.RoutingOption.nudgeOrthogonalSegmentsConnectedToShapes, true);
-    router.setRoutingOption(A.RoutingOption.nudgeSharedPathsWithCommonEndPoint, false);
+    router.setRoutingOption(
+      A.RoutingOption.nudgeSharedPathsWithCommonEndPoint,
+      pins === "exclusive",
+    );
     router.setRoutingOption(A.RoutingOption.performUnifyingNudgingPreprocessingStep, true);
     const obstacles = new Map<string, Obstacle>();
 
     for (const [id, r] of boxes) {
       const o = obstacle(A, router, r);
-      pins(A, o);
+      addPins(A, o, pins);
       obstacles.set(id, o);
     }
 

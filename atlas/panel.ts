@@ -2,6 +2,7 @@ import type { OpenPoint, Pair } from "./atlas.ts";
 import type { Graph } from "./graph.ts";
 import type { Place } from "./machine.ts";
 import type { Info } from "./model.ts";
+import type { Settings } from "./settings.ts";
 import { esc } from "./svg.ts";
 import type { Entry, Threads, Who } from "./threads.ts";
 import { firstLine, openItems, waitsFor } from "./threads.ts";
@@ -18,37 +19,44 @@ export type ThreadState =
 const threadOf = (state: ThreadState, id: string): readonly Entry[] =>
   state.kind === "ok" ? (state.threads[id] ?? []) : [];
 
-const waits = (who: Who | null): string => `attend : ${who ?? "personne"}`;
+const nameOf = (s: Settings, who: Who): string => (who === "human" ? (s.human ?? who) : who);
 
-function openPoint(o: OpenPoint, state: ThreadState): string {
+const waits = (s: Settings, who: Who | null): string =>
+  s.words.waits(who === null ? null : esc(nameOf(s, who)));
+
+function openPoint(s: Settings, o: OpenPoint, state: ThreadState): string {
   const thread = threadOf(state, o.id);
 
   const entries = thread
-    .map((e) => `<li><span class="who">${e.who}</span> ${esc(e.text)}</li>`)
+    .map((e) => `<li><span class="who">${esc(nameOf(s, e.who))}</span> ${esc(e.text)}</li>`)
     .join("");
 
   let log = entries === "" ? "" : `<ol class="thread">${entries}</ol>`;
 
   if (state.kind === "error") {
-    log = `<p class="reply-error">Fils illisibles : ${esc(state.message)}</p>`;
+    log = `<p class="reply-error">${s.words.unreadable(esc(state.message))}</p>`;
   }
 
   return [
     `<div class="open-point">`,
-    `<p class="open-id"><code>${o.id}</code> · ${waits(waitsFor(thread))}</p>`,
+    `<p class="open-id"><code>${o.id}</code> · ${waits(s, waitsFor(thread))}</p>`,
     `<p class="warn">${o.text}</p>`,
     log,
     `<form class="reply" data-open="${o.id}">`,
-    `<input name="text" required autocomplete="off" placeholder="Répondre (human)" aria-label="Répondre à ${o.id}">`,
-    `<button type="submit">Répondre</button>`,
+    `<input name="text" required autocomplete="off" placeholder="${s.words.replyPlaceholder(esc(nameOf(s, "human")))}" aria-label="${s.words.replyLabel(o.id)}">`,
+    `<button type="submit">${s.words.reply}</button>`,
     `</form></div>`,
   ].join("");
 }
 
-const openSection = (open: readonly OpenPoint[] | undefined, state: ThreadState): string =>
+const openSection = (
+  s: Settings,
+  open: readonly OpenPoint[] | undefined,
+  state: ThreadState,
+): string =>
   open === undefined || open.length === 0
     ? ""
-    : `<h3>Points ouverts</h3>${open.map((o) => openPoint(o, state)).join("")}`;
+    : `<h3>${s.words.openPoints}</h3>${open.map((o) => openPoint(s, o, state)).join("")}`;
 
 function chip(graph: Graph, id: string): string {
   let item: { readonly color: string; readonly label: string } | null = null;
@@ -77,7 +85,7 @@ const pairs = (items: readonly Pair[], escape: boolean): string =>
 const list = (items: readonly string[], escape: boolean): string =>
   items.map((i) => `<li>${escape ? esc(i) : i}</li>`).join("");
 
-function replaceSection(graph: Graph, info: Info, coupled: readonly string[]): string {
+function replaceSection(s: Settings, graph: Graph, info: Info, coupled: readonly string[]): string {
   if (info.swap === undefined && coupled.length === 0) {
     return "";
   }
@@ -87,33 +95,36 @@ function replaceSection(graph: Graph, info: Info, coupled: readonly string[]): s
   const chips =
     coupled.length === 0
       ? ""
-      : `<p class="label">Change avec, entouré sur le plan :</p><div class="chips">${coupled.map((id) => chip(graph, id)).join("")}</div>`;
+      : `<p class="label">${s.words.coupledWith}</p><div class="chips">${coupled.map((id) => chip(graph, id)).join("")}</div>`;
 
-  return `<h3>Pour remplacer</h3>${swap}${chips}`;
+  return `<h3>${s.words.swap}</h3>${swap}${chips}`;
 }
 
 // The sections after the contract, in panel order: [heading, body] or "".
-function laterSections(graph: Graph, info: Info, state: ThreadState): string {
+function laterSections(s: Settings, graph: Graph, info: Info, state: ThreadState): string {
+  const w = s.words;
+
   return [
-    info.extend === undefined ? "" : `<h3>Pour étendre</h3><p>${info.extend}</p>`,
+    info.extend === undefined ? "" : `<h3>${w.extend}</h3><p>${info.extend}</p>`,
     info.pitfalls === undefined || info.pitfalls.length === 0
       ? ""
-      : `<h3>Pièges</h3><ul>${list(info.pitfalls, false)}</ul>`,
-    info.seams === undefined ? "" : `<h3>Points d'extension</h3>${pointList(graph, info.seams)}`,
-    info.traps === undefined ? "" : `<h3>Couplages à connaître</h3>${pointList(graph, info.traps)}`,
+      : `<h3>${w.pitfalls}</h3><ul>${list(info.pitfalls, false)}</ul>`,
+    info.seams === undefined ? "" : `<h3>${w.seams}</h3>${pointList(graph, info.seams)}`,
+    info.traps === undefined ? "" : `<h3>${w.traps}</h3>${pointList(graph, info.traps)}`,
     info.why === undefined || info.why.length === 0
       ? ""
-      : `<h3>Pourquoi</h3><ul>${list(info.why, false)}</ul>`,
-    info.alt === undefined ? "" : `<h3>Écarté ou reporté</h3><p class="alt">${info.alt}</p>`,
+      : `<h3>${w.why}</h3><ul>${list(info.why, false)}</ul>`,
+    info.alt === undefined ? "" : `<h3>${w.alt}</h3><p class="alt">${info.alt}</p>`,
     info.facts === undefined
       ? ""
-      : `<h3>Repères</h3><dl class="facts">${pairs(info.facts, true)}</dl>`,
-    openSection(info.open, state),
-    info.how === undefined ? "" : `<h3>Lecture</h3><p>${info.how}</p>`,
+      : `<h3>${w.facts}</h3><dl class="facts">${pairs(info.facts, true)}</dl>`,
+    openSection(s, info.open, state),
+    info.how === undefined ? "" : `<h3>${w.how}</h3><p>${info.how}</p>`,
   ].join("");
 }
 
 function renderInfo(
+  s: Settings,
   graph: Graph,
   info: Info,
   color: string,
@@ -130,14 +141,14 @@ function renderInfo(
     brief.length === 0 ? "" : `<ul class="brief">${list(brief, true)}</ul>`,
     info.io === undefined
       ? ""
-      : `<h3>Contrat</h3><dl class="facts io">${pairs(info.io, false)}</dl>`,
-    replaceSection(graph, info, coupled),
-    laterSections(graph, info, state),
+      : `<h3>${s.words.io}</h3><dl class="facts io">${pairs(info.io, false)}</dl>`,
+    replaceSection(s, graph, info, coupled),
+    laterSections(s, graph, info, state),
     extra,
     info.see === undefined || info.see.length === 0
       ? ""
-      : `<h3>Voir aussi</h3><div class="chips">${info.see.map((id) => chip(graph, id)).join("")}</div>`,
-    info.src === undefined ? "" : `<p class="src">Source : ${esc(info.src)}</p>`,
+      : `<h3>${s.words.see}</h3><div class="chips">${info.see.map((id) => chip(graph, id)).join("")}</div>`,
+    info.src === undefined ? "" : `<p class="src">${s.words.source(esc(info.src))}</p>`,
     "</div>",
   ].join("");
 }
@@ -166,18 +177,19 @@ function zoneTour(graph: Graph, zid: string): string {
   return `<div class="nav"><button type="button" data-go="${prev.id}">← ${esc(prev.title)}</button><button type="button" data-go="${next.id}">${esc(next.title)} →</button></div>`;
 }
 
-function overviewExtra(graph: Graph, avoidError: string | null): string {
+function overviewExtra(s: Settings, graph: Graph, avoidError: string | null): string {
   const chips = graph.plan.zoneOrder.map((id) => chip(graph, id)).join("");
-  const zones = `<h3>Zones</h3><div class="chips">${chips}</div>`;
+  const zones = `<h3>${s.words.zones}</h3><div class="chips">${chips}</div>`;
 
   if (avoidError === null) {
     return zones;
   }
 
-  return `${zones}<h3>Flèches absentes</h3><p class="warn">libavoid ne s'est pas chargé : la vue d'ensemble n'a pas ses flèches. Le plan doit être servi par <code>bun atlas/serve.ts &lt;dossier du plan&gt;</code>, qui sert aussi <code>libavoid.wasm</code>. Erreur : <code>${esc(avoidError)}</code></p>`;
+  return `${zones}<h3>${s.words.arrowsMissing}</h3><p class="warn">${s.words.avoidFailed(esc(avoidError))}</p>`;
 }
 
 export function renderPanel(
+  s: Settings,
   graph: Graph,
   panel: HTMLElement,
   place: Place,
@@ -193,13 +205,14 @@ export function renderPanel(
         : `<div class="nav"><button type="button" data-go="${n.zone}">↑ ${esc(graph.zone(n.zone).title)}</button></div>`;
 
     panel.innerHTML =
-      renderInfo(graph, n.info, n.color, "", coupledWith(graph, n.id), [], state) + up;
+      renderInfo(s, graph, n.info, n.color, "", coupledWith(graph, n.id), [], state) + up;
   } else if (place.zone === null) {
     panel.innerHTML = renderInfo(
+      s,
       graph,
       graph.plan.overview,
       "--accent",
-      overviewExtra(graph, avoidError),
+      overviewExtra(s, graph, avoidError),
       [],
       [],
       state,
@@ -207,7 +220,7 @@ export function renderPanel(
   } else {
     const z = graph.zone(place.zone);
     panel.innerHTML =
-      renderInfo(graph, z.info, z.color, "", [], z.kw, state) + zoneTour(graph, z.id);
+      renderInfo(s, graph, z.info, z.color, "", [], z.kw, state) + zoneTour(graph, z.id);
   }
 
   panel.scrollTop = 0;
@@ -216,6 +229,7 @@ export function renderPanel(
 // The header button and the list it opens: one row per open point, a click
 // goes to its zone or brick.
 export function renderOpenList(
+  s: Settings,
   graph: Graph,
   button: HTMLButtonElement,
   menu: HTMLElement,
@@ -226,31 +240,33 @@ export function renderOpenList(
   const count = (who: Who): number =>
     items.filter((i) => waitsFor(threadOf(state, i.id)) === who).length;
 
-  button.textContent = `Points ouverts : ${items.length}`;
+  button.textContent = s.words.openCount(items.length);
 
   const rows = items.map((i) =>
     [
       `<li><button type="button" class="open-row" data-go="${i.owner}">`,
-      `<span><code>${i.id}</code> <span class="open-owner">${i.kind === "zone" ? "zone" : "brique"} ${esc(i.ownerLabel)}</span></span>`,
-      `<span class="open-wait">${waits(waitsFor(threadOf(state, i.id)))}</span>`,
+      `<span><code>${i.id}</code> <span class="open-owner">${s.words.owner[i.kind]} ${esc(i.ownerLabel)}</span></span>`,
+      `<span class="open-wait">${waits(s, waitsFor(threadOf(state, i.id)))}</span>`,
       `<span class="open-line">${esc(firstLine(i.text))}</span>`,
       `</button></li>`,
     ].join(""),
   );
 
+  const humanName = s.human === null ? null : esc(s.human);
+
   const sum =
     state.kind === "error"
-      ? `<p class="reply-error">Fils illisibles : ${esc(state.message)}</p>`
-      : `<p class="open-sum">${count("human")} attendent l'humain · ${count("agent")} attendent un agent</p>`;
+      ? `<p class="reply-error">${s.words.unreadable(esc(state.message))}</p>`
+      : `<p class="open-sum">${s.words.openSum(count("human"), count("agent"), humanName)}</p>`;
 
-  menu.innerHTML = `<h2>Points ouverts</h2>${sum}<ul>${rows.join("")}</ul>`;
+  menu.innerHTML = `<h2>${s.words.openPoints}</h2>${sum}<ul>${rows.join("")}</ul>`;
 }
 
-export function renderCrumbs(graph: Graph, crumbs: HTMLElement, place: Place): void {
+export function renderCrumbs(s: Settings, graph: Graph, crumbs: HTMLElement, place: Place): void {
   const current = 'aria-current="true"';
 
   const parts = [
-    `<button type="button" data-go="" ${place.zone === null && place.node === null ? current : ""}>Bookshop</button>`,
+    `<button type="button" data-go="" ${place.zone === null && place.node === null ? current : ""}>${esc(s.title)}</button>`,
   ];
 
   if (place.zone !== null) {

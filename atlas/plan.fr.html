@@ -1,21 +1,26 @@
 <!doctype html>
-<html lang="fr">
+<html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bookshop</title>
+<title>atlas</title>
 <!--
-  Bookshop: a sample architecture map on two levels, drawn by the atlas
-  engine. The engine's files and traps: atlas/AGENTS.md.
+  The page of the atlas engine: an architecture map on two levels. The
+  engine's files and traps: atlas/AGENTS.md.
+
+  The markup holds no word and no colour of a map: engine.ts writes the
+  title, the subtitle, the page's own words (words.ts, in the Config's
+  `lang`), the legend's lines and the palette's custom properties from the
+  map folder's atlas.config.ts before the first layout.
 
   A local page, served by serve.ts (see "Check" below); never published.
 
   Purpose: understand the architecture, improve it easily, and swap a
   component when needed. Every brick therefore answers: what it receives and
-  produces (Contrat), what to touch to replace it (Pour remplacer), which
-  bricks change with it (dashed blue outline on the map), how to extend it
-  (Pour étendre) and its traps (Pièges). Every arrow into a third-party
-  service names the tags it carries. Addresses and secrets are left
-  out on purpose: no IP, no secret value.
+  produces (`io`), what to touch to replace it (`swap`), which bricks change
+  with it (`couples`, a dashed blue outline on the map), how to extend it
+  (`extend`) and its traps (`pitfalls`). When the Config's `tags` require it,
+  every arrow into a third-party service names the tags it carries.
+  Addresses and secrets are left out on purpose: no IP, no secret value.
 
   How the map works:
   - No position or size is written anywhere: at load time ELK (elkjs) lays
@@ -37,8 +42,10 @@
     on the overview.
   - The panel on the right renders the `info` object of the selection.
   - A bare #id in the link (zone or brick id) opens the page on it.
+  - The legend shows a line for each arrow kind and node mark the map uses,
+    labelled by the Config's `legend` or the dictionary.
   - Open points: a zone or brick with an `open` entry carries a dot on both
-    levels. The header button "Points ouverts : N" lists them all, with the
+    levels. The header button, with their count, lists them all, with the
     party each waits for; a row opens its zone or brick. The panel shows
     each point's id, text and thread, and a one-line reply form that posts to
     serve.ts as human, with the token serve.ts wrote into the page: the
@@ -63,15 +70,17 @@
   map folder (map.ts, atlas.config.ts, threads.json; the sample's is
   atlas/fixtures/sample):
   - Add a brick: a node without `children` in the `children` of its zone
-    (map.ts); then its links (with `tags` when the link enters a
-    third-party service) and its `couples`.
+    (map.ts); then its links (with `tags` from the Config's list, required
+    when the link enters a third-party service and the Config says so) and
+    its `couples`.
   - Retire a brick: delete its node, its links, and its id from every
     `couples`, `see`, `seams` and `traps` list (check.ts finds leftovers).
   - Add a zone: a node with `children` in the `children` of its parent; the
     zone tour follows the tree, unless the root lists a `tour`.
   - Name an overview arrow: a link with a zone on one end or both, in the
     `links` of map.ts.
-  - A new colour: a key of the palette in atlas.config.ts.
+  - A new colour: a key of the palette in atlas.config.ts, with its light
+    and dark values.
 
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.
@@ -102,18 +111,7 @@
   --accent: #2d5fc4;
   --ok: #1e7a4c;
   --deny: #b83246;
-  /* One hue per zone. Data files name them in `color`; a node or zone sets --zc from it. */
   --open: #c2410c;
-  --z-olive: #76690f;
-  --z-brown: #8a5536;
-  --z-indigo: #3a5688;
-  --z-blue: #1f6aa8;
-  --z-violet: #6a4cb0;
-  --z-teal: #1d7a69;
-  --z-amber: #a4640b;
-  --z-plum: #95407f;
-  --z-green: #4a7a1f;
-  --z-grey: #5c697b;
   --f-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
   --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -123,8 +121,6 @@
     --bg: #0d131b; --sheet: #121a24; --surface: #18222f; --ink: #e2e8ef; --ink-2: #a3b0c0; --ink-3: #75839a;
     --line: #2f3d50; --grid: rgba(226, 232, 239, 0.04); --grid-major: rgba(226, 232, 239, 0.08);
     --accent: #7fa6f5; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
-    --z-olive: #c9ba52; --z-brown: #d79a74; --z-indigo: #8fa9de; --z-blue: #6fb0ea; --z-violet: #ad95f0;
-    --z-teal: #4fc2ac; --z-amber: #e2a54a; --z-plum: #e28fcd; --z-green: #9ccc6a; --z-grey: #9aa7b8;
     color-scheme: dark;
   }
 }
@@ -132,8 +128,6 @@
   --bg: #0d131b; --sheet: #121a24; --surface: #18222f; --ink: #e2e8ef; --ink-2: #a3b0c0; --ink-3: #75839a;
   --line: #2f3d50; --grid: rgba(226, 232, 239, 0.04); --grid-major: rgba(226, 232, 239, 0.08);
   --accent: #7fa6f5; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
-  --z-olive: #c9ba52; --z-brown: #d79a74; --z-indigo: #8fa9de; --z-blue: #6fb0ea; --z-violet: #ad95f0;
-  --z-teal: #4fc2ac; --z-amber: #e2a54a; --z-plum: #e28fcd; --z-green: #9ccc6a; --z-grey: #9aa7b8;
   color-scheme: dark;
 }
 
@@ -382,31 +376,24 @@ svg text { text-rendering: geometricPrecision; }
 </style>
 
 <header class="top">
-  <h1>Bookshop</h1>
-  <p class="sub">A sample map. One zone per machine or module, one brick per replaceable component.</p>
-  <button type="button" class="open-btn" id="btn-open" popovertarget="open-list">Points ouverts</button>
-  <div class="open-list" id="open-list" popover aria-label="Points ouverts"></div>
-  <nav class="crumbs" id="crumbs" aria-label="Position dans le plan"></nav>
+  <h1 id="title"></h1>
+  <p class="sub" id="subtitle"></p>
+  <button type="button" class="open-btn" id="btn-open" popovertarget="open-list"></button>
+  <div class="open-list" id="open-list" popover></div>
+  <nav class="crumbs" id="crumbs"></nav>
 </header>
 
 <main class="app">
-  <section class="stage" aria-label="Plan zoomable">
-    <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Architecture of Bookshop: clients, server, application, storage and an email service"></svg>
+  <section class="stage" id="stage">
+    <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group"></svg>
     <div class="controls">
-      <button type="button" id="btn-home">Vue d'ensemble</button>
-      <button type="button" id="btn-legend" aria-controls="legend" aria-pressed="true">Légende</button>
-      <button type="button" id="btn-panel" aria-controls="panel" aria-pressed="true">Panneau</button>
+      <button type="button" id="btn-home"></button>
+      <button type="button" id="btn-legend" aria-controls="legend" aria-pressed="true"></button>
+      <button type="button" id="btn-panel" aria-controls="panel" aria-pressed="true"></button>
     </div>
-    <p class="hint">clic sur une zone ou une brique pour le détail · Échap ou clic sur le fond pour remonter</p>
-    <!-- One line per encoding that repeats on the map: a new edge kind or node style adds its line here. -->
-    <div class="legend" id="legend" aria-label="Légende">
-      <span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink-3)" stroke-width="2"/></svg>flux</span>
-      <span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="5 4"/></svg>en sommeil, local ou sur demande</span>
-      <span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--deny)" stroke-width="2"/></svg>refusé</span>
-      <span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><rect x="1" y="1" width="24" height="10" rx="2" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 2"/></svg>change avec la brique choisie</span>
-      <span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><rect x="1" y="1" width="24" height="10" rx="5" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>hors du serveur</span>
-      <span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><circle cx="13" cy="6" r="4.5" fill="var(--open)"/></svg>point ouvert</span>
-    </div>
+    <p class="hint" id="hint"></p>
+    <!-- legend.ts writes one line per arrow kind or node mark the map uses: a new kind adds its line there. -->
+    <div class="legend" id="legend"></div>
   </section>
   <aside class="panel" id="panel" aria-live="polite"></aside>
 </main>

@@ -7,7 +7,7 @@ export type Pair = readonly [string, string];
 /**
  * A fact of the map that stays unsettled, with its discussion in threads.json under the same id.
  * `id` is kebab-case, unique on the whole map, and never changes; `text` describes a state, never
- * a step: check.ts refuses work-package names and step words.
+ * a step: check.ts refuses the Config's `stepWords`.
  */
 export type OpenPoint = { readonly id: string; readonly text: string };
 
@@ -16,22 +16,6 @@ export type OpenPoint = { readonly id: string; readonly text: string };
  * draws it twice, its links leaving the left copy and arriving at the right one.
  */
 export type Side = "in" | "out" | "both";
-
-/** What a link carries, from a closed list, "none" included. */
-export type Tag = "account" | "order" | "payment" | "none";
-
-/** A colour the page defines, a --z-* token of plan.fr.html. */
-export type Token =
-  | "--z-olive"
-  | "--z-brown"
-  | "--z-indigo"
-  | "--z-blue"
-  | "--z-violet"
-  | "--z-teal"
-  | "--z-amber"
-  | "--z-plum"
-  | "--z-green"
-  | "--z-grey";
 
 /** The panel's content, in the order the panel shows it. HTML is allowed (<code>). */
 export type Panel = {
@@ -117,15 +101,67 @@ export type Link = {
   readonly kind?: "deny" | "dash";
   /** Arrowheads at both ends; naming an overview arrow, it also merges both directions into one. */
   readonly two?: true;
-  /** Required on a link into an outside leaf that is not on the left. */
-  readonly tags?: readonly Tag[];
+  /** What it carries, from the Config's `tags`; drawn after its label in the detail. */
+  readonly tags?: readonly string[];
 };
 
 /** A map: the root of its tree and every link, wherever their ends sit in the tree. */
 export type AtlasMap = { readonly root: Root; readonly links: readonly Link[] };
 
-/** What a map sets beside its data. */
+/** The language of the page's own words: its headings, buttons, legend and errors. */
+export type Lang = "fr" | "en";
+
+/** A colour on a light page and on a dark one, each any CSS colour. */
+export type Swatch = { readonly light: string; readonly dark: string };
+
+/**
+ * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`) or a node mark (coupled to
+ * the selected leaf, outside, carrying an open point).
+ */
+export type LegendKey = "flow" | "dash" | "deny" | "coupled" | "outside" | "open";
+
+/**
+ * The ends of the overview's arrows: "shared" lets arrows into one box end at the same point and
+ * run as one trunk, "exclusive" gives every arrow its own end.
+ */
+export type Pins = "shared" | "exclusive";
+
+/** The closed list of tags a link may carry. */
+export type Tags = {
+  readonly names: readonly string[];
+  /** "required": a link into an outside leaf that is not on the left carries at least one. */
+  readonly outside: "required" | "optional";
+};
+
+/** What a map sets beside its data. Every field but `title` and `palette` has a default. */
 export type Config = {
-  /** The keys a node's `color` names, and the token each draws with. */
-  readonly palette: Readonly<Record<string, Token>>;
+  /** The page's title and heading, the breadcrumb's root, and the map's label. */
+  readonly title: string;
+  /** A line beside the heading; none when absent. */
+  readonly subtitle?: string;
+  /**
+   * The language of the page's own words, "en" when absent; the map's content stays in the
+   * language it is written in.
+   */
+  readonly lang?: Lang;
+  /** The human party's name in threads, "human" when absent; its stored role stays "human". */
+  readonly human?: string;
+  /**
+   * Patterns an open point's text must not match, such as step names and step words: they
+   * describe a plan's progress, which ages, instead of a state. None when absent.
+   */
+  readonly stepWords?: readonly RegExp[];
+  /** The keys a node's `color` names, each a colour; a key is letters, digits, `-` and `_`. */
+  readonly palette: Readonly<Record<string, Swatch>>;
+  /** "shared" when absent. */
+  readonly pins?: Pins;
+  /**
+   * The overview's packing: "screen" aims at the drawing area's width / height and packs again
+   * when it changes, a number is a fixed width / height. "screen" when absent.
+   */
+  readonly overview?: { readonly ratio: "screen" | number };
+  /** The tags links may carry; none, and none required, when absent. */
+  readonly tags?: Tags;
+  /** The legend's labels, the dictionary's when absent. The legend shows the lines the map uses. */
+  readonly legend?: Readonly<Partial<Record<LegendKey, string>>>;
 };

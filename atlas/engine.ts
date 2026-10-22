@@ -28,15 +28,21 @@ import { toPlan } from "./adapter.ts";
 import type { Detail } from "./detail.ts";
 import { drawDetail } from "./detail.ts";
 import { got, graphOf } from "./graph.ts";
+import { legendHtml, legendKeys } from "./legend.ts";
 import type { Anchor, Camera, Image, NavEvent, Place, Rect, Target } from "./machine.ts";
 import { alignment, anchorOf, camera, navigate, shown } from "./machine.ts";
 import { fontKey } from "./measure.ts";
-import type { Overview } from "./overview.ts";
+import type { Overview, Packing } from "./overview.ts";
 import { drawOverview } from "./overview.ts";
 import type { ThreadState } from "./panel.ts";
 import { coupledWith, renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
+import { paletteCss, settingsOf } from "./settings.ts";
 import { defs, el, esc } from "./svg.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
+
+const settings = settingsOf(config);
+
+const words = settings.words;
 
 const graph = graphOf(toPlan(map, config));
 
@@ -59,6 +65,42 @@ const crumbs = byId("crumbs", HTMLElement);
 const openButton = byId("btn-open", HTMLButtonElement);
 
 const openList = byId("open-list", HTMLElement);
+
+const legendButton = byId("btn-legend", HTMLButtonElement);
+
+const legend = byId("legend", HTMLDivElement);
+
+// The page holds no word of its own and no colour of the map: they come from the Config, and are
+// in place before the first layout measures the drawing area.
+function dressPage(): void {
+  document.documentElement.lang = settings.lang;
+  document.title = settings.title;
+  const palette = document.createElement("style");
+  palette.textContent = paletteCss(settings.palette);
+  document.head.append(palette);
+  byId("title", HTMLElement).textContent = settings.title;
+  const subtitle = byId("subtitle", HTMLElement);
+
+  if (settings.subtitle === null) {
+    subtitle.remove();
+  } else {
+    subtitle.textContent = settings.subtitle;
+  }
+
+  openButton.textContent = words.openPoints;
+  openList.setAttribute("aria-label", words.openPoints);
+  crumbs.setAttribute("aria-label", words.position);
+  byId("stage", HTMLElement).setAttribute("aria-label", words.stage);
+  svg.setAttribute("aria-label", words.mapLabel(settings.title));
+  byId("btn-home", HTMLButtonElement).textContent = words.home;
+  legendButton.textContent = words.legendButton;
+  byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
+  byId("hint", HTMLElement).textContent = words.hint;
+  legend.setAttribute("aria-label", words.legendButton);
+  legend.innerHTML = legendHtml(legendKeys(graph.plan), settings.legend);
+}
+
+dressPage();
 
 // serve.ts answers it from the map folder, and takes a reply posted to it.
 const THREADS_URL = "threads.json";
@@ -275,9 +317,9 @@ svg.addEventListener("pointerleave", () => {
 });
 
 function render(): void {
-  renderPanel(graph, panel, place, drawn().ov.avoidError, threads);
-  renderOpenList(graph, openButton, openList, threads);
-  renderCrumbs(graph, crumbs, place);
+  renderPanel(settings, graph, panel, place, drawn().ov.avoidError, threads);
+  renderOpenList(settings, graph, openButton, openList, threads);
+  renderCrumbs(settings, graph, crumbs, place);
   highlight(place);
   // Keeps #id in the URL so a link reopens the same view.
   const id = place.node ?? place.zone;
@@ -356,7 +398,7 @@ async function sendReply(form: HTMLFormElement): Promise<void> {
     form.querySelector(".reply-error")?.remove();
     form.insertAdjacentHTML(
       "beforeend",
-      `<p class="reply-error">Réponse refusée : ${esc(failure(error))}</p>`,
+      `<p class="reply-error">${words.replyRefused(esc(failure(error)))}</p>`,
     );
     button.disabled = false;
   }
@@ -431,7 +473,12 @@ function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string)
   });
 }
 
-bindToggle(byId("btn-legend", HTMLButtonElement), byId("legend", HTMLDivElement), "atlas.legend");
+if (legend.childElementCount === 0) {
+  legend.remove();
+  legendButton.remove();
+} else {
+  bindToggle(legendButton, legend, "atlas.legend");
+}
 
 bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
 
@@ -455,15 +502,20 @@ svg.addEventListener("click", () => {
   }
 });
 
-// The overview is packed for the aspect of the drawing area: when that aspect
-// moves by more than RELAYOUT (a resized window, the panel hidden or shown),
-// the plan is laid out again once the resizing settles.
+// With the Config's overview ratio "screen", the overview is packed for the
+// aspect of the drawing area: when that aspect moves by more than RELAYOUT (a
+// resized window, the panel hidden or shown), the plan is laid out again once
+// the resizing settles.
 const RELAYOUT = { change: 0.15, settleMs: 300 };
 
 let relayoutTimer: ReturnType<typeof setTimeout> | undefined;
 
 function relayoutIfNeeded(): void {
-  if (drawing === null || Math.abs(aspect() - builtAspect) / builtAspect < RELAYOUT.change) {
+  if (
+    drawing === null ||
+    settings.ratio !== "screen" ||
+    Math.abs(aspect() - builtAspect) / builtAspect < RELAYOUT.change
+  ) {
     return;
   }
 
@@ -520,7 +572,13 @@ async function build(): Promise<Drawing> {
   builtAspect = aspect();
   const grid = el("rect", { fill: "url(#grid)" }, svg);
   const ovLayer = el("g", { class: "layer-ov" }, svg);
-  const ov = await drawOverview(graph, ovLayer, send, builtAspect);
+
+  const packing: Packing =
+    settings.ratio === "screen"
+      ? { kind: "screen", aspect: builtAspect }
+      : { kind: "fixed", ratio: settings.ratio };
+
+  const ov = await drawOverview(graph, ovLayer, send, packing, settings.pins);
   const dtX = ov.size.w + 4000;
   const dtLayer = el("g", { class: "layer-dt" }, svg);
   const dt = await drawDetail(graph, dtLayer, dtX, send);
@@ -582,7 +640,7 @@ async function start(): Promise<void> {
 
 function fail(err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
-  panel.innerHTML = `<p class="warn">Le plan n'a pas pu se dessiner : <code>${esc(message)}</code></p>`;
+  panel.innerHTML = `<p class="warn">${words.drawFailed(esc(message))}</p>`;
   console.error(err);
 }
 

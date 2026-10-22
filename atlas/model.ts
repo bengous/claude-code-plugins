@@ -1,6 +1,6 @@
 // The plan the engine draws on two levels, which adapter.ts makes from the map's tree. Nothing
 // here has a position or a size: engine.ts lays the plan out.
-import type { OpenPoint, Panel, Side, Tag, Token } from "./atlas.ts";
+import type { OpenPoint, Panel, Side } from "./atlas.ts";
 
 // The right panel's content: the fields of Panel (atlas.ts), its title and its open points.
 export type Info = Panel & {
@@ -15,7 +15,7 @@ export type Zone = {
   readonly id: string;
   readonly title: string;
   readonly tag: string;
-  readonly color: Token;
+  readonly color: string;
   readonly kw: readonly string[];
   readonly info: Info;
   readonly parent?: string;
@@ -29,7 +29,7 @@ export type Brick = {
   readonly label: string;
   readonly sub: string;
   readonly info: Info;
-  readonly color: Token;
+  readonly color: string;
   readonly couples: readonly string[];
   readonly kind?: "off";
   readonly side?: Side;
@@ -41,7 +41,7 @@ export type Edge = {
   readonly label: string;
   readonly kind?: "deny" | "dash";
   readonly two?: true;
-  readonly data?: readonly Tag[];
+  readonly data?: readonly string[];
 };
 
 // The text drawn on an arrow: its label, then the tags it carries.

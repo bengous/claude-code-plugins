@@ -14,16 +14,24 @@ export) and `threads.json` (the thread of each open point, by open id), and need
 
 ```
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
-                     (the root and every link), Config; the source of a map's atlas.d.ts
+                     (the root and every link), Config (title, language, palette, pins, overview
+                     packing, tags, legend labels, step words); the source of a map's atlas.d.ts
 fixtures/sample/     the sample map folder; its data imports its types from ../../atlas.ts
-folder.ts            the map folder's files, and the plan its data makes (planOf, a dynamic import)
+folder.ts            the map folder's files (loadFolder), and the plan its data makes (planOf)
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
+settings.ts          the Config with its defaults filled in, and the palette as the page's CSS
+                     custom properties (settings.spec.ts)
+words.ts             the page's own words in each language a Config picks: the dictionary
 model.ts             the plan the engine draws on two levels (Zone, Brick, Edge, Info)
-adapter.ts           the tree as that plan, refusing a tree the engine cannot draw (adapter.test.ts)
+adapter.ts           the tree as that plan, refusing a tree the engine cannot draw, a colour
+                     outside the palette among them (adapter.test.ts)
 graph.ts             graphOf: the plan with the lookups both drawings and the panel share
 threads.ts           open points and threads, pure: who a point waits for (threads.test.ts)
-check.ts             validates a map folder's ids, couplings, nesting, labels, tags, open points
-                     and threads (check.test.ts); --open lists the open points
+check.ts             validates a map folder's ids, couplings, nesting, labels, tags against the
+                     Config's, open points against its step words, and threads (check.test.ts);
+                     --open lists the open points
+legend.ts            the legend's lines, one per arrow kind or node mark the map uses
+                     (legend.spec.ts)
 reply.ts             adds an entry to a thread of a map folder (reply.test.ts)
 machine.ts           the two state machines, navigation and camera, pure (machine.test.ts)
 engine.ts            the page's entry: draws the map it imports, paints the camera, takes input
@@ -35,7 +43,7 @@ measure.ts           sizes text
 frame.ts             draws a zone
 panel.ts             the panel, the breadcrumb and the open points' list
 svg.ts               SVG building blocks shared by both drawings
-plan.fr.html         the page: its styles, its header and its legend
+plan.fr.html         the page: its styles and its markup, which hold no word and no colour of a map
 serve.ts             serves one map folder's page, rebuilt and reloaded on save, answers
                      libavoid.wasm and threads.json, and takes the panel's replies (serve.test.ts)
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
@@ -81,6 +89,12 @@ Each module explains its own where it bites.
 - `libavoid.wasm` is the installed libavoid-js package's own: its exports list only the entry
   point, so `serve.ts` resolves the file beside that entry and answers it beside the page. No
   copy is committed. A page that cannot load it draws the overview without arrows and says so in
-  the panel ("Flèches absentes").
+  the panel (`arrowsMissing` in `words.ts`).
+- `dressPage` (engine.ts) writes the Config's title, subtitle and words into the page before the
+  first layout: the header's height sets the drawing area's aspect, which a "screen" overview
+  packs for. Written later, the overview packs for another aspect.
+- The legend shows a line only for the arrow kinds and node marks the map uses (`legendKeys` in
+  `legend.ts`). A map moved onto the engine from a page with a fixed legend loses the lines for
+  the kinds it never uses: an expected difference when its captures are compared.
 - Layout runs in the browser only. To script it (a check, a benchmark), run elkjs under Node:
   under Bun its constructor fails.

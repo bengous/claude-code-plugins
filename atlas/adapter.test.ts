@@ -40,7 +40,7 @@ const SAMPLE: Plan = {
       id: "clients",
       ext: true,
       side: "in",
-      color: "--z-olive",
+      color: "--palette-clients",
       title: "Clients",
       tag: "outside the server",
       kw: ["the reader's browser", "HTTPS only", "no account needed to browse"],
@@ -52,7 +52,7 @@ const SAMPLE: Plan = {
     },
     {
       id: "server",
-      color: "--z-brown",
+      color: "--palette-server",
       title: "Server",
       tag: "one virtual machine",
       kw: ["reverse proxy in front", "one application process", "one database"],
@@ -68,7 +68,7 @@ const SAMPLE: Plan = {
     {
       id: "app",
       parent: "server",
-      color: "--z-blue",
+      color: "--palette-app",
       title: "Application",
       tag: "Bun process",
       kw: ["pages and routes", "catalog", "orders"],
@@ -83,7 +83,7 @@ const SAMPLE: Plan = {
     {
       id: "data",
       parent: "server",
-      color: "--z-indigo",
+      color: "--palette-data",
       title: "Storage",
       tag: "PostgreSQL",
       kw: ["books and orders", "one database", "a dump each night"],
@@ -110,7 +110,7 @@ const SAMPLE: Plan = {
           ["Receives", "pages and a session cookie"],
         ],
       },
-      color: "--z-olive",
+      color: "--palette-clients",
       couples: [],
     },
     {
@@ -130,7 +130,7 @@ const SAMPLE: Plan = {
         pitfalls: ["The certificate renews only while port 80 is reachable from outside."],
         src: "deploy/Caddyfile",
       },
-      color: "--z-brown",
+      color: "--palette-server",
       couples: ["web"],
     },
     {
@@ -148,7 +148,7 @@ const SAMPLE: Plan = {
         ],
         extend: "A page = a route in <code>src/web.ts</code> and its template.",
       },
-      color: "--z-blue",
+      color: "--palette-app",
       couples: [],
     },
     {
@@ -166,7 +166,7 @@ const SAMPLE: Plan = {
         ],
         see: ["db"],
       },
-      color: "--z-blue",
+      color: "--palette-app",
       couples: ["db"],
     },
     {
@@ -187,7 +187,7 @@ const SAMPLE: Plan = {
         ],
         alt: "A queue between the order and its mail, postponed while orders stay few.",
       },
-      color: "--z-blue",
+      color: "--palette-app",
       couples: ["db", "email"],
     },
     {
@@ -201,7 +201,7 @@ const SAMPLE: Plan = {
         lead: "One PostgreSQL database, two tables: books and orders.",
         facts: [["Volume", "pgdata"]],
       },
-      color: "--z-indigo",
+      color: "--palette-data",
       couples: [],
     },
     {
@@ -220,7 +220,7 @@ const SAMPLE: Plan = {
           },
         ],
       },
-      color: "--z-indigo",
+      color: "--palette-data",
       couples: ["db"],
       kind: "off",
     },
@@ -238,7 +238,7 @@ const SAMPLE: Plan = {
         ],
         swap: "The mail client in <code>src/orders.ts</code> and its key in <code>deploy/.env</code>.",
       },
-      color: "--z-grey",
+      color: "--palette-external",
       side: "out",
       couples: [],
     },
@@ -258,7 +258,7 @@ const SAMPLE: Plan = {
   zoneOrder: ["clients", "server", "app", "data"],
 };
 
-const CONFIG: Config = { palette: { c: "--z-blue" } };
+const CONFIG: Config = { title: "T", palette: { c: { light: "#000", dark: "#fff" } } };
 
 const leaf = (id: string, extra: Partial<Node> = {}): Node => ({
   id,
@@ -363,5 +363,13 @@ describe("toPlan", () => {
     ],
   ])("refuses %s", (_, m, message) => {
     expect(() => toPlan(m, CONFIG)).toThrow(message);
+  });
+
+  test("refuses a palette key that cannot name a CSS custom property", () => {
+    const palette = { ...CONFIG.palette, "light blue": { light: "#00f", dark: "#88f" } };
+
+    expect(() => toPlan(mapOf([server([leaf("a")])]), { ...CONFIG, palette })).toThrow(
+      'palette key "light blue": a key is letters, digits, - and _',
+    );
   });
 });

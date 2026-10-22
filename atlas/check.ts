@@ -1,8 +1,12 @@
 import { join, resolve } from "node:path";
 
-import { THREADS_FILE, planOf } from "./folder.ts";
+import { PlanError, toPlan } from "./adapter.ts";
+import type { AtlasMap, Config } from "./atlas.ts";
+import { THREADS_FILE, loadFolder, planOf } from "./folder.ts";
 import { graphOf } from "./graph.ts";
 import type { Brick, Edge, Plan, Zone } from "./model.ts";
+import type { Settings } from "./settings.ts";
+import { settingsOf } from "./settings.ts";
 import type { Threads } from "./threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "./threads.ts";
 
@@ -10,18 +14,20 @@ import { firstLine, openItems, plainText, readThreads, waitsFor } from "./thread
 //   bun atlas/check.ts <map folder>          validate
 //   bun atlas/check.ts <map folder> --open   list the open points
 // The types (atlas.ts) already hold the shape of every field, and toPlan
-// (adapter.ts) refuses a tree the engine cannot draw; this checks what they
-// cannot, and fails on what would break the page or mislead a reader:
+// (adapter.ts) refuses a tree the engine cannot draw, a colour outside the
+// palette among them; this checks what they cannot, and fails on what would
+// break the page or mislead a reader:
 //   - duplicate ids, and references to ids that do not exist (arrows,
 //     couplings, `see`, `seams`, `traps`, the zone order);
 //   - a zone whose `parent` is unknown or loops back on itself;
 //   - an ext zone or an outside service without a `side`;
 //   - an overview label ("z:" arrow) that no brick arrow backs: the engine
 //     would never draw it;
-//   - an arrow into a third-party service (a brick outside every zone, on
-//     the right) that does not name the tags it carries;
+//   - a tag outside the Config's `tags`, and, when they say so, an arrow
+//     into a third-party service (a brick outside every zone, on the right)
+//     that does not name the tags it carries;
 //   - an open point whose id is not unique or not kebab-case, or whose text
-//     names a work package or a step: an open point describes a state;
+//     matches one of the Config's `stepWords`: an open point describes a state;
 //   - a thread of threads.json under an unknown open id, or with a `who`
 //     outside the enumeration.
 // Layout is not checked here: ELK and libavoid lay the plan out in the
@@ -113,7 +119,7 @@ function checkBricks(p: Plan, { nodes, zones }: Index, errors: string[]): void {
 
 // An overview label names the arrow between two boxes, as engine.ts sees
 // them: a zone that nests others keeps its own bricks in a box of their own.
-function checkArrows(p: Plan, { nodes, zones }: Index, errors: string[]): void {
+function checkArrows(p: Plan, s: Settings, { nodes, zones }: Index, errors: string[]): void {
   const { zoneBox } = graphOf(p);
 
   const boxOf = (ref: string): string => {
@@ -135,12 +141,21 @@ function checkArrows(p: Plan, { nodes, zones }: Index, errors: string[]): void {
     const to = nodes.get(e.to);
 
     if (
+      s.tags.outside === "required" &&
       to !== undefined &&
       to.zone === null &&
       to.side !== "in" &&
       (e.data === undefined || e.data.length === 0)
     ) {
       errors.push(`arrow ${e.from} → ${e.to}: an arrow into a third-party service names its tags`);
+    }
+  }
+
+  for (const e of p.edges) {
+    for (const tag of e.data ?? []) {
+      if (!s.tags.names.includes(tag)) {
+        errors.push(`arrow ${e.from} → ${e.to}: tag ${tag} is not in the config's tags`);
+      }
     }
   }
 
@@ -203,11 +218,7 @@ function checkLinks(p: Plan, { nodes, zones }: Index, errors: string[]): void {
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
-// Step names (A1, F2a, I1) and step words: they describe a plan's progress,
-// which ages, instead of a state of the system.
-const STEP_WORDS = [/\b[A-J][0-9][ab]?\b/u, /\b(?:prévu|pas fait|après l'étape|bientôt)/iu];
-
-function checkOpen(p: Plan, threads: Threads, errors: string[]): void {
+function checkOpen(p: Plan, s: Settings, threads: Threads, errors: string[]): void {
   const ids = new Set<string>();
 
   for (const item of openItems(p)) {
@@ -223,9 +234,9 @@ function checkOpen(p: Plan, threads: Threads, errors: string[]): void {
       errors.push(`${where}: the id must be kebab-case`);
     }
 
-    const word = STEP_WORDS.map((re) => re.exec(plainText(item.text))?.[0]).find(
-      (w) => w !== undefined,
-    );
+    const word = s.stepWords
+      .map((re) => re.exec(plainText(item.text))?.[0])
+      .find((w) => w !== undefined);
 
     if (word !== undefined) {
       errors.push(`${where}: "${word}" names a step; an open point describes a state`);
@@ -240,18 +251,36 @@ function checkOpen(p: Plan, threads: Threads, errors: string[]): void {
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- threads is the content of threads.json as JSON.parse left it: readThreads below is its parser, and its errors join the plan's.
-export function validate(p: Plan, threads: unknown): string[] {
+export function validate(p: Plan, s: Settings, threads: unknown): string[] {
   const errors: string[] = [];
   const index = indexIds(p, errors);
   checkZones(p, index, errors);
   checkBricks(p, index, errors);
-  checkArrows(p, index, errors);
+  checkArrows(p, s, index, errors);
   checkLinks(p, index, errors);
   const read = readThreads(threads);
   errors.push(...read.errors);
-  checkOpen(p, read.threads, errors);
+  checkOpen(p, s, read.threads, errors);
 
   return errors;
+}
+
+// A map folder's data as check.ts sees it: toPlan's refusal, or what validate finds.
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- threads is threads.json as JSON.parse left it, which validate hands to its parser.
+export function checkMap(map: AtlasMap, config: Config, threads: unknown): string[] {
+  let plan: Plan;
+
+  try {
+    plan = toPlan(map, config);
+  } catch (error: unknown) {
+    if (error instanceof PlanError) {
+      return [error.message];
+    }
+
+    throw error;
+  }
+
+  return validate(plan, settingsOf(config), threads);
 }
 
 export function openReport(p: Plan, threads: Threads): string {
@@ -292,7 +321,6 @@ if (import.meta.main) {
   }
 
   const folder = resolve(dir);
-  const plan = await planOf(folder);
   const raw: unknown = await Bun.file(join(folder, THREADS_FILE)).json();
 
   if (open) {
@@ -303,17 +331,19 @@ if (import.meta.main) {
       process.exit(1);
     }
 
-    console.log(openReport(plan, threads));
+    console.log(openReport(await planOf(folder), threads));
     process.exit(0);
   }
 
-  const errors = validate(plan, raw);
+  const { map, config } = await loadFolder(folder);
+  const errors = checkMap(map, config, raw);
 
   if (errors.length > 0) {
     console.error(errors.join("\n"));
     process.exit(1);
   }
 
+  const plan = toPlan(map, config);
   console.log(
     `plan ok: ${plan.zones.length} zones, ${plan.nodes.length} bricks, ${plan.edges.length} arrows`,
   );

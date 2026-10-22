@@ -3,10 +3,12 @@
 //    bricks as chips without a frame; a service outside as a pill.
 // 2. Placement: ELK's rectpacking packs the zones inside each nesting zone, in
 //    data order (it keeps the order it is given, so reordering the children
-//    of a node in the map's tree moves zones on the overview). Every nesting zone aims at
+//    of a node in the map's tree moves zones on the overview). With the Config's
+//    overview ratio "screen", every nesting zone aims at
 //    the aspect of the screen, less the room of the two side columns, so a
 //    wide screen gets a wide plan: place() packs a few times, correcting the
-//    aspect from the height each pass gives. The outside services and the ext zones stand in a
+//    aspect from the height each pass gives; with a number, it packs once at
+//    that aspect. The outside services and the ext zones stand in a
 //    column on each side (side "in" left, "out" right), each as near as it can
 //    get to the height of the server boxes it talks to. Arrows are not part of
 //    this placement: ELK's layered placement keeps corridors for them and made
@@ -21,6 +23,7 @@
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
+import type { Pins } from "./atlas.ts";
 import { routeLinks } from "./avoid.ts";
 import { drawZone } from "./frame.ts";
 import type { Graph } from "./graph.ts";
@@ -371,13 +374,17 @@ const RATIO = { min: 0.6, max: 4, passes: 3, settled: 0.05 };
 
 const clampRatio = (r: number): number => Math.min(RATIO.max, Math.max(RATIO.min, r));
 
-// screen: width / height of the drawing area. The server boxes aim at the
-// aspect that, with the side columns added, matches it.
+// "screen": aspect is the width / height of the drawing area, and the server boxes aim at the
+// aspect that, with the side columns added, matches it. "fixed": the server boxes' own aspect.
+export type Packing =
+  | { readonly kind: "screen"; readonly aspect: number }
+  | { readonly kind: "fixed"; readonly ratio: number };
+
 async function place(
   graph: Graph,
   blocks: ReadonlyMap<string, Block>,
   flows: readonly Flow[],
-  screen: number,
+  packing: Packing,
 ): Promise<Placed> {
   const ids = [...blocks.keys()];
   const left = ids.filter((id) => sideOf(graph, id, got(blocks, id, "overview block")) === "in");
@@ -385,20 +392,22 @@ async function place(
   const leftW = Math.max(0, ...left.map((id) => got(blocks, id, "overview block").w));
   const rightW = Math.max(0, ...right.map((id) => got(blocks, id, "overview block").w));
   const sidesW = leftW + rightW + 2 * COL_GAP + 2 * MARGIN;
-  let ratio = clampRatio(screen);
+  let ratio = packing.kind === "screen" ? clampRatio(packing.aspect) : packing.ratio;
   let packed = new Map<string, Rect>();
   let server = await packServers(graph, blocks, packed, ratio);
 
-  for (let pass = 1; pass < RATIO.passes; pass++) {
-    const next = clampRatio(screen - sidesW / Math.max(1, server.h));
+  if (packing.kind === "screen") {
+    for (let pass = 1; pass < RATIO.passes; pass++) {
+      const next = clampRatio(packing.aspect - sidesW / Math.max(1, server.h));
 
-    if (Math.abs(next - ratio) < RATIO.settled) {
-      break;
+      if (Math.abs(next - ratio) < RATIO.settled) {
+        break;
+      }
+
+      ratio = next;
+      packed = new Map<string, Rect>();
+      server = await packServers(graph, blocks, packed, ratio);
     }
-
-    ratio = next;
-    packed = new Map<string, Rect>();
-    server = await packServers(graph, blocks, packed, ratio);
   }
 
   const sx = leftW + COL_GAP;
@@ -643,9 +652,10 @@ async function routeFlows(
   boxes: ReadonlyMap<string, Rect>,
   strips: readonly Rect[],
   flows: readonly Flow[],
+  pins: Pins,
 ): Promise<Routed> {
   try {
-    return { routes: await routeLinks(boxes, strips, flows), error: null };
+    return { routes: await routeLinks(boxes, strips, flows, pins), error: null };
   } catch (error: unknown) {
     return {
       routes: flows.map(() => null),
@@ -654,16 +664,16 @@ async function routeFlows(
   }
 }
 
-// screen: width / height of the drawing area the overview should fill.
 export async function drawOverview(
   graph: Graph,
   layer: SVGGElement,
   pick: Pick,
-  screen: number,
+  packing: Packing,
+  pins: Pins,
 ): Promise<Overview> {
   const blocks = blocksOf(graph);
   const flows = flowsOf(graph);
-  const { rect, size } = await place(graph, blocks, flows, screen);
+  const { rect, size } = await place(graph, blocks, flows, packing);
 
   // 3. Arrows, around every box and the title strip of each nesting zone.
   const strips = graph.plan.zones
@@ -678,7 +688,7 @@ export async function drawOverview(
     [...blocks.keys()].map((id): [string, Rect] => [id, got(rect, id, "overview rect")]),
   );
 
-  const { routes, error } = await routeFlows(boxes, strips, flows);
+  const { routes, error } = await routeFlows(boxes, strips, flows, pins);
   const spots = labelSpots(routes, flows, [...boxes.values(), ...strips]);
   // Frames, then arrows, then chips and pills on top.
   const frames = el("g", {}, layer);

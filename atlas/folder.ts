@@ -15,7 +15,9 @@ export const CONFIG_FILE = "atlas.config.ts";
 
 export const THREADS_FILE = "threads.json";
 
-export async function planOf(dir: string): Promise<Plan> {
+export type Folder = { readonly map: AtlasMap; readonly config: Config };
+
+export async function loadFolder(dir: string): Promise<Folder> {
   const mapFile = join(dir, MAP_FILE);
   const configFile = join(dir, CONFIG_FILE);
   // Typed by the files themselves: each declares its default export `satisfies` the type of atlas.ts.
@@ -30,7 +32,13 @@ export async function planOf(dir: string): Promise<Plan> {
     throw new Error(`${configFile}: no default export; it exports the map's Config`);
   }
 
-  return toPlan(map.default, config.default);
+  return { map: map.default, config: config.default };
+}
+
+export async function planOf(dir: string): Promise<Plan> {
+  const { map, config } = await loadFolder(dir);
+
+  return toPlan(map, config);
 }
 
 // serve.ts runs this for each build in a fresh process: an imported module keeps its first
