@@ -63,7 +63,8 @@ view.ts              the view of any container, pure: its children as boxes, a c
                      bounds the time of the index and a view on a map of 5,000 nodes)
 navigation.ts        where the reader stands at any depth, pure: the path to the open container
                      and the selection, their events, the breadcrumb and its fold to one line,
-                     and the URL fragment that carries both (navigation.spec.ts)
+                     the URL fragment that carries both, and the page's state window.atlas shows
+                     agents (navigation.spec.ts)
 threads.ts           open points and threads, pure: who a point waits for (threads.spec.ts)
 check.ts             validates a map folder: what drawable.ts refuses, then a brief on a leaf, the
                      root's tour, see/seams/traps ids on every panel, tags against the Config's,
@@ -171,6 +172,10 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   view, or a leaf's parent's view with the leaf selected; `#<open>/<selected>` carries a selection
   no bare id lands on, a ghost or a container among them. A fragment typed into the address bar is
   followed.
+- `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
+  `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
+  ghosts) and the fragment, frozen and replaced at each move; a getter, so a page script cannot
+  assign it.
 - Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within

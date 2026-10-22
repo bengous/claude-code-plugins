@@ -1,6 +1,6 @@
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, nodeOf } from "./tree.ts";
-import { showsIn } from "./view.ts";
+import { showsIn, viewOf } from "./view.ts";
 
 /**
  * Where the reader stands: the containers from a child of the root down to the open one (empty:
@@ -94,6 +94,41 @@ export function hashOf(tree: Tree, given: Place): string {
   }
 
   return [open ?? "", place.selected ?? ""].map((id) => encodeURIComponent(id)).join(SEPARATOR);
+}
+
+/**
+ * What an agent reads of the page in `window.atlas`, without a screenshot: frozen, and replaced
+ * at each move of the reader.
+ */
+export type PageState = {
+  /** The containers from a child of the root down to the open one; empty on the root's view. */
+  readonly path: readonly string[];
+  readonly selected: string | null;
+  /** The nodes the open view draws, each once: its boxes, the chips in them, its ghosts. */
+  readonly visible: readonly string[];
+  /** The URL's fragment, without its "#" (hashOf). */
+  readonly fragment: string;
+};
+
+/** The page's state at a place, as the tree can show it (normalised). */
+export function pageStateOf(tree: Tree, given: Place): PageState {
+  const place = normalised(tree, given);
+  const view = viewOf(tree, openOf(place));
+
+  const visible = new Set([
+    ...view.boxes.flatMap((box) => [
+      box.id,
+      ...(box.kind === "container" ? box.chips.map((chip) => chip.id) : []),
+    ]),
+    ...view.ghosts.map((ghost) => ghost.id),
+  ]);
+
+  return Object.freeze({
+    path: Object.freeze([...place.path]),
+    selected: place.selected,
+    visible: Object.freeze([...visible]),
+    fragment: hashOf(tree, place),
+  });
 }
 
 const decoded = (text: string): string | null => {

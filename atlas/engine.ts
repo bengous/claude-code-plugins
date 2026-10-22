@@ -24,8 +24,8 @@ import { drawableOf } from "./drawable.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
-import type { Place, PlaceEvent } from "./navigation.ts";
-import { HOME, hashOf, navigate, openOf, placeOfHash } from "./navigation.ts";
+import type { PageState, Place, PlaceEvent } from "./navigation.ts";
+import { HOME, navigate, openOf, pageStateOf, placeOfHash } from "./navigation.ts";
 import type { ThreadState } from "./panel.ts";
 import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
 import type { PaletteRule } from "./settings.ts";
@@ -658,6 +658,12 @@ function tellSelection(id: string | null): void {
   );
 }
 
+// What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
+// so a page script cannot assign it, answering the frozen state of the last render.
+let pageState: PageState = pageStateOf(tree, place);
+
+Object.defineProperty(window, "atlas", { get: () => pageState, enumerable: true });
+
 // The panel, the breadcrumb and the legend follow the place at once; the drawing, once its view
 // is laid out (settle).
 function render(): void {
@@ -667,8 +673,9 @@ function render(): void {
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
+  pageState = pageStateOf(tree, place);
   // Keeps the place in the URL's fragment so a link reopens the same view.
-  const fragment = hashOf(tree, place);
+  const { fragment } = pageState;
 
   history.replaceState(
     null,

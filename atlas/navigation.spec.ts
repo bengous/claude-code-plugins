@@ -12,6 +12,7 @@ import {
   navigate,
   normalised,
   openOf,
+  pageStateOf,
   placeOfHash,
 } from "./navigation.ts";
 import type { Tree } from "./tree.ts";
@@ -305,6 +306,37 @@ describe("hashOf and placeOfHash", () => {
 
   test("a selection the open view does not show is dropped", () => {
     expect(placeOfHash(deep, "#A1/b1")).toEqual(at(["A", "A1"]));
+  });
+});
+
+describe("pageStateOf", () => {
+  test("the root's view: no path, its children as boxes and chips, its outside nodes", () => {
+    expect(pageStateOf(sample, HOME)).toEqual({
+      path: [],
+      selected: null,
+      visible: ["clients", "browser", "server", "proxy", "app", "data", "email"],
+      fragment: "",
+    });
+  });
+
+  test("a deeper view: its path, the selection, its boxes then its ghosts, the fragment", () => {
+    expect(pageStateOf(sample, at(["server", "app"], "orders"))).toEqual({
+      path: ["server", "app"],
+      selected: "orders",
+      visible: ["web", "catalog", "orders", "proxy", "data", "email"],
+      fragment: "orders",
+    });
+    expect(pageStateOf(sample, at(["server"], "email")).fragment).toBe("server/email");
+  });
+
+  test("a stale place reads as the tree shows it, and the state is frozen", () => {
+    const state = pageStateOf(sample, at(["server", "nowhere"], "orders"));
+
+    expect(state.path).toEqual(["server"]);
+    expect(state.selected).toBeNull();
+    expect(Object.isFrozen(state)).toBe(true);
+    expect(Object.isFrozen(state.visible)).toBe(true);
+    expect(Object.isFrozen(state.path)).toBe(true);
   });
 });
 
