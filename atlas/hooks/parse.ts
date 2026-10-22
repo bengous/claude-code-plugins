@@ -97,16 +97,17 @@ export function textArgument(value: unknown): string | null {
 const ARGUMENTS = "\n\nARGUMENTS: ";
 
 /**
- * The words the person typed after the skill's name: with no `$ARGUMENTS` in its file, Claude
- * Code ends the skill's text with `ARGUMENTS: <input>` before `skill.prompt` runs.
+ * The words the person typed after the skill's name, a word in double or single quotes taken
+ * whole, spaces and all: with no `$ARGUMENTS` in its file, Claude Code ends the skill's text with
+ * `ARGUMENTS: <input>` before `skill.prompt` runs.
  */
 export function argumentsOf(text: string): readonly string[] {
   const at = text.lastIndexOf(ARGUMENTS);
 
-  return at === -1
-    ? []
-    : text
-        .slice(at + ARGUMENTS.length)
-        .split(/\s+/u)
-        .filter((w) => w !== "");
+  if (at === -1) return [];
+  const typed = text.slice(at + ARGUMENTS.length);
+
+  return [...typed.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/gu)].map(
+    ([word = "", doubled, single]) => doubled ?? single ?? word,
+  );
 }

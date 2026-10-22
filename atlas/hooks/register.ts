@@ -589,6 +589,10 @@ export const register: Register = (on) => {
 
     become(host, owned.folder, null);
     await forget(host, owned);
+
+    // A reload attaches the folders of the session's record: one ended so leaves it.
+    if (owner !== null && boards.size === 0) await host.storeDelete(sessionKey(owner));
+    else if (owner !== null) await remember(host, owner);
     host.log(
       `atlas: the server of ${owned.folder} was ended from outside; /atlas:board starts it again`,
     );

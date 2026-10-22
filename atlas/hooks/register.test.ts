@@ -153,6 +153,19 @@ describe("/atlas:board", () => {
     expect(seen.children).toEqual([]);
   });
 
+  test("a folder in quotes is one word, spaces and all, before a draft name", async ($, on) => {
+    const spaced = `${CWD}/my maps/a map`;
+
+    const seen = world(on, {
+      files: [`${spaced}/atlas.config.ts`, `${spaced}/drafts/next/atlas.config.ts`],
+    });
+
+    await settled(seen, $.skill.prompt(board('"my maps/a map"')));
+    await settled(seen, $.skill.prompt(board("'my maps/a map'", "next")));
+
+    expect(seen.children.map((child) => child.folder)).toEqual([spaced, `${spaced}/drafts/next`]);
+  });
+
   test("a draft name shows that draft of the map folder", async ($, on) => {
     const seen = world(on);
     await settled(seen, $.skill.prompt(board("docs/map", "rewire")));
@@ -371,6 +384,21 @@ describe("the server's life", () => {
     expect(seen.store.has(SELECTION_KEY)).toBe(false);
     expect(seen.logs.join("\n")).toContain(`the server of ${MAP} was ended from outside`);
     expect((await $.skill.prompt(STOP)).text).toContain("No atlas board was open in this session.");
+  });
+
+  test("a server ended from outside leaves the session's record, so a reload does not start it again", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    await settled(seen, $.skill.prompt(board("maps/other")));
+    seen.children[0]?.exit({ code: null, signal: "SIGTERM" });
+    await drain(seen);
+
+    expect(seen.store.get(SESSION_KEY)).toEqual({ folders: [OTHER_MAP] });
+
+    seen.children[1]?.exit({ code: null, signal: "SIGTERM" });
+    await drain(seen);
+
+    expect(seen.store.has(SESSION_KEY)).toBe(false);
   });
 
   test("a read loop that fails is an end like any other: the server comes back", async ($, on) => {
