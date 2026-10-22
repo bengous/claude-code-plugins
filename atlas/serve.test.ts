@@ -307,6 +307,21 @@ describe("serve.ts", () => {
   );
 
   test(
+    "a missing map.ts is named without a position it does not have",
+    async () => {
+      served().events.skip();
+      rmSync(join(dir, MAP_FILE));
+      const missing = await reloadedTo((p) => p.status === 500);
+
+      expect(missing.html).toContain(join(dir, MAP_FILE));
+      expect(missing.html).not.toContain(":-1");
+
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+
+  test(
     "the error page escapes the text of the error",
     async () => {
       served().events.skip();

@@ -70,12 +70,17 @@ const mapResolver: BunPlugin = {
   },
 };
 
-// `String(log)` drops where the error is; its position keeps the file, the line and the column.
+// `String(log)` drops where the error is; its position keeps the file, the line and the column. A
+// file that is missing has a position with line and column -1, and no line to show.
 function located(log: BuildMessage | ResolveMessage): string {
   const at = log.position;
 
-  return at === null
-    ? log.message
+  if (at === null) {
+    return log.message;
+  }
+
+  return at.line < 0
+    ? `${at.file}: ${log.message}`
     : `${at.file}:${at.line}:${at.column}: ${log.message}\n    ${at.lineText}`;
 }
 
