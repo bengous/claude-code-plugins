@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "description": "Runtime dependencies of the atlas map page (elkjs, libavoid-js) and its checkers (tsgo, oxlint, oxfmt)",
+  "devDependencies": {
+    "@types/bun": "1.4.3"
+  },
   "dependencies": {
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "elkjs": "0.12.0",
