@@ -236,6 +236,18 @@ describe("one server per map folder", () => {
     expect(seen.store.get(MAP_KEY)).toEqual(mine(THEIRS));
   });
 
+  test("a joined server whose session ended, its record gone with it, comes back on the port the tabs hold", async ($, on) => {
+    const seen = world(on, { stored: new Map([[MAP_KEY, THEIRS_RECORD]]) });
+    seen.servers.set(THEIRS, MAP);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    seen.servers.delete(THEIRS);
+    seen.store.delete(MAP_KEY);
+    await seen.clock.advance(HEARTBEAT_MS);
+    await drain(seen);
+
+    expect(running(seen).map((child) => child.asked)).toEqual([String(THEIRS)]);
+  });
+
   test("a record whose server is gone starts this session's own on its port, which the tabs hold", async ($, on) => {
     const seen = world(on, { stored: new Map([[MAP_KEY, THEIRS_RECORD]]) });
     await settled(seen, $.skill.prompt(board("docs/map")));

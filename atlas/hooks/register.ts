@@ -88,6 +88,14 @@ type Lost = {
 
 type Board = Starting | Owned | Joined | Lost;
 
+/**
+ * Where a start looks first: `own`, a port this session's server held, before the store; `last`,
+ * the port of a server this session joined, after the store, when it names none.
+ */
+type Port = { readonly own: number | null; readonly last: number | null };
+
+const NO_PORT: Port = { own: null, last: null };
+
 type Live = Owned | Joined;
 
 const mapKey = (folder: string): string => `map:${folder}`;
@@ -411,13 +419,13 @@ export const register: Register = (on) => {
     host: Host,
     from: Starting,
     me: string,
-    port: number | null,
+    port: Port,
   ): Promise<{ readonly join: number } | { readonly start: number | null } | null> {
-    let kept = port;
+    let kept = port.own;
 
     for (;;) {
       const record = await host.mapRecord(from.folder);
-      const known = kept ?? (record?.kind === "live" ? record.port : null);
+      const known = kept ?? (record?.kind === "live" ? record.port : port.last);
 
       if (!holds(from)) return null;
 
@@ -451,7 +459,7 @@ export const register: Register = (on) => {
     host: Host,
     from: Starting,
     ends: readonly number[],
-    port: number | null,
+    port: Port,
   ): Promise<void> {
     const { folder } = from;
     const me = await host.sessionId();
@@ -544,8 +552,15 @@ export const register: Register = (on) => {
     const starting: Starting = { kind: "starting", folder: from.folder };
     become(host, from.folder, starting);
     // A server this session started comes back on its own port, which its tabs hold; another
-    // session's that ended is looked up again, as a third session may have revived it meanwhile.
-    await attach(host, starting, ends, from.kind === "owned" ? from.child.port : null);
+    // session's that ended is looked up again, as a third session may have revived it meanwhile,
+    // and comes back on its old port when the store names none, its session gone and its record
+    // with it.
+    await attach(
+      host,
+      starting,
+      ends,
+      from.kind === "owned" ? { own: from.child.port, last: null } : { own: null, last: from.port },
+    );
   }
 
   /**
@@ -641,7 +656,7 @@ export const register: Register = (on) => {
     for (const folder of record.folders) {
       const starting: Starting = { kind: "starting", folder };
       become(host, folder, starting);
-      await attach(host, starting, [], null);
+      await attach(host, starting, [], NO_PORT);
     }
 
     return result;
@@ -704,7 +719,12 @@ export const register: Register = (on) => {
 
     const starting: Starting = { kind: "starting", folder };
     become(host, folder, starting);
-    await attach(host, starting, [], was?.kind === "lost" ? was.port : null);
+    await attach(
+      host,
+      starting,
+      [],
+      was?.kind === "lost" ? { own: was.port, last: null } : NO_PORT,
+    );
     const now = boards.get(folder);
 
     if (!isLive(now)) {
