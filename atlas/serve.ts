@@ -13,8 +13,9 @@ import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 //                                            none takes a free one
 // Bun.build bundles the page, atlas:map and atlas:config resolved to the folder's files, and the
 // server answers the outputs from memory. A save in the folder or in the page's sources rebuilds it
-// and reloads every open tab through a server-sent event. A failed build, or data the engine
-// cannot draw, answers an error page instead, which reloads on the next save.
+// and, when the page changed, reloads every open tab through a server-sent event. A failed build,
+// or data the engine cannot draw, answers an error page instead, which reloads on the next save.
+// It answers requests to 127.0.0.1 or localhost with its own port only.
 const DIR = import.meta.dir;
 
 const PAGE = "plan.fr.html";
