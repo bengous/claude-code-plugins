@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-runtime-typeof -- isReply and isSelection ARE the boundary parsers of what the page posts: there is no earlier place to narrow it. */
+/* oxlint-disable anti-slop/no-runtime-typeof -- isReply, isSelected and labelsIn ARE the boundary parsers of what the page posts and folder.ts prints: there is no earlier place to narrow them. */
 import type { FSWatcher } from "node:fs";
 import { statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -9,7 +9,7 @@ import type { BuildArtifact, BunPlugin, Server } from "bun";
 import { coalesced } from "./coalesce.ts";
 import { CONFIG_FILE, MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
-import type { Beat, Selection, ServerLine } from "./wire.ts";
+import type { Beat, Selected, ServerLine } from "./wire.ts";
 import {
   HEARTBEAT_ENV,
   HEARTBEAT_GRACE_MS,
@@ -46,12 +46,14 @@ const REARM_MS = 250;
 const WASM_FILE = join(dirname(Bun.resolveSync("libavoid-js", DIR)), "libavoid.wasm");
 
 // html: the page as built, which names its chunks by the hash of their content.
+type Built = {
+  readonly kind: "ok";
+  readonly html: string;
+  readonly files: ReadonlyMap<string, BuildArtifact>;
+};
+
 type Bundle =
-  | {
-      readonly kind: "ok";
-      readonly html: string;
-      readonly files: ReadonlyMap<string, BuildArtifact>;
-    }
+  | (Built & { readonly labels: ReadonlyMap<string, string> })
   | { readonly kind: "error"; readonly message: string };
 
 const same = (a: Bundle, b: Bundle): boolean =>
@@ -129,7 +131,7 @@ function located(log: BuildMessage | ResolveMessage): string {
     : `${at.file}:${at.line}:${at.column}: ${log.message}\n    ${at.lineText}`;
 }
 
-async function bundle(): Promise<Bundle> {
+async function bundle(): Promise<Built | { readonly kind: "error"; readonly message: string }> {
   const built = await Bun.build({
     entrypoints: [join(DIR, PAGE)],
     target: "browser",
@@ -154,23 +156,63 @@ async function bundle(): Promise<Bundle> {
   return { kind: "ok", html: await html.text(), files };
 }
 
+type Drawable =
+  | { readonly kind: "drawn"; readonly labels: ReadonlyMap<string, string> }
+  | { readonly kind: "refused"; readonly message: string };
+
+// What folder.ts prints, the map's labels by id; anything else reads as no map.
+function labelsIn(text: string): ReadonlyMap<string, string> | null {
+  let value: unknown;
+
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const entries = Object.entries(value);
+
+  return entries.every(([, label]) => typeof label === "string")
+    ? new Map(entries.map(([id, label]) => [id, String(label)]))
+    : null;
+}
+
 // The page throws on data toPlan refuses, so the folder is loaded here first, in a fresh process:
-// this one keeps the first evaluation of every module it imports.
-async function drawable(): Promise<string | null> {
+// this one keeps the first evaluation of every module it imports. Its labels are the ids a
+// selection may name.
+async function drawable(): Promise<Drawable> {
   const run = Bun.spawn([process.execPath, join(DIR, "folder.ts"), folder], {
-    stdout: "ignore",
+    stdout: "pipe",
     stderr: "pipe",
   });
 
-  const [code, error] = await Promise.all([run.exited, new Response(run.stderr).text()]);
+  const [code, out, error] = await Promise.all([
+    run.exited,
+    new Response(run.stdout).text(),
+    new Response(run.stderr).text(),
+  ]);
 
-  return code === 0 ? null : `the map in ${folder} cannot be drawn: ${error.trim()}`;
+  const labels = code === 0 ? labelsIn(out) : null;
+
+  return labels === null
+    ? { kind: "refused", message: `the map in ${folder} cannot be drawn: ${error.trim()}` }
+    : { kind: "drawn", labels };
 }
 
 async function compile(): Promise<Bundle> {
-  const [bundled, refusal] = await Promise.all([bundle(), drawable()]);
+  const [bundled, drawn] = await Promise.all([bundle(), drawable()]);
 
-  return bundled.kind === "ok" && refusal !== null ? { kind: "error", message: refusal } : bundled;
+  if (bundled.kind === "error") {
+    return bundled;
+  }
+
+  return drawn.kind === "refused"
+    ? { kind: "error", message: drawn.message }
+    : { ...bundled, labels: drawn.labels };
 }
 
 let current = await compile();
@@ -390,12 +432,11 @@ async function reply(request: Request): Promise<Response> {
   });
 }
 
-const isSelection = (v: unknown): v is Selection =>
-  typeof v === "object" &&
-  v !== null &&
-  "id" in v &&
-  (v.id === null || (typeof v.id === "string" && "label" in v && typeof v.label === "string"));
+const isSelected = (v: unknown): v is Selected =>
+  typeof v === "object" && v !== null && "id" in v && (v.id === null || typeof v.id === "string");
 
+// Any local process can post here as the page does: the label printed is the map's own, and only
+// for an id the map holds.
 async function select(request: Request): Promise<Response> {
   const posted = await fromPage(request, "a selection");
 
@@ -403,16 +444,21 @@ async function select(request: Request): Promise<Response> {
     return posted;
   }
 
-  if (!isSelection(posted.body)) {
-    return new Response('expected JSON { "id": <node id>, "label": <label> } or { "id": null }', {
-      status: 400,
-    });
+  if (!isSelected(posted.body)) {
+    return new Response('expected JSON { "id": <node id> } or { "id": null }', { status: 400 });
+  }
+
+  const { id } = posted.body;
+  const label = id === null || current.kind !== "ok" ? undefined : current.labels.get(id);
+
+  if (id !== null && label === undefined) {
+    return new Response(`no node ${id} in the map this server shows`, { status: 400 });
   }
 
   const line: ServerLine =
-    posted.body.id === null
+    id === null || label === undefined
       ? { type: "selection", id: null }
-      : { type: "selection", id: posted.body.id, label: posted.body.label };
+      : { type: "selection", id, label };
 
   console.log(JSON.stringify(line));
 

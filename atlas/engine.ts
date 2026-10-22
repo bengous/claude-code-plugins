@@ -40,7 +40,7 @@ import type { PaletteRule } from "./settings.ts";
 import { paletteRules, settingsOf } from "./settings.ts";
 import { defs, el, esc } from "./svg.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
-import type { Selection } from "./wire.ts";
+import type { Selected } from "./wire.ts";
 import { SELECTION_PATH } from "./wire.ts";
 
 const settings = settingsOf(config);
@@ -360,8 +360,8 @@ svg.addEventListener("pointerleave", () => {
   hoverOverview(null);
 });
 
-// serve.ts prints each selection for the agent's session (wire.ts); a page reloaded on a #id
-// posts it again, so a revived server's session hears it too.
+// serve.ts prints each selection, with the map's own label, for the agent's session (wire.ts); a
+// page reloaded on a #id posts it again, so a revived server's session hears it too.
 let toldSelection: string | null = null;
 
 function tellSelection(id: string | null): void {
@@ -370,16 +370,7 @@ function tellSelection(id: string | null): void {
   }
 
   toldSelection = id;
-
-  const selection: Selection =
-    id === null
-      ? { id: null }
-      : {
-          id,
-          label: graph.isZone(id)
-            ? graph.zone(id).title
-            : graph.node(id).label.replaceAll("\n", " "),
-        };
+  const selection: Selected = { id };
 
   fetch(SELECTION_PATH, {
     method: "POST",

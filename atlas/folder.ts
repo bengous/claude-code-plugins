@@ -8,7 +8,8 @@ import type { Plan } from "./model.ts";
 // AtlasMap, atlas.config.ts, whose default export is its Config, and threads.json. The data imports
 // types only, so the folder needs no package.json. serve.ts bundles the first two into the page;
 // cli.ts imports them here.
-//   bun atlas/folder.ts <map folder>   exits 1 with the reason when the engine cannot draw the map
+//   bun atlas/folder.ts <map folder>   prints the map's labels by id, or exits 1 with the reason
+//                                      when the engine cannot draw the map
 export const MAP_FILE = "map.ts";
 
 export const CONFIG_FILE = "atlas.config.ts";
@@ -41,8 +42,18 @@ export async function planOf(dir: string): Promise<Plan> {
   return toPlan(map, config);
 }
 
+// What the page names each zone and brick by, by id: the map's own text, the only ids a selection
+// the page posts may name.
+export function labelsOf(plan: Plan): Record<string, string> {
+  return Object.fromEntries([
+    ...plan.zones.map((zone): [string, string] => [zone.id, zone.title]),
+    ...plan.nodes.map((node): [string, string] => [node.id, node.label]),
+  ]);
+}
+
 // serve.ts runs this for each build in a fresh process: an imported module keeps its first
-// evaluation for the life of the process, and the data changes on every save.
+// evaluation for the life of the process, and the data changes on every save. It prints the map's
+// labels, labelsOf, as JSON.
 if (import.meta.main) {
   const [dir, ...extra] = process.argv.slice(2);
 
@@ -52,7 +63,7 @@ if (import.meta.main) {
   }
 
   try {
-    await planOf(resolve(dir));
+    console.log(JSON.stringify(labelsOf(await planOf(resolve(dir)))));
   } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

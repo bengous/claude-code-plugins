@@ -3,7 +3,8 @@
 // line serve.ts prints for the module to read. Types and constants only.
 
 // The page posts the reader's selection here, with its Origin and the server's token, each time
-// it changes: `place.node ?? place.zone` in engine.ts, the id the URL's #id holds.
+// it changes: `place.node ?? place.zone` in engine.ts, the id the URL's #id holds. serve.ts prints
+// it with the map's own label, for an id the map holds.
 export const SELECTION_PATH = "selection";
 
 // The module beats a server it started here, with the secret it gave the server in HEARTBEAT_ENV,
@@ -17,7 +18,10 @@ export const HEARTBEAT_HEADER = "x-atlas-heartbeat";
 
 export const HEARTBEAT_GRACE_MS = 60_000;
 
-// A zone or a brick by its id and the label the map draws; `id: null`, nothing selected.
+// What the page posts: the id of the zone or brick selected, `null` for none.
+export type Selected = { readonly id: string | null };
+
+// A zone or a brick by its id and the label the map gives it; `id: null`, nothing selected.
 export type Selection =
   | { readonly id: string; readonly label: string }
   | { readonly id: null; readonly label?: undefined };

@@ -28,7 +28,8 @@ atlas.ts             the format of a map, types only: Node (a tree, `children`),
 template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes
 lint/                the oxlint and oxfmt configs `check` and `fmt` run on a map's data files
 fixtures/sample/     the sample map folder
-folder.ts            the map folder's files (loadFolder), and the plan its data makes (planOf)
+folder.ts            the map folder's files (loadFolder), the plan its data makes (planOf), and its
+                     labels by id, the ids a selection may name (labelsOf, folder.spec.ts)
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
 settings.ts          the Config with its defaults filled in, refusing what the engine cannot use,
                      and the palette as the page's CSS custom properties (settings.spec.ts)
