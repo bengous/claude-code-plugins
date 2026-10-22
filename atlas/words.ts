@@ -5,9 +5,15 @@ import type { Lang, LegendKey } from "./atlas.ts";
 // and a function's arguments arrive escaped where the panel inserts the result as HTML.
 export type Words = {
   readonly home: string;
+  readonly fitButton: string;
   readonly legendButton: string;
   readonly panelButton: string;
   readonly hint: string;
+  /** The tooltip of each copy of a node drawn twice, in both columns. */
+  readonly copies: {
+    readonly source: (label: string) => string;
+    readonly target: (label: string) => string;
+  };
   readonly position: string;
   readonly stage: string;
   readonly mapLabel: (title: string) => string;
@@ -44,9 +50,14 @@ export type Words = {
 
 const fr: Words = {
   home: "Vue d'ensemble",
+  fitButton: "Ajuster",
   legendButton: "Légende",
   panelButton: "Panneau",
-  hint: "clic sur une boîte pour y entrer, sur une carte pour la choisir · Échap ou clic sur le fond pour remonter",
+  hint: "clic sur une boîte pour y entrer, sur une carte pour la choisir · molette pour zoomer, glisser pour déplacer · Échap ou clic sur le fond pour remonter",
+  copies: {
+    source: (label) => `${label} — ses flèches partent d'ici`,
+    target: (label) => `${label} — ses flèches arrivent ici`,
+  },
   position: "Position dans le plan",
   stage: "Plan zoomable",
   mapLabel: (title) => `Architecture de ${title}`,
@@ -92,9 +103,14 @@ const fr: Words = {
 
 const en: Words = {
   home: "Overview",
+  fitButton: "Fit",
   legendButton: "Legend",
   panelButton: "Panel",
-  hint: "click a box to enter it, a card to select it · Escape or a click on the background to go up",
+  hint: "click a box to enter it, a card to select it · wheel to zoom, drag to pan · Escape or a click on the background to go up",
+  copies: {
+    source: (label) => `${label} — its arrows leave from here`,
+    target: (label) => `${label} — its arrows arrive here`,
+  },
   position: "Position in the map",
   stage: "Zoomable map",
   mapLabel: (title) => `Architecture of ${title}`,

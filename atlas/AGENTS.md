@@ -53,8 +53,8 @@ view.ts              the view of any container, pure: its children as boxes, a c
                      the arrows it lights; the legend lines it uses (view.spec.ts; scale.spec.ts
                      bounds the time of the index and a view on a map of 5,000 nodes)
 navigation.ts        where the reader stands at any depth, pure: the path to the open container
-                     and the selection, their events, the breadcrumb, and the URL fragment that
-                     carries both (navigation.spec.ts)
+                     and the selection, their events, the breadcrumb and its fold to one line,
+                     and the URL fragment that carries both (navigation.spec.ts)
 threads.ts           open points and threads, pure: who a point waits for (threads.spec.ts)
 check.ts             validates a map folder: what drawable.ts refuses, then a brief on a leaf, the
                      root's tour, see/seams/traps ids on every panel, tags against the Config's,
@@ -80,8 +80,10 @@ camera.ts            the camera, pure: the view shown and the one it cross-fades
                      through the boxes along their path, any number of levels at once
                      (camera.spec.ts)
 geometry.ts          rects, points and similarities
-layout.ts            runs ELK's layered layout, flat, a ghost held to the first or the last layer
-                     (layout.spec.ts, which runs ELK under Bun)
+layout.ts            runs ELK's layered layout, flat, its rows wrapped to an aspect, a ghost held
+                     to the first or the last layer (layout.spec.ts, which runs ELK under Bun)
+zoom.ts              the free look inside a view, pure: the camera's rect zoomed around a point
+                     or panned, kept within the rect that fits the view (zoom.spec.ts)
 avoid.ts             runs libavoid (avoid.spec.ts)
 measure.ts           sizes text: one scale for every view
 panel.ts             the panel, the breadcrumb and the open points' list (panel.spec.ts)
@@ -161,13 +163,20 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   followed.
 - Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
+- Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
+  the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
+  bring the fit back before they do anything else, and a move to another view starts at its fit.
+- The breadcrumb stays on one line: from five crumbs on, the levels between the root and the
+  last two fold into `…`, their names in its tooltip (`foldedCrumbs` in `navigation.ts`).
+- A ghost drawn in both columns carries a `›` mark at the edge its arrows cross and a tooltip
+  naming the copy; hovering one copy lights both.
 - A move between a view and one of its ancestors cross-fades the two, the deeper one aligned on
   its box; a move between two views neither of which holds the other lands at once.
 - A view is laid out the first time the reader reaches it, then kept; its parent and its
   container children are laid out while the reader looks, a navigated view before any of them.
-  The packed views are laid out again when the drawing area's aspect moves, with the Config's
-  ratio "screen"; every view is when the fonts settle late. `performance.measure("atlas:draw
-  <view>")` times each layout.
+  Every view is laid out again when the drawing area's aspect moves, with the Config's ratio
+  "screen" (a packed view aims at it, a layered view wraps its rows to it), and when the fonts
+  settle late. `performance.measure("atlas:draw <view>")` times each layout.
 
 ## Traps
 

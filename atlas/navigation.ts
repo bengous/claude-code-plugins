@@ -214,3 +214,27 @@ export function crumbsOf(tree: Tree, given: Place): Crumb[] {
     ...(place.selected === null ? [] : [crumb(place.selected, true)]),
   ];
 }
+
+/** A crumb shown, or the levels folded into one. */
+export type Shown = Crumb | { readonly kind: "fold"; readonly crumbs: readonly Crumb[] };
+
+const KEPT_END = 2;
+
+// Folding fewer saves nothing: the fold is as wide as a short label.
+const FOLD_FROM = 5;
+
+/**
+ * The breadcrumb on one line: from FOLD_FROM crumbs on, the levels between the root and the last
+ * KEPT_END fold into one that names them all.
+ */
+export function foldedCrumbs(crumbs: readonly Crumb[]): Shown[] {
+  if (crumbs.length < FOLD_FROM) {
+    return [...crumbs];
+  }
+
+  return [
+    ...crumbs.slice(0, 1),
+    { kind: "fold", crumbs: crumbs.slice(1, -KEPT_END) },
+    ...crumbs.slice(-KEPT_END),
+  ];
+}

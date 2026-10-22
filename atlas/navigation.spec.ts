@@ -3,8 +3,17 @@ import { describe, expect, test } from "bun:test";
 import type { Node } from "./atlas.ts";
 import SAMPLE from "./fixtures/sample/map.ts";
 import { DEEP, randomMap } from "./fixtures/trees.ts";
-import type { Place, PlaceEvent } from "./navigation.ts";
-import { HOME, crumbsOf, hashOf, navigate, normalised, openOf, placeOfHash } from "./navigation.ts";
+import type { Place, PlaceEvent, Shown } from "./navigation.ts";
+import {
+  HOME,
+  crumbsOf,
+  foldedCrumbs,
+  hashOf,
+  navigate,
+  normalised,
+  openOf,
+  placeOfHash,
+} from "./navigation.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, treeOf } from "./tree.ts";
 import { viewOf } from "./view.ts";
@@ -212,6 +221,40 @@ describe("crumbsOf", () => {
 
   test("the root's view alone is the root crumb", () => {
     expect(crumbsOf(sample, HOME)).toEqual([{ kind: "root" }]);
+  });
+});
+
+const ids = (shown: readonly Shown[]): string[] =>
+  shown.map((c) =>
+    c.kind === "root"
+      ? "root"
+      : c.kind === "fold"
+        ? `[${c.crumbs.map((f) => (f.kind === "root" ? "root" : f.id)).join(" ")}]`
+        : c.id,
+  );
+
+describe("foldedCrumbs", () => {
+  test("five crumbs or more fold the levels between the root and the last two", () => {
+    expect(ids(foldedCrumbs(crumbsOf(deep, at(["B", "B1", "B11", "B111"], "b1"))))).toEqual([
+      "root",
+      "[B B1 B11]",
+      "B111",
+      "b1",
+    ]);
+
+    expect(ids(foldedCrumbs(crumbsOf(deep, at(["B", "B1", "B11", "B111"]))))).toEqual([
+      "root",
+      "[B B1]",
+      "B11",
+      "B111",
+    ]);
+  });
+
+  test("four crumbs or fewer stay as they are", () => {
+    const four = crumbsOf(sample, at(["server", "app"], "orders"));
+
+    expect(foldedCrumbs(four)).toEqual(four);
+    expect(foldedCrumbs(crumbsOf(sample, HOME))).toEqual([{ kind: "root" }]);
   });
 });
 

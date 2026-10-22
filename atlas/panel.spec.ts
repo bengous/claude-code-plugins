@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
+import { DEEP } from "./fixtures/trees.ts";
 import { loadFolder } from "./folder.ts";
-import { renderPanel } from "./panel.ts";
+import { renderCrumbs, renderPanel } from "./panel.ts";
 import { settingsOf } from "./settings.ts";
 import { esc } from "./svg.ts";
 import { treeOf } from "./tree.ts";
@@ -64,6 +65,33 @@ describe("the panel's HTML", () => {
     expect(panel.innerHTML).toContain('<h2><span class="swatch"></span>Bookshop</h2>');
     expect(panel.innerHTML).toContain('data-go="clients"');
     expect(panel.innerHTML).toContain("no wasm");
+  });
+});
+
+describe("the breadcrumb", () => {
+  test("five levels down, the middle levels fold into one that names them in its tooltip", () => {
+    const crumbs = { innerHTML: "" };
+    const place = { path: ["B", "B1", "B11", "B111"], selected: "b1" };
+
+    renderCrumbs(settingsOf(CONFIG), treeOf(DEEP), crumbs, place);
+
+    expect(crumbs.innerHTML).toBe(
+      '<button type="button" data-go="" title="Bookshop">Bookshop</button>' +
+        '<span class="sep">›</span><span class="fold" title="B › B1 › B11">…</span>' +
+        '<span class="sep">›</span><button type="button" data-go="B111" title="B111">B111</button>' +
+        '<span class="sep">›</span><button type="button" data-go="b1" title="b1" aria-current="true">b1</button>',
+    );
+  });
+
+  test("three levels down, every crumb shows, the open container current", () => {
+    const crumbs = { innerHTML: "" };
+
+    renderCrumbs(settingsOf(CONFIG), TREE, crumbs, { path: ["server", "app"], selected: null });
+
+    expect(crumbs.innerHTML).not.toContain("fold");
+    expect(crumbs.innerHTML).toContain(
+      '<button type="button" data-go="app" title="Application" aria-current="true">Application</button>',
+    );
   });
 });
 

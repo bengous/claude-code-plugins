@@ -1,6 +1,7 @@
 import type { OpenPoint, Pair, Panel } from "./atlas.ts";
 import type { Place } from "./navigation.ts";
-import { crumbsOf, openOf } from "./navigation.ts";
+import type { Crumb } from "./navigation.ts";
+import { crumbsOf, foldedCrumbs, openOf } from "./navigation.ts";
 import type { Settings } from "./settings.ts";
 import { paletteVar } from "./settings.ts";
 import { esc } from "./svg.ts";
@@ -279,20 +280,34 @@ export function renderOpenList(
   menu.innerHTML = `<h2>${s.words.openPoints}</h2>${sum}<ul>${rows.join("")}</ul>`;
 }
 
-export function renderCrumbs(s: Settings, tree: Tree, crumbs: HTMLElement, place: Place): void {
+// On one line: the levels folded (foldedCrumbs) name themselves in the fold's tooltip.
+export function renderCrumbs(
+  s: Settings,
+  tree: Tree,
+  crumbs: Pick<HTMLElement, "innerHTML">,
+  place: Place,
+): void {
   const all = crumbsOf(tree, place);
+  const last = all.at(-1);
   const anySelected = all.some((c) => c.kind === "node" && c.selected);
+  const labelOf = (crumb: Crumb): string => (crumb.kind === "root" ? s.title : crumb.label);
 
-  const parts = all.map((crumb, i) => {
-    const here = anySelected ? crumb.kind === "node" && crumb.selected : i === all.length - 1;
+  const button = (crumb: Crumb): string => {
+    const here = anySelected ? crumb.kind === "node" && crumb.selected : crumb === last;
     const current = here ? ' aria-current="true"' : "";
+    const go = crumb.kind === "root" ? "" : crumb.id;
+    const label = esc(labelOf(crumb));
 
-    const button =
-      crumb.kind === "root"
-        ? `<button type="button" data-go=""${current}>${esc(s.title)}</button>`
-        : `<button type="button" data-go="${esc(crumb.id)}"${current}>${esc(crumb.label)}</button>`;
+    return `<button type="button" data-go="${esc(go)}" title="${label}"${current}>${label}</button>`;
+  };
 
-    return i === 0 ? button : `<span class="sep">›</span>${button}`;
+  const parts = foldedCrumbs(all).map((shown, i) => {
+    const part =
+      shown.kind === "fold"
+        ? `<span class="fold" title="${esc(shown.crumbs.map(labelOf).join(" › "))}">…</span>`
+        : button(shown);
+
+    return i === 0 ? part : `<span class="sep">›</span>${part}`;
   });
 
   crumbs.innerHTML = parts.join("");

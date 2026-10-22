@@ -32,13 +32,18 @@
     stands in the column of its `side`. One arrow per pair of boxes, each
     link's ends lifted to the boxes that hold them; the links that leave the
     open container bring their other end as a ghost at the edge, on the left
-    when the arrow comes from it, on the right when it goes to it. A view of
-    leaves alone is laid out left to right with every arrow's label and tags.
+    when the arrow comes from it, on the right when it goes to it; a ghost
+    reached both ways is drawn twice, a mark at the edge its arrows cross. A
+    view of leaves alone is laid out left to right, its rows wrapped to the
+    stage's aspect, every arrow's label and tags placed along it, shortened
+    with its whole text as a tooltip where nothing else fits.
   - Clicking a box enters it: the camera carries the reader from the box
     into the child's view, the two cross-fading on the way; Escape, the
     breadcrumb or a click on the empty sheet go up one level (Escape first
-    deselects). There is no free zoom or drag: the camera only follows
-    navigation (navigation.ts, camera.ts).
+    deselects). Inside a view, the wheel zooms around the pointer, a drag
+    pans and two fingers pinch; the fit button, Escape or a click on the
+    empty sheet bring the fit back first (zoom.ts). The camera follows
+    navigation (navigation.ts, camera.ts): another view starts at its fit.
   - Clicking a card, a ghost or a chip selects it, lights its arrows and
     outlines its couplings, lifted to the boxes and ghosts of the view.
     Couplings are symmetric: listing B in A's `couples` also outlines A when
@@ -169,17 +174,20 @@ body {
   letter-spacing: 0.02em; line-height: 1;
 }
 .top .sub { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+/* One line: the levels between the root and the last two fold into "…" (panel.ts), and a long label is cut with its whole text as a tooltip. */
 .crumbs {
-  margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin-left: auto; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; white-space: nowrap;
   font-family: var(--f-display); font-size: 16px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
 }
 .crumbs button {
   font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--ink-2);
   background: none; border: 0; padding: 2px 4px; cursor: pointer; border-radius: 3px;
+  max-width: 22ch; overflow: hidden; text-overflow: ellipsis;
 }
 .crumbs button:hover { color: var(--accent); }
 .crumbs button[aria-current="true"] { color: var(--ink); cursor: default; }
-.crumbs .sep { color: var(--ink-3); }
+.crumbs .sep, .crumbs .fold { color: var(--ink-3); }
+.crumbs .fold { padding: 2px 4px; cursor: help; }
 
 /* Open points: the header button, its list (a native popover), and the badge on the map. */
 .open-btn {
@@ -214,7 +222,8 @@ body {
   position: relative; min-width: 0; min-height: 0;
   background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
 }
-#map { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; }
+/* touch-action none: the page keeps a finger's drag and a pinch for its own pan and zoom. */
+#map { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; touch-action: none; }
 
 .controls { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
 .controls button, .panel .nav button, .chip {
@@ -232,11 +241,13 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 }
 .legend[hidden], .legend.empty, .panel[hidden] { display: none; }
 .app:has(> .panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
-.controls button[aria-pressed="false"] { color: var(--ink-3); }
+.controls button[aria-pressed="false"], .controls button:disabled { color: var(--ink-3); }
+.controls button:disabled { cursor: default; border-color: var(--line); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { width: 26px; height: 8px; overflow: visible; }
 .hint {
   position: absolute; right: 10px; top: 12px; margin: 0; font-size: 12px; color: var(--ink-3);
+  max-width: calc(100% - 440px); text-align: right;
   background: color-mix(in srgb, var(--sheet) 85%, transparent); padding: 2px 6px; border-radius: 3px;
 }
 
@@ -339,10 +350,13 @@ svg text { text-rendering: geometricPrecision; }
 .ghost rect { fill: color-mix(in srgb, var(--zc) 5%, var(--sheet)); stroke: color-mix(in srgb, var(--zc) 45%, var(--ink-3)); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .ghost.outside rect { stroke: var(--ink-3); stroke-width: 1.4; stroke-dasharray: 6 4; }
 .ghost.off rect { stroke-dasharray: 4 3; fill: var(--sheet); }
-.ghost:hover rect { stroke: var(--ink); }
+.ghost:hover rect, .ghost.peer rect { stroke: var(--ink); }
 .ghost.selected rect { stroke: var(--accent); stroke-width: 2.6; stroke-dasharray: none; }
 .ghost.coupled rect { stroke: var(--accent); stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
 .ghost-t { font-family: var(--f-display); font-weight: 600; font-size: 20px; fill: var(--ink-2); }
+/* The mark of a ghost drawn twice: at the edge its arrows leave (left copy) or reach (right copy). */
+.ghost-mark { font-family: var(--f-display); font-weight: 700; font-size: 22px; fill: var(--ink-3); pointer-events: none; }
+.ghost:hover .ghost-mark, .ghost.peer .ghost-mark { fill: var(--ink); }
 
 /* The badge of an item whose subtree carries open points, with their count. */
 .open-dot { fill: var(--open); stroke: var(--surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -394,6 +408,7 @@ svg text { text-rendering: geometricPrecision; }
     <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group"></svg>
     <div class="controls">
       <button type="button" id="btn-home"></button>
+      <button type="button" id="btn-fit" disabled></button>
       <button type="button" id="btn-legend" aria-controls="legend" aria-pressed="true"></button>
       <button type="button" id="btn-panel" aria-controls="panel" aria-pressed="true"></button>
     </div>

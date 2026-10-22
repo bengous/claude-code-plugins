@@ -48,8 +48,8 @@ export const CHIP = { cls: "chip-t", h: 34, gap: 9, pad: 13, maxW: 560 };
  * measure uppercases them too, and 1.06 covers their letter-spacing. */
 export const BOX = { title: "box-title", tag: "box-tag", padX: 20, top: 80, bottom: 20 };
 
-/** A ghost's pill. */
-export const GHOST = { cls: "ghost-t", h: 52, pad: 22 };
+/** A ghost's pill; `mark`: how far from the edge the copy's mark sits, inside the padding. */
+export const GHOST = { cls: "ghost-t", h: 52, pad: 22, mark: 11 };
 
 /** An arrow's label: `h` is the height its text renders at, `ascent` from its top to the baseline. */
 export const LABEL = { cls: "flow-label", h: 18, ascent: 14, pad: 8 };

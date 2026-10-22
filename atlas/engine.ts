@@ -21,7 +21,7 @@ import { betweenOf, camera, shown } from "./camera.ts";
 import type { Drawn, Packing } from "./draw.ts";
 import { drawView } from "./draw.ts";
 import { drawableOf } from "./drawable.ts";
-import type { Rect } from "./geometry.ts";
+import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
 import type { Place, PlaceEvent } from "./navigation.ts";
@@ -38,6 +38,7 @@ import { chainOf, holds } from "./tree.ts";
 import { coupledIn, lights, viewOf } from "./view.ts";
 import type { Selected } from "./wire.ts";
 import { SELECTION_PATH } from "./wire.ts";
+import { panned, zoomed, zoomedIn } from "./zoom.ts";
 
 const { tree, settings } = drawableOf(map, config);
 
@@ -134,6 +135,7 @@ function dressPage(): void {
   byId("stage", HTMLElement).setAttribute("aria-label", words.stage);
   svg.setAttribute("aria-label", words.mapLabel(settings.title));
   byId("btn-home", HTMLButtonElement).textContent = words.home;
+  byId("btn-fit", HTMLButtonElement).textContent = words.fitButton;
   legendButton.textContent = words.legendButton;
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
   byId("hint", HTMLElement).textContent = words.hint;
@@ -384,7 +386,158 @@ function jumpTo(key: Key): void {
   const image = imageOf(key);
   cam = { kind: "idle", image };
   paint(image);
+  fitButton.disabled = true;
 }
+
+// A free look inside the view shown: the wheel zooms around the pointer, a drag pans, two
+// pointers pinch, all within the fit (zoom.ts). The fit button, a click on the empty sheet or
+// Escape bring the fit back, and a move to another view starts at its fit.
+const WHEEL = 0.0018;
+
+const WHEEL_LINE = 20;
+
+const DRAG = 4;
+
+const fitButton = byId("btn-fit", HTMLButtonElement);
+
+function look(vb: Rect): void {
+  if (cam?.kind !== "idle") {
+    return;
+  }
+
+  const image = { ...cam.image, vb };
+  cam = { kind: "idle", image };
+  paint(image);
+  fitButton.disabled = !zoomedIn(vb, imageOf(image.space).vb);
+}
+
+// Whether the view was zoomed into; if so, back to its fit.
+function unzoom(): boolean {
+  if (cam?.kind !== "idle" || !zoomedIn(cam.image.vb, imageOf(cam.image.space).vb)) {
+    return false;
+  }
+
+  jumpTo(cam.image.space);
+
+  return true;
+}
+
+const unitsPerPx = (vb: Rect): number => vb.w / Math.max(1, svg.getBoundingClientRect().width);
+
+function pointOf(client: Point, vb: Rect): Point {
+  const r = svg.getBoundingClientRect();
+
+  return [
+    vb.x + ((client[0] - r.left) / Math.max(1, r.width)) * vb.w,
+    vb.y + ((client[1] - r.top) / Math.max(1, r.height)) * vb.h,
+  ];
+}
+
+svg.addEventListener(
+  "wheel",
+  (e) => {
+    if (cam?.kind !== "idle") {
+      return;
+    }
+
+    e.preventDefault();
+    const step = e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? e.deltaY : e.deltaY * WHEEL_LINE;
+    const { vb, space } = cam.image;
+    look(
+      zoomed(vb, pointOf([e.clientX, e.clientY], vb), Math.exp(step * WHEEL), imageOf(space).vb),
+    );
+  },
+  { passive: false },
+);
+
+const pointers = new Map<number, Point>();
+
+const starts = new Map<number, Point>();
+
+let dragged = false;
+
+svg.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "mouse" && e.button !== 0) {
+    return;
+  }
+
+  if (pointers.size === 0) {
+    dragged = false;
+  }
+
+  pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  starts.set(e.pointerId, [e.clientX, e.clientY]);
+
+  // A pointer a script made up has no capture to take: the browser throws on it.
+  if (e.isTrusted) {
+    svg.setPointerCapture(e.pointerId);
+  }
+});
+
+svg.addEventListener("pointermove", (e) => {
+  const before = pointers.get(e.pointerId);
+  const origin = starts.get(e.pointerId);
+
+  if (before === undefined || origin === undefined || cam?.kind !== "idle") {
+    return;
+  }
+
+  const now: Point = [e.clientX, e.clientY];
+  pointers.set(e.pointerId, now);
+  const other = [...pointers].find(([id]) => id !== e.pointerId)?.[1];
+  const { vb, space } = cam.image;
+  const fitted = imageOf(space).vb;
+  const k = unitsPerPx(vb);
+
+  if (other === undefined) {
+    if (!dragged && Math.hypot(now[0] - origin[0], now[1] - origin[1]) < DRAG) {
+      return;
+    }
+
+    dragged = true;
+    look(panned(vb, (now[0] - before[0]) * k, (now[1] - before[1]) * k, fitted));
+
+    return;
+  }
+
+  dragged = true;
+  const span = (p: Point): number => Math.hypot(p[0] - other[0], p[1] - other[1]);
+  const mid = (p: Point): Point => [(p[0] + other[0]) / 2, (p[1] + other[1]) / 2];
+  const [m0, m1] = [mid(before), mid(now)];
+  const pinched = zoomed(vb, pointOf(m0, vb), span(before) / Math.max(1, span(now)), fitted);
+  look(
+    panned(
+      pinched,
+      (m1[0] - m0[0]) * unitsPerPx(pinched),
+      (m1[1] - m0[1]) * unitsPerPx(pinched),
+      fitted,
+    ),
+  );
+});
+
+for (const ended of ["pointerup", "pointercancel"] as const) {
+  svg.addEventListener(ended, (e) => {
+    pointers.delete(e.pointerId);
+    starts.delete(e.pointerId);
+  });
+}
+
+// A drag's end is no click: nothing is selected or left.
+svg.addEventListener(
+  "click",
+  (e) => {
+    if (dragged) {
+      e.stopPropagation();
+      e.preventDefault();
+      dragged = false;
+    }
+  },
+  true,
+);
+
+fitButton.addEventListener("click", () => {
+  unzoom();
+});
 
 // A move between a view and one of its ancestors is animated; any other, and the first, lands at
 // once.
@@ -452,6 +605,12 @@ function hover(target: EventTarget | null): void {
 
   for (const e of d.arrows) {
     e.g.classList.toggle("lit", id !== null && lights(tree, e.arrow, id));
+  }
+
+  for (const [itemId, gs] of d.items) {
+    for (const g of gs) {
+      g.classList.toggle("peer", id !== null && itemId === id);
+    }
   }
 
   d.layer.classList.toggle("focusing", id !== null);
@@ -728,12 +887,11 @@ bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;
 
-  if (
-    e.key === "Escape" &&
-    !typing &&
-    !openList.matches(":popover-open") &&
-    place !== navigate(tree, place, { type: "escape" })
-  ) {
+  if (e.key !== "Escape" || typing || openList.matches(":popover-open") || unzoom()) {
+    return;
+  }
+
+  if (place !== navigate(tree, place, { type: "escape" })) {
     send({ type: "escape" });
   }
 });
@@ -746,16 +904,17 @@ addEventListener("hashchange", () => {
   settle().catch(fail);
 });
 
+// A click on the empty sheet brings the fit back, else deselects, then goes up a level.
 svg.addEventListener("click", () => {
-  if (place !== navigate(tree, place, { type: "escape" })) {
+  if (!unzoom() && place !== navigate(tree, place, { type: "escape" })) {
     send({ type: "escape" });
   }
 });
 
-// The packed views are laid out again when the aspect of the drawing area moves by more than
-// RELAYOUT (a resized window, the panel hidden or shown), once the resizing settles, with the
-// Config's overview ratio "screen"; every view is when the fonts settle late. A move under way
-// ends where it was going.
+// Every view is laid out again when the aspect of the drawing area moves by more than RELAYOUT
+// (a resized window, the panel hidden or shown), once the resizing settles, with the Config's
+// overview ratio "screen"; and when the fonts settle late. A move under way ends where it was
+// going.
 const RELAYOUT = { change: 0.15, settleMs: 300 };
 
 let relayoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -781,7 +940,7 @@ function relayoutIfNeeded(): void {
     return;
   }
 
-  relayout((d) => d.mode === "packed");
+  relayout(() => true);
 }
 
 new ResizeObserver(() => {

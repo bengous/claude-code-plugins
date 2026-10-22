@@ -8,13 +8,14 @@
 //    boxes), aiming at the aspect of the screen less the room of the two side columns when the
 //    Config's overview ratio is "screen", or at the ratio it gives; libavoid routes one arrow per
 //    pair around every item. A view of leaves alone is layered: ELK's layered layout places the
-//    cards and the pills left to right and routes the arrows with their labels and tags.
-// 3. Labels of a packed view take a spot along their arrow where the label hits no item, no other
-//    label and no other arrow, then one that hits no item and no label, the label shortened to its
-//    first part, then to an ellipsis, when the whole does not fit; failing that, the ellipsis
-//    takes the spot that overlaps the least (placement.ts). The drawing's extent covers the labels
-//    and the routes, so the camera frames them. On libavoid's failure (libavoid.wasm unreachable)
-//    the view is drawn without arrows and the panel says why: never block the page.
+//    cards and the pills left to right, in rows wrapped to that same aspect, and routes the
+//    arrows.
+// 3. Labels take a spot along their arrow where the label hits no item, no other label and no
+//    other arrow, then one that hits no item and no label, the label shortened to its first part,
+//    then to an ellipsis, when the whole does not fit; failing that, the ellipsis takes the spot
+//    that overlaps the least (placement.ts). The drawing's extent covers the labels and the
+//    routes, so the camera frames them. On libavoid's failure (libavoid.wasm unreachable) the
+//    view is drawn without arrows and the panel says why: never block the page.
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
@@ -371,18 +372,20 @@ function extended(
   };
 }
 
+// The rows wrap to the aspect a "screen" packing aims at, or to the Config's ratio.
 async function layeredView(
   view: View,
   items: readonly Item[],
   ends: readonly End[],
+  packing: Packing,
 ): Promise<Laid> {
   const edges = view.arrows.map((a, i): LayoutEdge => ({
     from: ends[i]?.from ?? a.from,
     to: ends[i]?.to ?? a.to,
-    label: arrowText(a, "layered"),
   }));
 
-  const laid = await elkLayered(items, edges, labelSize);
+  const aspect = packing.kind === "screen" ? clampRatio(packing.aspect) : packing.ratio;
+  const laid = await elkLayered(items, edges, aspect);
 
   const placed = framed(
     laid.boxes,
@@ -390,20 +393,10 @@ async function layeredView(
   );
 
   const [dx, dy] = placed.shift;
+  const routes = laid.paths.map((pts) => pts.map(([x, y]): Point => [x + dx, y + dy]));
+  const variants = view.arrows.map((a) => labelVariants(a, "layered").map((t) => labelSize(t)));
 
-  return extended(
-    placed,
-    laid.paths.map((p) => p.pts.map(([x, y]): Point => [x + dx, y + dy])),
-    laid.paths.map((p) =>
-      p.label === null
-        ? null
-        : {
-            spot: { x: p.label.x + dx, y: p.label.y + dy, w: p.label.w, h: p.label.h },
-            variant: 0,
-          },
-    ),
-    null,
-  );
+  return extended(placed, routes, labelSpots(routes, variants, [...placed.rects.values()]), null);
 }
 
 async function packedView(
@@ -521,7 +514,17 @@ function drawCard(layer: SVGGElement, box: LeafBox, r: Rect, items: Registry, pi
   register(items, box.id, g);
 }
 
-function drawGhost(layer: SVGGElement, ghost: Ghost, r: Rect, items: Registry, pick: Pick): void {
+// A ghost drawn twice carries a mark at the edge its arrows cross, so the two pills read as one
+// node seen as a source and as a target, and a tooltip saying which copy this is.
+function drawGhost(
+  layer: SVGGElement,
+  ghost: Ghost,
+  lane: Column,
+  r: Rect,
+  items: Registry,
+  words: Words,
+  pick: Pick,
+): void {
   const cls = `ghost${ghost.outside ? " outside" : ""}${ghost.off ? " off" : ""}`;
   const g = el("g", { class: cls, style: colorStyle(ghost.color), "data-id": ghost.id }, layer);
   el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 26 }, g);
@@ -530,6 +533,16 @@ function drawGhost(layer: SVGGElement, ghost: Ghost, r: Rect, items: Registry, p
     { x: r.x + r.w / 2, y: r.y + 33, class: GHOST.cls, "text-anchor": "middle" },
     ghost.label,
   );
+
+  if (ghost.side === "both" && lane !== null) {
+    const source = lane === "in";
+    const x = source ? r.x + r.w - GHOST.mark : r.x + GHOST.mark;
+    text(g, { x, y: r.y + 33, class: "ghost-mark", "text-anchor": "middle" }, "›");
+    el("title", {}, g).textContent = (source ? words.copies.source : words.copies.target)(
+      ghost.label,
+    );
+  }
+
   openBadge(g, ghost.open, r.x + r.w - 10, r.y + 4, false);
   onActivate(g, ghost.label, () => {
     pick({ type: "select", id: ghost.id });
@@ -589,7 +602,7 @@ export async function drawView(
   const laid =
     mode === "packed"
       ? await packedView(view, items, ends, packing, pins)
-      : await layeredView(view, items, ends);
+      : await layeredView(view, items, ends, packing);
 
   layer.classList.add("view", mode);
   // Boxes, then arrows, then cards, pills and chips on top: an arrow's end never hides a label.
@@ -623,7 +636,7 @@ export async function drawView(
       }
 
       case "ghost": {
-        drawGhost(top, item.figure.ghost, r, registry, pick);
+        drawGhost(top, item.figure.ghost, item.column, r, registry, words, pick);
         break;
       }
 

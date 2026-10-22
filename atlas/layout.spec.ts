@@ -53,7 +53,7 @@ const CARD: Size = { w: 70, h: 40 };
 
 const GHOST: Size = { w: 60, h: 24 };
 
-const labelSize = (label: string): Size => ({ w: label.length * 7, h: 14 });
+const ASPECT = 1.2;
 
 const lanesOf = (side: Side | null): Array<Exclude<Side, "both"> | null> =>
   side === "both" ? ["in", "out"] : [side];
@@ -83,25 +83,31 @@ function edgesOf(view: View, leaves: readonly Leaf[]): LayoutEdge[] {
   return view.arrows.map((a) => ({
     from: copyOf(a.from, twice.has(a.from), false),
     to: copyOf(a.to, twice.has(a.to), true),
-    label: a.label,
   }));
 }
 
 type Laid = Awaited<ReturnType<typeof elkLayered>>;
 
-/** The held leaves a free one stands wholly left or right of, against the side they are held to. */
+/**
+ * The held leaves out of place. The rows wrap, so a ghost held to the first layer starts the
+ * first row and one held to the last ends the last row: no card in or above an in ghost's row
+ * stands wholly left of it, no card in or below an out ghost's row stands wholly right of it.
+ */
 function astray(leaves: readonly Leaf[], laid: Laid): string[] {
   const rect = (id: string) => laid.boxes.get(id) ?? fail(`no box ${id}`);
   const free = leaves.flatMap((l) => (l.edge === null ? [rect(l.id)] : []));
-  const minRight = Math.min(...free.map((r) => r.x + r.w));
-  const maxLeft = Math.max(...free.map((r) => r.x));
 
   return leaves.flatMap((l) => {
     const r = rect(l.id);
 
-    return (l.edge === "first" && r.x >= minRight) || (l.edge === "last" && r.x + r.w <= maxLeft)
-      ? [l.id]
-      : [];
+    const wrong =
+      l.edge === "first"
+        ? free.some((c) => c.y < r.y + r.h && c.x + c.w <= r.x)
+        : l.edge === "last"
+          ? free.some((c) => c.y + c.h > r.y && c.x >= r.x + r.w)
+          : false;
+
+    return wrong ? [`${l.id} (${l.edge})`] : [];
   });
 }
 
@@ -125,19 +131,19 @@ describe("elkLayered", () => {
     const laid = await elkLayered(
       leaves,
       [
-        { from: "a", to: "g", label: "" },
-        { from: "h", to: "d", label: "" },
-        { from: "b", to: "c", label: "" },
-        { from: "c", to: "d", label: "" },
+        { from: "a", to: "g" },
+        { from: "h", to: "d" },
+        { from: "b", to: "c" },
+        { from: "c", to: "d" },
       ],
-      labelSize,
+      ASPECT,
       elk,
     );
 
     expect(astray(leaves, laid)).toEqual([]);
   });
 
-  test("in every layered view of a wide map, no card stands wholly left of an in ghost or right of an out ghost", async () => {
+  test("in every layered view of a wide map, an in ghost starts its row and an out ghost ends its row, whatever the rows above or below", async () => {
     const elk = await bunLayouter();
     const tree = treeOf(LARGE);
     const checked: string[] = [];
@@ -154,7 +160,7 @@ describe("elkLayered", () => {
       }
 
       const leaves = leavesOf(view);
-      const laid = await elkLayered(leaves, edgesOf(view, leaves), labelSize, elk);
+      const laid = await elkLayered(leaves, edgesOf(view, leaves), ASPECT, elk);
 
       expect(astray(leaves, laid), `view ${id}`).toEqual([]);
       checked.push(id);
