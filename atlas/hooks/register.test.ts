@@ -552,6 +552,30 @@ describe("the selection", () => {
     expect(seen.contexts).toEqual([[SELECTED], []]);
   });
 
+  test("a prompt the session drops leaves the selection to be said at the next", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    seen.children[0]?.select(BACKUP);
+    await drain(seen);
+    seen.dropping = "a hook refused it";
+    await $.prompt.submit(PROMPT);
+    seen.dropping = undefined;
+    await $.prompt.submit(PROMPT);
+
+    expect(seen.contexts).toEqual([[SELECTED], [SELECTED]]);
+  });
+
+  test("a slash command carries no selection, and leaves it for the next prompt", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    seen.children[0]?.select(BACKUP);
+    await drain(seen);
+    await $.prompt.submit({ ...PROMPT, text: "/compact", command: { name: "compact", args: "" } });
+    await $.prompt.submit(PROMPT);
+
+    expect(seen.contexts).toEqual([[], [SELECTED]]);
+  });
+
   test("the map's id and label reach the context quoted, on one line and cut, as data", async ($, on) => {
     const seen = world(on);
     await settled(seen, $.skill.prompt(board("docs/map")));

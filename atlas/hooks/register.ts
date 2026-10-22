@@ -774,19 +774,31 @@ export const register: Register = (on) => {
     return result;
   });
 
+  // A selection is said once its prompt entered: a slash command carries none, and a prompt
+  // dropped leaves it for the next.
   on("prompt.submit", async ($, e, next) => {
+    if (e.command !== undefined) return next(e);
+    const said: [string, string | null][] = [];
     const context: string[] = [];
 
     for (const folder of boards.keys()) {
       const selection = parseSelection(await $.store.get(selectionKey(folder)));
 
       if (selection === null || told.get(folder) === selection.id) continue;
-      told.set(folder, selection.id);
+      said.push([folder, selection.id]);
 
       if (selection.id !== null) context.push(selectedText(folder, selection));
     }
 
-    return next(context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] });
+    const result = await next(
+      context.length === 0 ? e : { ...e, context: [...(e.context ?? []), ...context] },
+    );
+
+    if (result.drop === undefined) {
+      for (const [folder, id] of said) told.set(folder, id);
+    }
+
+    return result;
   });
 
   on("tool.call", { tool: "mcp__atlas__atlas_open_points" }, async ($, e) => {

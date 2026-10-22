@@ -78,6 +78,8 @@ export type World = {
   /** Answers each `$.process.run` but the browser's opener, which succeeds unless `noOpener`. */
   answer: (argv: readonly string[]) => Partial<ProcessRunResult>;
   noOpener: string | undefined;
+  /** While set, the session drops each prompt, for this reason. */
+  dropping: string | undefined;
   /** Runs after each write of the module's to the store: another session writing right after it. */
   afterSet: (key: string) => void;
   /** Every atlas server listening, by port: the folder it serves, whoever started it. */
@@ -263,6 +265,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     pick: null,
     answer: () => ({}),
     noOpener: undefined,
+    dropping: undefined,
     afterSet: () => {},
     servers: new Map(),
     nextPort: FIRST_PORT,
@@ -379,7 +382,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   on("prompt.submit", (_, e) => {
     built.contexts.push(e.context ?? []);
 
-    return { text: e.text };
+    return built.dropping === undefined ? { text: e.text } : { drop: built.dropping };
   });
 
   on("session.start", (_, e) => ({ cwd: e.cwd }));
