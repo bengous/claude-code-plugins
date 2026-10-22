@@ -627,6 +627,47 @@ describe("a selection posted by the page", () => {
   });
 });
 
+// folder.ts loads the map in a process whose stdout the map's own code shares.
+describe("a map whose code prints to its stdout", () => {
+  test(
+    "is drawn, and a selection names its label",
+    async () => {
+      served().events.skip();
+      const printing = `console.log("a line of the map's own");\n\n${original.replace("Nightly backup", "Printed backup")}`;
+      saveAtomically(join(dir, MAP_FILE), printing);
+
+      const shown = await reloadedTo(
+        (p) => p.script.includes("Printed backup") || p.html.includes("cannot be drawn"),
+      );
+
+      expect(shown.status).toBe(200);
+
+      served().log.skip();
+
+      expect((await select(await own(), { id: "backup" })).status).toBe(204);
+      expect(JSON.parse(await nextServerLine())).toMatchObject({ label: "Printed backup" });
+
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+
+  test(
+    "and leaves before its labels are printed shows what it printed",
+    async () => {
+      served().events.skip();
+      const leaving = `console.log("leaving early");\nprocess.exit(0);\n\n${original}`;
+      saveAtomically(join(dir, MAP_FILE), leaving);
+      const refused = await reloadedTo((p) => p.status === 500);
+
+      expect(refused.html).toContain("cannot be drawn: leaving early");
+
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+});
+
 describe("a heartbeat", () => {
   test("from the hooks module, with no Origin, answers the folder served", async () => {
     const response = await fetch(`${served().base}/${HEARTBEAT_PATH}`, { method: "POST" });

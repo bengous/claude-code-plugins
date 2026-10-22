@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, symlinkSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,13 +11,21 @@ const ROOT = import.meta.dir;
 
 const running: Bun.Subprocess[] = [];
 
-afterEach(() => {
-  for (const server of running.splice(0)) server.kill("SIGKILL");
+const copies: string[] = [];
+
+afterEach(async () => {
+  for (const server of running.splice(0)) {
+    server.kill("SIGKILL");
+    await server.exited;
+  }
+
+  for (const copy of copies.splice(0)) rmSync(copy, { recursive: true, force: true });
 });
 
 /** The plugin's folder under the temp directory, its installed packages linked as they are. */
 function pluginCopy(): string {
   const copy = mkdtempSync(join(tmpdir(), "atlas-alone-"));
+  copies.push(copy);
 
   cpSync(ROOT, copy, { recursive: true, filter: (from) => from !== join(ROOT, "node_modules") });
   // A junction on Windows, which creates one with no privilege; a symbolic link elsewhere.

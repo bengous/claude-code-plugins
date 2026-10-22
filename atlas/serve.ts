@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import type { BuildArtifact, BunPlugin, Server } from "bun";
 
 import { coalesced } from "./coalesce.ts";
-import { CONFIG_FILE, MAP_FILE, THREADS_FILE } from "./folder.ts";
+import { CONFIG_FILE, LABELS_LINE, MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
 import type { Beat, Selected, ServerLine } from "./wire.ts";
 import {
@@ -161,12 +161,18 @@ type Drawable =
   | { readonly kind: "drawn"; readonly labels: ReadonlyMap<string, string> }
   | { readonly kind: "refused"; readonly message: string };
 
-// What folder.ts prints, the map's labels by id; anything else reads as no map.
-function labelsIn(text: string): ReadonlyMap<string, string> | null {
+// The map's labels by id, from the last line folder.ts marks; anything else reads as no map.
+function labelsIn(stdout: string): ReadonlyMap<string, string> | null {
+  const line = stdout.split("\n").findLast((printed) => printed.startsWith(LABELS_LINE));
+
+  if (line === undefined) {
+    return null;
+  }
+
   let value: unknown;
 
   try {
-    value = JSON.parse(text);
+    value = JSON.parse(line.slice(LABELS_LINE.length));
   } catch {
     return null;
   }
@@ -198,9 +204,10 @@ async function drawable(): Promise<Drawable> {
   ]);
 
   const labels = code === 0 ? labelsIn(out) : null;
+  const printed = [error.trim(), out.trim()].filter((text) => text !== "").join("\n");
 
   return labels === null
-    ? { kind: "refused", message: `the map in ${folder} cannot be drawn: ${error.trim()}` }
+    ? { kind: "refused", message: `the map in ${folder} cannot be drawn: ${printed}` }
     : { kind: "drawn", labels };
 }
 

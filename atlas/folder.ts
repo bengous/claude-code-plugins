@@ -8,8 +8,9 @@ import type { Plan } from "./model.ts";
 // AtlasMap, atlas.config.ts, whose default export is its Config, and threads.json. The data imports
 // types only, so the folder needs no package.json. serve.ts bundles the first two into the page;
 // cli.ts imports them here.
-//   bun atlas/folder.ts <map folder>   prints the map's labels by id, or exits 1 with the reason
-//                                      when the engine cannot draw the map
+//   bun atlas/folder.ts <map folder>   prints the map's labels by id on its last line, after
+//                                      LABELS_LINE, or exits 1 with the reason when the engine
+//                                      cannot draw the map
 export const MAP_FILE = "map.ts";
 
 export const CONFIG_FILE = "atlas.config.ts";
@@ -51,9 +52,12 @@ export function labelsOf(plan: Plan): Record<string, string> {
   ]);
 }
 
+// The map's code shares this process's stdout and may print to it: the labels' line is marked.
+export const LABELS_LINE = "atlas labels: ";
+
 // serve.ts runs this for each build in a fresh process: an imported module keeps its first
 // evaluation for the life of the process, and the data changes on every save. It prints the map's
-// labels, labelsOf, as JSON.
+// labels, labelsOf, as JSON after LABELS_LINE.
 if (import.meta.main) {
   const [dir, ...extra] = process.argv.slice(2);
 
@@ -63,7 +67,7 @@ if (import.meta.main) {
   }
 
   try {
-    console.log(JSON.stringify(labelsOf(await planOf(resolve(dir)))));
+    console.log(`${LABELS_LINE}${JSON.stringify(labelsOf(await planOf(resolve(dir))))}`);
   } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
