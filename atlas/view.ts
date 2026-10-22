@@ -1,6 +1,15 @@
 import type { LegendKey, Link, Node, Side } from "./atlas.ts";
 import type { Tree } from "./tree.ts";
-import { childrenOf, couplingsOf, holds, isLeaf, itemIn, liftIn, openIn } from "./tree.ts";
+import {
+  childrenOf,
+  couplingsOf,
+  holds,
+  isLeaf,
+  itemIn,
+  liftIn,
+  openIn,
+  subtreeOf,
+} from "./tree.ts";
 
 /** A child of a container box, named inside it. */
 export type Chip = {
@@ -251,11 +260,13 @@ function coupledAmong(
 ): string[] {
   const self = itemIn(tree, container, id);
 
-  const items = couplingsOf(tree, id).flatMap((other) => {
-    const item = itemIn(tree, container, other);
+  const items = subtreeOf(tree, id).flatMap((held) =>
+    couplingsOf(tree, held).flatMap((other) => {
+      const item = itemIn(tree, container, other);
 
-    return item !== null && item !== self && shown.has(item) ? [item] : [];
-  });
+      return item !== null && item !== self && shown.has(item) ? [item] : [];
+    }),
+  );
 
   return [...new Set(items)];
 }
@@ -290,9 +301,11 @@ export function viewOf(tree: Tree, container: string | null): View {
 }
 
 /**
- * The boxes and ghosts of a view to outline while `id` is selected: the nodes it is coupled with,
- * on either side, each lifted to what stands for it in the view. A node that nothing in the view
- * stands for, or that `id`'s own box or ghost stands for, outlines nothing.
+ * The boxes and ghosts of a view to outline while `id` is selected: the nodes coupled, on either
+ * side, with `id` or with a node it holds, each lifted to what stands for it in the view. So the
+ * outline is symmetric once lifted: when selecting A outlines B, selecting B outlines A. A node
+ * that nothing in the view stands for, or that `id`'s own box or ghost stands for, outlines
+ * nothing.
  */
 export function coupledIn(tree: Tree, view: View, id: string): readonly string[] {
   const shown = new Set([...view.boxes.map((b) => b.id), ...view.ghosts.map((g) => g.id)]);

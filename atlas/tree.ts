@@ -20,6 +20,10 @@ export type Tree = {
   readonly nodes: ReadonlyMap<string, Node>;
   /** Each node's ids from a child of the root down to the node itself. */
   readonly chains: ReadonlyMap<string, readonly string[]>;
+  /** Every id, depth-first, as `nodes` holds them. */
+  readonly order: readonly string[];
+  /** Where each node's subtree lies in `order`, [start, end): the node, then its descendants. */
+  readonly spans: ReadonlyMap<string, readonly [number, number]>;
   /** Each node's open points, those of its descendants included. */
   readonly open: ReadonlyMap<string, number>;
   /** Each node's couplings, declared on either side. */
@@ -51,6 +55,13 @@ export const openIn = (tree: Tree, id: string): number =>
 
 export const couplingsOf = (tree: Tree, id: string): readonly string[] =>
   tree.couplings.get(id) ?? fail(`no node ${id}`);
+
+/** The node and its descendants, depth-first. */
+export function subtreeOf(tree: Tree, id: string): readonly string[] {
+  const [start, end] = tree.spans.get(id) ?? fail(`no node ${id}`);
+
+  return tree.order.slice(start, end);
+}
 
 /** Whether `holder` is `id` or one of its ancestors; the root holds every node. */
 export const holds = (tree: Tree, holder: string | null, id: string): boolean =>
@@ -103,6 +114,8 @@ export const itemIn = (tree: Tree, container: string | null, id: string): string
 export function treeOf(map: AtlasMap): Tree {
   const nodes = new Map<string, Node>();
   const chains = new Map<string, readonly string[]>();
+  const order: string[] = [];
+  const spans = new Map<string, readonly [number, number]>();
   const open = new Map<string, number>();
   const sides = new Map<string, Side>();
 
@@ -128,11 +141,14 @@ export function treeOf(map: AtlasMap): Tree {
     }
 
     const chain = [...above, id];
+    const start = order.length;
     nodes.set(id, node);
     chains.set(id, chain);
+    order.push(id);
     const below = (children ?? []).reduce((sum, child) => sum + visit(child, chain), 0);
     const total = below + (node.open?.length ?? 0);
     open.set(id, total);
+    spans.set(id, [start, order.length]);
 
     return total;
   };
@@ -162,7 +178,7 @@ export function treeOf(map: AtlasMap): Tree {
     }),
   );
 
-  const tree: Tree = { map, nodes, chains, open, couplings, sides };
+  const tree: Tree = { map, nodes, chains, order, spans, open, couplings, sides };
 
   for (const { from, to } of map.links) {
     for (const end of [from, to]) {

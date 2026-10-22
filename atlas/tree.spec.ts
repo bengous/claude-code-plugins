@@ -12,6 +12,7 @@ import {
   itemIn,
   liftIn,
   openIn,
+  subtreeOf,
   treeOf,
 } from "./tree.ts";
 
@@ -83,6 +84,22 @@ describe("treeOf", () => {
     expect(sample.couplings.get("orders")).toEqual(["db", "email"]);
     expect(sample.couplings.get("email")).toEqual(["orders"]);
     expect(deep.couplings.get("a1")).toEqual(["b2", "a5"]);
+  });
+
+  test("subtreeOf answers a node then its descendants, depth-first", () => {
+    expect(subtreeOf(sample, "server")).toEqual([
+      "server",
+      "proxy",
+      "app",
+      "web",
+      "catalog",
+      "orders",
+      "data",
+      "db",
+      "backup",
+    ]);
+
+    expect(subtreeOf(sample, "db")).toEqual(["db"]);
   });
 
   test("keeps the side of each outside node only", () => {
