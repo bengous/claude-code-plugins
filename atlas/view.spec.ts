@@ -322,7 +322,7 @@ describe("the deep map's views", () => {
       flow: true,
       dash: true,
       deny: true,
-      coupled: false,
+      coupled: true,
       outside: false,
       open: true,
     });
@@ -378,8 +378,26 @@ describe("coupledIn", () => {
     expect(coupledIn(deep, viewOf(deep, "Y"), "y1")).toEqual([]);
   });
 
-  test("a node without couplings, a container among them, outlines nothing", () => {
-    expect(coupledIn(sample, viewOf(sample, "server"), "data")).toEqual([]);
+  test("a selected container or ghost outlines what the nodes it holds are coupled with", () => {
+    expect(coupledIn(sample, viewOf(sample, "app"), "data")).toEqual(["catalog", "orders"]);
+    expect(coupledIn(sample, viewOf(sample, "server"), "data")).toEqual(["app"]);
+    expect(coupledIn(deep, viewOf(deep, "A111"), "B")).toEqual(["a1"]);
+  });
+
+  test("once lifted, the outline is symmetric: either side of a pair outlines the other", () => {
+    expect(coupledIn(sample, viewOf(sample, null), "email")).toEqual(["server"]);
+    expect(coupledIn(sample, viewOf(sample, null), "server")).toEqual(["email"]);
+    expect(coupledIn(sample, viewOf(sample, "app"), "orders")).toContain("data");
+    expect(coupledIn(sample, viewOf(sample, "app"), "data")).toContain("orders");
+  });
+
+  test("a coupling between two nodes a box holds outlines nothing, never the box itself", () => {
+    expect(sample.couplings.get("proxy")).toEqual(["web"]);
+    expect(coupledIn(sample, viewOf(sample, null), "server")).toEqual(["email"]);
+  });
+
+  test("a node with no coupling in its subtree outlines nothing", () => {
+    expect(coupledIn(sample, viewOf(sample, null), "clients")).toEqual([]);
   });
 });
 
@@ -467,10 +485,14 @@ function expectWellFormed(tree: Tree, container: string | null): void {
     expect(b.open).toBe(own.length);
   }
 
-  for (const id of shown) {
-    const outlined = coupledIn(tree, view, id);
+  const outlines = new Map([...shown].map((id) => [id, coupledIn(tree, view, id)]));
 
+  for (const [id, outlined] of outlines) {
     expect(outlined.every((o) => shown.has(o) && o !== id)).toBe(true);
+
+    for (const other of outlined) {
+      expect(outlines.get(other)).toContain(id);
+    }
   }
 }
 
