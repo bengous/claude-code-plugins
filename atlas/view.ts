@@ -62,20 +62,23 @@ export type ArrowKind = "flow" | NonNullable<Link["kind"]>;
 
 /**
  * One arrow per ordered pair of the view's boxes and ghosts that links join, each link's ends
- * lifted to the box or ghost that stands for them. A link set directly between the pair with `two`
- * merges both directions into its own, two-headed.
+ * lifted to the box or ghost that stands for them. A pair with a link carrying `two` gets a single
+ * two-headed arrow for both directions. Its direction is that of the first link of the pair set
+ * directly between the two and carrying `two`; else of the first set directly between them; else
+ * of the first carrying `two`.
  */
 export type Arrow = {
   readonly from: string;
   readonly to: string;
   /**
    * The labels of the links no other link of the arrow names, the first two joined: a link names
-   * another when its ends hold the other's ends, at least one strictly, either way round for a
-   * link with `two`. A link set directly between the pair names them all.
+   * another when its ends hold the other's ends, at least one strictly, either way round in a
+   * two-headed arrow. A link set directly between the pair names them all.
    */
   readonly label: string;
   /** The kind shared by its links between two leaves; "flow" when they differ or there are none. */
   readonly kind: ArrowKind;
+  /** It stands for both directions: a link of the pair carries `two`. */
   readonly two: boolean;
   /** The tags of its links between two leaves, each once. */
   readonly tags: readonly string[];
@@ -144,24 +147,31 @@ function liftedIn(tree: Tree, container: string | null): Lifted[] {
 
 const pairKey = (a: string, b: string): string => JSON.stringify(a < b ? [a, b] : [b, a]);
 
-const names = (tree: Tree, outer: Link, inner: Link): boolean =>
+const names = (tree: Tree, outer: Link, inner: Link, two: boolean): boolean =>
   (holds(tree, outer.from, inner.from) &&
     holds(tree, outer.to, inner.to) &&
     (outer.from !== inner.from || outer.to !== inner.to)) ||
-  (outer.two === true &&
+  (two &&
     holds(tree, outer.from, inner.to) &&
     holds(tree, outer.to, inner.from) &&
     (outer.from !== inner.to || outer.to !== inner.from));
 
-function labelOf(tree: Tree, links: readonly Link[]): string {
+function labelOf(tree: Tree, links: readonly Link[], two: boolean): string {
   const named = links.flatMap((inner) =>
-    links.some((outer) => names(tree, outer, inner)) ? [] : [inner.label],
+    links.some((outer) => names(tree, outer, inner, two)) ? [] : [inner.label],
   );
 
   return [...new Set(named)].slice(0, LABELS_SHOWN).join(LABEL_JOINT);
 }
 
-function arrowOf(tree: Tree, from: string, to: string, members: readonly Lifted[]): Arrow {
+type Group = {
+  readonly from: string;
+  readonly to: string;
+  readonly two: boolean;
+  readonly members: Lifted[];
+};
+
+function arrowOf(tree: Tree, { from, to, two, members }: Group): Arrow {
   const links = members.map((m) => m.link);
   const flows = links.filter((l) => isLeaf(tree, l.from) && isLeaf(tree, l.to));
   const kinds = new Set(flows.map((l): ArrowKind => l.kind ?? "flow"));
@@ -170,37 +180,52 @@ function arrowOf(tree: Tree, from: string, to: string, members: readonly Lifted[
   return {
     from,
     to,
-    label: labelOf(tree, links),
+    label: labelOf(tree, links, two),
     kind: kinds.size === 1 && kind !== undefined ? kind : "flow",
-    two: links.some((l) => l.two === true),
+    two,
     tags: [...new Set(flows.flatMap((l) => l.tags ?? []))],
     links: members.map((m) => m.index),
     ends: [...new Set(links.flatMap((l) => [l.from, l.to]))],
   };
 }
 
-function arrowsOf(tree: Tree, lifted: readonly Lifted[]): Arrow[] {
-  const merged = new Map<string, readonly [string, string]>();
+type Way = { readonly rank: number; readonly from: string; readonly to: string };
+
+const DIRECT = 2;
+
+const TWO = 1;
+
+function mergedWays(lifted: readonly Lifted[]): Map<string, Way> {
+  const twos = new Set(lifted.flatMap((l) => (l.link.two === true ? [pairKey(l.from, l.to)] : [])));
+  const ways = new Map<string, Way>();
 
   for (const { link, from, to } of lifted) {
     const key = pairKey(from, to);
+    const direct = link.from === from && link.to === to;
+    const rank = (direct ? DIRECT : 0) + (link.two === true ? TWO : 0);
 
-    if (link.two === true && link.from === from && link.to === to && !merged.has(key)) {
-      merged.set(key, [from, to]);
+    if (twos.has(key) && rank > (ways.get(key)?.rank ?? 0)) {
+      ways.set(key, { rank, from, to });
     }
   }
 
-  const groups = new Map<string, { from: string; to: string; members: Lifted[] }>();
+  return ways;
+}
+
+function arrowsOf(tree: Tree, lifted: readonly Lifted[]): Arrow[] {
+  const ways = mergedWays(lifted);
+  const groups = new Map<string, Group>();
 
   for (const l of lifted) {
-    const [from, to] = merged.get(pairKey(l.from, l.to)) ?? [l.from, l.to];
+    const way = ways.get(pairKey(l.from, l.to));
+    const [from, to] = way === undefined ? [l.from, l.to] : [way.from, way.to];
     const key = JSON.stringify([from, to]);
-    const group = groups.get(key) ?? { from, to, members: [] };
+    const group = groups.get(key) ?? { from, to, two: way !== undefined, members: [] };
     group.members.push(l);
     groups.set(key, group);
   }
 
-  return [...groups.values()].map((g) => arrowOf(tree, g.from, g.to, g.members));
+  return [...groups.values()].map((g) => arrowOf(tree, g));
 }
 
 const chipOf = (tree: Tree, node: Node): Chip => ({

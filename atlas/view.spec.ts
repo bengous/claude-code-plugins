@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Link, Node } from "./atlas.ts";
 import SAMPLE from "./fixtures/sample/map.ts";
 import { DEEP, randomMap } from "./fixtures/trees.ts";
 import type { Tree } from "./tree.ts";
@@ -26,6 +27,29 @@ const arrow = (view: View, from: string, to: string): Arrow => {
 };
 
 const ghosts = (view: View): string[] => view.ghosts.map((g) => `${g.id} ${g.side}`);
+
+const card = (id: string, extra: Partial<Node> = {}): Node => ({
+  id,
+  label: id,
+  sub: "",
+  color: "c",
+  ...extra,
+});
+
+const twoBoxes = (links: readonly Link[]): Tree =>
+  treeOf({
+    root: {
+      title: "T",
+      children: [
+        card("A", { children: [card("a1"), card("a2")] }),
+        card("B", { children: [card("b1"), card("b2")] }),
+      ],
+    },
+    links,
+  });
+
+const rootArrows = (links: readonly Link[]): readonly Arrow[] =>
+  viewOf(twoBoxes(links), null).arrows;
 
 describe("the sample's views", () => {
   test("the root: a box per child, outside ones in their side's column, every link lifted", () => {
@@ -345,6 +369,58 @@ describe("the deep map's views", () => {
   });
 });
 
+describe("a pair's arrows", () => {
+  test("a pair merges into one two-headed arrow as soon as one of its links has two", () => {
+    const arrows = rootArrows([
+      { from: "a1", to: "b1", label: "y", two: true },
+      { from: "b2", to: "a2", label: "x" },
+    ]);
+
+    expect(arrows.map((a) => [pair(a), a.two, a.links])).toEqual([["A → B", true, [0, 1]]]);
+  });
+
+  test("the merged arrow takes the direction of the link set directly between the pair", () => {
+    const arrows = rootArrows([
+      { from: "b2", to: "a2", label: "x" },
+      { from: "a1", to: "b1", label: "y", two: true },
+      { from: "B", to: "A", label: "named" },
+    ]);
+
+    expect(arrows.map((a) => [pair(a), a.two, a.label])).toEqual([["B → A", true, "named"]]);
+  });
+
+  test("between two direct links, the one with two sets the direction", () => {
+    const arrows = rootArrows([
+      { from: "B", to: "A", label: "named" },
+      { from: "A", to: "B", label: "back", two: true },
+      { from: "a1", to: "b1", label: "y" },
+    ]);
+
+    expect(arrows.map((a) => [pair(a), a.links])).toEqual([["A → B", [0, 1, 2]]]);
+  });
+
+  test("without a direct link, the first link with two sets the direction, not the first link", () => {
+    const arrows = rootArrows([
+      { from: "b2", to: "a2", label: "x" },
+      { from: "a1", to: "b1", label: "y", two: true },
+    ]);
+
+    expect(arrows.map((a) => pair(a))).toEqual(["A → B"]);
+  });
+
+  test("a pair joined both ways without two keeps two one-headed arrows", () => {
+    const arrows = rootArrows([
+      { from: "a1", to: "b1", label: "y" },
+      { from: "b2", to: "a2", label: "x" },
+    ]);
+
+    expect(arrows.map((a) => [pair(a), a.two])).toEqual([
+      ["A → B", false],
+      ["B → A", false],
+    ]);
+  });
+});
+
 describe("coupledIn", () => {
   test("a leaf's couplings lift to the ghosts that stand for them", () => {
     const view = viewOf(sample, "app");
@@ -456,6 +532,7 @@ function expectWellFormed(tree: Tree, container: string | null): void {
   }
 
   const seen = new Set<string>();
+  const drawn = new Set(view.arrows.map(pair));
 
   for (const a of view.arrows) {
     expect(a.from).not.toBe(a.to);
@@ -463,6 +540,11 @@ function expectWellFormed(tree: Tree, container: string | null): void {
     expect(boxes.includes(a.from) || boxes.includes(a.to)).toBe(true);
     expect(seen.has(pair(a))).toBe(false);
     seen.add(pair(a));
+    expect(a.two).toBe(a.links.some((i) => tree.map.links[i]?.two === true));
+
+    if (a.two) {
+      expect(drawn.has(`${a.to} → ${a.from}`)).toBe(false);
+    }
 
     for (const id of shown) {
       expect(lights(tree, a, id)).toBe(id === a.from || id === a.to);
