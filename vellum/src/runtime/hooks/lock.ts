@@ -139,10 +139,12 @@ export function shellVerdict(call: ShellCall, workdir: Workdir): Verdict {
 /**
  * A settings allow rule (`Bash(mkdir:*)`, `PowerShell(Set-Content:*)`) would let a
  * file-modifying shell command past the lock, as the native plan mode never does: the lock
- * answers `ask` instead, which the engine puts to the mode's decider, a prompt in the manual
- * mode. An allow with no rule is the mode's own and stands: the built-in read-only set (`git
- * log`, `ls`), and in `acceptEdits` the filesystem commands that mode approves (`mkdir`, `mv`,
- * `Set-Content`), which still write into the project while vellum plans.
+ * answers `ask` instead, which the engine stamps with the plugin's name and puts to a person
+ * (the dialog, a host's callback or a PermissionRequest hook), never to the auto-mode
+ * classifier, and denies where nobody can be asked. An allow with no rule is the mode's own
+ * and stands: the built-in read-only set (`git log`, `ls`), and in `acceptEdits` the
+ * filesystem commands that mode approves (`mkdir`, `mv`, `Set-Content`), which still write
+ * into the project while vellum plans.
  */
 export function checkVerdict(tool: string, engine: ResultOf["tool.check"]): ResultOf["tool.check"] {
   return SHELLS.has(tool) && engine.decision === "allow" && engine.rule !== undefined
