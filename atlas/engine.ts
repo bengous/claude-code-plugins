@@ -36,7 +36,8 @@ import type { Overview, Packing } from "./overview.ts";
 import { drawOverview } from "./overview.ts";
 import type { ThreadState } from "./panel.ts";
 import { coupledWith, renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
-import { paletteCss, settingsOf } from "./settings.ts";
+import type { PaletteRule } from "./settings.ts";
+import { paletteRules, settingsOf } from "./settings.ts";
 import { defs, el, esc } from "./svg.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
 
@@ -70,14 +71,44 @@ const legendButton = byId("btn-legend", HTMLButtonElement);
 
 const legend = byId("legend", HTMLDivElement);
 
+function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
+  const text =
+    rule.media === null ? `${rule.selector} {}` : `@media ${rule.media} { ${rule.selector} {} }`;
+
+  const added = sheet.cssRules[sheet.insertRule(text, sheet.cssRules.length)];
+  const style = added instanceof CSSMediaRule ? added.cssRules[0] : added;
+
+  if (!(style instanceof CSSStyleRule)) {
+    throw new TypeError(`palette: ${text} made no style rule`);
+  }
+
+  return style.style;
+}
+
+function applyPalette(): void {
+  const element = document.createElement("style");
+  document.head.append(element);
+  const { sheet } = element;
+
+  if (sheet === null) {
+    throw new TypeError("palette: a <style> in the document has no sheet");
+  }
+
+  for (const rule of paletteRules(settings.palette)) {
+    const style = styleOf(sheet, rule);
+
+    for (const [name, value] of rule.properties) {
+      style.setProperty(name, value);
+    }
+  }
+}
+
 // The page holds no word of its own and no colour of the map: they come from the Config, and are
 // in place before the first layout measures the drawing area.
 function dressPage(): void {
   document.documentElement.lang = settings.lang;
   document.title = settings.title;
-  const palette = document.createElement("style");
-  palette.textContent = paletteCss(settings.palette);
-  document.head.append(palette);
+  applyPalette();
   byId("title", HTMLElement).textContent = settings.title;
   const subtitle = byId("subtitle", HTMLElement);
 

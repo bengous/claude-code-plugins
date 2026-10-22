@@ -138,6 +138,21 @@ describe("validate", () => {
     ).toEqual([]);
   });
 
+  test("a step word with a g flag finds its word in every open point", () => {
+    const nodes = PLAN.nodes.map((n): Brick =>
+      n.id === "browser" || n.id === "proxy"
+        ? { ...n, info: { ...n.info, open: [{ id: `${n.id}-step`, text: "Réglé en F2a." }] } }
+        : n,
+    );
+
+    expect(
+      validate({ ...PLAN, nodes }, settingsOf({ ...CONFIG, stepWords: [/F2a/gu] }), {}),
+    ).toEqual([
+      'brick browser: open point browser-step: "F2a" names a step; an open point describes a state',
+      'brick proxy: open point proxy-step: "F2a" names a step; an open point describes a state',
+    ]);
+  });
+
   test("without step words in the config, no text names a step", () => {
     expect(validate(withOpen("browser-step", "Rotation prévue en F2a."), SETTINGS, {})).toEqual([]);
   });
