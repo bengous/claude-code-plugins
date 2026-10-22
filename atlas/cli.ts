@@ -36,6 +36,7 @@ const USAGE = `usage: bun ${CLI} <command> …
   sync <dir>                                        write the plugin's atlas.d.ts and tsconfig.json into it
   check <dir> [--open]                              validate the map, type-check, lint and format-check it,
                                                     compare atlas.d.ts with the plugin's; --open lists the open points
+  fmt <dir>                                         format the files check format-checks, in place
   reply <dir> <open id> --as agent|human "<text>"   add an entry to an open point's thread
   draft <dir> <name> [--adopt | --drop]             copy the map into <dir>/drafts/<name> and print its path;
                                                     --adopt makes the map the draft and deletes it, --drop deletes it`;
@@ -123,53 +124,79 @@ async function planStep(dir: string): Promise<Step> {
 const bin = (pkg: string, path: string): string =>
   join(dirname(Bun.resolveSync(`${pkg}/package.json`, ROOT)), path);
 
-function toolSteps(dir: string): Step[] {
-  // Every source is named: a walk from the folder skips it whole when it sits under an ignored
-  // directory, as a draft does under its map's .gitignore.
-  const sources = [...new Bun.Glob("**/*.ts").scanSync({ cwd: dir })]
+// Every source is named: a walk from the folder skips it whole when it sits under an ignored
+// directory, as a draft does under its map's .gitignore.
+const sourcesOf = (dir: string): string[] =>
+  [...new Bun.Glob("**/*.ts").scanSync({ cwd: dir })]
     .filter((file) => !file.startsWith(`${DRAFTS}/`))
     .toSorted();
 
-  const tools = [
-    [
-      "tsgo",
-      bin("@typescript/native-preview", "bin/tsgo"),
-      "-p",
-      TSCONFIG_FILE,
-      "--pretty",
-      "false",
-    ],
-    [
-      "oxlint",
-      bin("oxlint", "bin/oxlint"),
-      "-c",
-      join(ROOT, "lint", "oxlintrc.json"),
-      "--disable-nested-config",
-      "--format",
-      "unix",
-      ...sources,
-    ],
-    [
-      "oxfmt",
-      bin("oxfmt", "bin/oxfmt"),
-      "-c",
-      join(ROOT, "lint", "oxfmtrc.json"),
-      "--check",
-      ...sources,
-      TSCONFIG_FILE,
-    ],
-  ] as const;
+const oxfmt = (sources: readonly string[], mode: "--check" | "--write"): string[] => [
+  bin("oxfmt", "bin/oxfmt"),
+  "-c",
+  join(ROOT, "lint", "oxfmtrc.json"),
+  mode,
+  ...sources,
+  TSCONFIG_FILE,
+];
 
-  return tools.map(([name, ...argv]) => {
-    const tool = Bun.spawnSync([process.execPath, ...argv], { cwd: dir });
-    const ok = tool.exitCode === 0;
+type ToolRun = { readonly ok: boolean; readonly output: string };
 
-    return {
-      name,
-      ok,
-      report: ok ? "" : `${tool.stdout.toString()}${tool.stderr.toString()}`.trim(),
-    };
+function runTool(dir: string, argv: readonly string[]): ToolRun {
+  const tool = Bun.spawnSync([process.execPath, ...argv], { cwd: dir });
+
+  return {
+    ok: tool.exitCode === 0,
+    output: `${tool.stdout.toString()}${tool.stderr.toString()}`.trim(),
+  };
+}
+
+type Tool = { readonly name: string; readonly argv: readonly string[]; readonly fix: string };
+
+function toolSteps(dir: string): Step[] {
+  const sources = sourcesOf(dir);
+
+  const tools: readonly Tool[] = [
+    {
+      name: "tsgo",
+      argv: [
+        bin("@typescript/native-preview", "bin/tsgo"),
+        "-p",
+        TSCONFIG_FILE,
+        "--pretty",
+        "false",
+      ],
+      fix: "",
+    },
+    {
+      name: "oxlint",
+      argv: [
+        bin("oxlint", "bin/oxlint"),
+        "-c",
+        join(ROOT, "lint", "oxlintrc.json"),
+        "--disable-nested-config",
+        "--format",
+        "unix",
+        ...sources,
+      ],
+      fix: "",
+    },
+    { name: "oxfmt", argv: oxfmt(sources, "--check"), fix: `\nrun bun ${CLI} fmt ${dir}` },
+  ];
+
+  return tools.map(({ name, argv, fix }) => {
+    const { ok, output } = runTool(dir, argv);
+
+    return { name, ok, report: ok ? "" : `${output}${fix}` };
   });
+}
+
+function format(dir: string): void {
+  const { ok, output } = runTool(dir, oxfmt(sourcesOf(dir), "--write"));
+
+  if (!ok) {
+    throw new CliError(output);
+  }
 }
 
 function typesStep(dir: string): Step {
@@ -307,7 +334,7 @@ function draft(args: readonly string[]): number {
   return 0;
 }
 
-const COMMANDS = ["new", "sync", "check", "reply", "draft"] as const;
+const COMMANDS = ["new", "sync", "check", "fmt", "reply", "draft"] as const;
 
 type Command = (typeof COMMANDS)[number];
 
@@ -334,6 +361,14 @@ async function run(command: Command, args: readonly string[]): Promise<number> {
       const dir = mapFolder(one(positionals));
 
       return flags.has("--open") ? await listOpen(dir) : await check(dir);
+    }
+
+    case "fmt": {
+      const dir = mapFolder(one(parse(args, []).positionals));
+      format(dir);
+      console.log(`${dir}: formatted`);
+
+      return 0;
     }
 
     case "reply": {

@@ -96,7 +96,8 @@
      nesting, overview labels, tags, open points, threads.json), then tsgo,
      oxlint and oxfmt on the folder's files, then its atlas.d.ts against
      the plugin's atlas.ts (stale: bun atlas/cli.ts sync <map folder>). It
-     exits 1 on any failure. Then bun test atlas and the repository's gates.
+     exits 1 on any failure; bun atlas/cli.ts fmt <map folder> fixes what
+     oxfmt reports. Then bun test atlas and the repository's gates.
   3. Look at the page: bun atlas/serve.ts <map folder> [port] and open the
      address it prints. It rebuilds on every save in the map folder or the
      engine, and reloads the open tab when the page changed; a build error,

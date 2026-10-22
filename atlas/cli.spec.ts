@@ -177,6 +177,40 @@ describe("check", () => {
   });
 });
 
+describe("fmt", () => {
+  test("formats what check reports misformatted, and leaves the drafts as they are", async () => {
+    const dir = sampleCopy();
+    const config = join(dir, "atlas.config.ts");
+    const formatted = await Bun.file(config).text();
+    cli("draft", dir, "kept");
+    const drafted = join(dir, "drafts", "kept", "atlas.config.ts");
+    await edit(config, "palette: {", "palette:   {");
+    await edit(drafted, "palette: {", "palette:   {");
+    const misformatted = cli("check", dir);
+
+    expect(misformatted.code).toBe(1);
+    expect(misformatted.stdout).toContain("oxfmt: failed\n");
+    expect(misformatted.stdout).toContain("\natlas.config.ts (");
+    expect(misformatted.stdout).not.toContain("drafts/");
+    expect(misformatted.stdout).toContain(`\nrun bun ${CLI} fmt ${dir}\n`);
+
+    expect(cli("fmt", dir)).toEqual({ code: 0, stdout: `${dir}: formatted\n`, stderr: "" });
+    expect(await Bun.file(config).text()).toBe(formatted);
+    expect(await Bun.file(drafted).text()).toContain("palette:   {");
+    expect(cli("check", dir).code).toBe(0);
+  });
+
+  test("names the file oxfmt cannot parse", async () => {
+    const dir = sampleCopy();
+    await edit(join(dir, "atlas.config.ts"), "palette: {", "palette: {{");
+    const run = cli("fmt", dir);
+
+    expect(run.code).toBe(1);
+    expect(run.stderr).toStartWith("fmt: ");
+    expect(run.stderr).toContain("atlas.config.ts");
+  });
+});
+
 describe("reply", () => {
   test("adds an entry to the thread in threads.json", async () => {
     const dir = sampleCopy();

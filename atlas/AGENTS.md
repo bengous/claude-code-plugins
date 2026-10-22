@@ -15,13 +15,13 @@ writes: `atlas.d.ts`, a byte copy of `atlas.ts` its data imports its types from,
 `drafts/<name>/`, each a map folder of its own, which the folder's check leaves out.
 
 ```
-cli.ts               the one command line of agents and skills: new, sync, check, reply, draft
+cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft
                      (cli.spec.ts, on copies in temporary folders)
 atlas.ts             the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, overview
                      packing, tags, legend labels, step words); the source of a map's atlas.d.ts
 template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes
-lint/                the oxlint and oxfmt configs `check` runs on a map folder
+lint/                the oxlint and oxfmt configs `check` and `fmt` run on a map folder
 fixtures/sample/     the sample map folder
 folder.ts            the map folder's files (loadFolder), and the plan its data makes (planOf)
 aliases.d.ts         the types of atlas:map and atlas:config, the page's imports of a map folder
@@ -70,6 +70,7 @@ bun atlas/cli.ts new <dir>                  # scaffold a map folder in an empty 
 bun atlas/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin
 bun atlas/cli.ts check <map folder>         # the plan, tsgo, oxlint, oxfmt, atlas.d.ts; exit 1 on any failure
 bun atlas/cli.ts check <map folder> --open  # list the open points and whom each waits for
+bun atlas/cli.ts fmt <map folder>           # format in place the files check format-checks
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
 bun atlas/cli.ts draft <map folder> <name>  # copy the map into drafts/<name> and print its path
 bun atlas/cli.ts draft <map folder> <name> --adopt   # the map becomes the draft, which is deleted; --drop deletes it
