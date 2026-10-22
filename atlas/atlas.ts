@@ -17,7 +17,10 @@ export type OpenPoint = { readonly id: string; readonly text: string };
  */
 export type Side = "in" | "out" | "both";
 
-/** The panel's content, in the order the panel shows it. HTML is allowed (<code>). */
+/**
+ * The panel's content, in the order the panel shows it. Its text is HTML (<code>), but for
+ * `kicker`, `facts`, `src` and the first of each `io` pair, which the panel shows as written.
+ */
 export type Panel = {
   /** A small mono line above the title: the source file and lines. */
   readonly kicker?: string;
@@ -65,7 +68,10 @@ export type Node = Panel & {
   readonly sub: string;
   /** A key of the Config's palette. */
   readonly color: string;
-  /** The short list at the top of its panel; a node with children's only (`atlas check`). */
+  /**
+   * The short list at the top of its panel, shown as written; a node with children's only
+   * (`atlas check`).
+   */
   readonly brief?: readonly string[];
   /**
    * Ids of the nodes that change when this one is replaced; one side of a coupling lists it. Any

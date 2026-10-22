@@ -50,7 +50,8 @@ level. The tree that copies the directories is the wrong one:
 
 Show a table, one row per top-level branch, three to eight of them: its id (kebab-case, it prefixes
 every id of its branch), its label (a few words), its responsibility in one line, and the paths it
-will read. List apart the outside nodes: the clients and third-party services the system talks to,
+will read, each path under one branch alone: a file two branches would read is drawn twice. List
+apart the outside nodes: the clients and third-party services the system talks to,
 each with an id and the side it stands on, "in" for what calls the system, "out" for what the
 system calls. Take the human's changes; go on once they agree.
 
@@ -76,7 +77,8 @@ writes the files. Write each part as returned, under `parts/` in the map folder.
 
 Write `map.ts`: it imports each part's `node` and `links` (types from `./atlas.d.ts` with
 `import type`), and exports, `satisfies AtlasMap`, a root with `title`, a `lead` (what the system
-does, cited), `facts` from the inventory (languages, runtime, how it ships), the branches in the
+does, cited), `facts` from the inventory (languages, runtime, how it ships; plain text, as the
+panel shows a fact's markup as written), the branches in the
 agreed order, then the outside nodes, which `map.ts` holds itself (`outside: true`, `side`,
 `color: "outside"`); and every part's links. Then:
 
@@ -98,7 +100,8 @@ Start one Explore subagent per part, all at once, never the one that wrote it, w
 
 - confirmed: nothing to do;
 - another line: correct the citation;
-- unconfirmed: remove the claim from the panel, and add to its node an open point,
+- unconfirmed: remove the claim from the panel, or the part of it the lines do not show, and
+  add to its node an open point,
   `open: [{ id, text }]`, whose id is the node's id and a few kebab-case words, unique on the map,
   and whose text states the fact left unsettled, never a step to take. Once the part is saved,
   write what is missing as the point's first entry, one point at a time:

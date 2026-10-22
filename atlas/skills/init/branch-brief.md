@@ -75,11 +75,14 @@ export const links = [
   to another branch's id or an outside id. Its label says what moves along it in a few words. The
   line above each link, a comment, cites where the code makes that call.
 - `couples` lists the ids that change when this node is replaced, `see` the ids worth reading next.
-- Text is HTML: `<code>name</code>` for an identifier, `&lt;` for `<`.
+- `lead`, `io`, `swap`, `extend`, `pitfalls` and `why` are HTML, `<code>name</code>` for an
+  identifier and `&lt;` for `<`, and carry the citations; `label`, `sub`, `brief`, `facts`,
+  `kicker` and `src` are plain text, shown as written, markup included.
 
 ## What to return
 
 1. The file, whole, in one `ts` block.
-2. Doubts: each claim left out because no line settled it, with the node it belongs to and the
-   lines read. The session turns each into an open point.
+2. Doubts: each fact of the system left out because no line settled it, and each file another
+   branch may own, with the node it belongs to and the lines read. The session turns each into an
+   open point. A file left unread, with no claim resting on it, is no doubt.
 3. Nothing else: no summary of the code.
