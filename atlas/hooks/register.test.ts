@@ -929,7 +929,7 @@ describe("the agent's tools", () => {
     });
 
     expect(seen.runs.map((ran) => ran.argv)).toEqual([
-      ["bun", ...FLAGS, expect.stringContaining("/query.ts"), MAP, "server"],
+      ["bun", ...FLAGS, expect.stringContaining("/cli.ts"), "query", MAP, "server"],
     ]);
     expect(result).toEqual({ result: node });
   });

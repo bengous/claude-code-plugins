@@ -195,7 +195,8 @@ export const SCRIPTS = {
   check: (root: string, folder: string) => bunScript(root, "cli.ts", "check", folder),
   reply: (root: string, folder: string, id: string, text: string) =>
     bunScript(root, "cli.ts", "reply", folder, id, "--as", "agent", text),
-  query: (root: string, folder: string, id: string) => bunScript(root, "query.ts", folder, id),
+  query: (root: string, folder: string, id: string) =>
+    bunScript(root, "cli.ts", "query", folder, id),
 } as const;
 
 /** A command line's end: whether it exited 0, and what it wrote, stdout then stderr. */

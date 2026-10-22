@@ -192,12 +192,12 @@ const TOOLS = [
   {
     name: "atlas_query",
     description:
-      "Read one node of an atlas map by its id, as JSON: its path from the root, its children, its incoming and outgoing links with their labels, its panel fields and its sources.",
+      "Read one node of an atlas map by its id, as JSON: its path from the root, its children, its incoming and outgoing links with their labels, the nodes coupled to it, its panel fields and its sources.",
     inputSchema: {
       type: "object",
       properties: {
         folder: FOLDER,
-        id: { type: "string", description: "The node's id: a zone or a brick of the map." },
+        id: { type: "string", description: "The node's id, at any depth of the map." },
       },
       required: ["folder", "id"],
     },

@@ -24,7 +24,8 @@ them (parts.spec.ts holds check, fmt and the page's bundle to it). Its drafts si
 of its own.
 
 ```
-cli.ts               the one command line of agents and skills: new, sync, check, fmt, reply, draft,
+cli.ts               the one command line of agents and skills, and of the mod's tools: new, sync,
+                     check, fmt, reply, draft, query (one node as JSON, read from tree.ts),
                      inventory (cli.spec.ts, on copies in temporary folders)
 inventory.ts         what a repository holds, as JSON, model-free: the files git lists, or a walk;
                      directories of the top two levels; the manifests (manifests.ts, their
@@ -69,8 +70,6 @@ check.ts             validates a map folder: what drawable.ts refuses, then a br
                      open points against its step words, and threads, and reports the open points
                      (check.spec.ts)
 reply.ts             adds an entry to a thread of a map folder (reply.spec.ts)
-query.ts             one node of a map folder as JSON: path, children, links, fields, sources
-                     (query.spec.ts)
 legend.ts            the legend's lines, one per arrow kind or node mark a view uses
                      (legend.spec.ts)
 engine.ts            the page's entry: draws the view of the open container the first time the
@@ -155,9 +154,9 @@ bun atlas/cli.ts fmt <map folder>           # format in place the files check fo
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
 bun atlas/cli.ts draft <map folder> <name>  # copy the map's own files into drafts/<name> and print its path
 bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files and threads.json replace the map's, then it is deleted; --drop deletes it
+bun atlas/cli.ts query <map folder> <node id>   # one node as JSON: path, children, links, couplings, fields, sources
 bun atlas/cli.ts inventory <repo>           # what a repository holds, as JSON
 bun test atlas                              # the engine's suites, *.spec.ts
-bun atlas/query.ts <map folder> <node id>   # one node as JSON
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
 claude plugin validate atlas                # what the mod hooks and calls
 claude plugin test atlas                    # the mod's kit tests, hooks/*.test.ts

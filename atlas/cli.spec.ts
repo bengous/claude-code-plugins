@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { NodeAnswer } from "./cli.ts";
 import { THREADS_FILE } from "./folder.ts";
 import { readThreads } from "./threads.ts";
 import { bunFlags } from "./wire.ts";
@@ -348,6 +349,67 @@ describe("sync", () => {
     cli("draft", other, "second");
 
     expect(readFileSync(join(other, ".gitignore"), "utf8")).toBe("node_modules\ndrafts/\n");
+  });
+});
+
+function answer(id: string): NodeAnswer {
+  const run = cli("query", SAMPLE, id);
+
+  expect(run.stderr).toBe("");
+
+  // SAFETY: query prints a NodeAnswer; each test reads the fields it relies on.
+  return JSON.parse(run.stdout) as NodeAnswer;
+}
+
+describe("query", () => {
+  test("a leaf: its path from the root, its links both ways, its couplings, fields and sources", () => {
+    const orders = answer("orders");
+
+    expect(orders.map).toBe("Bookshop");
+    expect(orders.path).toEqual([
+      { id: "server", label: "Server" },
+      { id: "app", label: "Application" },
+      { id: "orders", label: "Orders" },
+    ]);
+    expect(orders.children).toEqual([]);
+    expect(orders.outgoing).toEqual([
+      { node: { id: "db", label: "Database" }, label: "SQL orders" },
+      {
+        node: { id: "email", label: "Email service" },
+        label: "confirmation",
+        tags: ["account", "order"],
+      },
+    ]);
+    expect(orders.incoming).toEqual([
+      { node: { id: "web", label: "Web routes" }, label: "checkout" },
+    ]);
+    expect(orders.fields).toMatchObject({ sub: "src/orders.ts", couples: ["db", "email"] });
+    expect(orders.sources).toEqual(["src/orders.ts"]);
+  });
+
+  test("a container lists its children, the links that name it, and the couplings declared on the other side", () => {
+    const data = answer("data");
+
+    expect(data.children.map((c) => c.id)).toEqual(["db", "backup"]);
+    expect(data.incoming).toEqual([{ node: { id: "app", label: "Application" }, label: "SQL" }]);
+    expect(data.fields).not.toHaveProperty("children");
+    expect(data.sources).toEqual(["deploy/compose.yml", "deploy/compose.yml"]);
+    expect(
+      answer("db")
+        .couplings.map((c) => c.id)
+        .toSorted(),
+    ).toEqual(["backup", "catalog", "orders"]);
+  });
+
+  test("an id the map does not hold, and a folder that is no map, exit 1 and say why", () => {
+    expect(cli("query", SAMPLE, "nowhere")).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "query: no node nowhere in the map\n",
+    });
+    expect(cli("query", TMP, "orders").stderr).toBe(
+      `query: ${TMP} holds no map.ts: not a map folder\n`,
+    );
   });
 });
 

@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import type { Link, Node } from "./atlas.ts";
 import { checkMap, openReport } from "./check.ts";
 import {
   DRAFTS,
@@ -28,6 +29,7 @@ import { InventoryError, inventoryOf, printed } from "./inventory.ts";
 import { ReplyError, appendReply } from "./reply.ts";
 import { WHO, openItems, readThreads } from "./threads.ts";
 import type { Tree } from "./tree.ts";
+import { chainOf, couplingsOf, nodeOf } from "./tree.ts";
 import { bunFlags } from "./wire.ts";
 
 const ROOT = import.meta.dir;
@@ -51,6 +53,9 @@ const USAGE = `usage: bun ${CLI} <command> …
                                                     --adopt copies its data files and threads.json back
                                                     and deletes it,
                                                     --drop deletes it
+  query <dir> <node id>                             print one node as JSON: its path from the root, its
+                                                    children, its links both ways, its couplings, its
+                                                    panel's fields and its sources
   inventory <repo>                                  print what a repository holds as JSON: its manifests,
                                                     its directories of the top two levels, the imports
                                                     between them and the environment variables it reads`;
@@ -326,6 +331,64 @@ async function reply(args: readonly string[]): Promise<number> {
   return 0;
 }
 
+type Named = { readonly id: string; readonly label: string };
+
+type Arrow = Omit<Link, "from" | "to"> & { readonly node: Named };
+
+/** One node of a map as `query` prints it, for an agent without a browser. */
+export type NodeAnswer = {
+  readonly map: string;
+  /** From a child of the root down to the node itself. */
+  readonly path: readonly Named[];
+  readonly children: readonly Named[];
+  readonly outgoing: readonly Arrow[];
+  readonly incoming: readonly Arrow[];
+  /** The nodes coupled to it, whichever side declares the coupling. */
+  readonly couplings: readonly Named[];
+  /** Every field the node sets but its id, label and children: its panel, open points included. */
+  readonly fields: Omit<Node, "id" | "label" | "children">;
+  readonly sources: readonly string[];
+};
+
+function answerOf(tree: Tree, id: string): NodeAnswer {
+  if (!tree.nodes.has(id)) {
+    throw new CliError(`no node ${id} in the map`);
+  }
+
+  const named = (other: string): Named => ({ id: other, label: nodeOf(tree, other).label });
+
+  const arrow = ({ from: _from, to: _to, ...rest }: Link, other: string): Arrow => ({
+    ...rest,
+    node: named(other),
+  });
+
+  const { id: _id, label: _label, children, ...fields } = nodeOf(tree, id);
+
+  return {
+    map: tree.map.root.title,
+    path: chainOf(tree, id).map((step) => named(step)),
+    children: (children ?? []).map((child) => named(child.id)),
+    outgoing: tree.map.links.flatMap((l) => (l.from === id ? [arrow(l, l.to)] : [])),
+    incoming: tree.map.links.flatMap((l) => (l.to === id ? [arrow(l, l.from)] : [])),
+    couplings: couplingsOf(tree, id).map((other) => named(other)),
+    fields,
+    sources: [fields.kicker, fields.src].filter((source) => source !== undefined),
+  };
+}
+
+async function query(args: readonly string[]): Promise<number> {
+  const [dirArg, id, ...extra] = parse(args, []).positionals;
+
+  if (dirArg === undefined || id === undefined || extra.length > 0) {
+    throw new CliError(USAGE);
+  }
+
+  const dir = mapFolder(dirArg);
+  console.log(printed(answerOf(await loadTree(dir, whereFix(dir)), id)));
+
+  return 0;
+}
+
 function draft(args: readonly string[]): number {
   const { positionals, flags } = parse(args, ["--adopt", "--drop"]);
   const [dirArg, name, ...extra] = positionals;
@@ -348,7 +411,7 @@ function draft(args: readonly string[]): number {
   return 0;
 }
 
-const COMMANDS = ["new", "sync", "check", "fmt", "reply", "draft", "inventory"] as const;
+const COMMANDS = ["new", "sync", "check", "fmt", "reply", "draft", "query", "inventory"] as const;
 
 type Command = (typeof COMMANDS)[number];
 
@@ -391,6 +454,10 @@ async function run(command: Command, args: readonly string[]): Promise<number> {
 
     case "draft": {
       return draft(args);
+    }
+
+    case "query": {
+      return await query(args);
     }
 
     case "inventory": {
