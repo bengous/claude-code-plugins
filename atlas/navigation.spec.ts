@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Node } from "./atlas.ts";
 import SAMPLE from "./fixtures/sample/map.ts";
 import { DEEP, randomMap } from "./fixtures/trees.ts";
 import type { Place, PlaceEvent } from "./navigation.ts";
-import { HOME, crumbsOf, navigate, openOf } from "./navigation.ts";
+import { HOME, crumbsOf, hashOf, navigate, openOf, placeOfHash } from "./navigation.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, treeOf } from "./tree.ts";
 import { viewOf } from "./view.ts";
@@ -16,6 +17,8 @@ const run = (tree: Tree, place: Place, events: readonly PlaceEvent[]): Place =>
   events.reduce((at, event) => navigate(tree, at, event), place);
 
 const at = (path: readonly string[], selected: string | null = null): Place => ({ path, selected });
+
+const card = (id: string): Node => ({ id, label: id, sub: "", color: "c" });
 
 describe("enter", () => {
   test("a container child opens its view, one level at a time, clearing the selection", () => {
@@ -142,25 +145,93 @@ describe("jump", () => {
 });
 
 describe("crumbsOf", () => {
-  test("the root, the path, then a selected box", () => {
+  test("the root, the path, then the selected box marked selected", () => {
     expect(crumbsOf(sample, at(["server", "app"], "orders"))).toEqual([
       { kind: "root" },
-      { kind: "node", id: "server", label: "Server" },
-      { kind: "node", id: "app", label: "Application" },
-      { kind: "node", id: "orders", label: "Orders" },
+      { kind: "node", id: "server", label: "Server", selected: false },
+      { kind: "node", id: "app", label: "Application", selected: false },
+      { kind: "node", id: "orders", label: "Orders", selected: true },
     ]);
   });
 
-  test("a selected ghost stays off the breadcrumb: it is not on the path", () => {
-    expect(crumbsOf(sample, at(["server", "app"], "email"))).toEqual([
-      { kind: "root" },
-      { kind: "node", id: "server", label: "Server" },
-      { kind: "node", id: "app", label: "Application" },
+  test("a selected ghost ends the breadcrumb, marked selected", () => {
+    expect(crumbsOf(sample, at(["server", "app"], "email")).at(-1)).toEqual({
+      kind: "node",
+      id: "email",
+      label: "Email service",
+      selected: true,
+    });
+  });
+
+  test("a selected container and the same container opened differ", () => {
+    const selected = crumbsOf(deep, at(["A"], "A1"));
+    const opened = crumbsOf(deep, at(["A", "A1"]));
+
+    expect(selected.map((c) => (c.kind === "root" ? "root" : `${c.id} ${c.selected}`))).toEqual([
+      "root",
+      "A false",
+      "A1 true",
+    ]);
+
+    expect(opened.map((c) => (c.kind === "root" ? "root" : `${c.id} ${c.selected}`))).toEqual([
+      "root",
+      "A false",
+      "A1 false",
     ]);
   });
 
   test("the root's view alone is the root crumb", () => {
     expect(crumbsOf(sample, HOME)).toEqual([{ kind: "root" }]);
+  });
+});
+
+describe("hashOf and placeOfHash", () => {
+  test("a place a jump lands on keeps its bare #id", () => {
+    expect(hashOf(sample, HOME)).toBe("");
+    expect(hashOf(sample, at(["server", "app"]))).toBe("app");
+    expect(hashOf(sample, at(["server", "app"], "orders"))).toBe("orders");
+    expect(hashOf(sample, at([], "email"))).toBe("email");
+  });
+
+  test("a selected ghost or container carries the open view and the selection", () => {
+    expect(hashOf(sample, at(["server", "app"], "email"))).toBe("app/email");
+    expect(hashOf(deep, at(["A"], "A1"))).toBe("A/A1");
+    expect(hashOf(sample, at([], "server"))).toBe("/server");
+  });
+
+  test("each id is percent-encoded, so a slash in an id cannot split it", () => {
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [
+          { id: "a/b", label: "x", sub: "", color: "c", children: [card("c d")] },
+          { id: "e", label: "e", sub: "", color: "c", children: [card("f")] },
+        ],
+      },
+      links: [{ from: "c d", to: "f", label: "l" }],
+    });
+
+    const place = at(["a/b"], "e");
+
+    expect(hashOf(tree, place)).toBe("a%2Fb/e");
+    expect(placeOfHash(tree, hashOf(tree, place))).toEqual(place);
+    expect(placeOfHash(tree, "#c%20d")).toEqual(at(["a/b"], "c d"));
+  });
+
+  test("a bare #id reads as a jump", () => {
+    expect(placeOfHash(deep, "#a1")).toEqual(at(["A", "A1", "A11", "A111"], "a1"));
+    expect(placeOfHash(deep, "B111")).toEqual(at(["B", "B1", "B11", "B111"]));
+    expect(placeOfHash(deep, "")).toBe(HOME);
+  });
+
+  test("a fragment that names nothing, or does not decode, opens the root's view", () => {
+    for (const hash of ["#nowhere", "#nowhere/a1", "#a1/a2", "#%E0%A4%A", "#A/%E0%A4%A"]) {
+      expect(placeOfHash(deep, hash)).toBe(HOME);
+    }
+  });
+
+  test("a selection the open view does not show is dropped", () => {
+    expect(placeOfHash(deep, "#A1/b1")).toEqual(at(["A", "A1"]));
   });
 });
 
@@ -216,5 +287,34 @@ describe("a walk through every map", () => {
         expect(navigate(tree, place, { type: "select", id: item.id }).selected).toBe(item.id);
       }
     }
+  });
+
+  test.each([
+    ["the sample", sample],
+    ["the deep map", deep],
+    ...[1, 2, 3, 5, 8, 13].map((seed): [string, Tree] => [
+      `random map ${seed}`,
+      treeOf(randomMap(seed)),
+    ]),
+  ])("%s: every place survives its hash, and no two share a breadcrumb", (_, tree) => {
+    const containers = [
+      null,
+      ...[...tree.nodes.values()].flatMap((n) => (n.children === undefined ? [] : [n.id])),
+    ];
+
+    const places = containers.flatMap((container) => {
+      const view = viewOf(tree, container);
+      const path = container === null ? [] : chainOf(tree, container);
+
+      return [null, ...view.boxes, ...view.ghosts].map((item) => at(path, item?.id ?? null));
+    });
+
+    for (const place of places) {
+      expect(placeOfHash(tree, `#${hashOf(tree, place)}`)).toEqual(place);
+    }
+
+    const crumbs = new Set(places.map((place) => JSON.stringify(crumbsOf(tree, place))));
+
+    expect(crumbs.size).toBe(places.length);
   });
 });
