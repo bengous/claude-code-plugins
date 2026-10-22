@@ -1,6 +1,6 @@
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, nodeOf } from "./tree.ts";
-import { viewOf } from "./view.ts";
+import { showsIn } from "./view.ts";
 
 /**
  * Where the reader stands: the containers from a child of the root down to the open one (empty:
@@ -128,12 +128,9 @@ export function navigate(tree: Tree, place: Place, event: PlaceEvent): Place {
     }
 
     case "select": {
-      const view = viewOf(tree, openOf(place));
-
-      const shown =
-        view.boxes.some((b) => b.id === event.id) || view.ghosts.some((g) => g.id === event.id);
-
-      return shown ? { path: place.path, selected: event.id } : place;
+      return showsIn(tree, openOf(place), event.id)
+        ? { path: place.path, selected: event.id }
+        : place;
     }
 
     case "up": {

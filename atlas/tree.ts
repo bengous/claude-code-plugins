@@ -166,24 +166,26 @@ export function treeOf(map: AtlasMap): Tree {
     visit(child, []);
   }
 
+  const declaredBy = new Map<string, string[]>();
+
   for (const node of nodes.values()) {
     for (const other of node.couples ?? []) {
       if (!nodes.has(other)) {
         refuse(`node ${node.id}: couples unknown node ${other}`);
       }
+
+      const list = declaredBy.get(other) ?? [];
+      list.push(node.id);
+      declaredBy.set(other, list);
     }
   }
 
   const couplings = new Map(
     [...nodes.values()].map((node): [string, readonly string[]] => {
-      const theirs = [...nodes.values()].flatMap((other) =>
-        other.couples?.includes(node.id) === true ? [other.id] : [],
-      );
+      const both = new Set([...(node.couples ?? []), ...(declaredBy.get(node.id) ?? [])]);
+      both.delete(node.id);
 
-      return [
-        node.id,
-        [...new Set([...(node.couples ?? []), ...theirs])].filter((o) => o !== node.id),
-      ];
+      return [node.id, [...both]];
     }),
   );
 
