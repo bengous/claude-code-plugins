@@ -938,6 +938,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       auto_open?: "at_create" | "after_first_write"
       warnings?: string[]
       files_error?: string
@@ -1760,6 +1762,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       auto_open?: "at_create" | "after_first_write"
       warnings?: string[]
       files_error?: string
@@ -2582,6 +2586,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       auto_open?: "at_create" | "after_first_write"
       warnings?: string[]
       files_error?: string
@@ -3404,6 +3410,8 @@ declare module 'claude-code' {
       }
       own_files: string[]
       type_files: string[]
+      served_at?: string
+      served_root?: string
       auto_open?: "at_create" | "after_first_write"
       warnings?: string[]
       files_error?: string
