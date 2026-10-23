@@ -9,8 +9,8 @@ import type {
 } from "claude-code";
 import { mock, type MockClock } from "claude-code/testing";
 
-import type { Selection } from "../wire.ts";
-import { HEARTBEAT_HEADER } from "../wire.ts";
+import type { Selection } from "../src/server/wire.ts";
+import { HEARTBEAT_HEADER } from "../src/server/wire.ts";
 import type { MapRecord, SessionRecord } from "./parse.ts";
 
 /** The world beneath the module in a kit test: what it answers, and what the module did there. */
@@ -212,7 +212,7 @@ function children(on: On, seen: World, spawn: Spawn): void {
       ended({ exit: { code: null, signal: "SIGTERM" } });
     });
 
-    const at = e.argv.findIndex((arg) => arg.endsWith("/serve.ts"));
+    const at = e.argv.findIndex((arg) => arg.endsWith("/src/serve.ts"));
 
     const child: Child = {
       argv: e.argv,
@@ -306,7 +306,7 @@ export function world(on: On, options: WorldOptions = {}): World {
 
   on("process.run", (_, e) => {
     built.runs.push({ argv: e.argv, cwd: e.init?.cwd });
-    const isOpener = e.argv.some((arg) => arg.endsWith("/open.ts"));
+    const isOpener = e.argv.some((arg) => arg.endsWith("/src/server/open.ts"));
 
     if (isOpener && built.noOpener !== undefined) {
       return {
@@ -447,6 +447,6 @@ export async function drain(seen: World): Promise<void> {
 /** The serve.ts children still running. */
 export function running(seen: World): Child[] {
   return seen.children.filter(
-    (child) => child.argv.some((arg) => arg.endsWith("/serve.ts")) && child.alive(),
+    (child) => child.argv.some((arg) => arg.endsWith("/src/serve.ts")) && child.alive(),
   );
 }

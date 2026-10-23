@@ -7,7 +7,7 @@ import type {
 } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
-import { HEARTBEAT_ENV } from "../wire.ts";
+import { HEARTBEAT_ENV } from "../src/server/wire.ts";
 import {
   CWD,
   DRAFT,
@@ -94,7 +94,7 @@ describe("/atlas:board", () => {
     const result = await settled(seen, $.skill.prompt(board("docs/map")));
 
     expect(seen.children.map((child) => [child.argv, child.cwd])).toEqual([
-      [["bun", ...FLAGS, expect.stringContaining("/serve.ts"), MAP, "0", "--heartbeat"], MAP],
+      [["bun", ...FLAGS, expect.stringContaining("/src/serve.ts"), MAP, "0", "--heartbeat"], MAP],
     ]);
     expect(result.text).toContain(
       `atlas shows the map ${MAP}.\nOpen ${page(FIRST_PORT)} in a browser.`,
@@ -869,7 +869,7 @@ describe("the agent's tools", () => {
 
     expect(seen.runs).toEqual([
       {
-        argv: ["bun", ...FLAGS, expect.stringContaining("/cli.ts"), "check", MAP, "--open"],
+        argv: ["bun", ...FLAGS, expect.stringContaining("/src/cli.ts"), "check", MAP, "--open"],
         cwd: MAP,
       },
     ]);
@@ -891,7 +891,7 @@ describe("the agent's tools", () => {
       [
         "bun",
         ...FLAGS,
-        expect.stringContaining("/cli.ts"),
+        expect.stringContaining("/src/cli.ts"),
         "reply",
         MAP,
         "backup-restore-untested",
@@ -929,7 +929,7 @@ describe("the agent's tools", () => {
     });
 
     expect(seen.runs.map((ran) => ran.argv)).toEqual([
-      ["bun", ...FLAGS, expect.stringContaining("/cli.ts"), "query", MAP, "server"],
+      ["bun", ...FLAGS, expect.stringContaining("/src/cli.ts"), "query", MAP, "server"],
     ]);
     expect(result).toEqual({ result: node });
   });

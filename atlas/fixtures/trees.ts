@@ -1,4 +1,4 @@
-import type { AtlasMap, Link, Node, OpenPoint, Side } from "../atlas.ts";
+import type { AtlasMap, Link, Node, OpenPoint, Side } from "../src/model/atlas.ts";
 
 type Extra = Omit<Partial<Node>, "id" | "children">;
 

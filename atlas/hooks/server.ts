@@ -11,8 +11,8 @@ import type {
   Timer,
 } from "claude-code";
 
-import type { Beat, Selection } from "../wire.ts";
-import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH, bunFlags } from "../wire.ts";
+import type { Beat, Selection } from "../src/server/wire.ts";
+import { HEARTBEAT_ENV, HEARTBEAT_HEADER, HEARTBEAT_PATH, bunFlags } from "../src/server/wire.ts";
 import { type MapRecord, parseBeat, readyPort, type SessionRecord } from "./parse.ts";
 
 /**
@@ -109,7 +109,7 @@ async function* linesOf(
  * child that gives none is ended.
  */
 export async function start(host: Host, folder: string, port: number): Promise<Started> {
-  const argv = bunScript(host.pluginRoot, "serve.ts", folder, String(port), "--heartbeat");
+  const argv = bunScript(host.pluginRoot, "src/serve.ts", folder, String(port), "--heartbeat");
   const secret = crypto.randomUUID();
   const heard = { stderr: "" };
   const stream = host.spawn({ argv, cwd: folder, env: { [HEARTBEAT_ENV]: secret } });
@@ -178,7 +178,7 @@ export function beat(host: Host, child: Child): Promise<Beat | null> {
 /** Hands the page's address to the desktop's browser (`open.ts`); the reason when none opened. */
 export async function openBrowser(host: Host, url: string): Promise<string | null> {
   const ran = await host
-    .run(bunScript(host.pluginRoot, "open.ts", url))
+    .run(bunScript(host.pluginRoot, "src/server/open.ts", url))
     .catch((cause: unknown) => ({ exitCode: 1, stderr: String(cause) }));
 
   return ran.exitCode === 0 ? null : ran.stderr.trim() || `open.ts exited ${ran.exitCode}`;
@@ -191,12 +191,12 @@ export function bunScript(root: string, script: string, ...args: readonly string
 
 /** The engine's command lines the agent's tools run, each on a map folder. */
 export const SCRIPTS = {
-  open: (root: string, folder: string) => bunScript(root, "cli.ts", "check", folder, "--open"),
-  check: (root: string, folder: string) => bunScript(root, "cli.ts", "check", folder),
+  open: (root: string, folder: string) => bunScript(root, "src/cli.ts", "check", folder, "--open"),
+  check: (root: string, folder: string) => bunScript(root, "src/cli.ts", "check", folder),
   reply: (root: string, folder: string, id: string, text: string) =>
-    bunScript(root, "cli.ts", "reply", folder, id, "--as", "agent", text),
+    bunScript(root, "src/cli.ts", "reply", folder, id, "--as", "agent", text),
   query: (root: string, folder: string, id: string) =>
-    bunScript(root, "cli.ts", "query", folder, id),
+    bunScript(root, "src/cli.ts", "query", folder, id),
 } as const;
 
 /** A command line's end: whether it exited 0, and what it wrote, stdout then stderr. */
