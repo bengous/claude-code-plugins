@@ -29,7 +29,7 @@ import {
 // server answers the outputs from memory. A save in the folder or in the page's sources rebuilds it
 // and, when the page changed, reloads every open tab through a server-sent event. A failed build,
 // or data the engine cannot draw, answers an error page instead, which reloads on the next save.
-// It answers requests to 127.0.0.1 or localhost with its own port only. Each selection the page
+// It answers requests to 127.0.0.1, localhost or [::1] only, on any port. Each selection the page
 // posts is printed as one JSON line (wire.ts), which the hooks module reads.
 const DIR = import.meta.dir;
 
@@ -387,20 +387,25 @@ const isReply = (v: unknown): v is { readonly id: string; readonly text: string 
 const isJson = (type: string | null): boolean =>
   type?.split(";")[0]?.trim().toLowerCase() === "application/json";
 
-// The names this server answers to, with the port it listens on. A page on a name rebound to this
-// machine is same-origin with the server: only the Host its requests name tells them apart.
-const ownHosts = (): readonly string[] => [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
+// The loopback names this server answers to, on any port: a tunnel or a proxy forwards the page
+// from a port of its own, over TLS too. A page on a name rebound to this machine is same-origin
+// with the server: only the Host its requests name tells them apart.
+const OWN_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/u;
 
-const isOwnHost = (host: string | null): boolean => ownHosts().some((own) => host === own);
+const SCHEME = /^https?:\/\//u;
+
+const isOwnHost = (host: string | null): boolean => host !== null && OWN_HOST.test(host);
 
 const isOwnOrigin = (origin: string | null): boolean =>
-  ownHosts().some((own) => origin === `http://${own}`);
+  origin !== null && SCHEME.test(origin) && isOwnHost(origin.replace(SCHEME, ""));
 
 // A browser sends a cross-origin text/plain POST without asking first, so the content type, the
-// Origin and the token are all required: a page elsewhere can set none of them to this server's.
+// Origin and the token are all required. A page off this machine can set none of them to this
+// server's. A page on another loopback port sends an Origin this server takes: the token alone
+// refuses it, read from a page that answers no CORS header, so no other page can read it.
 async function fromPage(request: Request, what: string): Promise<Response | { body: unknown }> {
   if (!isOwnOrigin(request.headers.get("origin"))) {
-    return new Response(`${what} comes from this server's own page`, { status: 403 });
+    return new Response(`${what} comes from a page on this machine`, { status: 403 });
   }
 
   if (request.headers.get(TOKEN_HEADER) !== token) {
@@ -490,7 +495,8 @@ async function select(request: Request): Promise<Response> {
 
 let lastBeat = Date.now();
 
-// The module's beat carries no Origin; a page elsewhere, which would, is refused. Any beat answers
+// The module's beat carries no Origin; a page off this machine, which would, is refused. A page on
+// another loopback port is answered, with no CORS header to let it read the folder. Any beat answers
 // the folder served, a probe; only the secret this server was started with keeps it up, so a
 // session that joined it never outlives the one that started it.
 function heartbeat(request: Request): Response {

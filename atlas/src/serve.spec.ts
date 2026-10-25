@@ -14,7 +14,8 @@ import { dirname, join } from "node:path";
 import type { Subprocess } from "bun";
 
 import { MAP_FILE, THREADS_FILE } from "./model/folder.ts";
-import { TOKEN_HEADER, TOKEN_META } from "./model/threads.ts";
+import type { Entry } from "./model/threads.ts";
+import { TOKEN_HEADER, TOKEN_META, readThreads } from "./model/threads.ts";
 import type { Selected, Selection } from "./server/wire.ts";
 import {
   HEARTBEAT_ENV,
@@ -431,6 +432,9 @@ describe("serve.ts", () => {
   );
 });
 
+// A port the server does not listen on, as a tunnel or a proxy in front of it would name.
+const otherPort = (port: string): number => (Number(port) % 65_535) + 1;
+
 describe("a request that names another host", () => {
   test("is refused on every route: a name rebound to this machine reads nothing", async () => {
     const { base, port } = served();
@@ -463,6 +467,55 @@ describe("a request that names another host", () => {
     });
 
     expect(response.status).toBe(200);
+  });
+
+  test("named localhost, on a port other than the server's, is served", async () => {
+    const { base, port } = served();
+
+    const response = await fetch(`${base}/atlas.html`, {
+      headers: { host: `localhost:${otherPort(port)}` },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("named 127.0.0.1 or [::1] on another port, or localhost with no port, is served", async () => {
+    const { base, port } = served();
+
+    for (const host of [`127.0.0.1:${otherPort(port)}`, `[::1]:${otherPort(port)}`, "localhost"]) {
+      const response = await fetch(`${base}/atlas.html`, { headers: { host } });
+
+      expect(`${host} ${response.status}`).toBe(`${host} 200`);
+    }
+  });
+
+  test("that only begins or ends with a loopback name is refused", async () => {
+    const { base, port } = served();
+
+    for (const host of [
+      `localhost.rebound.example:${port}`,
+      `rebound.localhost:${port}`,
+      `127.0.0.1.rebound.example:${port}`,
+      `rebound.127.0.0.1:${port}`,
+    ]) {
+      const response = await fetch(`${base}/atlas.html`, { headers: { host } });
+
+      expect(`${host} ${response.status}`).toBe(`${host} 403`);
+    }
+  });
+
+  // The token sits in the page and on the event stream: a page on another loopback port passes the
+  // Origin check, and only the absence of a CORS header keeps it from reading either.
+  test("answers a page on another loopback port no CORS header", async () => {
+    const { base, port } = served();
+    const origin = `http://localhost:${otherPort(port)}`;
+
+    for (const path of ["/atlas.html", "/events"]) {
+      const response = await fetch(`${base}${path}`, { headers: { origin } });
+      await response.body?.cancel();
+
+      expect(`${path} ${response.headers.get("access-control-allow-origin")}`).toBe(`${path} null`);
+    }
   });
 });
 
@@ -517,6 +570,9 @@ const own = async (): Promise<Record<string, string>> => ({
 
 const threads = async (): Promise<string> => await Bun.file(join(dir, THREADS_FILE)).text();
 
+const thread = async (): Promise<readonly Entry[]> =>
+  readThreads(JSON.parse(await threads())).threads["backup-restore-untested"] ?? [];
+
 describe("a reply posted to threads.json", () => {
   test("from another origin is refused, and threads.json is left as it was", async () => {
     const before = await threads();
@@ -567,6 +623,64 @@ describe("a reply posted to threads.json", () => {
     expect(JSON.parse(await threads())).toMatchObject({
       "backup-restore-untested": [{ who: "agent" }, { who: "human" }, { who: "human" }],
     });
+  });
+
+  test("from 127.0.0.1 on another port, with the token, is written too", async () => {
+    const { port } = served();
+    const before = await thread();
+
+    const response = await post({
+      ...(await own()),
+      origin: `http://127.0.0.1:${otherPort(port)}`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await thread()).toEqual([...before, { who: "human", text: "A restore was tried." }]);
+  });
+
+  test("from an https page or [::1] on another port, as a TLS proxy serves it, is written too", async () => {
+    const { port } = served();
+
+    for (const origin of [
+      `https://localhost:${otherPort(port)}`,
+      `http://[::1]:${otherPort(port)}`,
+    ]) {
+      const before = await thread();
+      const response = await post({ ...(await own()), origin });
+
+      expect(`${origin} ${response.status}`).toBe(`${origin} 200`);
+      expect(await thread()).toEqual([...before, { who: "human", text: "A restore was tried." }]);
+    }
+  });
+
+  test("from an origin that only begins with a loopback name, or another scheme, is refused", async () => {
+    const { port } = served();
+    const before = await threads();
+
+    for (const origin of [
+      `http://localhost.rebound.example:${port}`,
+      `http://127.0.0.1.rebound.example:${port}`,
+      `ftp://localhost:${port}`,
+    ]) {
+      const response = await post({ ...(await own()), origin });
+
+      expect(`${origin} ${response.status}`).toBe(`${origin} 403`);
+    }
+
+    expect(await threads()).toBe(before);
+  });
+
+  test("from 127.0.0.1 on another port, without the token, is refused", async () => {
+    const { port } = served();
+    const before = await threads();
+    const { [TOKEN_HEADER]: _, ...untokened } = await own();
+    const origin = `http://127.0.0.1:${otherPort(port)}`;
+
+    expect((await post({ ...untokened, origin })).status).toBe(403);
+    expect((await post({ ...untokened, origin, [TOKEN_HEADER]: crypto.randomUUID() })).status).toBe(
+      403,
+    );
+    expect(await threads()).toBe(before);
   });
 });
 
