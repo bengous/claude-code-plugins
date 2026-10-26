@@ -50,6 +50,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 - One writer per worktree.
 - In an agent worktree, a Bash call runs one simple command: no `&&` or `;` chain, pipe, `$(…)`, heredoc, loop or leading `cd`, and plain `git`, not `git -C`. Claude Code's worktree-isolation guard refuses a command it cannot verify stays inside the worktree. Read, Write, Edit and Grep, or a script file run as one command, do the rest.
 - A step that code can decide is done by the script or the hook, not asked of Claude: an instruction can go unfollowed. A skill, a message or an error tells Claude what to do only when no code can decide it.
+- A commit message says what the code does and why, the reason in words; how the change came about and how it was checked go in the pull request, or nowhere on the inline lane.
 
 ## Non-Obvious Directories
 

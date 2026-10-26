@@ -78,6 +78,10 @@ export const REGISTRY: Registry = {
       prose:
         "what code can decide is the judgement this rule asks for; the rule registry records it",
     },
+    "31a42b84": {
+      quote: "A commit message says what the code does and why, the reason",
+      held: ["hook agent-hooks/agent-hooks.ts", "test agent-hooks/commit-judge.test.ts"],
+    },
     dbf56d05: {
       quote: "`archive/` - retired plugins, not in the marketplace.",
       prose: "a fact about the directory, no rule to hold",
