@@ -116,8 +116,8 @@ describe("the panel's HTML", () => {
     renderPanel(settingsOf(CONFIG), TREE, panel, place, "no wasm", { kind: "ok", threads: {} });
 
     expect(panel.innerHTML).toContain('<ul class="brief"><li>pages and routes</li>');
-    expect(panel.innerHTML).toContain('data-go="server">← Server');
-    expect(panel.innerHTML).toContain('data-go="data">Storage →');
+    expect(panel.innerHTML).toContain('data-nav="previous" data-go="server">← Server');
+    expect(panel.innerHTML).toContain('data-nav="next" data-go="data">Storage →');
     expect(panel.innerHTML).toContain("no wasm");
   });
 
@@ -597,8 +597,12 @@ describe("a journey in the panel", () => {
       '<span class="journey-label">checkout</span><span class="journey-ends">Web routes → Orders</span>',
     );
     expect(html).toContain('<p class="lead">The form posts the cart.</p>');
-    expect(html).toContain('<button type="button" data-step="2">← Précédente</button>');
-    expect(html).toContain('<button type="button" data-step="4">Suivante →</button>');
+    expect(html).toContain(
+      '<button type="button" data-nav="previous" data-step="2">← Précédente</button>',
+    );
+    expect(html).toContain(
+      '<button type="button" data-nav="next" data-step="4">Suivante →</button>',
+    );
   });
 
   test("every step, the first and the last among them, has a button that leaves the journey", () => {
@@ -613,10 +617,16 @@ describe("a journey in the panel", () => {
     const first = journeyPanel(CHECKOUT, 1);
     const last = journeyPanel(CHECKOUT, 4, "no wasm");
 
-    expect(first).toContain('<button type="button" disabled>← Précédente</button>');
-    expect(first).toContain('<button type="button" data-step="2">Suivante →</button>');
-    expect(last).toContain('<button type="button" data-step="3">← Précédente</button>');
-    expect(last).toContain('<button type="button" disabled>Suivante →</button>');
+    expect(first).toContain(
+      '<button type="button" data-nav="previous" disabled>← Précédente</button>',
+    );
+    expect(first).toContain(
+      '<button type="button" data-nav="next" data-step="2">Suivante →</button>',
+    );
+    expect(last).toContain(
+      '<button type="button" data-nav="previous" data-step="3">← Précédente</button>',
+    );
+    expect(last).toContain('<button type="button" data-nav="next" disabled>Suivante →</button>');
     expect(last).not.toContain('class="lead"');
     expect(last).toContain("no wasm");
   });

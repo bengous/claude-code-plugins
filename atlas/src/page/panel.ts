@@ -187,6 +187,12 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
   ].join("");
 }
 
+/**
+ * The side of a panel's ← → button, the tour's or a journey's, disabled ones included: written
+ * anew with the panel, the one that held the focus hands it to its new copy (engine.ts).
+ */
+type Nav = "previous" | "next";
+
 /** The containers in the root's `tour`, or every container depth-first. */
 export const tourOf = (tree: Tree): readonly string[] =>
   tree.map.root.tour ??
@@ -203,7 +209,7 @@ function tourNav(tree: Tree, id: string): string {
   const prev = nodeOf(tree, order[(i + order.length - 1) % order.length] ?? id);
   const next = nodeOf(tree, order[(i + 1) % order.length] ?? id);
 
-  return `<div class="nav"><button type="button" data-go="${esc(prev.id)}">← ${esc(prev.label)}</button><button type="button" data-go="${esc(next.id)}">${esc(next.label)} →</button></div>`;
+  return `<div class="nav"><button type="button" data-nav="previous" data-go="${esc(prev.id)}">← ${esc(prev.label)}</button><button type="button" data-nav="next" data-go="${esc(next.id)}">${esc(next.label)} →</button></div>`;
 }
 
 const upNav = (tree: Tree, id: string): string => {
@@ -302,10 +308,10 @@ export function renderJourney(
     .map((id) => esc(nodeOf(tree, id).label.replaceAll("\n", " ")))
     .join(" → ");
 
-  const button = (to: number, text: string): string =>
+  const button = (nav: Nav, to: number, text: string): string =>
     to >= 1 && to <= journey.steps.length
-      ? `<button type="button" data-step="${to}">${text}</button>`
-      : `<button type="button" disabled>${text}</button>`;
+      ? `<button type="button" data-nav="${nav}" data-step="${to}">${text}</button>`
+      : `<button type="button" data-nav="${nav}" disabled>${text}</button>`;
 
   panel.innerHTML = [
     `<div class="journey" style="--zc: var(--accent)">`,
@@ -317,7 +323,7 @@ export function renderJourney(
     `<span class="journey-ends">${ends}</span></p>`,
     shown.note === undefined ? "" : `<p class="lead">${esc(shown.note)}</p>`,
     arrowsMissing(s, avoidError),
-    `<div class="nav">${button(step - 1, s.words.previousStep)}${button(step + 1, s.words.nextStep)}</div>`,
+    `<div class="nav">${button("previous", step - 1, s.words.previousStep)}${button("next", step + 1, s.words.nextStep)}</div>`,
     `<div class="leave"><button type="button" data-leave>${s.words.leaveJourney}</button></div>`,
     `</div>`,
   ].join("");

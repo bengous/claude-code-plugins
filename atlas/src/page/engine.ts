@@ -1154,6 +1154,28 @@ const leave = (): void => {
   play(DEFAULTS.journey, DEFAULTS.step);
 };
 
+// The panel's ← → buttons, the tour's or a journey's, are written anew with the panel: the one
+// that held the focus as `run` moves hands it to its new copy, or to the other one when that copy
+// is disabled, so a reader on the keyboard goes on from where they were.
+function keepingNavFocus(run: () => void): void {
+  const active = document.activeElement;
+
+  const nav =
+    active instanceof HTMLElement && panel.contains(active) ? active.dataset["nav"] : undefined;
+
+  run();
+
+  if (nav === undefined) {
+    return;
+  }
+
+  const buttons = [...panel.querySelectorAll("button[data-nav]")].filter(
+    (b): b is HTMLButtonElement => b instanceof HTMLButtonElement && !b.disabled,
+  );
+
+  (buttons.find((b) => b.dataset["nav"] === nav) ?? buttons[0])?.focus();
+}
+
 // The step before or after the one shown, while there is one.
 function stepBy(delta: number): void {
   const played = journeyOf(tree, pageState.journey);
@@ -1413,7 +1435,9 @@ panel.addEventListener("click", (e) => {
   } else if (e.target.closest("[data-close-viewer]") !== null) {
     closeCitation();
   } else if (step instanceof HTMLElement) {
-    play(pageState.journey, Number(step.dataset["step"]));
+    keepingNavFocus(() => {
+      play(pageState.journey, Number(step.dataset["step"]));
+    });
   } else if (e.target.closest("[data-leave]") !== null) {
     leave();
   }
@@ -1483,7 +1507,10 @@ document.addEventListener("click", (e) => {
   ) {
     openList.hidePopover();
     const id = b.dataset["go"] ?? "";
-    send(id === "" ? { type: "home" } : { type: "jump", id });
+
+    keepingNavFocus(() => {
+      send(id === "" ? { type: "home" } : { type: "jump", id });
+    });
   }
 });
 
@@ -1603,7 +1630,9 @@ document.addEventListener("keydown", (e) => {
     backOut();
   } else if (delta !== undefined && !modified && pageState.journey !== null) {
     e.preventDefault();
-    stepBy(delta);
+    keepingNavFocus(() => {
+      stepBy(delta);
+    });
   }
 });
 
