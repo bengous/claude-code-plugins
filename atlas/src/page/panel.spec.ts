@@ -294,7 +294,7 @@ describe("the panel's citations", () => {
     });
 
     expect(sourced.innerHTML).toContain(
-      '<cite class="cite" title="src/a.ts:12-30"><button type="button" class="cite-open" data-cite="src/a.ts:12-30"><span class="cite-path">src/a.ts:</span>12-30</button></cite>',
+      '<cite class="cite" title="src/a.ts:12-30"><button type="button" class="cite-open" data-cite="src/a.ts:12-30" aria-label="src/a.ts:12-30"><span class="cite-path">src/a.ts:</span>12-30</button></cite>',
     );
     expect(sourced.innerHTML).toContain('data-cite="src/b.ts:4,8-9"');
     expect(sourced.innerHTML).toContain("as <cite>the docs</cite> say");

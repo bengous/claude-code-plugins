@@ -89,11 +89,25 @@ describe("citeOf", () => {
     ["a.ts:1,", "the lines are a line, a range first-last, or a comma list of those"],
     ["a.ts: 12", "the lines are a line, a range first-last, or a comma list of those"],
     ["a.ts:1,  3", "the lines are a line, a range first-last, or a comma list of those"],
+    ["src/a.ts:12–14", "the lines are a line, a range first-last, or a comma list of those"],
+    ["src/a.ts:12:3", "the lines are a line, a range first-last, or a comma list of those"],
+    ["src/a.ts:L12", "the lines are a line, a range first-last, or a comma list of those"],
+    ["a.ts:1 and below", "the lines are a line, a range first-last, or a comma list of those"],
   ])("names why %s looks like a citation but reads as none", (text, why) => {
     expect(citeOf(text)).toEqual({ kind: "broken", why });
   });
 
-  test.each(["redis:6379", "the shop's notes", "a.ts:1 and below", "src/serve.ts:"])(
+  test.each([" src/a.ts:12", "src/a.ts:12 ", "\n  src/a.ts:12\n"])(
+    "reads a citation with spaces around it: %j",
+    (text) => {
+      expect(citeOf(text)).toEqual({
+        kind: "citation",
+        citation: { path: "src/a.ts", lines: [{ first: 12, last: 12 }] },
+      });
+    },
+  );
+
+  test.each(["redis:6379", "the shop's notes", "a.ts: see below", "src/serve.ts:"])(
     "reads a text that does not look like a citation as a title: %s",
     (text) => {
       expect(citeOf(text)).toEqual({ kind: "title" });

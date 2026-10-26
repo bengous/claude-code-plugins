@@ -34,7 +34,7 @@ function marker(s: Settings, citation: Citation): string {
 
   return s.sources === null
     ? `<cite class="cite" title="${whole}">${shown}</cite>`
-    : `<cite class="cite" title="${whole}"><button type="button" class="cite-open" data-cite="${whole}">${shown}</button></cite>`;
+    : `<cite class="cite" title="${whole}"><button type="button" class="cite-open" data-cite="${whole}" aria-label="${whole}">${shown}</button></cite>`;
 }
 
 /** An HTML field of a map as every part of the panel shows it: its kept markup, its markers. */

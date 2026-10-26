@@ -19,8 +19,9 @@ export type CiteText =
   | { readonly kind: "title" };
 
 // A path holds no space, no colon, nothing that would end an HTML text or attribute, and a slash
-// or a dot, as a file's path does: `redis:6379` names a host and its port.
-const CITED = /^([^\s:<>&"']*[./][^\s:<>&"']*):([\d\s,-]+)$/u;
+// or a dot, as a file's path does: `redis:6379` names a host and its port. What follows its colon
+// looks like lines from its first mark on, so LINE_LIST tells a citation from a broken one.
+const CITED = /^([^\s:<>&"']*[./][^\s:<>&"']*):(\s*[\d,L-].*)$/su;
 
 const LINE_LIST = /^\d+(?:-\d+)?(?:, ?\d+(?:-\d+)?)*$/u;
 
@@ -30,7 +31,7 @@ const broken = (why: string): CiteText => ({ kind: "broken", why });
 
 /** What the text of a <cite> reads as. */
 export function citeOf(text: string): CiteText {
-  const [, path, list] = CITED.exec(text) ?? [];
+  const [, path, list] = CITED.exec(text.trim()) ?? [];
 
   if (path === undefined || list === undefined) {
     return { kind: "title" };

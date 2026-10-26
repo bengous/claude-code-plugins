@@ -193,10 +193,13 @@ let panelAvoidError: string | null = null;
 let sourcesInFull = false;
 
 // The lines of the marker last clicked, shown in place of the panel's fields until the reader
-// closes them or moves; panelTop is where the panel was scrolled when they opened.
+// closes them or moves; panelTop is where the panel was scrolled when they opened, markerAt the
+// marker's place among the panel's, which takes the focus back when they close.
 let viewer: Viewer | null = null;
 
 let panelTop = 0;
+
+let markerAt = 0;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -1005,27 +1008,54 @@ async function linesOf(citation: Citation): Promise<Viewer> {
   }
 }
 
-// A later click or move drops the lines a slower answer brings.
-async function openCitation(citation: Citation): Promise<void> {
+const MARKER = "[data-cite]";
+
+const panelFocused = (): boolean => panel.contains(document.activeElement);
+
+function focusViewerClose(): void {
+  const close = panel.querySelector(".viewer-close");
+
+  if (close instanceof HTMLElement) {
+    close.focus();
+  }
+}
+
+// A later click or move drops the lines a slower answer brings. The close button takes the focus,
+// and keeps it when the lines replace the wait, unless the reader moved it meanwhile.
+async function openCitation(citation: Citation, marker: Element): Promise<void> {
   if (viewer === null) {
     panelTop = panel.scrollTop;
+    markerAt = [...panel.querySelectorAll(MARKER)].indexOf(marker);
   }
 
   const opened: Viewer = { kind: "loading", citation };
   viewer = opened;
   render();
+  focusViewerClose();
   const read = await linesOf(citation);
 
   if (viewer === opened) {
+    const focused = panelFocused();
     viewer = read;
     render();
+
+    if (focused) {
+      focusViewerClose();
+    }
   }
 }
 
+// The marker the lines opened from takes the focus back, when the viewer held it.
 function closeCitation(): void {
+  const focused = panelFocused();
   viewer = null;
   render();
   panel.scrollTop = panelTop;
+  const marker = panel.querySelectorAll(MARKER)[markerAt];
+
+  if (focused && marker instanceof HTMLElement) {
+    marker.focus({ preventScroll: true });
+  }
 }
 
 panel.addEventListener("click", (e) => {
@@ -1033,11 +1063,11 @@ panel.addEventListener("click", (e) => {
     return;
   }
 
-  const cited = e.target.closest("[data-cite]");
+  const cited = e.target.closest(MARKER);
   const citation = cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
 
-  if (citation !== null) {
-    void openCitation(citation);
+  if (cited !== null && citation !== null) {
+    void openCitation(citation, cited);
   } else if (e.target.closest("[data-close-viewer]") !== null) {
     closeCitation();
   }
