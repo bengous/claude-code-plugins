@@ -279,8 +279,8 @@ export function renderPanel(
 /**
  * A journey's step, 1 to its count, in place of the panel's fields: the journey's label, the
  * step's place in it, the label of the link it follows (joins) over its ends' labels, its note,
- * and the buttons to the steps before and after it, disabled past either end. The labels and the
- * note are plain text, shown as written.
+ * the buttons to the steps before and after it, disabled past either end, and under them the one
+ * that leaves the journey. The labels and the note are plain text, shown as written.
  */
 export function renderJourney(
   s: Settings,
@@ -318,6 +318,7 @@ export function renderJourney(
     shown.note === undefined ? "" : `<p class="lead">${esc(shown.note)}</p>`,
     arrowsMissing(s, avoidError),
     `<div class="nav">${button(step - 1, s.words.previousStep)}${button(step + 1, s.words.nextStep)}</div>`,
+    `<div class="leave"><button type="button" data-leave>${s.words.leaveJourney}</button></div>`,
     `</div>`,
   ].join("");
   panel.scrollTop = 0;

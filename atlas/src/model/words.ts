@@ -24,10 +24,14 @@ export type Words = {
   readonly journeysButton: string;
   readonly journeysTitle: string;
   readonly stepCount: (count: number) => string;
-  /** A journey's step in the panel: its place in the journey, the buttons to the steps around it. */
+  /**
+   * A journey's step in the panel: its place in the journey, the buttons to the steps around it,
+   * and the one that leaves the journey.
+   */
   readonly stepOf: (step: number, count: number) => string;
   readonly previousStep: string;
   readonly nextStep: string;
+  readonly leaveJourney: string;
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -80,6 +84,7 @@ const fr: Words = {
   stepOf: (step, count) => `Étape ${step} sur ${count}`,
   previousStep: "← Précédente",
   nextStep: "Suivante →",
+  leaveJourney: "Quitter le parcours",
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -154,6 +159,7 @@ const en: Words = {
   stepOf: (step, count) => `Step ${step} of ${count}`,
   previousStep: "← Previous",
   nextStep: "Next →",
+  leaveJourney: "Leave the journey",
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,

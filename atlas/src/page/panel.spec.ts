@@ -601,6 +601,14 @@ describe("a journey in the panel", () => {
     expect(html).toContain('<button type="button" data-step="4">Suivante →</button>');
   });
 
+  test("every step, the first and the last among them, has a button that leaves the journey", () => {
+    for (const step of [1, 2, 4]) {
+      expect(journeyPanel(CHECKOUT, step)).toContain(
+        '<div class="leave"><button type="button" data-leave>Quitter le parcours</button></div>',
+      );
+    }
+  });
+
   test("the first step has no step before it, the last none after it; a step without note shows none", () => {
     const first = journeyPanel(CHECKOUT, 1);
     const last = journeyPanel(CHECKOUT, 4, "no wasm");

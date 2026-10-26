@@ -289,7 +289,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   there, else their lowest common container's (`stepView` in `journeys.ts`), its arrow hot and
   the others dimmed, nothing selected. The panel shows the journey's label, the step's place in
   it, the label of the link it follows over its ends, and its note, with ← → buttons, which the
-  arrow keys press too (`renderJourney` in `panel.ts`). The mode switch hides on a journey; a
+  arrow keys press too, and under them a button that leaves the journey for the place it started
+  from (`renderJourney` in `panel.ts`). The mode switch hides on a journey; a
   phase picked stays. A map without journeys has no menu.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. On a journey, both leave it for the place it started from, and any other move

@@ -1366,6 +1366,8 @@ panel.addEventListener("click", (e) => {
     closeCitation();
   } else if (step instanceof HTMLElement) {
     play(pageState.journey, Number(step.dataset["step"]));
+  } else if (e.target.closest("[data-leave]") !== null) {
+    leave();
   }
 });
 
