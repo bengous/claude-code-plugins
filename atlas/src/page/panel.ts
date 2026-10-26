@@ -85,6 +85,8 @@ const openSection = (
     ? ""
     : `<h3>${s.words.openPoints}</h3>${open.map((o) => openPoint(s, o, state)).join("")}`;
 
+const flatLabel = (node: Node): string => esc(node.label.replaceAll("\n", " "));
+
 function chip(tree: Tree, id: string): string {
   const node = tree.nodes.get(id);
 
@@ -92,9 +94,7 @@ function chip(tree: Tree, id: string): string {
     return "";
   }
 
-  const label = esc(node.label.replaceAll("\n", " "));
-
-  return `<button type="button" class="chip" data-go="${esc(id)}" style="--zc: var(${paletteVar(node.color)})"><span class="dot"></span>${label}</button>`;
+  return `<button type="button" class="chip" data-go="${esc(id)}" style="--zc: var(${paletteVar(node.color)})"><span class="dot"></span>${flatLabel(node)}</button>`;
 }
 
 const pointList = (s: Settings, tree: Tree, items: readonly Pair[]): string =>
@@ -304,9 +304,7 @@ export function renderJourney(
 
   const label = tree.map.links.find((link) => joins(link, shown))?.label;
 
-  const ends = [shown.from, shown.to]
-    .map((id) => esc(nodeOf(tree, id).label.replaceAll("\n", " ")))
-    .join(" → ");
+  const ends = [shown.from, shown.to].map((id) => flatLabel(nodeOf(tree, id))).join(" → ");
 
   const button = (nav: Nav, to: number, text: string): string =>
     to >= 1 && to <= journey.steps.length
@@ -480,9 +478,8 @@ const classOf = (names: readonly string[]): string =>
 
 function cardHead(node: Node, selected: boolean, names: readonly string[]): string {
   const current = selected ? ' aria-current="true"' : "";
-  const label = esc(node.label.replaceAll("\n", " "));
 
-  return `<th scope="col"${classOf(names)} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
+  return `<th scope="col"${classOf(names)} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${flatLabel(node)}</button></th>`;
 }
 
 const cell = (s: Settings, values: readonly string[], names: readonly string[]): string =>

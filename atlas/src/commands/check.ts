@@ -141,21 +141,19 @@ function checkPanels(tree: Tree, errors: string[]): void {
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
+function checkId(seen: Set<string>, id: string, where: string, again: string): string[] {
+  const errors = seen.has(id) ? [`${where}: ${again}`] : [];
+  seen.add(id);
+
+  return KEBAB.test(id) ? errors : [...errors, `${where}: the id must be kebab-case`];
+}
+
 function checkJourneys(tree: Tree, errors: string[]): void {
   const ids = new Set<string>();
 
   for (const { id, steps } of tree.map.root.journeys ?? []) {
     const where = `journey ${id}`;
-
-    if (ids.has(id)) {
-      errors.push(`${where}: a second journey has this id`);
-    }
-
-    ids.add(id);
-
-    if (!KEBAB.test(id)) {
-      errors.push(`${where}: the id must be kebab-case`);
-    }
+    errors.push(...checkId(ids, id, where, "a second journey has this id"));
 
     if (steps.length === 0) {
       errors.push(`${where}: no step; a journey follows one link at least`);
@@ -183,16 +181,7 @@ function checkOpen(tree: Tree, s: Settings, threads: Threads, errors: string[]):
 
   for (const item of openItems(tree)) {
     const where = `${item.kind} ${item.owner}: open point ${item.id}`;
-
-    if (ids.has(item.id)) {
-      errors.push(`${where}: duplicate open id`);
-    }
-
-    ids.add(item.id);
-
-    if (!KEBAB.test(item.id)) {
-      errors.push(`${where}: the id must be kebab-case`);
-    }
+    errors.push(...checkId(ids, item.id, where, "duplicate open id"));
 
     const word = s.stepWords
       .map((re) => re.exec(plainText(item.text))?.[0])
