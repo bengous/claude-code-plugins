@@ -119,7 +119,8 @@ pull request.
 
 - What is judged: a `git commit` written as such, in a subshell too, that writes a message (`-m`, the
   heredoc `-F -` reads, or the file `-F` names), its `--trailer` values with it, an amend that writes one
-  included, once the landing guard let the line through (its refusal wins, and nothing is judged). A
+  included. The landing guard's refusal wins: Haiku, started beside it, has its answer dropped, and no
+  refusal of it is kept. A
   message only the line's run gives goes unjudged with a note, since the hook runs before the line: a value
   Bash expands (`-m "$MSG"`, `-m "$(cat msg.txt)"`, `-F "$HOME/msg"`, backticks; a heredoc read by `cat`
   alone, `"$(cat <<'EOF'` … `)"`, with a quoted or escaped delimiter, is literal), a `-F -` fed by a pipe or

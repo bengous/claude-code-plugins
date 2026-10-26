@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import type { CommitExpansion, Fault } from "./commit-judge.ts";
 import { JUDGE_PROMPT, commitMessageOf, judge, judgeInput, judgeRefusal } from "./commit-judge.ts";
@@ -202,6 +205,8 @@ describe("judge", () => {
       ],
     ]);
     expect(calls[0]?.options.stdin).toBe("Message:\nfix: a\n\nFiles:\na.ts\nb.ts");
+    expect(calls[0]?.options.cwd).toStartWith(path.join(tmpdir(), "agent-hooks-judge-"));
+    expect(existsSync(calls[0]?.options.cwd ?? "")).toBe(false);
   });
 
   test("keeps the process and check-event passages the message holds, whitespace aside; facts alone pass", async () => {

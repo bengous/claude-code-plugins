@@ -1,4 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import path from "node:path";
 
 import type { Deadline, RunResult, Runner } from "./exec.ts";
 import { isRecord, stringField } from "./json.ts";
@@ -370,45 +372,52 @@ export async function judge(
   runner: Runner,
 ): Promise<Judgment> {
   let failed: Judgment = { kind: "failed", why: "no time left before the hook's deadline" };
+  // A private, empty cwd: claude reads a CLAUDE.md or .claude/settings.json from its cwd, and the shared tmpdir
+  // lets any local user plant one.
+  const cwd = mkdtempSync(path.join(tmpdir(), "agent-hooks-judge-"));
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const timeoutMs = deadline.remaining() - JUDGE_MARGIN_MS;
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const timeoutMs = deadline.remaining() - JUDGE_MARGIN_MS;
 
-    if (timeoutMs <= 0) {
-      return failed;
+      if (timeoutMs <= 0) {
+        return failed;
+      }
+
+      const result = await runner(
+        [
+          "claude",
+          "-p",
+          "--model",
+          "haiku",
+          "--output-format",
+          "json",
+          "--tools",
+          "",
+          "--no-session-persistence",
+          "--strict-mcp-config",
+          "--settings",
+          '{"disableAllHooks":true}',
+          "--system-prompt",
+          JUDGE_PROMPT,
+        ],
+        // On stdin, not as an argument: Linux caps one argument at 128 KiB, and a heredoc message is not capped.
+        { cwd, timeoutMs, stdin: judgeInput(message, files) },
+      );
+
+      const judgment = judgmentOf(result, message);
+
+      if (judgment.kind === "answered" || result.kind !== "exited" || result.code !== 0) {
+        return judgment;
+      }
+
+      failed = judgment;
     }
 
-    const result = await runner(
-      [
-        "claude",
-        "-p",
-        "--model",
-        "haiku",
-        "--output-format",
-        "json",
-        "--tools",
-        "",
-        "--no-session-persistence",
-        "--strict-mcp-config",
-        "--settings",
-        '{"disableAllHooks":true}',
-        "--system-prompt",
-        JUDGE_PROMPT,
-      ],
-      // On stdin, not as an argument: Linux caps one argument at 128 KiB, and a heredoc message is not capped.
-      { cwd: tmpdir(), timeoutMs, stdin: judgeInput(message, files) },
-    );
-
-    const judgment = judgmentOf(result, message);
-
-    if (judgment.kind === "answered" || result.kind !== "exited" || result.code !== 0) {
-      return judgment;
-    }
-
-    failed = judgment;
+    return failed;
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
   }
-
-  return failed;
 }
 
 function judgmentOf(result: RunResult, message: string): Judgment {

@@ -827,11 +827,6 @@ async function judgeCommits(
       continue;
     }
 
-    if (deadline.remaining() === 0) {
-      notes.add(noAnswer("no time left before the hook's deadline"));
-      continue;
-    }
-
     const filesKey = `${checkout}\u0000${written.takes}`;
     const files = filesByCheckout.get(filesKey) ?? filesOf(dir, commit.git.location, written.takes);
     filesByCheckout.set(filesKey, files);
