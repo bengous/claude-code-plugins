@@ -77,6 +77,23 @@ export default {
         ],
       },
       {
+        id: "accounts",
+        label: "Accounts",
+        sub: "who buys",
+        color: "store",
+        phase: "MVP",
+        children: [
+          {
+            id: "signin",
+            label: "Sign-in",
+            sub: "email and password",
+            color: "store",
+            phase: "Payments",
+          },
+          { id: "profiles", label: "Profiles", sub: "addresses", color: "store", phase: "Growth" },
+        ],
+      },
+      {
         id: "payments",
         label: "Payment provider",
         sub: "card payments",
@@ -97,6 +114,8 @@ export default {
   },
   links: [
     { from: "visitors", to: "pages", label: "browse" },
+    { from: "visitors", to: "signin", label: "sign in" },
+    { from: "signin", to: "db", label: "read accounts", phase: "Payments" },
     { from: "pages", to: "cart", label: "add to cart", phase: "MVP" },
     { from: "pages", to: "search", label: "queries", phase: "Growth" },
     { from: "pages", to: "db", label: "read books", phase: "MVP" },

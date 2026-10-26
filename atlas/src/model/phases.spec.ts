@@ -29,6 +29,7 @@ const MAP: AtlasMap = {
       box("C", [leaf("c1", "v1")], "v3"),
       box("D", [box("D1", [leaf("d1", "v3")]), leaf("d2", "v2")]),
       box("E", [box("E1", [leaf("e1", "v1")], "v3")]),
+      box("F", [leaf("f1", "v2"), leaf("f2", "v3")], "v1"),
       leaf("x", "v9"),
     ],
   },
@@ -38,7 +39,9 @@ const MAP: AtlasMap = {
     { from: "a3", to: "b1", label: "2" },
     { from: "a1", to: "d1", label: "3", phase: "v2" },
     { from: "a2", to: "d2", label: "4", phase: "v3" },
-    { from: "x", to: "c1", label: "5", phase: "v9" },
+    { from: "x", to: "a1", label: "5", phase: "v9" },
+    { from: "a3", to: "b2", label: "6" },
+    { from: "a3", to: "c1", label: "7" },
   ],
 };
 
@@ -50,9 +53,9 @@ const sorted = <T>(set: ReadonlySet<T>): T[] => [...set].toSorted();
 
 describe("dimmedBy", () => {
   test("a phase dims the nodes and links of the phases after it, not those of its own or before", () => {
-    expect(sorted(dimmed("v2").nodes)).toEqual(["C", "D1", "E1", "b2", "d1"]);
-    expect(sorted(dimmed("v2").links)).toEqual([1, 4]);
-    expect(sorted(dimmed("v1").links)).toEqual([1, 3, 4]);
+    expect(sorted(dimmed("v2").nodes)).toEqual(["C", "D1", "E1", "b2", "d1", "f2"]);
+    expect(sorted(dimmed("v2").links)).toEqual([1, 4, 6, 7]);
+    expect(sorted(dimmed("v1").links)).toEqual([1, 2, 3, 4, 6, 7]);
   });
 
   test("the last phase, or none picked, dims nothing", () => {
@@ -62,16 +65,47 @@ describe("dimmedBy", () => {
     }
   });
 
-  test("a node or a link without a phase, or with one the phases do not list, is never dimmed", () => {
+  test("a leaf without a phase, or with one the phases do not list, is never dimmed", () => {
     for (const phase of PHASES) {
       expect(dimmed(phase).nodes.has("a3")).toBe(false);
       expect(dimmed(phase).nodes.has("x")).toBe(false);
-      expect(dimmed(phase).links.has(2)).toBe(false);
-      expect(dimmed(phase).links.has(5)).toBe(false);
     }
   });
 
-  test("a container is dimmed once all its descendants are, or its own phase comes after", () => {
+  test("a link without a phase, or with one the phases do not list, dims only with one of its ends", () => {
+    for (const phase of PHASES) {
+      expect(dimmed(phase).links.has(5)).toBe(false);
+    }
+
+    expect(dimmed("v1").links.has(2)).toBe(true);
+    expect(dimmed("v2").links.has(2)).toBe(false);
+    expect(dimmed("v2").links.has(6)).toBe(true);
+    expect(dimmed("v3").links.has(6)).toBe(false);
+  });
+
+  test("a link without a phase dims once a container holding one of its ends is dimmed", () => {
+    expect(dimmed("v2").nodes.has("c1")).toBe(false);
+    expect(dimmed("v2").nodes.has("C")).toBe(true);
+    expect(dimmed("v2").links.has(7)).toBe(true);
+  });
+
+  test("a container's own phase decides: lit once it has come, though all below it comes later", () => {
+    for (const phase of ["v1", "v2"]) {
+      expect(dimmed(phase).nodes.has("F")).toBe(false);
+    }
+
+    expect(dimmed("v1").nodes.has("f1")).toBe(true);
+    expect(dimmed("v1").nodes.has("f2")).toBe(true);
+  });
+
+  test("a container's own phase decides: dimmed while it has not come, though a node below it has", () => {
+    for (const phase of ["v1", "v2"]) {
+      expect(dimmed(phase).nodes.has("C")).toBe(true);
+      expect(dimmed(phase).nodes.has("c1")).toBe(false);
+    }
+  });
+
+  test("a container without a phase is dimmed once all its descendants are", () => {
     const v1 = dimmed("v1").nodes;
 
     expect(v1.has("B")).toBe(true);
@@ -111,7 +145,7 @@ function arrow(container: string | null, from: string, to: string): Arrow {
 
 describe("arrowDimmed", () => {
   test("a lifted arrow is dimmed only when every link it stands for is", () => {
-    expect(arrow(null, "A", "B").links).toEqual([0, 1, 2]);
+    expect(arrow(null, "A", "B").links).toEqual([0, 1, 2, 6]);
     expect(arrow(null, "A", "D").links).toEqual([3, 4]);
 
     expect(arrowDimmed(dimmed("v1"), arrow(null, "A", "B"))).toBe(false);
@@ -124,5 +158,11 @@ describe("arrowDimmed", () => {
     expect(arrow("A", "a2", "B").links).toEqual([1]);
     expect(arrowDimmed(dimmed("v2"), arrow("A", "a2", "B"))).toBe(true);
     expect(arrowDimmed(dimmed("v3"), arrow("A", "a2", "B"))).toBe(false);
+  });
+
+  test("an arrow of one link without a phase dims with an end of it", () => {
+    expect(arrow(null, "A", "C").links).toEqual([7]);
+    expect(arrowDimmed(dimmed("v2"), arrow(null, "A", "C"))).toBe(true);
+    expect(arrowDimmed(dimmed("v3"), arrow(null, "A", "C"))).toBe(false);
   });
 });

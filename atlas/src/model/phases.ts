@@ -1,12 +1,14 @@
 import type { Tree } from "./tree.ts";
-import { nodeOf } from "./tree.ts";
+import { chainOf, nodeOf } from "./tree.ts";
 import type { Arrow } from "./view.ts";
 
 /**
  * What a picked work phase dims: the nodes and the links whose phase comes after it in the
- * Config's phases, and every container all of whose descendants are dimmed. A node or a link
- * without a phase is never dimmed, nor one whose phase the list does not hold, which `atlas check`
- * refuses.
+ * Config's phases. A container's own phase decides for it; a container without one is dimmed once
+ * all its descendants are. A link without a phase is dimmed once one of its ends is, or a
+ * container holding that end: a connection does not exist before both its ends do. A leaf without
+ * a phase is never dimmed. A phase the list does not hold, which `atlas check` refuses, counts as
+ * none.
  */
 export type Dimmed = {
   readonly nodes: ReadonlySet<string>;
@@ -28,7 +30,8 @@ export function dimmedBy(tree: Tree, phases: readonly string[], phase: string | 
     throw new Error(`phase ${phase} is not one of the Config's phases (${phases.join(", ")})`);
   }
 
-  const later = (p: string | undefined): boolean => p !== undefined && phases.indexOf(p) > picked;
+  const listed = (p: string | undefined): p is string => p !== undefined && phases.includes(p);
+  const later = (p: string): boolean => phases.indexOf(p) > picked;
   const nodes = new Set<string>();
   // The nodes all of whose descendants are dimmed: every leaf, which has none.
   const settled = new Set<string>();
@@ -42,14 +45,20 @@ export function dimmedBy(tree: Tree, phases: readonly string[], phase: string | 
       settled.add(id);
     }
 
-    if (later(own) || (children !== undefined && below)) {
+    if (listed(own) ? later(own) : children !== undefined && below) {
       nodes.add(id);
     }
   }
 
+  const gone = (end: string): boolean => chainOf(tree, end).some((id) => nodes.has(id));
+
   return {
     nodes,
-    links: new Set(tree.map.links.flatMap((l, i) => (later(l.phase) ? [i] : []))),
+    links: new Set(
+      tree.map.links.flatMap((l, i) =>
+        (listed(l.phase) ? later(l.phase) : gone(l.from) || gone(l.to)) ? [i] : [],
+      ),
+    ),
   };
 }
 

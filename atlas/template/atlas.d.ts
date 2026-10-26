@@ -99,8 +99,9 @@ export type Node = Panel & {
   readonly rank?: number;
   /**
    * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
-   * phase picked, the page dims it and draws it dashed; a container is dimmed too once every node
-   * below it is. A node without a phase is never dimmed.
+   * phase picked, the page dims it and draws it dashed, a container by its own phase whatever the
+   * nodes below it bring; a container without one is dimmed once every node below it is. A leaf
+   * without a phase is never dimmed.
    */
   readonly phase?: string;
   readonly open?: readonly OpenPoint[];
@@ -143,7 +144,7 @@ export type Link = {
   /**
    * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
    * phase picked, the page dims it and draws it dashed, and an arrow once every link it stands
-   * for is. A link without a phase is never dimmed.
+   * for is. A link without a phase is dimmed once one of its ends is, or a container holding one.
    */
   readonly phase?: string;
 };
