@@ -22,8 +22,8 @@ const MANIFEST = ".claude-plugin/plugin.json";
 
 /**
  * Paths under a plugin's directory that a change to needs no bump: read by
- * people and agents in this repository, never by the installed plugin, so an
- * installed copy that misses them loses nothing.
+ * people, agents and the typecheck in this repository, never by the installed
+ * plugin, so an installed copy that misses them loses nothing.
  */
 const DOCS_ONLY = [
   "README.md",
@@ -32,9 +32,10 @@ const DOCS_ONLY = [
   "CLAUDE.md",
   "docs/**",
   ".claude/**",
+  "**/*.d.ts",
 ].map((pattern) => new Bun.Glob(pattern));
 
-/** True when `path`, relative to a plugin's directory, is documentation alone. */
+/** True when `path`, relative to a plugin's directory, never reaches the installed plugin. */
 export function isDocsOnly(path: string): boolean {
   return DOCS_ONLY.some((glob) => glob.match(path));
 }

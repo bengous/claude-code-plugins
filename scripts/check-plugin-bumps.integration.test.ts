@@ -149,6 +149,12 @@ describe("unbumped", () => {
     expect(found(commit("Document example"))).toEqual([]);
   });
 
+  test("passes a change to the plugin's type declarations alone", () => {
+    write("example/types/claude-code.d.ts", "// Written by Claude Code 2.1.309.\n");
+
+    expect(found(commit("Type example"))).toEqual([]);
+  });
+
   test("names a plugin whose documentation changed beside its code", () => {
     write("example/docs/architecture.md", "map\n");
     write("example/skills/start/SKILL.md", "a skill ships\n");
