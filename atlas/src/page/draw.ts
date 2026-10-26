@@ -35,6 +35,7 @@ import {
   GHOST,
   LABEL,
   cardSize,
+  fontSize,
   labelSize,
   subLines,
   tagOf,
@@ -68,6 +69,18 @@ export type ArrowEl = {
   readonly g: SVGGElement;
   readonly path: SVGPathElement;
   readonly marker: string;
+  readonly label: SVGTextElement | null;
+};
+
+/**
+ * A text the engine hides while it is too small to read on screen (captionShown, zoom.ts): an
+ * arrow's label, a box's tag, a line of a card's sub-title. `size`: its font size in world units;
+ * `owner`: the arrow's group or the item's, whose lit, hot, hovered or selected state shows it.
+ */
+export type Caption = {
+  readonly text: SVGTextElement;
+  readonly size: number;
+  readonly owner: SVGGElement;
 };
 
 export type Drawn = {
@@ -82,6 +95,7 @@ export type Drawn = {
   readonly rects: ReadonlyMap<string, Rect>;
   readonly items: Registry;
   readonly arrows: readonly ArrowEl[];
+  readonly captions: readonly Caption[];
   readonly avoidError: string | null;
 };
 
@@ -468,12 +482,12 @@ function drawBox(
   items: Registry,
   words: Words,
   pick: Pick,
-): void {
+): Caption {
   const cls = `box${box.column === null ? "" : " outside"}`;
   const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, frames);
   el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 10, class: "box-bg" }, g);
   text(g, { x: r.x + 16, y: r.y + 31, class: BOX.title }, box.label);
-  text(g, { x: r.x + 16, y: r.y + 48, class: BOX.tag }, tagOf(box.sub));
+  const tag = text(g, { x: r.x + 16, y: r.y + 48, class: BOX.tag }, tagOf(box.sub));
   openBadge(g, box.open, r.x + r.w - 16, r.y + 16, false);
   onActivate(g, words.zoneLabel(box.label), () => {
     pick({ type: "enter", id: box.id });
@@ -490,9 +504,17 @@ function drawBox(
 
     drawChip(top, chip, cell, r, items, pick);
   }
+
+  return { text: tag, size: fontSize(BOX.tag), owner: g };
 }
 
-function drawCard(layer: SVGGElement, box: LeafBox, r: Rect, items: Registry, pick: Pick): void {
+function drawCard(
+  layer: SVGGElement,
+  box: LeafBox,
+  r: Rect,
+  items: Registry,
+  pick: Pick,
+): Caption[] {
   const lines = subLines(box.sub);
   const cls = `card${box.column === null ? "" : " outside"}${box.off ? " off" : ""}`;
   const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, layer);
@@ -502,16 +524,20 @@ function drawCard(layer: SVGGElement, box: LeafBox, r: Rect, items: Registry, pi
   const top = r.y + r.h / 2 - (CARD.ls + (lines.length > 0 ? 5 + lines.length * CARD.lh : 0)) / 2;
   text(g, { x: cx, y: top + CARD.ls * 0.8, class: CARD.lbl, "text-anchor": "middle" }, box.label);
 
-  for (const [i, line] of lines.entries()) {
+  const subs = lines.map((line, i): Caption => {
     const y = top + CARD.ls + 5 + i * CARD.lh + CARD.ss * 0.85;
-    text(g, { x: cx, y, class: CARD.sub, "text-anchor": "middle" }, line);
-  }
+    const sub = text(g, { x: cx, y, class: CARD.sub, "text-anchor": "middle" }, line);
+
+    return { text: sub, size: fontSize(CARD.sub), owner: g };
+  });
 
   onActivate(g, box.label, () => {
     pick({ type: "select", id: box.id });
   });
 
   register(items, box.id, g);
+
+  return subs;
 }
 
 // A ghost drawn twice carries a mark at the edge its arrows cross, so the two pills read as one
@@ -552,39 +578,62 @@ function drawGhost(
 }
 
 // A shortened label answers the pointer with the whole text, as a tooltip.
+function drawLabel(
+  g: SVGGElement,
+  variants: readonly string[],
+  { spot, variant }: Spotted,
+): SVGTextElement {
+  const whole = variants[0] ?? "";
+  const shown = variants[variant] ?? whole;
+
+  const t = text(
+    g,
+    {
+      x: spot.x + spot.w / 2,
+      y: spot.y + LABEL.ascent,
+      class: LABEL.cls,
+      "text-anchor": "middle",
+    },
+    shown,
+  );
+
+  if (variant > 0) {
+    t.setAttribute("pointer-events", "auto");
+    el("title", {}, t).textContent = whole;
+  }
+
+  return t;
+}
+
+// The drawn arrow takes no pointer events; its band in `hits`, an invisible wider stroke along the
+// same path, answers the pointer with the arrow's whole text, as a tooltip, the one way left to
+// read a label the engine hides.
 function drawArrow(
   layer: SVGGElement,
+  hits: SVGGElement,
   arrow: Arrow,
   mode: Mode,
   pts: readonly Point[],
   label: Spotted | null,
 ): ArrowEl {
   const g = el("g", { class: `flow ${arrow.kind}`, "pointer-events": "none" }, layer);
-  const path = arrowPath(g, rounded(pts, mode === "packed" ? 9 : 7), arrow.kind, arrow.two);
+  const d = rounded(pts, mode === "packed" ? 9 : 7);
+  const path = arrowPath(g, d, arrow.kind, arrow.two);
+  const variants = labelVariants(arrow, mode);
+  const [whole] = variants;
 
-  if (label !== null) {
-    const variants = labelVariants(arrow, mode);
-    const { spot, variant } = label;
-    const shown = variants[variant] ?? variants[0] ?? "";
-
-    const t = text(
-      g,
-      {
-        x: spot.x + spot.w / 2,
-        y: spot.y + LABEL.ascent,
-        class: LABEL.cls,
-        "text-anchor": "middle",
-      },
-      shown,
-    );
-
-    if (variant > 0) {
-      t.setAttribute("pointer-events", "auto");
-      el("title", {}, g).textContent = variants[0] ?? shown;
-    }
+  if (whole !== undefined) {
+    const band = el("path", { d, class: "flow-hit" }, hits);
+    el("title", {}, band).textContent = whole;
   }
 
-  return { arrow, g, path, marker: path.getAttribute("marker-end") ?? "" };
+  return {
+    arrow,
+    g,
+    path,
+    marker: path.getAttribute("marker-end") ?? "",
+    label: label === null ? null : drawLabel(g, variants, label),
+  };
 }
 
 export async function drawView(
@@ -605,11 +654,14 @@ export async function drawView(
       : await layeredView(view, items, ends, packing);
 
   layer.classList.add("view", mode);
-  // Boxes, then arrows, then cards, pills and chips on top: an arrow's end never hides a label.
+  // The arrows' hit bands, then boxes, then arrows, then cards, pills and chips on top: an arrow's
+  // end never hides a label, and a click on a box's edge where an arrow lands enters the box.
+  const hits = el("g", {}, layer);
   const frames = el("g", {}, layer);
   const arrowLayer = el("g", {}, layer);
   const top = el("g", {}, layer);
   const registry: Registry = new Map();
+  const captions: Caption[] = [];
 
   const rectOf = (id: string): Rect => {
     const r = laid.rects.get(id);
@@ -626,12 +678,13 @@ export async function drawView(
 
     switch (item.figure.kind) {
       case "box": {
-        drawBox(frames, top, item.figure.box, item.figure.cells, r, registry, words, pick);
+        const { box, cells } = item.figure;
+        captions.push(drawBox(frames, top, box, cells, r, registry, words, pick));
         break;
       }
 
       case "card": {
-        drawCard(top, item.figure.box, r, registry, pick);
+        captions.push(...drawCard(top, item.figure.box, r, registry, pick));
         break;
       }
 
@@ -651,8 +704,16 @@ export async function drawView(
   const arrows = view.arrows.flatMap((a, i): ArrowEl[] => {
     const pts = laid.routes[i] ?? null;
 
-    return pts === null ? [] : [drawArrow(arrowLayer, a, mode, pts, laid.labels[i] ?? null)];
+    return pts === null ? [] : [drawArrow(arrowLayer, hits, a, mode, pts, laid.labels[i] ?? null)];
   });
+
+  const labelFont = fontSize(LABEL.cls);
+
+  for (const arrow of arrows) {
+    if (arrow.label !== null) {
+      captions.push({ text: arrow.label, size: labelFont, owner: arrow.g });
+    }
+  }
 
   const rects = new Map(view.boxes.map((b): [string, Rect] => [b.id, rectOf(b.id)]));
 
@@ -665,6 +726,7 @@ export async function drawView(
     rects,
     items: registry,
     arrows,
+    captions,
     avoidError: laid.avoidError,
   };
 }

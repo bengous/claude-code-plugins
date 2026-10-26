@@ -1,4 +1,4 @@
-import type { OpenPoint, Pair, Panel } from "../model/atlas.ts";
+import type { OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
 import { keptMarkup } from "../model/markup.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Crumb } from "../model/navigation.ts";
@@ -13,12 +13,15 @@ import { esc } from "./svg.ts";
 
 // The panel shows the fields of Panel (atlas.ts) in their order: the HTML fields through
 // keptMarkup (markup.ts), which shows any tag but a few plain ones as text, so a map's text runs
-// nothing in the page that holds the reply token; the plain fields, ids and labels escaped.
+// nothing in the page that holds the reply token; the plain fields, ids, labels and the headings
+// the settings hold, the Config's or the dictionary's, escaped.
 //
 // threads.json as the page last read it, or why it could not.
 export type ThreadState =
   | { readonly kind: "ok"; readonly threads: Threads }
   | { readonly kind: "error"; readonly message: string };
+
+const heading = (s: Settings, key: PanelHeading): string => esc(s.headings[key]);
 
 const threadOf = (state: ThreadState, id: string): readonly Entry[] =>
   state.kind === "ok" ? (state.threads[id] ?? []) : [];
@@ -93,9 +96,9 @@ function replaceSection(s: Settings, tree: Tree, info: Panel, coupled: readonly 
   const chips =
     coupled.length === 0
       ? ""
-      : `<p class="label">${s.words.coupledWith}</p><div class="chips">${coupled.map((id) => chip(tree, id)).join("")}</div>`;
+      : `<p class="label">${heading(s, "coupledWith")}</p><div class="chips">${coupled.map((id) => chip(tree, id)).join("")}</div>`;
 
-  return `<h3>${s.words.swap}</h3>${swap}${chips}`;
+  return `<h3>${heading(s, "swap")}</h3>${swap}${chips}`;
 }
 
 // The sections after the contract, in panel order: [heading, body] or "".
@@ -106,24 +109,24 @@ function laterSections(
   open: readonly OpenPoint[] | undefined,
   state: ThreadState,
 ): string {
-  const w = s.words;
+  const h = (key: PanelHeading): string => `<h3>${heading(s, key)}</h3>`;
 
   return [
-    info.extend === undefined ? "" : `<h3>${w.extend}</h3><p>${keptMarkup(info.extend)}</p>`,
+    info.extend === undefined ? "" : `${h("extend")}<p>${keptMarkup(info.extend)}</p>`,
     info.pitfalls === undefined || info.pitfalls.length === 0
       ? ""
-      : `<h3>${w.pitfalls}</h3><ul>${list(info.pitfalls, false)}</ul>`,
-    info.seams === undefined ? "" : `<h3>${w.seams}</h3>${pointList(tree, info.seams)}`,
-    info.traps === undefined ? "" : `<h3>${w.traps}</h3>${pointList(tree, info.traps)}`,
+      : `${h("pitfalls")}<ul>${list(info.pitfalls, false)}</ul>`,
+    info.seams === undefined ? "" : `${h("seams")}${pointList(tree, info.seams)}`,
+    info.traps === undefined ? "" : `${h("traps")}${pointList(tree, info.traps)}`,
     info.why === undefined || info.why.length === 0
       ? ""
-      : `<h3>${w.why}</h3><ul>${list(info.why, false)}</ul>`,
-    info.alt === undefined ? "" : `<h3>${w.alt}</h3><p class="alt">${keptMarkup(info.alt)}</p>`,
+      : `${h("why")}<ul>${list(info.why, false)}</ul>`,
+    info.alt === undefined ? "" : `${h("alt")}<p class="alt">${keptMarkup(info.alt)}</p>`,
     info.facts === undefined
       ? ""
-      : `<h3>${w.facts}</h3><dl class="facts">${pairs(info.facts, true)}</dl>`,
+      : `${h("facts")}<dl class="facts">${pairs(info.facts, true)}</dl>`,
     openSection(s, open, state),
-    info.how === undefined ? "" : `<h3>${w.how}</h3><p>${keptMarkup(info.how)}</p>`,
+    info.how === undefined ? "" : `${h("how")}<p>${keptMarkup(info.how)}</p>`,
   ].join("");
 }
 
@@ -148,13 +151,13 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
     shown.brief.length === 0 ? "" : `<ul class="brief">${list(shown.brief, true)}</ul>`,
     info.io === undefined
       ? ""
-      : `<h3>${s.words.io}</h3><dl class="facts io">${pairs(info.io, false)}</dl>`,
+      : `<h3>${heading(s, "io")}</h3><dl class="facts io">${pairs(info.io, false)}</dl>`,
     replaceSection(s, tree, info, shown.coupled),
     laterSections(s, tree, info, shown.open, state),
     shown.extra,
     info.see === undefined || info.see.length === 0
       ? ""
-      : `<h3>${s.words.see}</h3><div class="chips">${info.see.map((id) => chip(tree, id)).join("")}</div>`,
+      : `<h3>${heading(s, "see")}</h3><div class="chips">${info.see.map((id) => chip(tree, id)).join("")}</div>`,
     info.src === undefined ? "" : `<p class="src">${s.words.source(esc(info.src))}</p>`,
     "</div>",
   ].join("");

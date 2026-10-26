@@ -24,6 +24,7 @@ describe("settingsOf", () => {
       ratio: "screen",
       tags: { names: [], outside: "optional" },
       legend: WORDS.en.legend,
+      headings: WORDS.en.headings,
     });
   });
 
@@ -98,6 +99,18 @@ describe("settingsOf", () => {
     });
 
     expect(legend).toEqual({ ...WORDS.fr.legend, deny: "bloqué" });
+  });
+
+  test("a panel heading the Config names replaces the dictionary's, the others keep it", () => {
+    const { headings } = settingsOf({
+      title: "T",
+      lang: "fr",
+      palette: {},
+      headings: { io: "Terrain", pitfalls: "Jamais" },
+    });
+
+    expect(headings).toEqual({ ...WORDS.fr.headings, io: "Terrain", pitfalls: "Jamais" });
+    expect(settingsOf({ title: "T", lang: "fr", palette: {} }).headings).toEqual(WORDS.fr.headings);
   });
 
   test("a palette key that cannot name a CSS custom property is refused", () => {

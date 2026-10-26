@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Rect } from "./geometry.ts";
-import { MAX_ZOOM, clamped, panned, zoomed, zoomedIn } from "./zoom.ts";
+import {
+  MAX_ZOOM,
+  MIN_CAPTION_PX,
+  captionShown,
+  clamped,
+  panned,
+  zoomed,
+  zoomedIn,
+} from "./zoom.ts";
 
 const FIT: Rect = { x: -100, y: 0, w: 1200, h: 1000 };
 
@@ -65,5 +73,30 @@ describe("clamped and zoomedIn", () => {
   test("zoomedIn tells the fit from a closer look", () => {
     expect(zoomedIn(FIT, FIT)).toBe(false);
     expect(zoomedIn(zoomed(FIT, [0, 0], 0.9, FIT), FIT)).toBe(true);
+  });
+});
+
+describe("captionShown", () => {
+  test("a caption under the threshold on screen hides, at or over it shows", () => {
+    expect(MIN_CAPTION_PX).toBe(10);
+    expect(captionShown(14, 0.7, false, false)).toBe(false);
+    expect(captionShown(20, 0.5, false, false)).toBe(true);
+    expect(captionShown(11, 1, false, false)).toBe(true);
+  });
+
+  test("a caption under the threshold shows while its arrow is lit or hot", () => {
+    expect(captionShown(14, 0.5, true, false)).toBe(true);
+    expect(captionShown(14, 0.5, false, true)).toBe(true);
+    expect(captionShown(14, 0.5, true, true)).toBe(true);
+  });
+
+  test("zooming in past a caption's threshold shows it, whatever its arrow", () => {
+    const fitted = 0.6;
+    const closer = fitted * 1.25;
+
+    expect(captionShown(14, fitted, false, false)).toBe(false);
+    expect(captionShown(14, closer, false, false)).toBe(true);
+    expect(captionShown(13, closer, false, false)).toBe(false);
+    expect(captionShown(13, closer * 1.1, false, false)).toBe(true);
   });
 });

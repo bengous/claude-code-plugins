@@ -8,7 +8,8 @@
 // when the drawing area's aspect or the fonts change. Clicks and keys become navigation events
 // (navigation.ts): the place changes, the camera (camera.ts) carries the reader from the box of
 // the child in the parent's view into the child's view and back, cross-fading the two on the way,
-// and the panel follows. There is no free zoom or drag.
+// and the panel follows. Inside a view, the wheel zooms, a drag pans and two fingers pinch, within
+// the view's fit (zoom.ts).
 //
 // Nothing in the data has a position or a size, and nothing should get one: ELK and libavoid lay
 // each view out (draw.ts). Text is measured from the rendered fonts (measure.ts), so layout waits
@@ -38,7 +39,7 @@ import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
-import { panned, zoomed, zoomedIn } from "./zoom.ts";
+import { captionShown, panned, zoomed, zoomedIn } from "./zoom.ts";
 
 const { tree, settings } = drawableOf(map, config);
 
@@ -338,20 +339,49 @@ function paintLayer(layer: SVGGElement, op: number, transform: string): void {
   }
 }
 
+// A caption too small to read on screen hides, unless its arrow is lit or hot, or its own box or
+// card is hovered or selected (captionShown): at the fit of a busy view, labels and sub-titles
+// would show at 7 or 8 px. Each layer keeps the scale it was last painted at, which a hover or a
+// selection reads.
+const scales = new WeakMap<SVGGElement, number>();
+
+function showCaptions(d: Drawn): void {
+  const scale = scales.get(d.layer);
+
+  if (scale === undefined) {
+    return;
+  }
+
+  for (const c of d.captions) {
+    const on = (cls: string): boolean => c.owner.classList.contains(cls);
+    const lit = on("lit") || on("peer");
+    const hot = on("hot") || on("selected");
+    c.text.classList.toggle("illegible", !captionShown(c.size, scale, lit, hot));
+  }
+}
+
+function paintView(d: Drawn, op: number, transform: string, scale: number): void {
+  paintLayer(d.layer, op, transform);
+  scales.set(d.layer, scale);
+  showCaptions(d);
+}
+
 // The layers painted last: a frame touches the image's own layers and hides those that left it.
 let painted = new Set<SVGGElement>();
 
+// The stage's width is read before the viewBox is written, so a frame forces no layout.
 function paint(img: Image): void {
+  const scale = svg.getBoundingClientRect().width / img.vb.w;
   svg.setAttribute("viewBox", `${img.vb.x} ${img.vb.y} ${img.vb.w} ${img.vb.h}`);
-  const own = drawn(img.space).layer;
-  paintLayer(own, img.op, "");
-  const now = new Set([own]);
+  const own = drawn(img.space);
+  paintView(own, img.op, "", scale);
+  const now = new Set([own.layer]);
 
   if (img.other !== null) {
     const s = between(img.other.space, img.space);
-    const other = drawn(img.other.space).layer;
-    paintLayer(other, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`);
-    now.add(other);
+    const other = drawn(img.other.space);
+    paintView(other, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`, scale * s.k);
+    now.add(other.layer);
   }
 
   for (const layer of painted) {
@@ -569,7 +599,8 @@ function moveTo(key: Key, from: Key): void {
   }
 }
 
-// Selecting a node lights its arrows and outlines its couplings, lifted to the view's items.
+// Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
+// lifted to the view's items.
 function highlight(d: Drawn, p: Place): void {
   const selected = p.selected;
   const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
@@ -593,10 +624,12 @@ function highlight(d: Drawn, p: Place): void {
   }
 
   d.layer.classList.toggle("selecting", selected !== null);
+  showCaptions(d);
 }
 
-// Arrows rest faded; hovering a box, a card, a chip or a pill lights the arrows that touch it and
-// fades the others further. The labels of a lit arrow stay readable.
+// Arrows rest faded; hovering a box, a card, a chip or a pill, or reaching it with Tab, lights the
+// arrows that touch it and fades the others further. The labels of a lit arrow stay readable, and
+// show at any size, as do the item's own tag and sub-title.
 function hover(target: EventTarget | null): void {
   const d = heldOf(st, openOf(place));
 
@@ -619,6 +652,18 @@ function hover(target: EventTarget | null): void {
   }
 
   d.layer.classList.toggle("focusing", id !== null);
+  showCaptions(d);
+}
+
+// A click focuses an item too, but only a keyboard's focus is :focus-visible: the mouse alone keeps
+// lighting what it hovers.
+function focusedItem(): Element | null {
+  const active = document.activeElement;
+  const layer = heldOf(st, openOf(place))?.layer;
+
+  return active !== null && layer?.contains(active) === true && active.matches(":focus-visible")
+    ? active
+    : null;
 }
 
 svg.addEventListener("pointerover", (e) => {
@@ -626,7 +671,19 @@ svg.addEventListener("pointerover", (e) => {
 });
 
 svg.addEventListener("pointerleave", () => {
-  hover(null);
+  hover(focusedItem());
+});
+
+svg.addEventListener("focusin", () => {
+  const item = focusedItem();
+
+  if (item !== null) {
+    hover(item);
+  }
+});
+
+svg.addEventListener("focusout", () => {
+  hover([...svg.querySelectorAll(":hover")].at(-1) ?? null);
 });
 
 function renderLegend(key: Key): void {
@@ -739,8 +796,10 @@ function prefetch(key: Key): void {
 }
 
 // The navigated view is laid out first; the views along the path to the one shown follow, which a
-// cross-fade aligns on; a later navigation drops this one. The panel, rendered before the view
-// was laid out, is rendered again when the view says what it could not: that libavoid failed.
+// cross-fade aligns on; a later navigation drops this one. A view shown anew lights only what the
+// keyboard focuses in it: a hover left on it when the reader went elsewhere ended unseen. The
+// panel, rendered before the view was laid out, is rendered again when the view says what it could
+// not: that libavoid failed.
 async function settle(): Promise<void> {
   const seq = ++turn;
   const from = cam === null ? null : shown(cam, performance.now()).space;
@@ -759,6 +818,7 @@ async function settle(): Promise<void> {
 
   if (key !== from || cam === null) {
     moveTo(key, from);
+    hover(focusedItem());
   }
 
   highlight(d, place);

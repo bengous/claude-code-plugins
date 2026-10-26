@@ -1,4 +1,4 @@
-import type { Config, Lang, LegendKey, Pins, Swatch, Tags } from "./atlas.ts";
+import type { Config, Lang, LegendKey, PanelHeading, Pins, Swatch, Tags } from "./atlas.ts";
 import type { Words } from "./words.ts";
 import { WORDS } from "./words.ts";
 
@@ -21,6 +21,8 @@ export type Settings = {
   readonly ratio: "screen" | number;
   readonly tags: Tags;
   readonly legend: Readonly<Record<LegendKey, string>>;
+  /** The map's text, not the page's words: the panel escapes each where it inserts it. */
+  readonly headings: Readonly<Record<PanelHeading, string>>;
 };
 
 export const OPEN_COLOR: Swatch = { light: "#c2410c", dark: "#fb923c" };
@@ -125,6 +127,7 @@ export function settingsOf(config: Config): Settings {
     ratio,
     tags: config.tags ?? { names: [], outside: "optional" },
     legend: { ...words.legend, ...config.legend },
+    headings: { ...words.headings, ...config.headings },
   };
 }
 

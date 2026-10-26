@@ -45,7 +45,8 @@ src/parts.spec.ts    a map assembled from parts/*.ts through check, fmt and the 
 src/model/           the map and what is read from it, pure or Node-only, no browser
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
-                     ratio, tags, legend labels, step words); the source of a map's atlas.d.ts
+                     ratio, tags, legend labels, panel headings, step words); the source of a
+                     map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
                      may name (labelsOf, folder.spec.ts); run, it prints them, or refuses a folder
                      the engine cannot draw, which serve.ts asks before each build
@@ -108,7 +109,8 @@ src/page/            what runs in the browser
                      through the boxes along their path, any number of levels at once
                      (camera.spec.ts)
   zoom.ts            the free look inside a view, pure: the camera's rect zoomed around a point
-                     or panned, kept within the rect that fits the view (zoom.spec.ts)
+                     or panned, kept within the rect that fits the view, and the captions a scale
+                     leaves readable (zoom.spec.ts)
   layout.ts          runs ELK's layered layout, flat, its rows wrapped to an aspect, a ghost held
                      to the first or the last layer (layout.spec.ts, which runs ELK under Bun)
   avoid.ts           runs libavoid (avoid.spec.ts)
@@ -206,6 +208,12 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
   bring the fit back before they do anything else, and a move to another view starts at its fit.
+- A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
+  hides, keeping its spot, unless its arrow is lit by a hover or a keyboard focus or hot from the
+  selection, or its own box or card is hovered, focused or selected (`captionShown` in
+  `zoom.ts`). An invisible band 8 px wide on screen along each arrow carries its whole label as a
+  tooltip; the bands lie under the boxes, so a click on a box's edge where an arrow lands enters
+  the box.
 - The breadcrumb stays on one line: from five crumbs on, the levels between the root and the
   last two fold into `…`, their names in its tooltip (`foldedCrumbs` in `navigation.ts`).
 - A ghost drawn in both columns carries a `›` mark at the edge its arrows cross and a tooltip

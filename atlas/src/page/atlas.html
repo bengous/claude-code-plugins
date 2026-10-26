@@ -37,6 +37,12 @@
     view of leaves alone is laid out left to right, its rows wrapped to the
     stage's aspect, every arrow's label and tags placed along it, shortened
     with its whole text as a tooltip where nothing else fits.
+  - An arrow's label, a box's tag or a card's sub-title under 10 px on
+    screen hides until a zoom brings it to 10 px; an arrow's label also shows
+    while hovering, focusing or selecting an item lights its arrow, and a
+    box's tag or a card's sub-title while its own item is hovered, focused
+    or selected. An invisible band 8 px wide along each arrow keeps its
+    whole text as a tooltip.
   - Clicking a box enters it: the camera carries the reader from the box
     into the child's view, the two cross-fading on the way; Escape, the
     breadcrumb or a click on the empty sheet go up one level (Escape first
@@ -49,7 +55,8 @@
     Couplings are symmetric: listing B in A's `couples` also outlines A when
     B is selected.
   - The panel on the right renders the fields of the selection, or of the
-    open container.
+    open container, under the headings of the Config's `headings` or the
+    dictionary.
   - A bare #id in the link opens the page on it: a container's view, or a
     leaf's parent's view with the leaf selected.
   - The legend shows a line for each arrow kind and node mark the view uses,
@@ -376,7 +383,12 @@ svg text { text-rendering: geometricPrecision; }
 .flow.deny path { stroke: var(--deny); }
 .flow.dash path { stroke-dasharray: 6 5; }
 .flow.hot path { stroke: var(--accent); stroke-width: 3.2; }
+/* An arrow's hit band (draw.ts): invisible, 8 px wide on screen at any zoom. It keeps the
+   pointer-events its view's layer inherits, so a fading view's bands catch nothing. */
+.flow-hit { fill: none; stroke: transparent; stroke-width: 8px; vector-effect: non-scaling-stroke; }
 .flow-label { font-family: var(--f-mono); font-size: 14px; fill: var(--ink-2); paint-order: stroke; stroke: var(--sheet); stroke-width: 3px; stroke-linejoin: round; }
+/* A caption too small to read on screen (engine.ts): hidden, its spot kept, never set visible here, or it would show through a hidden view. */
+svg text.illegible { visibility: hidden; }
 .flow.deny .flow-label { fill: var(--deny); }
 .flow.hot .flow-label { fill: var(--accent); }
 .arrowhead { fill: var(--ink-3); }
