@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
@@ -7,6 +9,7 @@ import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { THREADS_FILE, loadFolder } from "../model/folder.ts";
 import { settingsOf } from "../model/settings.ts";
+import { SOURCE_CAP_BYTES } from "../model/sources.ts";
 import { treeOf } from "../model/tree.ts";
 import { checkCitations, checkMap, validate } from "./check.ts";
 
@@ -363,6 +366,39 @@ describe("checkCitations, with the Config's sources", () => {
     expect(checked(out)).toEqual([
       "node orders: swap: ../map.ts:1: ../map.ts is no path from the sources root down",
     ]);
+  });
+
+  test("fails, as the viewer refuses it, a cited file over the cap, binary, or that cannot be read", () => {
+    const folder = mkdtempSync(join(tmpdir(), "atlas-check-sources-"));
+    const repo = join(folder, "repo");
+
+    try {
+      mkdirSync(repo);
+      writeFileSync(join(repo, "big.txt"), "a".repeat(SOURCE_CAP_BYTES + 1));
+      writeFileSync(join(repo, "nul.bin"), Buffer.from([0x61, 0x00, 0x0a]));
+      writeFileSync(join(repo, "locked.txt"), "locked\n", { mode: 0o000 });
+      const lead = "<cite>big.txt:1</cite> <cite>nul.bin:1</cite> <cite>locked.txt:1</cite>";
+
+      const errors = checkCitations(
+        citing((n) => ({ ...n, lead })),
+        CITED_CONFIG,
+        folder,
+      );
+
+      expect(errors.filter((error) => error.startsWith("node orders: lead: "))).toEqual([
+        `node orders: lead: big.txt:1: big.txt is over ${SOURCE_CAP_BYTES} bytes`,
+        "node orders: lead: nul.bin:1: nul.bin is not a text file in UTF-8",
+        ...(process.getuid?.() === 0
+          ? []
+          : [
+              expect.stringMatching(
+                /^node orders: lead: locked\.txt:1: locked\.txt cannot be read: EACCES/u,
+              ),
+            ]),
+      ]);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   test("verifies no citation without sources", () => {

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
@@ -7,7 +6,7 @@ import { drawableOf } from "../model/drawable.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
 import type { Settings } from "../model/settings.ts";
-import { sourceFile, textLines } from "../model/sources.ts";
+import { sourceText } from "../model/sources.ts";
 import type { Threads } from "../model/threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "../model/threads.ts";
 import type { Tree } from "../model/tree.ts";
@@ -29,8 +28,8 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
 //   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
-//   - with the Config's `sources`, a citation whose path names no file under its root, or whose
-//     lines run past the file's end (checkCitations, which reads the files).
+//   - with the Config's `sources`, a citation whose file the viewer would refuse, or whose lines
+//     run past the file's end (checkCitations, which reads the files as serve.ts does).
 // Layout is not checked here: ELK and libavoid lay each view out in the browser, and nothing
 // overlaps by construction. Look at the rendered page (serve.ts) for the rest.
 function checkNodes(tree: Tree, errors: string[]): void {
@@ -181,9 +180,10 @@ export function checkMap(map: AtlasMap, config: Config, threads: unknown): strin
 }
 
 /**
- * Each citation of the map whose file is not under the Config's sources root, relative to the map
- * folder `dir`, or whose lines run past that file's end, as "<root | node id>: <field>:
- * <citation>: <why>". None without `sources`.
+ * Each citation of the map whose file the viewer would refuse (sourceText: not under the Config's
+ * sources root, relative to the map folder `dir`, unreadable, over the cap, not text), or whose
+ * lines run past that file's end, as "<root | node id>: <field>: <citation>: <why>". None
+ * without `sources`.
  */
 export function checkCitations(map: AtlasMap, config: Config, dir: string): string[] {
   if (config.sources === undefined) {
@@ -194,13 +194,13 @@ export function checkCitations(map: AtlasMap, config: Config, dir: string): stri
 
   return mapCitations(map).flatMap(({ where, field, citation }) => {
     const cited = `${where}: ${field}: ${citationText(citation)}`;
-    const source = sourceFile(root, citation.path);
+    const source = sourceText(root, citation.path);
 
     if (source.kind === "refused") {
       return [`${cited}: ${source.reason}`];
     }
 
-    const count = textLines(readFileSync(source.file, "utf8")).length;
+    const count = source.lines.length;
 
     return citation.lines.flatMap((lines) =>
       lines.last <= count
