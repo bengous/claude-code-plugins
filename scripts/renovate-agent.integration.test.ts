@@ -598,6 +598,14 @@ function renovatePushes() {
   git(clone, "push", "-q", "origin", "renovate/x-1.x");
 }
 
+/** Renovate's rebase of its branch onto `origin/dev`, force-pushed from a clone of its own. */
+function renovateRebases() {
+  const clone = join(root, "renovate-clone");
+  git(root, "clone", "-q", "-b", "renovate/x-1.x", origin, clone);
+  git(clone, "rebase", "-q", "origin/dev");
+  git(clone, "push", "-qf", "origin", "renovate/x-1.x");
+}
+
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -1052,6 +1060,51 @@ describe("renovate-agent run", () => {
     expect(runScript().code).toBe(0);
     expect(agentRuns()).toBe(0);
     expect(report()[0]).toContain("landed renovate/x-1.x");
+  });
+
+  test("replaces a kept worktree holding Renovate's earlier head when its rebased head carries the same patch", () => {
+    git(project, "fetch", "-q", "origin");
+    git(
+      project,
+      "worktree",
+      "add",
+      "-q",
+      "-b",
+      "renovate/x-1.x",
+      worktree(),
+      "origin/renovate/x-1.x",
+    );
+    write(join(project, "notes.txt"), "dev moved\n");
+    git(project, "add", "notes.txt");
+    git(project, "commit", "-qm", "docs: dev moves on");
+    git(project, "push", "-q", "origin", "dev");
+    renovateRebases();
+    listPr("success", { files: ["vellum/package.json"] });
+
+    expect(runScript().code).toBe(0);
+    expect(report()[0]).toContain("landed renovate/x-1.x");
+  });
+
+  test("keeps a kept worktree holding a commit its pull request's head does not carry", () => {
+    git(project, "fetch", "-q", "origin");
+    git(
+      project,
+      "worktree",
+      "add",
+      "-q",
+      "-b",
+      "renovate/x-1.x",
+      worktree(),
+      "origin/renovate/x-1.x",
+    );
+    write(join(worktree(), "notes.txt"), "work in progress\n");
+    git(worktree(), "add", "notes.txt");
+    git(worktree(), "commit", "-qm", "wip");
+    listPr("success", { files: ["vellum/package.json"] });
+
+    runScript();
+
+    expect(report()[0]).toContain(`${worktree()} holds 1 commits pushed nowhere`);
   });
 
   test("gives a landing refused on a red CI to the agent, two agent rounds in all, then to the human", () => {

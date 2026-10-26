@@ -667,7 +667,7 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
   }
 
   if (checkouts.some((tree) => tree.dir === path)) {
-    const work = heldWork(path);
+    const work = heldWork(path, fetched);
 
     if (work !== null) {
       throw new Error(

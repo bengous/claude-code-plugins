@@ -110,14 +110,30 @@ export async function worktreesOf(cwd: string) {
   return await readWorktrees(root);
 }
 
-/** What a worktree holds that its remote does not: changes, or commits pushed nowhere; null when nothing. */
-export function heldWork(path: string): string | null {
+/**
+ * What a worktree holds that its remote does not: changes, or commits pushed nowhere, less those whose patch
+ * `carriedBy` already carries, as a rebased head carries its earlier one's; null when nothing.
+ */
+export function heldWork(path: string, carriedBy?: string): string | null {
   const changes = git(path, "status", "--porcelain");
 
   if (changes !== "") return `uncommitted changes (${changes.split("\n").length})`;
-  const unpushed = git(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin");
 
-  return unpushed === "0" ? null : `${unpushed} commits pushed nowhere`;
+  const unpushed = git(path, "rev-list", "HEAD", "--not", "--remotes=origin")
+    .split("\n")
+    .filter(Boolean);
+
+  const carried = new Set(
+    carriedBy === undefined
+      ? []
+      : git(path, "cherry", carriedBy, "HEAD")
+          .split("\n")
+          .flatMap((line) => (line.startsWith("- ") ? [line.slice(2)] : [])),
+  );
+
+  const held = unpushed.filter((commit) => !carried.has(commit)).length;
+
+  return held === 0 ? null : `${held} commits pushed nowhere`;
 }
 
 /** Writes `content` beside `file`, then renames it into place, so a reader never meets it half-written. */
