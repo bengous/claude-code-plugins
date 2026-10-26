@@ -226,10 +226,12 @@ body {
 .open-btn:hover, .sources-btn:hover { border-color: var(--accent); color: var(--accent); }
 .sources-btn[aria-pressed="true"] { color: var(--ink); }
 /* The stepper of the Config's work phases (engine.ts): every phase, then each in order, the one picked pressed and those after it faded; the page drops it for a map without phases. */
-.phases { display: flex; align-self: center; }
+/* Wider than the header, it scrolls within its own box, its padding keeping the focus ring in sight. */
+.phases { display: flex; align-self: center; max-width: calc(100% + 8px); overflow-x: auto; scrollbar-width: thin; padding: 4px; margin: -4px; }
 .phases button {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 4px 10px; cursor: pointer;
+  flex: none; white-space: nowrap;
 }
 .phases button + button { margin-left: -1px; }
 .phases button:first-child { border-radius: 4px 0 0 4px; }

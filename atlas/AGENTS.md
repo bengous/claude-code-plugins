@@ -262,7 +262,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
   Escape leaves alone, the fit and legend buttons disabled; the legend and the hint hide. Another container
   opens on its drawing.
-- With the Config's `phases`, the header shows a stepper: every phase, then each in order. A
+- With the Config's `phases`, the header shows a stepper: every phase, then each in order,
+  scrolling within its own box when the header is narrower. A
   phase picked (`phase=`) fades and dashes, in every view, the nodes and links of the phases after
   it, a container by its own phase or, without one, once all its descendants are, a link without
   a phase once one of its ends is or a container holding one, an arrow once every link it stands
