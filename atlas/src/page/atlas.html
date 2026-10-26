@@ -283,7 +283,6 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
   position: absolute; inset: 0; overflow: auto; padding: 0 16px 16px 0; background: var(--sheet);
   border: 0 solid var(--sheet); border-width: calc(var(--controls-bottom, 40px) + 12px) 0 0 16px;
 }
-.cards[hidden] { display: none; }
 .stage:has(> .cards:not([hidden])) :is(.legend, .hint) { display: none; }
 .cards table { border-collapse: separate; border-spacing: 8px 0; font-size: 14px; line-height: 1.45; }
 .cards th, .cards td { text-align: left; vertical-align: top; padding: 8px 12px; }
@@ -294,7 +293,6 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .cards thead th { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--zc); border-bottom: 0; border-radius: 6px 6px 0 0; padding-block: 10px 4px; }
 .cards td.selected, .cards th.selected { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-inline-color: var(--accent); }
 .cards tbody tr:last-child td.selected { border-bottom-color: var(--accent); }
-.cards thead th.selected { border-top-color: var(--zc); }
 .cards thead button {
   font-family: var(--f-display); font-weight: 700; font-size: 24px; line-height: 1.05; letter-spacing: 0.01em; text-align: left;
   color: var(--zc); background: none; border: 0; padding: 0; cursor: pointer;
@@ -306,7 +304,6 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .cards .lead { font-size: 15px; }
 .cards td p { margin: 0 0 6px; }
 .cards td p:last-child { margin-bottom: 0; }
-.cards code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { width: 26px; height: 8px; overflow: visible; }
 .hint {
@@ -337,7 +334,7 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel ul { margin: 0; padding-left: 18px; }
 .panel li { margin-bottom: 6px; }
 .panel li::marker { color: var(--zc, var(--ink-3)); }
-.panel code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
+.panel code, .cards code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
 .panel .alt { color: var(--ink-2); }
 /* A citation (citations.ts, panel.ts), in the panel or the cards: a small mono marker of its lines, its path shown once the Sources toggle shows them in full. */
 .panel cite.cite, .cards cite.cite {

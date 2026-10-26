@@ -772,16 +772,70 @@ new ResizeObserver(() => {
 // scrolled; undefined while the drawing shows.
 let cardsShown: Key | undefined;
 
-// The headers and the markers of the cards: the same cards rewritten hold them in the same order,
-// so a render gives the focus back to the one that held it, as it keeps where they were scrolled.
-const cardButtons = (): HTMLElement[] =>
-  [...cardsView.querySelectorAll("[data-select], [data-cite]")].filter(
-    (e) => e instanceof HTMLElement,
-  );
+// An element of a root whose markup is rewritten, found again in the new markup by the value of
+// the first of the keys (attributes) it bears, and its rank among the root's elements bearing that
+// value.
+interface Mark {
+  readonly root: Element;
+  readonly keys: readonly string[];
+  readonly key: string;
+  readonly value: string;
+  readonly rank: number;
+}
+
+const bearing = (root: Element, key: string, value: string): Element[] =>
+  [...root.querySelectorAll(`[${key}]`)].filter((e) => e.getAttribute(key) === value);
+
+function markOf(root: Element, keys: readonly string[], element: Element | null): Mark | null {
+  if (element === null || !root.contains(element)) {
+    return null;
+  }
+
+  const key = keys.find((k) => element.hasAttribute(k));
+
+  if (key === undefined) {
+    return null;
+  }
+
+  const value = element.getAttribute(key) ?? "";
+
+  return { root, keys, key, value, rank: bearing(root, key, value).indexOf(element) };
+}
+
+const focusable = (e: Element | undefined): e is HTMLElement =>
+  e instanceof HTMLElement && !e.matches(":disabled");
+
+// The marked element takes the focus; gone or disabled, the root's first enabled element bearing
+// one of the keys does.
+function refocus(mark: Mark): void {
+  const same = bearing(mark.root, mark.key, mark.value)[mark.rank];
+
+  const target = focusable(same)
+    ? same
+    : [...mark.root.querySelectorAll(mark.keys.map((k) => `[${k}]`).join(", "))].find((e) =>
+        focusable(e),
+      );
+
+  target?.focus({ preventScroll: true });
+}
+
+// Rewrites a root's markup, and gives the focus back to what held it there.
+function keepingFocus(root: Element, keys: readonly string[], rewrite: () => void): void {
+  const mark = markOf(root, keys, document.activeElement);
+  rewrite();
+
+  if (mark !== null) {
+    refocus(mark);
+  }
+}
+
+// What the cards' focus is kept by: their headers and their markers.
+const CARD_KEYS = ["data-select", "data-cite"];
 
 // The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
 // which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
-// kept for the way back and the fit button disabled.
+// kept for the way back and the fit button disabled. The same cards rewritten keep
+// where they were scrolled and the focus.
 function renderMode(key: Key): void {
   const cards = cardsOf(tree, key);
   const table = params.mode === "cards" ? cards : null;
@@ -800,11 +854,19 @@ function renderMode(key: Key): void {
 
   const same = cardsShown === key;
   const [left, top] = same ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
-  const focused = same ? cardButtons().findIndex((b) => b === document.activeElement) : -1;
-  cardsView.innerHTML = cardsHtml(settings, table, place.selected);
-  cardsView.scrollLeft = left;
-  cardsView.scrollTop = top;
-  cardButtons()[focused]?.focus({ preventScroll: true });
+
+  const write = (): void => {
+    cardsView.innerHTML = cardsHtml(settings, table, place.selected);
+    cardsView.scrollLeft = left;
+    cardsView.scrollTop = top;
+  };
+
+  if (same) {
+    keepingFocus(cardsView, CARD_KEYS, write);
+  } else {
+    write();
+  }
+
   cardsShown = key;
 }
 
