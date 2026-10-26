@@ -308,6 +308,19 @@ describe("checkMap", () => {
       "link orders → email: tag parcel is not in the config's tags",
     ]);
   });
+
+  test("a <cite> that looks like a citation but reads as none is named, with or without sources", () => {
+    const cited = withNode(MAP, "orders", (n) => ({
+      ...n,
+      lead: "<cite>a.ts:0</cite> <cite>a.ts:1, 3</cite> <cite>redis:6379</cite>",
+      swap: "<cite>b/c.go:9-3</cite>",
+    }));
+
+    expect(checkMap(cited, CONFIG, THREADS)).toEqual([
+      "node orders: lead: a.ts:0 reads as no citation: lines count from 1: 0",
+      "node orders: swap: b/c.go:9-3 reads as no citation: the range 9-3 runs backwards",
+    ]);
+  });
 });
 
 const CITATIONS = join(import.meta.dir, "..", "..", "fixtures", "citations");

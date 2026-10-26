@@ -1,5 +1,5 @@
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
-import { citationText, citedLines, mapCitations } from "../model/citations.ts";
+import { citationText, citedLines, mapBrokenCitations, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { sourcesRootOf } from "../model/folder.ts";
 import { MarkupError } from "../model/markup.ts";
@@ -21,6 +21,7 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //   - a `rank` on an outside node, which its side places;
 //   - a root's `tour` that names what is no node with children, or misses one;
 //   - an id in `see`, `seams` or `traps`, on the root or on any node, that no node carries;
+//   - a <cite> that looks like a citation but reads as none (citeOf), as `a.ts:0` or `a.ts:9-3`;
 //   - a tag outside the Config's `tags`, and, when they say so, a link between two leaves into an
 //     outside one that is not on the left and names no tag; a link with a container end names the
 //     arrow between boxes, whose tags are its leaf links';
@@ -151,6 +152,11 @@ export function validate(tree: Tree, s: Settings, threads: unknown): string[] {
   checkNodes(tree, errors);
   checkLinks(tree, s, errors);
   checkPanels(tree, errors);
+  errors.push(
+    ...mapBrokenCitations(tree.map).map(
+      ({ where, field, text, why }) => `${where}: ${field}: ${text} reads as no citation: ${why}`,
+    ),
+  );
   const read = readThreads(threads);
   errors.push(...read.errors);
   checkOpen(tree, s, read.threads, errors);

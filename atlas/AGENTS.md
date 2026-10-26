@@ -62,7 +62,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      no attribute), the rest shown as text, and the faults check and the server
                      refuse, by node and field (markup.spec.ts)
   citations.ts       a <cite>path:lines</cite> read as a citation, pure, and every citation of a
-                     map by node and field (citations.spec.ts)
+                     map by node and field, and every <cite> that looks like one but reads as
+                     none (citations.spec.ts)
   sources.ts         the file a citation's path names under the Config's sources root, Node-only:
                      no absolute path, no `..`, no link out of the root; and its lines, for a
                      text file under SOURCE_CAP_BYTES, read through one descriptor opened without
@@ -87,7 +88,7 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
 src/commands/        what cli.ts does to a map folder
   check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, a
                      rank on an outside node, the root's tour, see/seams/traps ids on every panel,
-                     tags against the Config's, open points against its step words, and threads,
+                     a <cite> that reads as no citation, tags against the Config's, open points against its step words, and threads,
                      and reports the open points; with the Config's sources, each citation's file,
                      read as serve.ts reads it, and its lines (check.spec.ts)
   reply.ts           adds an entry to a thread of a map folder (reply.spec.ts)
