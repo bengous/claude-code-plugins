@@ -121,9 +121,10 @@ pull request.
   heredoc `-F -` reads, or the file `-F` names), its `--trailer` values with it, an amend that writes one
   included, once the landing guard let the line through (its refusal wins, and nothing is judged). A
   message only the line's run gives goes unjudged with a note, since the hook runs before the line: a value
-  Bash expands (`-m "$MSG"`, `-m "$(cat msg.txt)"`, backticks; a heredoc read through `$(cat <<'EOF' …)`
-  is literal), a `-F -` fed by a pipe or by a heredoc Bash expands, a `-F` file whose name the line names
-  before the commit. Not judged: a commit that keeps or reuses a message (`--no-edit`, `-C`,
+  Bash expands (`-m "$MSG"`, `-m "$(cat msg.txt)"`, `-F "$HOME/msg"`, backticks; a heredoc read by `cat`
+  alone, `"$(cat <<'EOF'` … `)"`, with a quoted or escaped delimiter, is literal), a `-F -` fed by a pipe or
+  by a heredoc Bash expands, a `-F` file whose name the line names as a word before the commit, a `-F` file
+  over 64 KiB. Not judged: a commit that keeps or reuses a message (`--no-edit`, `-C`,
   `--fixup=amend:`), one that makes none (`--dry-run`, `--porcelain`, `-h`), a commit inside `$(…)` or
   backticks, behind `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function; a commit
   whose `cd` the walk cannot follow and that no absolute `git -C` places (with a note); `merge`,
@@ -143,7 +144,7 @@ pull request.
   the hash of each message refused to that agent, and that message committed again unchanged passes
   unjudged from then on, a rerun that a red pre-commit or a denied prompt stopped included. It ages out
   with the beats. A refusal the kit cannot save lets the commit through, with a note: its rerun would be
-  judged again. A refusal carries the notes of the line's other commits. `noise` counts these refusals with
+  judged again. A refusal carries the notes of the line's other commits and the landing guard's. `noise` counts these refusals with
   the landing guard's.
 - Haiku with no answer (no `claude` on PATH, an error exit, an unreadable answer twice, no time left before
   the hook's deadline) lets the commit through, with a `systemMessage` that starts with `agent-hooks:`. A

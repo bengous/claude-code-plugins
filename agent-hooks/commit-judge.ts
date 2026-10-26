@@ -19,10 +19,12 @@ export type CommitMessage = {
   readonly message: string | null;
   /** The file `-F` names, read where the commit runs. */
   readonly file: string | null;
+  /** The `--trailer` values, which git appends to a message `-F` reads from a file too. */
+  readonly trailers: readonly string[];
   /**
-   * Whether part of the message is known only once the line runs: a `-m` or `--trailer` value Bash expands
-   * (`"$MSG"`, `"$(cat msg.txt)"`, backticks) other than a literal heredoc, or a `-F -` fed by a pipe or by a
-   * heredoc Bash expands.
+   * Whether part of the message is known only once the line runs: a `-m`, `--trailer` or `-F` value Bash expands
+   * (`"$MSG"`, `"$(cat msg.txt)"`, backticks) other than a literal heredoc read by `cat`, or a `-F -` fed by a pipe
+   * or by a heredoc Bash expands.
    */
   readonly opaque: boolean;
   /**
@@ -162,17 +164,28 @@ const REUSED_MESSAGE = new Set(["-C", "--reuse-message", "-c", "--reedit-message
 
 const NO_COMMIT = new Set(["--dry-run", "--short", "--porcelain", "--long", "--help", "-h"]);
 
-const HEREDOC_BODY = /<<-?\s*\\?(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\s*(?:\n|$)/u;
+/** A value that is a heredoc read by `cat` and nothing else: `"$(cat <<'EOF'` … `EOF` `)"`. */
+const CAT_HEREDOC =
+  /^\$\(\s*cat\s+<<-?\s*(\\)?(['"]?)(\w+)\2[ \t]*\n([\s\S]*?)\n[ \t]*\3[ \t]*\n?\s*\)$/u;
 
-/** A `-m` value as Bash hands it over, or undefined when only the line's run gives it. */
+/**
+ * A `-m` or `--trailer` value as Bash hands it over, or undefined when only the line's run gives it. A heredoc
+ * delimiter quoted or escaped (`'EOF'`, `"EOF"`, `\EOF`) keeps its body literal.
+ */
 function textOf(value: string, expands: boolean): string | undefined {
   if (!expands) {
     return value;
   }
 
-  const [, quote, , body] = (value.startsWith("$(") ? HEREDOC_BODY.exec(value) : null) ?? [];
+  const [, backslash, quote, , body] = CAT_HEREDOC.exec(value) ?? [];
+  const literal = backslash !== undefined || (quote !== undefined && quote !== "");
 
-  return body === undefined || (quote === "" && /[$`]/u.test(body)) ? undefined : body;
+  return body === undefined || (!literal && /[$`]/u.test(body)) ? undefined : body;
+}
+
+/** A message with its `--trailer` values after it, as git appends them. */
+export function withTrailers(body: string, trailers: readonly string[]): string {
+  return trailers.length === 0 ? body : `${body}\n\n${trailers.join("\n")}`;
 }
 
 /** What a `git commit` does with its message, from its arguments as Bash hands them over and the heredoc it reads. */
@@ -188,6 +201,7 @@ export function commitMessageOf(
   let all = false;
   let pathspec = false;
   let file: string | null = null;
+  let fileExpands = false;
   const messages: (string | undefined)[] = [];
   const trailers: (string | undefined)[] = [];
 
@@ -204,6 +218,7 @@ export function commitMessageOf(
       trailers.push(text);
     } else if (name === "-F" || name === "--file") {
       file = value;
+      fileExpands = expansion.argsExpand[at] === true;
     }
 
     reused ||=
@@ -269,7 +284,6 @@ export function commitMessageOf(
   const written = messages.flatMap((text) => (text === undefined ? [] : [text.trim()]));
   const body = written.length > 0 ? written.join("\n\n") : fromStdin;
   const lines = trailers.flatMap((text) => (text === undefined ? [] : [text.trim()]));
-  const message = body === null || lines.length === 0 ? body : `${body}\n\n${lines.join("\n")}`;
   const writes = messages.length > 0 || file !== null;
 
   const form: CommitForm =
@@ -277,10 +291,14 @@ export function commitMessageOf(
 
   return {
     form,
-    message,
+    message: body === null ? null : withTrailers(body, lines),
     file: stdin ? null : file,
+    trailers: lines,
     opaque:
-      messages.includes(undefined) || trailers.includes(undefined) || (stdin && fromStdin === null),
+      messages.includes(undefined) ||
+      trailers.includes(undefined) ||
+      (stdin && fromStdin === null) ||
+      (!stdin && fileExpands),
     takes: all || pathspec ? "worktree" : "staged",
   };
 }

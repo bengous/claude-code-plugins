@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { Fault, Judgment } from "./commit-judge.ts";
-import { commitMessageOf, judge, judgeRefusal } from "./commit-judge.ts";
+import { commitMessageOf, judge, judgeRefusal, withTrailers } from "./commit-judge.ts";
 import type { Approval, CommitMessagesMode, LandingProfile } from "./config.ts";
 import {
   ConfigError,
@@ -810,7 +810,11 @@ async function judgeCommits(
       continue;
     }
 
-    const message = written.message ?? messageFileOf(command, commit, dir, written.file, notes);
+    const fromFile =
+      written.message === null ? messageFileOf(command, commit, dir, written.file, notes) : null;
+
+    const message =
+      written.message ?? (fromFile === null ? null : withTrailers(fromFile, written.trailers));
 
     if (message === null || message === "") {
       continue;
@@ -824,7 +828,7 @@ async function judgeCommits(
     }
 
     if (deadline.remaining() === 0) {
-      notes.add("agent-hooks: a commit went unjudged: no time left before the hook's deadline");
+      notes.add(noAnswer("no time left before the hook's deadline"));
       continue;
     }
 
@@ -840,7 +844,7 @@ async function judgeCommits(
     const answer = await judgment;
 
     if (answer.kind === "failed") {
-      notes.add(`agent-hooks: the commit judge gave no answer (${answer.why}): the commit passed`);
+      notes.add(noAnswer(answer.why));
     } else if (answer.faults.length > 0) {
       refused.push({ message, hash, faults: answer.faults });
     }
@@ -881,10 +885,15 @@ function settled(
 const UNSEEN_MESSAGE =
   "agent-hooks: a commit went unjudged: part of its message is known only once the line runs";
 
+function noAnswer(why: string): string {
+  return `agent-hooks: the commit judge gave no answer (${why}): the commit passed`;
+}
+
 /**
  * The message in the file `-F` names, read where git reads it, after its `-C`. None, with a note, when the line names
- * the file's name before the commit, under any spelling of its path: the hook runs ahead of the line, so the file may
- * still hold an older message. None when it is not there or too large, and a note when it cannot be read.
+ * the file's name as a word before the commit, under any spelling of its path: the hook runs ahead of the line, so
+ * the file may still hold an older message. None when it is not there, as git then makes no commit; a note when it
+ * is too large or cannot be read.
  */
 function messageFileOf(
   line: string,
@@ -897,7 +906,9 @@ function messageFileOf(
     return null;
   }
 
-  if (line.slice(0, commit.start).includes(path.basename(file))) {
+  const name = path.basename(file).replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+  if (new RegExp(`(?<![\\w.-])${name}(?![\\w.-])`, "u").test(line.slice(0, commit.start))) {
     notes.add(UNSEEN_MESSAGE);
 
     return null;
@@ -914,9 +925,17 @@ function messageFileOf(
   const resolved = path.resolve(gitDir, file);
 
   try {
-    return existsSync(resolved) && statSync(resolved).size <= MESSAGE_FILE_BYTES
-      ? readFileSync(resolved, "utf8").trim()
-      : null;
+    if (!existsSync(resolved)) {
+      return null;
+    }
+
+    if (statSync(resolved).size > MESSAGE_FILE_BYTES) {
+      notes.add(`agent-hooks: a commit went unjudged: ${resolved} is over 64 KiB`);
+
+      return null;
+    }
+
+    return readFileSync(resolved, "utf8").trim();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     notes.add(`agent-hooks: a commit went unjudged: ${resolved} cannot be read (${message})`);
@@ -1026,7 +1045,13 @@ export async function runPreBash(
       return encodeGuard(verdict);
     }
 
-    return encodeGuard(combine([verdict, (await judging)()]));
+    const judged = (await judging)();
+
+    return encodeGuard(
+      judged.kind === "deny" && verdict.kind === "note"
+        ? { kind: "deny", reason: `${judged.reason}\n${verdict.text}` }
+        : combine([verdict, judged]),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

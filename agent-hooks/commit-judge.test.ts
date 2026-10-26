@@ -65,6 +65,19 @@ describe("commitMessageOf", () => {
       opaque: false,
     });
     expect(commitMessageOf(["-m", bare], null, expanding(1)).opaque).toBe(true);
+    expect(
+      commitMessageOf(["-m", "$(cat <<\\EOF\nfix: d, $5 a seat\nEOF\n)"], null, expanding(1)),
+    ).toMatchObject({ message: "fix: d, $5 a seat", opaque: false });
+  });
+
+  test("a heredoc read by another command, or followed by more text, is known only once the line runs", () => {
+    for (const value of [
+      "$(sed 's/x/y/' <<'EOF'\nfix: d\nEOF\n)",
+      "$(cat <<'EOF'\nfix: d\nEOF\n) and the review of #12",
+      "$(cat <<'EOF'\nfix: d\nEOF\n) $(git log -1 --format=%s)",
+    ]) {
+      expect(commitMessageOf(["-m", value], null, expanding(1)).opaque).toBe(true);
+    }
   });
 
   test("a value Bash expands, or a -F - no literal heredoc feeds, is known only once the line runs", () => {
@@ -77,6 +90,15 @@ describe("commitMessageOf", () => {
     expect(commitMessageOf(["-m", "$MSG"], null, expanding(1)).opaque).toBe(true);
     expect(commitMessageOf(["--message=$MSG"], null, expanding(0)).opaque).toBe(true);
     expect(commitMessageOf(["-m", "x", "--trailer", "$WHO"], null, expanding(3)).opaque).toBe(true);
+    expect(commitMessageOf(["-F", "$HOME/msg.txt"], null, expanding(1)).opaque).toBe(true);
+    expect(commitMessageOf(["-F", "msg.txt", "--trailer", "Note: n"], null, LITERAL)).toMatchObject(
+      {
+        message: null,
+        file: "msg.txt",
+        trailers: ["Note: n"],
+        opaque: false,
+      },
+    );
     expect(commitMessageOf(["-F", "-"], null, LITERAL).opaque).toBe(true);
     expect(
       commitMessageOf(["-F", "-"], "fix: $X\n", { argsExpand: [], heredocExpands: true }).opaque,

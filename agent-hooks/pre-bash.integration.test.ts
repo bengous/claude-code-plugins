@@ -1419,6 +1419,15 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     await preBash("git -C sub commit -F msg.txt", repo);
 
     expect(judgeInput()).toStartWith("Message:\nfix: from a file\n\n");
+
+    writeRepoFile(repo, "msgs/m", "fix: a short name\n");
+    await preBash("cd msgs && git commit -F m", repo);
+
+    expect(judgeInput()).toStartWith("Message:\nfix: a short name\n\n");
+    expect(
+      (await preBash("git commit -F sub/msg.txt --trailer 'Note: the review of #1'", repo)).reason,
+    ).toStartWith("agent-hooks: this commit message tells");
+    expect(judgeInput()).toStartWith("Message:\nfix: from a file\n\nNote: the review of #1\n\n");
   });
 
   test("leaves unjudged, in silence, a commit that keeps its message or makes none", async () => {
@@ -1504,6 +1513,14 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     }
 
     expect(judgeInput()).toBeNull();
+  });
+
+  test("a refusal keeps the landing guard's note", async () => {
+    const output = await preBash("git commit -qm 'review of #1' && git push origin main", repo);
+
+    expect(output.reason).toBe(
+      `${REFUSAL}\nagent-hooks: could not read whether github.com/o/n is public (error connecting to api.github.com): the push went unchecked`,
+    );
   });
 
   test("a refusal keeps the notes of the line's other commits", async () => {
