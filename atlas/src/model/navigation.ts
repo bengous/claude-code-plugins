@@ -86,8 +86,8 @@ export type Mode = "map" | "cards";
  *     place     = "" | id | [ id ] "/" id
  *     parameter = key "=" value
  *
- * such as `app?mode=cards`, `app/email?mode=cards` or `?mode=cards` on the root's view; the
- * place is hashOf's. Every id and every value is percent-encoded (encodeURIComponent), which
+ * such as `app?mode=cards`, `app/email?mode=cards&phase=MVP` or `?phase=MVP` on the root's
+ * view; the place is hashOf's. Every id and every value is percent-encoded (encodeURIComponent), which
  * escapes "/", "?", "&" and "=": no id holds a raw separator, so a reader cuts the parameters off
  * at the first "?" before it reads the place at its first "/".
  *
@@ -98,19 +98,30 @@ export type Mode = "map" | "cards";
  * - A key PARAMS does not name, a part without "=", a value that does not decode or that its
  *   codec refuses, is dropped, keeping the place and every other parameter, as a selection the
  *   view does not show is dropped; of a key given twice, the first value read counts.
- * - A value the place cannot show goes back to its default, written, read and moved alike
- *   (shownAt): the cards, where the open container has none (cardsOf).
+ * - A value the place or the map cannot show goes back to its default, written, read and moved
+ *   alike (shownAt): the cards, where the open container has none (cardsOf); a phase the
+ *   Config does not list (Scope).
  * - What survives a move (paramsAfter): the mode goes back to "map" when the open container
  *   changes; a phase stays across moves; a journey is a place of its own, which a move outside
  *   the journey leaves.
  * - `window.atlas` shows each field (pageStateOf).
  *
  * A new parameter is a field here, its default in DEFAULTS, its codec in PARAMS, its rule in
- * paramsAfter, and what a place cannot show of it in shownAt.
+ * paramsAfter, and what a place or the map cannot show of it in shownAt.
  */
-export type Params = { readonly mode: Mode };
+export type Params = {
+  readonly mode: Mode;
+  /** The work phase picked, one of the Config's: what comes after it dims. Null: every phase. */
+  readonly phase: string | null;
+};
 
-export const DEFAULTS: Params = { mode: "map" };
+export const DEFAULTS: Params = { mode: "map", phase: null };
+
+/**
+ * What the fragment's parameters are read and written against: the map's tree, and its Config's
+ * work phases in order (Settings).
+ */
+export type Scope = { readonly tree: Tree; readonly phases: readonly string[] };
 
 /** A parameter's value as the fragment writes it: null, at its default, leaves it out. */
 type Codec<V> = {
@@ -128,6 +139,10 @@ const PARAMS: Codecs = {
     read: (text) => MODES.find((mode) => mode === text) ?? null,
     write: (mode) => (mode === DEFAULTS.mode ? null : mode),
   },
+  phase: {
+    read: (text) => (text === "" ? null : text),
+    write: (phase) => phase,
+  },
 };
 
 const isParam = (key: string): key is keyof Params => Object.hasOwn(PARAMS, key);
@@ -140,22 +155,29 @@ const PARAMS_JOIN = "&";
 
 const VALUE_START = "=";
 
-/** The parameters as a place, normalised, can show them (Params gives the rules). */
-function shownAt(tree: Tree, place: Place, params: Params): Params {
-  const shown = params.mode === "map" || cardsOf(tree, openOf(place)) !== null;
+/** The parameters as a place, normalised, and the map can show them (Params gives the rules). */
+function shownAt({ tree, phases }: Scope, place: Place, params: Params): Params {
+  const cards = params.mode === "map" || cardsOf(tree, openOf(place)) !== null;
+  const phase = params.phase === null || phases.includes(params.phase);
 
-  return shown ? params : { ...params, mode: DEFAULTS.mode };
+  return cards && phase
+    ? params
+    : {
+        ...params,
+        mode: cards ? params.mode : DEFAULTS.mode,
+        phase: phase ? params.phase : DEFAULTS.phase,
+      };
 }
 
 /**
  * The parameters after a move from one place to another, as the second can show them (Params
  * says what survives a move).
  */
-export function paramsAfter(tree: Tree, from: Place, to: Place, params: Params): Params {
-  const place = normalised(tree, to);
-  const moved = openOf(normalised(tree, from)) !== openOf(place);
+export function paramsAfter(scope: Scope, from: Place, to: Place, params: Params): Params {
+  const place = normalised(scope.tree, to);
+  const moved = openOf(normalised(scope.tree, from)) !== openOf(place);
 
-  return shownAt(tree, place, moved ? { ...params, mode: DEFAULTS.mode } : params);
+  return shownAt(scope, place, moved ? { ...params, mode: DEFAULTS.mode } : params);
 }
 
 function placeHash(tree: Tree, place: Place): string {
@@ -185,11 +207,12 @@ function written<K extends keyof Params>(key: K, params: Params): string[] {
  * jump lands there (a selected ghost or container, a selection on the root's view other than an
  * outside leaf), the open container and the selection as `<open>/<selected>`, the root's view
  * written as nothing before the slash. Each id is percent-encoded. A place and its parameters are
- * written as the tree can show them (normalised, shownAt).
+ * written as the map can show them (normalised, shownAt).
  */
-export function hashOf(tree: Tree, given: Place, params: Params = DEFAULTS): string {
+export function hashOf(scope: Scope, given: Place, params: Params = DEFAULTS): string {
+  const { tree } = scope;
   const place = normalised(tree, given);
-  const shown = shownAt(tree, place, params);
+  const shown = shownAt(scope, place, params);
 
   const parts = Object.keys(PARAMS).flatMap((key) => (isParam(key) ? written(key, shown) : []));
 
@@ -212,8 +235,9 @@ export type PageState = Params & {
   readonly fragment: string;
 };
 
-/** The page's state at a place and its parameters, as the tree can show them (normalised, shownAt). */
-export function pageStateOf(tree: Tree, given: Place, params: Params = DEFAULTS): PageState {
+/** The page's state at a place and its parameters, as the map can show them (normalised, shownAt). */
+export function pageStateOf(scope: Scope, given: Place, params: Params = DEFAULTS): PageState {
+  const { tree } = scope;
   const place = normalised(tree, given);
   const view = viewOf(tree, openOf(place));
 
@@ -226,11 +250,11 @@ export function pageStateOf(tree: Tree, given: Place, params: Params = DEFAULTS)
   ]);
 
   return Object.freeze({
-    ...shownAt(tree, place, params),
+    ...shownAt(scope, place, params),
     path: Object.freeze([...place.path]),
     selected: place.selected,
     visible: Object.freeze([...visible]),
-    fragment: hashOf(tree, place, params),
+    fragment: hashOf(scope, place, params),
   });
 }
 
@@ -268,11 +292,11 @@ function entryOf(part: string): [string, string][] {
 }
 
 /**
- * The parameters a URL fragment carries, with or without its "#", as the place it names can show
- * them: each at its default where the fragment gives none it can read (Params gives the grammar
- * and its rules).
+ * The parameters a URL fragment carries, with or without its "#", as the place it names and the
+ * map can show them: each at its default where the fragment gives none it can read (Params gives
+ * the grammar and its rules).
  */
-export function paramsOfHash(tree: Tree, hash: string): Params {
+export function paramsOfHash(scope: Scope, hash: string): Params {
   const entries = cut(hash)[1]
     .split(PARAMS_JOIN)
     .flatMap((part) => entryOf(part));
@@ -291,7 +315,7 @@ export function paramsOfHash(tree: Tree, hash: string): Params {
     }
   }
 
-  return shownAt(tree, placeOfHash(tree, hash), params);
+  return shownAt(scope, placeOfHash(scope.tree, hash), params);
 }
 
 /**

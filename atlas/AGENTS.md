@@ -85,7 +85,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
-                     grammar on `Params`), and the page's state window.atlas shows agents
+                     grammar on `Params`, read against the tree and the Config's phases,
+                     `Scope`), and the page's state window.atlas shows agents
                      (navigation.spec.ts)
   threads.ts         open points and threads: who a point waits for (threads.spec.ts)
 
@@ -225,13 +226,14 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   view, or a leaf's parent's view with the leaf selected; `#<open>/<selected>` carries a selection
   no bare id lands on, a ghost or a container among them. After a `?` come the parameters of the
   reading state, `key=value` joined by `&`, each written only away from its default, such as
-  `#app?mode=cards`; their grammar, the rules every new one follows and what survives a move are
-  on `Params`. A fragment typed into the address bar is followed.
+  `#app?mode=cards&phase=MVP`; their grammar, the rules every new one follows and what survives a
+  move are on `Params`. A fragment typed into the address bar is followed.
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
-  ghosts), each parameter of the fragment (`mode`) and the fragment, frozen and replaced at each
-  move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`, and the
-  `citation` whose lines the panel shows, or null; a getter, so a page script cannot assign it.
+  ghosts), each parameter of the fragment (`mode`, `phase`) and the fragment, frozen and replaced
+  at each move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`,
+  and the `citation` whose lines the panel shows, or null; a getter, so a page script cannot
+  assign it.
 - A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
   marker of its lines, the whole citation as its tooltip; a `<cite>` of other text, a `kicker`,
   and a `label`, plain text even as the heading of a node without `title`, show as written. The header's Sources toggle, shown when the map has a citation, shows every

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP, randomMap } from "../../fixtures/trees.ts";
 import type { Node } from "./atlas.ts";
-import type { Params, Place, PlaceEvent, Shown } from "./navigation.ts";
+import type { Params, Place, PlaceEvent, Scope, Shown } from "./navigation.ts";
 import {
   DEFAULTS,
   HOME,
@@ -25,6 +25,14 @@ import { viewOf } from "./view.ts";
 const sample = treeOf(SAMPLE);
 
 const deep = treeOf(DEEP);
+
+const PHASES = ["v1", "v2"];
+
+const onSample: Scope = { tree: sample, phases: PHASES };
+
+const unphased = (tree: Tree): Scope => ({ tree, phases: [] });
+
+const onDeep = unphased(deep);
 
 const run = (tree: Tree, place: Place, events: readonly PlaceEvent[]): Place =>
   events.reduce((at, event) => navigate(tree, at, event), place);
@@ -183,7 +191,7 @@ describe("a place the tree cannot show", () => {
 
     expect(navigate(sample, stale, { type: "up" })).toEqual(HOME);
     expect(crumbsOf(sample, stale)).toHaveLength(2);
-    expect(hashOf(sample, stale)).toBe("server");
+    expect(hashOf(onSample, stale)).toBe("server");
   });
 });
 
@@ -264,16 +272,16 @@ describe("foldedCrumbs", () => {
 
 describe("hashOf and placeOfHash", () => {
   test("a place a jump lands on keeps its bare #id", () => {
-    expect(hashOf(sample, HOME)).toBe("");
-    expect(hashOf(sample, at(["server", "app"]))).toBe("app");
-    expect(hashOf(sample, at(["server", "app"], "orders"))).toBe("orders");
-    expect(hashOf(sample, at([], "email"))).toBe("email");
+    expect(hashOf(onSample, HOME)).toBe("");
+    expect(hashOf(onSample, at(["server", "app"]))).toBe("app");
+    expect(hashOf(onSample, at(["server", "app"], "orders"))).toBe("orders");
+    expect(hashOf(onSample, at([], "email"))).toBe("email");
   });
 
   test("a selected ghost or container carries the open view and the selection", () => {
-    expect(hashOf(sample, at(["server", "app"], "email"))).toBe("app/email");
-    expect(hashOf(deep, at(["A"], "A1"))).toBe("A/A1");
-    expect(hashOf(sample, at([], "server"))).toBe("/server");
+    expect(hashOf(onSample, at(["server", "app"], "email"))).toBe("app/email");
+    expect(hashOf(onDeep, at(["A"], "A1"))).toBe("A/A1");
+    expect(hashOf(onSample, at([], "server"))).toBe("/server");
   });
 
   test("each id is percent-encoded, so a slash in an id cannot split it", () => {
@@ -290,8 +298,8 @@ describe("hashOf and placeOfHash", () => {
 
     const place = at(["a/b"], "e");
 
-    expect(hashOf(tree, place)).toBe("a%2Fb/e");
-    expect(placeOfHash(tree, hashOf(tree, place))).toEqual(place);
+    expect(hashOf(unphased(tree), place)).toBe("a%2Fb/e");
+    expect(placeOfHash(tree, hashOf(unphased(tree), place))).toEqual(place);
     expect(placeOfHash(tree, "#c%20d")).toEqual(at(["a/b"], "c d"));
   });
 
@@ -312,7 +320,13 @@ describe("hashOf and placeOfHash", () => {
   });
 });
 
-const CARDS: Params = { mode: "cards" };
+const CARDS: Params = { ...DEFAULTS, mode: "cards" };
+
+const V1: Params = { ...DEFAULTS, phase: "v1" };
+
+const V2: Params = { ...DEFAULTS, phase: "v2" };
+
+const CARDS_V2: Params = { mode: "cards", phase: "v2" };
 
 const withLeaf = (id: string, leaf: string): Node => ({
   id,
@@ -327,44 +341,92 @@ const ROOT_CARDS = treeOf({
   links: [],
 });
 
+const onRootCards = unphased(ROOT_CARDS);
+
 describe("the fragment's parameters", () => {
   test("every fragment form the specs above cover is written and read as before", () => {
-    const forms: [Tree, Place, string][] = [
-      [sample, HOME, ""],
-      [sample, at(["server", "app"]), "app"],
-      [sample, at(["server", "app"], "orders"), "orders"],
-      [sample, at([], "email"), "email"],
-      [sample, at(["server", "app"], "email"), "app/email"],
-      [sample, at(["server"], "email"), "server/email"],
-      [sample, at([], "server"), "/server"],
-      [deep, at(["A"], "A1"), "A/A1"],
-      [deep, at(["A", "A1", "A11", "A111"], "a1"), "a1"],
+    const forms: [Scope, Place, string][] = [
+      [onSample, HOME, ""],
+      [onSample, at(["server", "app"]), "app"],
+      [onSample, at(["server", "app"], "orders"), "orders"],
+      [onSample, at([], "email"), "email"],
+      [onSample, at(["server", "app"], "email"), "app/email"],
+      [onSample, at(["server"], "email"), "server/email"],
+      [onSample, at([], "server"), "/server"],
+      [onDeep, at(["A"], "A1"), "A/A1"],
+      [onDeep, at(["A", "A1", "A11", "A111"], "a1"), "a1"],
     ];
 
-    for (const [tree, place, hash] of forms) {
-      expect(hashOf(tree, place, DEFAULTS)).toBe(hash);
-      expect(placeOfHash(tree, `#${hash}`)).toEqual(place);
-      expect(paramsOfHash(tree, `#${hash}`)).toEqual(DEFAULTS);
+    for (const [scope, place, hash] of forms) {
+      expect(hashOf(scope, place, DEFAULTS)).toBe(hash);
+      expect(placeOfHash(scope.tree, `#${hash}`)).toEqual(place);
+      expect(paramsOfHash(scope, `#${hash}`)).toEqual(DEFAULTS);
     }
   });
 
   test("the mode round-trips through the fragment, after the place", () => {
-    expect(hashOf(ROOT_CARDS, HOME, CARDS)).toBe("?mode=cards");
-    expect(hashOf(sample, at(["server", "app"]), CARDS)).toBe("app?mode=cards");
-    expect(hashOf(sample, at(["server", "app"], "email"), CARDS)).toBe("app/email?mode=cards");
+    expect(hashOf(onRootCards, HOME, CARDS)).toBe("?mode=cards");
+    expect(hashOf(onSample, at(["server", "app"]), CARDS)).toBe("app?mode=cards");
+    expect(hashOf(onSample, at(["server", "app"], "email"), CARDS)).toBe("app/email?mode=cards");
 
-    for (const [tree, place] of [
-      [ROOT_CARDS, HOME],
-      [ROOT_CARDS, at([], "q")],
-      [sample, at(["server", "app"])],
-      [sample, at(["server", "app"], "orders")],
-      [sample, at(["server", "app"], "email")],
+    for (const [scope, place] of [
+      [onRootCards, HOME],
+      [onRootCards, at([], "q")],
+      [onSample, at(["server", "app"])],
+      [onSample, at(["server", "app"], "orders")],
+      [onSample, at(["server", "app"], "email")],
     ] as const) {
-      const hash = `#${hashOf(tree, place, CARDS)}`;
+      const hash = `#${hashOf(scope, place, CARDS)}`;
 
-      expect(placeOfHash(tree, hash)).toEqual(place);
-      expect(paramsOfHash(tree, hash)).toEqual(CARDS);
+      expect(placeOfHash(scope.tree, hash)).toEqual(place);
+      expect(paramsOfHash(scope, hash)).toEqual(CARDS);
     }
+  });
+
+  test("the phase round-trips through the fragment, after the mode", () => {
+    expect(hashOf(onSample, HOME, V1)).toBe("?phase=v1");
+    expect(hashOf(onSample, at(["server", "app"]), V1)).toBe("app?phase=v1");
+    expect(hashOf(onSample, at(["server", "app"], "email"), CARDS_V2)).toBe(
+      "app/email?mode=cards&phase=v2",
+    );
+
+    for (const [place, params] of [
+      [HOME, V1],
+      [at([], "email"), V2],
+      [at(["server", "data"], "db"), V1],
+      [at(["server"], "email"), V2],
+      [at(["server", "app"], "orders"), CARDS_V2],
+      [at(["server", "app"], "email"), CARDS_V2],
+    ] as const) {
+      const hash = `#${hashOf(onSample, place, params)}`;
+
+      expect(placeOfHash(sample, hash)).toEqual(place);
+      expect(paramsOfHash(onSample, hash)).toEqual(params);
+    }
+  });
+
+  test("a phase's name is percent-encoded, so a separator in it cannot cut the fragment", () => {
+    const odd = "Phase 2 & co?=/";
+    const scope: Scope = { tree: sample, phases: [odd] };
+    const params: Params = { ...DEFAULTS, phase: odd };
+    const hash = hashOf(scope, at(["server", "app"], "email"), params);
+
+    expect(hash).toBe("app/email?phase=Phase%202%20%26%20co%3F%3D%2F");
+    expect(placeOfHash(sample, hash)).toEqual(at(["server", "app"], "email"));
+    expect(paramsOfHash(scope, hash)).toEqual(params);
+  });
+
+  test("a phase the Config does not list goes back to every phase, written, read or moved to", () => {
+    const app = at(["server", "app"]);
+    const v3: Params = { mode: "cards", phase: "v3" };
+
+    expect(hashOf(onSample, app, v3)).toBe("app?mode=cards");
+    expect(paramsOfHash(onSample, "#app?phase=v3")).toEqual(DEFAULTS);
+    expect(paramsOfHash(onSample, "#app?phase=V1")).toEqual(DEFAULTS);
+    expect(pageStateOf(onSample, app, v3).phase).toBeNull();
+    expect(paramsAfter(onSample, app, at(["server", "app"], "orders"), v3)).toEqual(CARDS);
+    expect(hashOf(unphased(sample), app, V1)).toBe("app");
+    expect(paramsOfHash(unphased(sample), "#app?phase=v1")).toEqual(DEFAULTS);
   });
 
   test("an id holding a separator's character round-trips, with its mode", () => {
@@ -389,14 +451,16 @@ describe("the fragment's parameters", () => {
       at([], "k?mode=map"),
     ];
 
-    expect(hashOf(tree, at(["a?b"], "c&d"), CARDS)).toBe("a%3Fb/c%26d?mode=cards");
+    const scope: Scope = { tree, phases: PHASES };
+
+    expect(hashOf(scope, at(["a?b"], "c&d"), CARDS)).toBe("a%3Fb/c%26d?mode=cards");
 
     for (const place of places) {
-      for (const params of [DEFAULTS, CARDS]) {
-        const hash = `#${hashOf(tree, place, params)}`;
+      for (const params of [DEFAULTS, CARDS, V1, CARDS_V2]) {
+        const hash = `#${hashOf(scope, place, params)}`;
 
         expect(placeOfHash(tree, hash)).toEqual(place);
-        expect(paramsOfHash(tree, hash)).toEqual(params);
+        expect(paramsOfHash(scope, hash)).toEqual(params);
       }
     }
   });
@@ -413,21 +477,29 @@ describe("the fragment's parameters", () => {
       "MODE=cards",
       "mode=cards=x",
       "mode=%E0%A4%A",
+      "phase=",
+      "phase",
+      "PHASE=v1",
+      "phase=%E0%A4%A",
+      "phase=v3",
       "",
       "&&",
     ]) {
       const hash = `#app/email?${params}`;
 
       expect(placeOfHash(sample, hash)).toEqual(place);
-      expect(paramsOfHash(sample, hash)).toEqual(DEFAULTS);
+      expect(paramsOfHash(onSample, hash)).toEqual(DEFAULTS);
     }
   });
 
   test("a parameter dropped leaves the others read; of a key given twice, the first read counts", () => {
-    expect(paramsOfHash(sample, "#orders?nope=1&mode&mode=cards")).toEqual(CARDS);
-    expect(paramsOfHash(sample, "#orders?mode=cards&mode=map")).toEqual(CARDS);
-    expect(paramsOfHash(sample, "#orders?mode=bogus&mode=cards")).toEqual(CARDS);
-    expect(paramsOfHash(sample, "#orders?mode=map&mode=cards")).toEqual(DEFAULTS);
+    expect(paramsOfHash(onSample, "#orders?nope=1&mode&mode=cards")).toEqual(CARDS);
+    expect(paramsOfHash(onSample, "#orders?mode=cards&mode=map")).toEqual(CARDS);
+    expect(paramsOfHash(onSample, "#orders?mode=bogus&mode=cards")).toEqual(CARDS);
+    expect(paramsOfHash(onSample, "#orders?mode=map&mode=cards")).toEqual(DEFAULTS);
+    expect(paramsOfHash(onSample, "#orders?phase=&phase=v2")).toEqual(V2);
+    expect(paramsOfHash(onSample, "#orders?phase=v2&phase=v1")).toEqual(V2);
+    expect(paramsOfHash(onSample, "#orders?phase=v2&mode=bogus&mode=cards")).toEqual(CARDS_V2);
     expect(placeOfHash(sample, "#orders?nope=1&mode=cards")).toEqual(
       at(["server", "app"], "orders"),
     );
@@ -436,19 +508,20 @@ describe("the fragment's parameters", () => {
   test("the cards on a container that has none go back to the map, written, read or moved to", () => {
     const data = at(["server", "data"], "db");
 
-    expect(hashOf(sample, data, CARDS)).toBe("db");
-    expect(paramsOfHash(sample, "#db?mode=cards")).toEqual(DEFAULTS);
+    expect(hashOf(onSample, data, CARDS)).toBe("db");
+    expect(paramsOfHash(onSample, "#db?mode=cards")).toEqual(DEFAULTS);
     expect(placeOfHash(sample, "#db?mode=cards")).toEqual(data);
-    expect(pageStateOf(sample, data, CARDS).mode).toBe("map");
-    expect(paramsAfter(sample, data, at(["server", "data"]), CARDS)).toEqual(DEFAULTS);
-    expect(hashOf(deep, at(["A", "A1"]), CARDS)).toBe("A1");
-    expect(hashOf(sample, HOME, CARDS)).toBe("");
-    expect(paramsOfHash(sample, "#?mode=cards")).toEqual(DEFAULTS);
+    expect(pageStateOf(onSample, data, CARDS).mode).toBe("map");
+    expect(paramsAfter(onSample, data, at(["server", "data"]), CARDS)).toEqual(DEFAULTS);
+    expect(hashOf(onDeep, at(["A", "A1"]), CARDS)).toBe("A1");
+    expect(hashOf(onSample, HOME, CARDS)).toBe("");
+    expect(paramsOfHash(onSample, "#?mode=cards")).toEqual(DEFAULTS);
+    expect(hashOf(onSample, data, CARDS_V2)).toBe("db?phase=v2");
   });
 });
 
-const after = (from: Place, event: PlaceEvent): Params =>
-  paramsAfter(sample, from, navigate(sample, from, event), CARDS);
+const after = (from: Place, event: PlaceEvent, params: Params = CARDS): Params =>
+  paramsAfter(onSample, from, navigate(sample, from, event), params);
 
 describe("paramsAfter", () => {
   test("opening another container resets the mode", () => {
@@ -481,12 +554,32 @@ describe("paramsAfter", () => {
       expect(after(orders, event)).toEqual(CARDS);
     }
   });
+
+  test("the phase stays across moves, opening another container among them", () => {
+    const orders = at(["server", "app"], "orders");
+
+    for (const event of [
+      { type: "up" },
+      { type: "home" },
+      { type: "jump", id: "data" },
+      { type: "jump", id: "browser" },
+      { type: "select", id: "catalog" },
+      { type: "escape" },
+    ] as const) {
+      expect(after(orders, event, CARDS_V2).phase).toBe("v2");
+      expect(after(orders, event, V1)).toEqual(V1);
+    }
+
+    expect(after(at(["server"]), { type: "enter", id: "app" }, CARDS_V2)).toEqual(V2);
+    expect(after(at(["server", "app"]), { type: "escape" }, CARDS_V2)).toEqual(V2);
+  });
 });
 
 describe("pageStateOf", () => {
   test("the root's view: no path, its children as boxes and chips, its outside nodes", () => {
-    expect(pageStateOf(sample, HOME)).toEqual({
+    expect(pageStateOf(onSample, HOME)).toEqual({
       mode: "map",
+      phase: null,
       path: [],
       selected: null,
       visible: ["clients", "browser", "server", "proxy", "app", "data", "email"],
@@ -495,25 +588,27 @@ describe("pageStateOf", () => {
   });
 
   test("a deeper view: its path, the selection, its boxes then its ghosts, the fragment", () => {
-    expect(pageStateOf(sample, at(["server", "app"], "orders"))).toEqual({
+    expect(pageStateOf(onSample, at(["server", "app"], "orders"))).toEqual({
       mode: "map",
+      phase: null,
       path: ["server", "app"],
       selected: "orders",
       visible: ["web", "catalog", "orders", "proxy", "data", "email"],
       fragment: "orders",
     });
-    expect(pageStateOf(sample, at(["server"], "email")).fragment).toBe("server/email");
+    expect(pageStateOf(onSample, at(["server"], "email")).fragment).toBe("server/email");
   });
 
   test("each parameter of the fragment shows as its own field", () => {
-    const state = pageStateOf(sample, at(["server", "app"], "orders"), CARDS);
+    const state = pageStateOf(onSample, at(["server", "app"], "orders"), CARDS_V2);
 
     expect(state.mode).toBe("cards");
-    expect(state.fragment).toBe("orders?mode=cards");
+    expect(state.phase).toBe("v2");
+    expect(state.fragment).toBe("orders?mode=cards&phase=v2");
   });
 
   test("a stale place reads as the tree shows it, and the state is frozen", () => {
-    const state = pageStateOf(sample, at(["server", "nowhere"], "orders"));
+    const state = pageStateOf(onSample, at(["server", "nowhere"], "orders"));
 
     expect(state.path).toEqual(["server"]);
     expect(state.selected).toBeNull();
@@ -597,12 +692,18 @@ describe("a walk through every map", () => {
       return [null, ...view.boxes, ...view.ghosts].map((item) => at(path, item?.id ?? null));
     });
 
+    const scope: Scope = { tree, phases: PHASES };
+
     for (const place of places) {
-      const hash = `#${hashOf(tree, place)}`;
+      const hash = `#${hashOf(scope, place)}`;
+      const phased = `#${hashOf(scope, place, V1)}`;
 
       expect(placeOfHash(tree, hash)).toEqual(place);
       expect(hash).not.toContain("?");
-      expect(paramsOfHash(tree, hash)).toEqual(DEFAULTS);
+      expect(paramsOfHash(scope, hash)).toEqual(DEFAULTS);
+      expect(phased).toBe(`${hash}?phase=v1`);
+      expect(placeOfHash(tree, phased)).toEqual(place);
+      expect(paramsOfHash(scope, phased)).toEqual(V1);
     }
 
     const crumbs = new Set(places.map((place) => JSON.stringify(crumbsOf(tree, place))));

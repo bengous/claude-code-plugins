@@ -21,7 +21,7 @@ import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import type { Mode, PageState, Params, Place, PlaceEvent } from "../model/navigation.ts";
+import type { Mode, PageState, Params, Place, PlaceEvent, Scope } from "../model/navigation.ts";
 import {
   DEFAULTS,
   HOME,
@@ -61,6 +61,8 @@ import { defs, el, esc } from "./svg.ts";
 import { captionShown, panned, zoomed, zoomedIn } from "./zoom.ts";
 
 const { tree, settings } = drawableOf(map, config);
+
+const scope: Scope = { tree, phases: settings.phases };
 
 const words = settings.words;
 
@@ -904,7 +906,7 @@ function tellSelection(id: string | null): void {
 // parameters among it, the zoom of the view shown, 1 at its fit, 2 when half its width fills the
 // stage, whether the panel shows its citations in full, and the citation whose lines it shows, if
 // any.
-let pageState: PageState = pageStateOf(tree, place, params);
+let pageState: PageState = pageStateOf(scope, place, params);
 
 const zoomOf = (): number =>
   cam?.kind === "idle"
@@ -938,7 +940,7 @@ function render(): void {
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
   renderMode(key);
-  pageState = pageStateOf(tree, place, params);
+  pageState = pageStateOf(scope, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
 
@@ -1028,7 +1030,7 @@ async function settle(): Promise<void> {
 // to the view once it is drawn.
 function send(ev: PlaceEvent): void {
   const next = navigate(tree, place, ev);
-  params = paramsAfter(tree, place, next, params);
+  params = paramsAfter(scope, place, next, params);
   place = next;
   viewer = null;
   render();
@@ -1382,7 +1384,7 @@ document.addEventListener("keydown", (e) => {
 // typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
-  params = paramsOfHash(tree, location.hash);
+  params = paramsOfHash(scope, location.hash);
   viewer = null;
   render();
   settle().catch(fail);
@@ -1461,7 +1463,7 @@ async function start(): Promise<void> {
   builtAspect = aspect();
   threads = await loadThreads();
   place = placeOfHash(tree, location.hash);
-  params = paramsOfHash(tree, location.hash);
+  params = paramsOfHash(scope, location.hash);
   render();
   await settle();
   document.fonts.addEventListener("loadingdone", () => {
