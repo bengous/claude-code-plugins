@@ -60,6 +60,12 @@
     their `io` pairs; a column's header selects its leaf, a marker in a cell
     shows its lines in the panel, shown if hidden. Over the cards, Escape
     leaves the drawing's zoom alone. Another container opens on its drawing.
+  - A map whose Config lists `phases` gets a stepper in the header: every
+    phase, then each in order. Picking one fades and dashes what a later
+    phase brings: each node and link whose `phase` comes after it, a
+    container once every node below it fades, an arrow once every link it
+    stands for fades. What carries no phase never fades. The phase stays in
+    the link as the reader moves.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -217,6 +223,20 @@ body {
 .sources-btn { color: var(--ink-3); border-left: 1px solid var(--line); }
 .open-btn:hover, .sources-btn:hover { border-color: var(--accent); color: var(--accent); }
 .sources-btn[aria-pressed="true"] { color: var(--ink); }
+/* The stepper of the Config's work phases (engine.ts): every phase, then each in order, the one picked pressed and those after it faded; the page drops it for a map without phases. */
+.phases { display: flex; align-self: center; }
+.phases button {
+  font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 4px 10px; cursor: pointer;
+}
+.phases button + button { margin-left: -1px; }
+.phases button:first-child { border-radius: 4px 0 0 4px; }
+.phases button:last-child { border-radius: 0 4px 4px 0; }
+.phases button.later { color: var(--ink-3); border-style: dashed; }
+.phases button[aria-pressed="true"] {
+  position: relative; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.phases button:hover { color: var(--accent); }
 .open-list {
   position: fixed; inset: 60px 16px auto auto; margin: 0; width: min(620px, calc(100vw - 32px)); max-height: 72vh; overflow-y: auto;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
@@ -481,6 +501,13 @@ svg text.illegible { visibility: hidden; }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
 
+/* A node or an arrow that comes after the phase picked (phases.ts, engine.ts): faded and dashed over every other state, after them here; kind "off" keeps its own meaning. */
+.box.later, .card.later, .chip.later, .ghost.later { opacity: 0.4; }
+.box.later .box-bg { stroke-dasharray: 7 5; }
+.card.later rect, .chip.later rect, .ghost.later rect { stroke-dasharray: 4 3; }
+.flow.later > * { opacity: 0.4; }
+.flow.later path { stroke-dasharray: 3 5; }
+
 @media (max-width: 860px) {
   html, body { height: auto; }
   body { display: block; }
@@ -496,6 +523,7 @@ svg text.illegible { visibility: hidden; }
 <header class="top">
   <h1 id="title"></h1>
   <p class="sub" id="subtitle"></p>
+  <div class="phases" id="phases" role="group"></div>
   <button type="button" class="open-btn" id="btn-open" popovertarget="open-list"></button>
   <div class="open-list" id="open-list" popover></div>
   <button type="button" class="sources-btn" id="btn-sources" aria-controls="panel cards" aria-pressed="false"></button>

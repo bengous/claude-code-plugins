@@ -32,6 +32,8 @@ import {
   paramsOfHash,
   placeOfHash,
 } from "../model/navigation.ts";
+import type { Dimmed } from "../model/phases.ts";
+import { arrowDimmed, dimmedBy } from "../model/phases.ts";
 import type { PaletteRule } from "../model/settings.ts";
 import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
@@ -101,6 +103,19 @@ const modeSwitch = byId("mode", HTMLSpanElement);
 const mapButton = byId("btn-map", HTMLButtonElement);
 
 const cardsButton = byId("btn-cards", HTMLButtonElement);
+
+const stepper = byId("phases", HTMLDivElement);
+
+// The stepper's steps: every phase (null), then each of the Config's, in order.
+const steps = [null, ...settings.phases].map(
+  (phase): readonly [string | null, HTMLButtonElement] => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = phase ?? words.allPhases;
+
+    return [phase, button];
+  },
+);
 
 function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   const text =
@@ -182,6 +197,14 @@ function dressPage(): void {
   } else {
     sourcesButton.textContent = words.sourcesButton;
     sourcesButton.title = words.sourcesTitle;
+  }
+
+  if (settings.phases.length === 0) {
+    stepper.remove();
+  } else {
+    stepper.setAttribute("aria-label", words.phasesLabel);
+    stepper.title = words.phasesTitle;
+    stepper.append(...steps.map(([, button]) => button));
   }
 }
 
@@ -352,6 +375,7 @@ function pump(): void {
   ).then(
     (d) => {
       performance.measure(`atlas:draw ${name}`, `atlas:draw ${name}:start`);
+      dimView(d);
       const previous = heldOf(st, key);
       dispatch({ type: "done", key, gen, drawn: d });
 
@@ -873,6 +897,43 @@ function renderMode(key: Key): void {
   cardsShown = key;
 }
 
+// What the phase picked dims (phases.ts), and the phase it was read for: a view takes it as its
+// layout lands (pump), and every view held takes it anew when the phase changes (renderPhase).
+let dimmedFor: string | null = null;
+
+let dimmed: Dimmed = dimmedBy(tree, settings.phases, dimmedFor);
+
+function dimView(d: Drawn): void {
+  for (const [id, gs] of d.items) {
+    for (const g of gs) {
+      g.classList.toggle("later", dimmed.nodes.has(id));
+    }
+  }
+
+  for (const e of d.arrows) {
+    e.g.classList.toggle("later", arrowDimmed(dimmed, e.arrow));
+  }
+}
+
+// The stepper presses the phase picked and fades the steps after it.
+function renderPhase(): void {
+  const picked = steps.findIndex(([phase]) => phase === params.phase);
+
+  for (const [i, [, button]] of steps.entries()) {
+    button.setAttribute("aria-pressed", String(i === picked));
+    button.classList.toggle("later", picked > 0 && i > picked);
+  }
+
+  if (params.phase !== dimmedFor) {
+    dimmedFor = params.phase;
+    dimmed = dimmedBy(tree, settings.phases, dimmedFor);
+
+    for (const { drawn: d } of st.held.values()) {
+      dimView(d);
+    }
+  }
+}
+
 // serve.ts prints each selection, with the map's own label, for the agent's session (wire.ts); a
 // page reloaded on a #id posts it again, so a revived server's session hears it too.
 let toldSelection: string | null = null;
@@ -940,6 +1001,7 @@ function render(): void {
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
   renderMode(key);
+  renderPhase();
   pageState = pageStateOf(scope, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
@@ -1266,6 +1328,17 @@ mapButton.addEventListener("click", () => {
 cardsButton.addEventListener("click", () => {
   showMode("cards");
 });
+
+function showPhase(phase: string | null): void {
+  params = { ...params, phase };
+  rerender();
+}
+
+for (const [phase, button] of steps) {
+  button.addEventListener("click", () => {
+    showPhase(phase);
+  });
+}
 
 addEventListener("focus", () => {
   void loadThreads().then((next) => {

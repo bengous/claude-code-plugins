@@ -82,6 +82,9 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   cards.ts           a container's leaf children side by side: a column per leaf, a row for the
                      leads unless none has one, then one per first element of their `io` pairs;
                      none for fewer than two leaves, or when no leaf has `io` (cards.spec.ts)
+  phases.ts          what a picked work phase dims: the nodes and links of the phases after it,
+                     a container once all its descendants are, an arrow once every link it
+                     stands for is (phases.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
@@ -113,8 +116,9 @@ src/page/            what runs in the browser
   atlas.html         the page: its styles and its markup, which hold no word and no colour of a map
   aliases.d.ts       the types of atlas:map and atlas:config, the page's imports of a map folder
   engine.ts          the page's entry: draws the view of the open container the first time the
-                     reader reaches it and keeps it, paints the camera, takes input, posts the
-                     reader's selection to serve.ts
+                     reader reaches it and keeps it, paints the camera, takes input, dims what
+                     the phase picked dims in every view it keeps, posts the reader's selection
+                     to serve.ts
   stage.ts           the stage, pure: the views held, the one being laid out, those wanted now or
                      later, and what a relayout keeps or lays out again (stage.spec.ts)
   draw.ts            the renderer of one view: packed (ELK rectpacking or bands by rank, the sides,
@@ -161,7 +165,9 @@ fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at 
                      fixtures/bands/ a map read DOWN, its views in bands by rank, to look at;
                      fixtures/citations/ a map whose panels end each claim with a citation of
                      its repo/, its sources root;
-                     the four import the plugin's own types and carry no generated files
+                     fixtures/phases/ a shop built in three work phases, its header's stepper,
+                     to look at;
+                     the five import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
@@ -253,6 +259,11 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
   Escape leaves alone, the fit and legend buttons disabled; the legend and the hint hide. Another container
   opens on its drawing.
+- With the Config's `phases`, the header shows a stepper: every phase, then each in order. A
+  phase picked (`phase=`) fades and dashes, in every view, the nodes and links of the phases after
+  it, a container once all its descendants are, an arrow once every link it stands for is
+  (`dimmedBy` in `phases.ts`); a node or a link without a phase never fades, and `kind: "off"`
+  keeps its own dash. The phase stays as the reader moves. A map without phases has no stepper.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.

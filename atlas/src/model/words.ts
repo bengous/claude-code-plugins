@@ -16,6 +16,10 @@ export type Words = {
   /** The header's toggle that shows each citation in full instead of its lines' marker. */
   readonly sourcesButton: string;
   readonly sourcesTitle: string;
+  /** The header's stepper of the Config's work phases: its name, its tooltip, its first step. */
+  readonly phasesLabel: string;
+  readonly phasesTitle: string;
+  readonly allPhases: string;
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -59,6 +63,9 @@ const fr: Words = {
   cardsButton: "Fiches",
   sourcesButton: "Sources",
   sourcesTitle: "Montrer chaque citation en entier, son chemin avec ses lignes",
+  phasesLabel: "Phase de travail",
+  phasesTitle: "Atténuer, en pointillé, ce qui vient après la phase choisie",
+  allPhases: "Tout",
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -122,6 +129,9 @@ const en: Words = {
   cardsButton: "Cards",
   sourcesButton: "Sources",
   sourcesTitle: "Show each citation in full, its path with its lines",
+  phasesLabel: "Work phase",
+  phasesTitle: "Dim, dashed, what comes after the phase picked",
+  allPhases: "All",
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,
