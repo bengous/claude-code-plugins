@@ -23,7 +23,9 @@ const MANIFEST = ".claude-plugin/plugin.json";
 /**
  * Paths under a plugin's directory that a change to needs no bump: read by
  * people, agents and the typecheck in this repository, never by the installed
- * plugin, so an installed copy that misses them loses nothing.
+ * plugin, so an installed copy that misses them loses nothing. Claude Code's
+ * own plugin API types are among them; a manifest's `types` file is not, since
+ * Claude Code reads it.
  */
 const DOCS_ONLY = [
   "README.md",
@@ -32,7 +34,8 @@ const DOCS_ONLY = [
   "CLAUDE.md",
   "docs/**",
   ".claude/**",
-  "**/*.d.ts",
+  "types/claude-code.d.ts",
+  "types/claude-code-tools.d.ts",
 ].map((pattern) => new Bun.Glob(pattern));
 
 /** True when `path`, relative to a plugin's directory, never reaches the installed plugin. */

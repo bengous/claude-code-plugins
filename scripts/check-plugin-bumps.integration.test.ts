@@ -149,10 +149,19 @@ describe("unbumped", () => {
     expect(found(commit("Document example"))).toEqual([]);
   });
 
-  test("passes a change to the plugin's type declarations alone", () => {
+  test("passes a change to Claude Code's plugin API types alone", () => {
     write("example/types/claude-code.d.ts", "// Written by Claude Code 2.1.309.\n");
+    write("example/types/claude-code-tools.d.ts", "// tools\n");
 
     expect(found(commit("Type example"))).toEqual([]);
+  });
+
+  test("names a plugin whose own types, which its manifest names, changed", () => {
+    write("example/types/index.d.ts", "declare module 'claude-code' {}\n");
+
+    expect(found(commit("Declare example's state"))).toEqual([
+      { name: "example", source: "example", version: "1.0.0" },
+    ]);
   });
 
   test("names a plugin whose documentation changed beside its code", () => {
