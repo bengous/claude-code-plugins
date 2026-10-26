@@ -267,7 +267,7 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   scrolling within its own box when the header is narrower. A phase picked (`phase=`) fades and
   dots, in every view, the nodes and links of the phases after it, a container by its own phase
   or, without one, once all its descendants are, a link without a phase once one of its ends is
-  or a container holding one, an arrow once every link it stands for is (`dimmedBy` in
+  and in a view that draws an end of it as a faded box, an arrow once every link it stands for is (`dimmedBy` in
   `phases.ts`); a leaf without a phase never fades. The dots are a pattern of their own, apart
   from the dashes of `kind: "off"`, of outside nodes and of couplings, and the legend explains
   them in a view that draws some (`dimsIn`). An arrow that stays names only the links that do not

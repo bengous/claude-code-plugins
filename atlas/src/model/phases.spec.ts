@@ -26,7 +26,7 @@ const MAP: AtlasMap = {
     children: [
       box("A", [leaf("a1", "v1"), leaf("a2", "v2"), leaf("a3")]),
       box("B", [leaf("b1", "v2"), leaf("b2", "v3")]),
-      box("C", [leaf("c1", "v1")], "v3"),
+      box("C", [leaf("c1", "v1"), leaf("c2", "v1")], "v3"),
       box("D", [box("D1", [leaf("d1", "v3")]), leaf("d2", "v2")]),
       box("E", [box("E1", [leaf("e1", "v1")], "v3")]),
       box("F", [leaf("f1", "v2"), leaf("f2", "v3")], "v1"),
@@ -42,6 +42,7 @@ const MAP: AtlasMap = {
     { from: "x", to: "a1", label: "5", phase: "v9" },
     { from: "a3", to: "b2", label: "6" },
     { from: "a3", to: "c1", label: "7" },
+    { from: "c1", to: "c2", label: "8" },
   ],
 };
 
@@ -54,8 +55,8 @@ const sorted = <T>(set: ReadonlySet<T>): T[] => [...set].toSorted();
 describe("dimmedBy", () => {
   test("a phase dims the nodes and links of the phases after it, not those of its own or before", () => {
     expect(sorted(dimmed("v2").nodes)).toEqual(["C", "D1", "E1", "b2", "d1", "f2"]);
-    expect(sorted(dimmed("v2").links)).toEqual([1, 4, 6, 7]);
-    expect(sorted(dimmed("v1").links)).toEqual([1, 2, 3, 4, 6, 7]);
+    expect(sorted(dimmed("v2").links)).toEqual([1, 4, 6]);
+    expect(sorted(dimmed("v1").links)).toEqual([1, 2, 3, 4, 6]);
   });
 
   test("the last phase, or none picked, dims nothing", () => {
@@ -83,10 +84,11 @@ describe("dimmedBy", () => {
     expect(dimmed("v3").links.has(6)).toBe(false);
   });
 
-  test("a link without a phase dims once a container holding one of its ends is dimmed", () => {
+  test("a link without a phase whose ends are lit stays lit, though a container holding them is dimmed", () => {
     expect(dimmed("v2").nodes.has("c1")).toBe(false);
     expect(dimmed("v2").nodes.has("C")).toBe(true);
-    expect(dimmed("v2").links.has(7)).toBe(true);
+    expect(dimmed("v2").links.has(7)).toBe(false);
+    expect(dimmed("v2").links.has(8)).toBe(false);
   });
 
   test("a container's own phase decides: lit once it has come, though all below it comes later", () => {
@@ -160,10 +162,17 @@ describe("arrowDimmed", () => {
     expect(arrowDimmed(dimmed("v3"), arrow("A", "a2", "B"))).toBe(false);
   });
 
-  test("an arrow of one link without a phase dims with an end of it", () => {
+  test("an arrow of links without a phase dims with a box drawn at its end, the container holding them", () => {
     expect(arrow(null, "A", "C").links).toEqual([7]);
     expect(arrowDimmed(dimmed("v2"), arrow(null, "A", "C"))).toBe(true);
     expect(arrowDimmed(dimmed("v3"), arrow(null, "A", "C"))).toBe(false);
+  });
+
+  test("inside a dimmed container, an arrow of links without a phase between lit ends stays lit", () => {
+    expect(arrow("C", "A", "c1").links).toEqual([7]);
+    expect(arrow("C", "c1", "c2").links).toEqual([8]);
+    expect(arrowDimmed(dimmed("v2"), arrow("C", "A", "c1"))).toBe(false);
+    expect(arrowDimmed(dimmed("v2"), arrow("C", "c1", "c2"))).toBe(false);
   });
 });
 
@@ -227,5 +236,28 @@ describe("labelAt", () => {
 
     expect(labelAt(named, dimmedBy(named, PHASES, "v2"), pq)).toBe("direct");
     expect(labelAt(named, dimmedBy(named, PHASES, "v1"), pq)).toBe("inner");
+  });
+
+  test("a link without a phase leaves the label of an arrow into a dimmed box, not of one inside it", () => {
+    const into = treeOf({
+      root: { title: "T", children: [leaf("q"), box("P", [leaf("p1", "v1")], "v2")] },
+      links: [
+        { from: "q", to: "p1", label: "lit", phase: "v1" },
+        { from: "q", to: "p1", label: "free" },
+      ],
+    });
+
+    const at = dimmedBy(into, PHASES, "v1");
+    const [outer] = viewOf(into, null).arrows;
+    const [inner] = viewOf(into, "P").arrows;
+
+    if (outer === undefined || inner === undefined) {
+      throw new Error("the views of the root and of P have no arrow from q");
+    }
+
+    expect(outer.label).toBe("lit · free");
+    expect(labelAt(into, at, outer)).toBe("lit");
+    expect(arrowDimmed(at, outer)).toBe(false);
+    expect(labelAt(into, at, inner)).toBe("lit · free");
   });
 });

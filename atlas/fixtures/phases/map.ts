@@ -89,6 +89,29 @@ export default {
         ],
       },
       {
+        id: "promotions",
+        label: "Promotions",
+        sub: "what the shop puts forward",
+        color: "store",
+        phase: "Growth",
+        children: [
+          {
+            id: "bestsellers",
+            label: "Bestsellers",
+            sub: "top sales",
+            color: "store",
+            phase: "MVP",
+          },
+          {
+            id: "arrivals",
+            label: "New arrivals",
+            sub: "latest books",
+            color: "store",
+            phase: "MVP",
+          },
+        ],
+      },
+      {
         id: "accounts",
         label: "Accounts",
         sub: "who buys",
@@ -141,5 +164,7 @@ export default {
     { from: "checkout", to: "db", label: "write order", phase: "Payments" },
     { from: "invoices", to: "mailer", label: "send", phase: "Payments" },
     { from: "db", to: "archive", label: "nightly dump", kind: "dash" },
+    { from: "pages", to: "bestsellers", label: "shows" },
+    { from: "arrivals", to: "bestsellers", label: "ranks" },
   ],
 } satisfies AtlasMap;

@@ -1,23 +1,25 @@
 import type { Tree } from "./tree.ts";
-import { chainOf, nodeOf } from "./tree.ts";
+import { nodeOf } from "./tree.ts";
 import type { Arrow, View } from "./view.ts";
 import { labelOf } from "./view.ts";
 
 /**
  * What a picked work phase dims: the nodes and the links whose phase comes after it in the
  * Config's phases. A container's own phase decides for it; a container without one is dimmed once
- * all its descendants are. A link without a phase is dimmed once one of its ends is, or a
- * container holding that end: a connection does not exist before both its ends do. A leaf without
- * a phase is never dimmed. A phase the list does not hold, which `atlas check` refuses, counts as
- * none.
+ * all its descendants are. A link without a phase is dimmed once one of its ends is, and in a view
+ * whose arrow for it is drawn to a dimmed box or ghost: a connection does not exist before both its
+ * ends do. A leaf without a phase is never dimmed. A phase the list does not hold, which
+ * `atlas check` refuses, counts as none.
  */
 export type Dimmed = {
   readonly nodes: ReadonlySet<string>;
-  /** Indexes in the map's links. */
+  /** Indexes in the map's links of those dimmed in every view. */
   readonly links: ReadonlySet<number>;
+  /** Indexes in the map's links of those without a phase, dimmed too by the ends an arrow draws. */
+  readonly unphased: ReadonlySet<number>;
 };
 
-const NOTHING: Dimmed = { nodes: new Set(), links: new Set() };
+const NOTHING: Dimmed = { nodes: new Set(), links: new Set(), unphased: new Set() };
 
 /** What picking `phase`, one of `phases`, dims; null, every phase shown, dims nothing. */
 export function dimmedBy(tree: Tree, phases: readonly string[], phase: string | null): Dimmed {
@@ -51,21 +53,26 @@ export function dimmedBy(tree: Tree, phases: readonly string[], phase: string | 
     }
   }
 
-  const gone = (end: string): boolean => chainOf(tree, end).some((id) => nodes.has(id));
+  const { links } = tree.map;
 
   return {
     nodes,
     links: new Set(
-      tree.map.links.flatMap((l, i) =>
-        (listed(l.phase) ? later(l.phase) : gone(l.from) || gone(l.to)) ? [i] : [],
+      links.flatMap((l, i) =>
+        (listed(l.phase) ? later(l.phase) : nodes.has(l.from) || nodes.has(l.to)) ? [i] : [],
       ),
     ),
+    unphased: new Set(links.flatMap((l, i) => (listed(l.phase) ? [] : [i]))),
   };
 }
 
-/** Whether an arrow is dimmed: every link it stands for is. */
+const linkDimmed = (dimmed: Dimmed, arrow: Arrow, i: number): boolean =>
+  dimmed.links.has(i) ||
+  (dimmed.unphased.has(i) && (dimmed.nodes.has(arrow.from) || dimmed.nodes.has(arrow.to)));
+
+/** Whether an arrow is dimmed: every link it stands for is, in its view. */
 export const arrowDimmed = (dimmed: Dimmed, arrow: Arrow): boolean =>
-  arrow.links.every((i) => dimmed.links.has(i));
+  arrow.links.every((i) => linkDimmed(dimmed, arrow, i));
 
 /** Whether a view draws something dimmed: a box, a chip, a ghost or an arrow; its legend's "later". */
 export const dimsIn = (dimmed: Dimmed, view: View): boolean =>
@@ -82,7 +89,7 @@ export const dimsIn = (dimmed: Dimmed, view: View): boolean =>
  * as its own is read from all of them; its own while every link or none is dimmed.
  */
 export function labelAt(tree: Tree, dimmed: Dimmed, arrow: Arrow): string {
-  const shown = arrow.links.filter((i) => !dimmed.links.has(i));
+  const shown = arrow.links.filter((i) => !linkDimmed(dimmed, arrow, i));
 
   if (shown.length === 0 || shown.length === arrow.links.length) {
     return arrow.label;
