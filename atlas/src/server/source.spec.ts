@@ -29,6 +29,8 @@ const NAMED = [
   join(ROOT, "src", "a.go"),
   "gone.go",
   "src",
+  "pipe",
+  "locked.txt",
 ] as const;
 
 const SOURCES: Sources = { root: ROOT, paths: new Set(NAMED.filter((p) => p !== "src/b.go")) };
@@ -45,6 +47,8 @@ beforeAll(() => {
   writeFileSync(SECRET, "a secret\n");
   symlinkSync(SECRET, join(ROOT, "out.txt"));
   symlinkSync(top, join(ROOT, "linked"));
+  Bun.spawnSync(["mkfifo", join(ROOT, "pipe")]);
+  writeFileSync(join(ROOT, "locked.txt"), "locked\n", { mode: 0o000 });
 });
 
 afterAll(() => {
@@ -117,10 +121,22 @@ describe("the source route refuses", () => {
     expect(await answer.text()).not.toContain("a secret");
   });
 
-  test("a path to nothing, or to a folder", () => {
+  test("a path to nothing, to a folder, or to a FIFO, which it never opens", () => {
     expect(status(lines("gone.go", 1, 1))).toBe(404);
     expect(status(lines("src", 1, 1))).toBe(404);
+    expect(status(lines("pipe", 1, 1))).toBe(404);
   });
+
+  test.skipIf(process.getuid?.() === 0)(
+    "a file the filesystem will not read, in plain text and not as an error",
+    async () => {
+      const answer = lines("locked.txt", 1, 1);
+
+      expect(answer.status).toBe(403);
+      expect(answer.headers.get("content-type")).toStartWith("text/plain");
+      expect(await answer.text()).toStartWith("locked.txt cannot be read: EACCES");
+    },
+  );
 
   test("every path under a root that is not a folder", () => {
     const missing = { ...SOURCES, root: join(top, "nowhere") };

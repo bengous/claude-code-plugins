@@ -565,11 +565,13 @@ function route(request: Request, server: Server<undefined>): Response | Promise<
   }
 }
 
-// Every route sits behind the Host check, so a route added later cannot skip it.
+// Every route sits behind the Host check, so a route added later cannot skip it. A route that
+// throws answers a plain 500: Bun's development page would carry the server's source and paths.
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: Number(portArg),
   reusePort: false,
+  development: false,
   fetch: (request, self) =>
     isOwnHost(request.headers.get("host"))
       ? route(request, self)

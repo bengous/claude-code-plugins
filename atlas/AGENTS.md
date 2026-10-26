@@ -64,7 +64,9 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      map by node and field (citations.spec.ts)
   sources.ts         the file a citation's path names under the Config's sources root, Node-only:
                      no absolute path, no `..`, no link out of the root; and its lines, for a
-                     text file under SOURCE_CAP_BYTES (sources.spec.ts)
+                     text file under SOURCE_CAP_BYTES, read through one descriptor opened without
+                     following a link or waiting on a FIFO, every filesystem error a refusal
+                     (sources.spec.ts)
   words.ts           the page's own words in each language a Config picks: the dictionary
   tree.ts            the tree indexed for views at any depth: each node's chain from the root,
                      open points counted down each subtree, couplings both ways, and what stands

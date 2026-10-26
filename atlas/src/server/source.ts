@@ -1,5 +1,5 @@
 import { sourceText } from "../model/sources.ts";
-import type { SourceText } from "../model/sources.ts";
+import type { Unread } from "../model/sources.ts";
 import type { SourceLines } from "./wire.ts";
 
 // GET /source?path=<path>&from=<line>&to=<line>, the lines the page shows when a citation's marker
@@ -8,8 +8,10 @@ import type { SourceLines } from "./wire.ts";
 //   - a path a <cite> or a `src` of the map names, as written (403), so a request reads nothing
 //     the map does not point at;
 //   - lines from 1, `from` no later than `to` (400);
-//   - a file under the root: no absolute path, no `..`, no link out of it (403), a file that is
-//     there (404; sourceFile);
+//   - a file under the root: no absolute path, no `..`, no link out of it (403), a regular file
+//     that is there (404; sourceFile);
+//   - opened once, without following a link or waiting on a FIFO, and still the file the path
+//     names (403), that the filesystem lets it read (403; sourceTextAt);
 //   - a text file of at most SOURCE_CAP_BYTES (413), with no NUL byte, in UTF-8 (415);
 //   - a `from` within the file (416), the answer cut at its last line.
 // serve.ts asks the Host check first, as of every route. A page of another origin may send the
@@ -20,16 +22,20 @@ export type Sources = { readonly root: string; readonly paths: ReadonlySet<strin
 
 const LINE = /^[1-9]\d{0,8}$/u;
 
-const STATUS: Readonly<Record<Extract<SourceText, { kind: "refused" }>["why"], number>> = {
+const STATUS: Readonly<Record<Unread, number>> = {
   root: 404,
   outside: 403,
   missing: 404,
+  unreadable: 403,
   large: 413,
   binary: 415,
 };
 
 const refused = (status: number, why: string): Response =>
-  new Response(why, { status, headers: { "cache-control": "no-store" } });
+  new Response(why, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
 
 export function sourceAnswer(sources: Sources | null, query: URLSearchParams): Response {
   if (sources === null) {

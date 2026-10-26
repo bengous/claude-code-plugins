@@ -1,9 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { sourceFile, textLines } from "./sources.ts";
+import { sourceFile, sourceText, sourceTextAt, textLines } from "./sources.ts";
 
 // A sources root beside a folder outside it, as a map folder's repository and the rest of the disk.
 const top = realpathSync(mkdtempSync(join(tmpdir(), "atlas-sources-")));
@@ -62,6 +71,109 @@ describe("sourceFile", () => {
       });
     }
   });
+});
+
+// The file sourceFile finds at `path`, a text of its own, before the spec swaps it.
+function found(path: string): string {
+  writeFileSync(join(ROOT, path), "swap\n");
+  const source = sourceFile(ROOT, path);
+
+  if (source.kind === "refused") {
+    throw new Error(source.reason);
+  }
+
+  return source.file;
+}
+
+describe("sourceTextAt, once sourceFile found the file", () => {
+  test("reads the file the path still names", () => {
+    expect(sourceTextAt(ROOT, "kept.txt", found("kept.txt"))).toEqual({
+      kind: "text",
+      lines: ["swap"],
+    });
+  });
+
+  test("refuses the file swapped for a link out of the root between the check and the open", () => {
+    const file = found("swapped.txt");
+    rmSync(file);
+    symlinkSync(join(top, "elsewhere", "secret.txt"), file);
+    const read = sourceTextAt(ROOT, "swapped.txt", file);
+
+    expect(read).toMatchObject({ kind: "refused", why: "unreadable" });
+    expect(JSON.stringify(read)).not.toContain("a secret");
+  });
+
+  test("refuses a folder on the path swapped for a link out of the root between the check and the open", () => {
+    mkdirSync(join(ROOT, "flip"));
+    writeFileSync(join(top, "elsewhere", "flipped.txt"), "a secret too\n");
+    const file = found("flip/flipped.txt");
+    renameSync(join(ROOT, "flip"), join(ROOT, "flip-was"));
+    symlinkSync(join(top, "elsewhere"), join(ROOT, "flip"));
+    const read = sourceTextAt(ROOT, "flip/flipped.txt", file);
+
+    expect(read).toMatchObject({ kind: "refused", why: "outside" });
+    expect(JSON.stringify(read)).not.toContain("a secret");
+  });
+
+  test("refuses the file swapped for another under the root between the check and the open", () => {
+    const file = found("moved.txt");
+    renameSync(file, join(ROOT, "moved-was.txt"));
+    writeFileSync(join(ROOT, "other.txt"), "another\n");
+    renameSync(join(ROOT, "other.txt"), file);
+
+    expect(sourceTextAt(ROOT, "moved.txt", join(ROOT, "moved-was.txt"))).toEqual({
+      kind: "refused",
+      why: "outside",
+      reason: "moved.txt named another file while it was opened",
+    });
+  });
+
+  // Opened for reading without O_NONBLOCK, a FIFO waits for a writer and blocks the thread for
+  // good: the read runs in a process of its own, which the spec ends after a deadline.
+  test("refuses a FIFO swapped in between the check and the open, at once, waiting for no writer", async () => {
+    const file = found("pipe.txt");
+    rmSync(file);
+
+    expect(Bun.spawnSync(["mkfifo", file]).exitCode).toBe(0);
+
+    const call = `sourceTextAt(${JSON.stringify(ROOT)}, "pipe.txt", ${JSON.stringify(file)})`;
+
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        `import { sourceTextAt } from ${JSON.stringify(join(import.meta.dir, "sources.ts"))};\nconsole.log(JSON.stringify(${call}));`,
+      ],
+      { stdout: "pipe", stderr: "ignore" },
+    );
+
+    const code = await Promise.race([child.exited, Bun.sleep(5_000).then(() => "hung")]);
+
+    if (code === "hung") {
+      child.kill("SIGKILL");
+    }
+
+    expect(code).toBe(0);
+    expect(JSON.parse(await new Response(child.stdout).text())).toMatchObject({
+      kind: "refused",
+      why: "missing",
+    });
+  }, 10_000);
+
+  test.skipIf(process.getuid?.() === 0)(
+    "refuses a file the filesystem will not read, as a refusal and not a throw",
+    () => {
+      const file = found("locked.txt");
+      chmodSync(file, 0o000);
+
+      const read = sourceText(ROOT, "locked.txt");
+
+      expect(read).toMatchObject({ kind: "refused", why: "unreadable" });
+      expect(read.kind === "refused" ? read.reason : "").toStartWith("locked.txt cannot be read: ");
+
+      chmodSync(file, 0o600);
+    },
+  );
 });
 
 test("textLines counts a last line with or without its newline, and none in an empty text", () => {
