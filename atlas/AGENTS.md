@@ -294,7 +294,9 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   phase picked stays. A map without journeys has no menu.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. On a journey, both leave it for the place it started from, a click on an arrow or
-  its label does nothing, and any other move leaves it from the step's view. A box enters its container, a card or a ghost is selected where
+  its label does nothing, and any other move leaves it from the step's view.
+- The header's lists, the journeys' and the open points', each open under their own button; a
+  click outside an open list only closes it. A box enters its container, a card or a ghost is selected where
   it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet

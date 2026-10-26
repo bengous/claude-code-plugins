@@ -247,12 +247,15 @@ body {
   position: relative; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 }
 .phases button:hover { color: var(--accent); }
+/* Each list opens under its own button, whose corner engine.ts writes as it opens (--list-left, --list-top), kept within the window. */
 .open-list, .journey-list {
-  position: fixed; inset: 60px 16px auto auto; margin: 0; width: min(620px, calc(100vw - 32px)); max-height: 72vh; overflow-y: auto;
+  --w: min(620px, calc(100vw - 32px));
+  position: fixed; inset: var(--list-top, 60px) auto auto clamp(16px, var(--list-left, 16px), calc(100vw - 16px - var(--w)));
+  margin: 0; width: var(--w); max-height: 72vh; overflow-y: auto;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 }
-.journey-list { inset: 60px auto auto 16px; width: min(420px, calc(100vw - 32px)); }
+.journey-list { --w: min(420px, calc(100vw - 32px)); }
 .open-list h2, .journey-list h2 { font-family: var(--f-display); font-weight: 700; font-size: 22px; margin: 0 0 2px; }
 .open-list .open-sum { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); }
 .open-list ul, .journey-list ul { list-style: none; margin: 0; padding: 0; }

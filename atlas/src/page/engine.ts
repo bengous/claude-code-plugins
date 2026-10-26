@@ -1163,6 +1163,53 @@ function stepBy(delta: number): void {
   }
 }
 
+// The header's lists, each with the button that opens it under itself (atlas.html).
+const lists = [
+  [openButton, openList],
+  [journeysButton, journeyList],
+] as const;
+
+for (const [button, list] of lists) {
+  list.addEventListener("beforetoggle", (e) => {
+    if (e.newState === "open") {
+      const r = button.getBoundingClientRect();
+      list.style.setProperty("--list-left", `${r.left}px`);
+      list.style.setProperty("--list-top", `${r.bottom + 6}px`);
+    }
+  });
+}
+
+// A press outside an open list closes it (the popover's light dismiss); the click that press ends
+// only closes it: it selects, enters, leaves or opens nothing. A click from the keyboard has no
+// press.
+let dismissing = false;
+
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    const target = e.target instanceof Node ? e.target : null;
+
+    dismissing = lists.some(
+      ([button, list]) =>
+        list.matches(":popover-open") && !list.contains(target) && !button.contains(target),
+    );
+  },
+  true,
+);
+
+document.addEventListener(
+  "click",
+  (e) => {
+    if (dismissing && e.detail > 0) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
+    dismissing = false;
+  },
+  true,
+);
+
 journeyList.addEventListener("click", (e) => {
   const row = e.target instanceof Element ? e.target.closest("[data-journey]") : null;
 
