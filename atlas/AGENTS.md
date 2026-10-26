@@ -265,15 +265,12 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   opens on its drawing.
 - With the Config's `phases`, the header shows a stepper: every phase, then each in order,
   scrolling within its own box when the header is narrower. A phase picked (`phase=`) fades and
-  dots, in every view, the nodes and links of the phases after it, a container by its own phase
-  or, without one, once all its descendants are, a link without a phase once one of its ends is
-  and in a view that draws an end of it as a faded box, an arrow once every link it stands for is (`dimmedBy` in
-  `phases.ts`); a leaf without a phase never fades. The dots are a pattern of their own, apart
-  from the dashes of `kind: "off"`, of outside nodes and of couplings, and the legend explains
-  them in a view that draws some (`dimsIn`). An arrow that stays names only the links that do not
-  fade (`labelAt`), in the spot its whole label took, shortened as a placed label is when it does
-  not fit. The panel shows a node's phase under its own heading. The phase stays as the reader
-  moves. A map without phases has no stepper.
+  dots, in every view, what the phases after it bring, by the rule `dimmedBy` in `phases.ts`
+  states. The dots are a pattern of their own, apart from the dashes of `kind: "off"`, of outside
+  nodes and of couplings, and the legend explains them in a view that draws some (`dimsIn`). An
+  arrow that stays names only the links that do not fade (`labelAt`), in the spot its whole label
+  took, shortened as a placed label is when it does not fit. The panel shows a node's phase under
+  its own heading. The phase stays as the reader moves. A map without phases has no stepper.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.

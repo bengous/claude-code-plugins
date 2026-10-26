@@ -62,12 +62,9 @@
     leaves the drawing's zoom alone. Another container opens on its drawing.
   - A map whose Config lists `phases` gets a stepper in the header: every
     phase, then each in order. Picking one fades and dots what a later
-    phase brings: each node and link whose `phase` comes after it, a
-    container by its own phase or, without one, once every node below it
-    fades, a link without a phase once one of its ends fades, an arrow once
-    every link it stands for fades; an arrow that stays names only the links
-    that do not. A leaf without a phase never fades. The panel shows a
-    node's phase. The phase stays in the link as the reader moves.
+    phase brings (`dimmedBy` in phases.ts); an arrow that stays names only
+    the links that do not fade. The panel shows a node's phase. The phase
+    stays in the link as the reader moves.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -217,7 +214,7 @@ body {
 .crumbs .fold { padding: 2px 4px; cursor: help; }
 
 /* Open points: the header button, its list (a native popover), and the badge on the map. */
-.open-btn, .sources-btn {
+.open-btn, .sources-btn, .phases button {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--open);
   border-radius: 4px; padding: 4px 10px; cursor: pointer; align-self: center;
@@ -229,11 +226,7 @@ body {
 /* The stepper of the Config's work phases (engine.ts): every phase, then each in order, the one picked pressed and those after it faded; the page drops it for a map without phases. */
 /* Wider than the header, it scrolls within its own box, its padding keeping the focus ring in sight. */
 .phases { display: flex; align-self: center; max-width: calc(100% + 8px); overflow-x: auto; scrollbar-width: thin; padding: 4px; margin: -4px; }
-.phases button {
-  font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
-  color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 4px 10px; cursor: pointer;
-  flex: none; white-space: nowrap;
-}
+.phases button { border-left: 1px solid var(--line); border-radius: 0; flex: none; white-space: nowrap; }
 .phases button + button { margin-left: -1px; }
 .phases button:first-child { border-radius: 4px 0 0 4px; }
 .phases button:last-child { border-radius: 0 4px 4px 0; }

@@ -106,7 +106,6 @@ const cardsButton = byId("btn-cards", HTMLButtonElement);
 
 const stepper = byId("phases", HTMLDivElement);
 
-// The stepper's steps: every phase (null), then each of the Config's, in order.
 const steps = [null, ...settings.phases].map(
   (phase): readonly [string | null, HTMLButtonElement] => {
     const button = document.createElement("button");
@@ -917,7 +916,6 @@ function dimView(d: Drawn): void {
   }
 }
 
-// The stepper presses the phase picked and fades the steps after it.
 function renderPhase(): void {
   const picked = steps.findIndex(([phase]) => phase === params.phase);
 

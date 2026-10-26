@@ -74,8 +74,8 @@ export type ArrowEl = {
   readonly label: SVGTextElement | null;
   /** The width of the spot its label took; 0 without a label. */
   readonly room: number;
-  /** Its hit band, whose tooltip carries the whole label; null without a label. */
-  readonly band: SVGPathElement | null;
+  /** Its hit band's tooltip, which carries the whole label; null without a label. */
+  readonly tip: SVGTitleElement | null;
 };
 
 /**
@@ -673,10 +673,11 @@ function drawArrow(
   const path = arrowPath(g, d, arrow.kind, arrow.two);
   const variants = labelVariants(arrow, mode);
   const [whole] = variants;
-  const band = whole === undefined ? null : el("path", { d, class: "flow-hit" }, hits);
+  let tip: SVGTitleElement | null = null;
 
-  if (band !== null) {
-    el("title", {}, band).textContent = whole ?? "";
+  if (whole !== undefined) {
+    tip = el("title", {}, el("path", { d, class: "flow-hit" }, hits));
+    tip.textContent = whole;
   }
 
   return {
@@ -686,7 +687,7 @@ function drawArrow(
     marker: path.getAttribute("marker-end") ?? "",
     label: label === null ? null : drawLabel(g, variants, label),
     room: label?.spot.w ?? 0,
-    band,
+    tip,
   };
 }
 
@@ -705,10 +706,9 @@ export function relabel(e: ArrowEl, mode: Mode, label: string): void {
   labelled.set(e, label);
   const variants = labelVariants({ ...e.arrow, label }, mode);
   const whole = variants[0] ?? "";
-  const tip = e.band?.querySelector("title");
 
-  if (tip !== null && tip !== undefined) {
-    tip.textContent = whole;
+  if (e.tip !== null) {
+    e.tip.textContent = whole;
   }
 
   if (e.label === null) {
