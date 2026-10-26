@@ -17,6 +17,7 @@ export type Words = {
   readonly viewerClose: string;
   readonly viewerLoading: string;
   readonly viewerFailed: (why: string) => string;
+  readonly viewerTooLarge: string;
   readonly hint: string;
   /** The tooltip of each copy of a node drawn twice, in both columns. */
   readonly copies: {
@@ -56,6 +57,7 @@ const fr: Words = {
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
+  viewerTooLarge: "Fichier trop volumineux pour être affiché.",
   hint: "clic sur une boîte pour y entrer, sur une carte pour la choisir · molette pour zoomer, glisser pour déplacer · Échap ou clic sur le fond pour remonter",
   copies: {
     source: (label) => `${label} — ses flèches partent d'ici`,
@@ -116,6 +118,7 @@ const en: Words = {
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,
+  viewerTooLarge: "File too large to show.",
   hint: "click a box to enter it, a card to select it · wheel to zoom, drag to pan · Escape or a click on the background to go up",
   copies: {
     source: (label) => `${label} — its arrows leave from here`,

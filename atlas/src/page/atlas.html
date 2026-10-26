@@ -314,12 +314,16 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel .viewer-close:hover { border-color: var(--accent); color: var(--accent); }
 .panel .viewer-note { color: var(--ink-3); font-size: 13px; }
 .panel .viewer-lines {
-  font-family: var(--f-mono); font-size: 12px; line-height: 1.6; overflow-x: auto;
+  font-family: var(--f-mono); font-size: 12px; line-height: 1.6;
   background: var(--sheet); border: 1px solid var(--line); border-radius: 4px; padding: 6px 0;
 }
-.panel .viewer-lines .line { display: flex; width: max-content; min-width: 100%; min-height: 1.6em; }
+/* A long line wraps in the panel, its number on its first row. */
+.panel .viewer-lines .line { display: flex; min-height: 1.6em; }
 .panel .viewer-lines .n { flex: none; width: 5ch; padding-right: 10px; text-align: right; color: var(--ink-3); user-select: none; }
-.panel .viewer-lines code { font-size: inherit; white-space: pre; tab-size: 4; background: none; padding: 0 12px 0 0; border-radius: 0; }
+.panel .viewer-lines code {
+  flex: 1; min-width: 0; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4;
+  background: none; padding: 0 12px 0 0; border-radius: 0;
+}
 .panel .viewer-lines .cited { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .panel .viewer-lines .cited .n { color: var(--accent); }
 .panel .warn {

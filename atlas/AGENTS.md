@@ -230,10 +230,13 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   marker of its lines, the whole citation as its tooltip; a `<cite>` of other text, a `kicker`,
   and a `label`, plain text even as the heading of a node without `title`, show as written. The header's Sources toggle, shown when the map has a citation, shows every
   citation in full, remembered per browser under `atlas.sources` (`sourcesInFull`).
-- With the Config's `sources`, a marker is a button: a click shows the cited lines and eight
-  around them in the panel, read from serve.ts, under the path and a close button, until the
-  close button or a move. serve.ts knows the paths the map cites only from folder.ts's line.
-- Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
+- With the Config's `sources`, a marker is a button: a click shows each cited stretch and eight
+  lines around it in the panel, a `…` row between stretches apart, long lines wrapped, read from
+  serve.ts, under the path and a close button, until the close button, Escape or a move; a file
+  over the route's cap shows as too large to show. serve.ts knows the paths the map cites only
+  from folder.ts's line.
+- Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
+  empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet

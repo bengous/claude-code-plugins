@@ -269,15 +269,17 @@ export function renderPanel(
   panel.scrollTop = 0;
 }
 
-/** The lines a clicked marker cites, which the panel shows in place of its fields. */
+/** Consecutive lines of a file, the first numbered `from`. */
+export type Stretch = { readonly from: number; readonly lines: readonly string[] };
+
+/**
+ * The lines a clicked marker cites, which the panel shows in place of its fields: their stretches
+ * in the file's order, or a file too large to show.
+ */
 export type Viewer =
   | { readonly kind: "loading"; readonly citation: Citation }
-  | {
-      readonly kind: "lines";
-      readonly citation: Citation;
-      readonly from: number;
-      readonly lines: readonly string[];
-    }
+  | { readonly kind: "lines"; readonly citation: Citation; readonly stretches: readonly Stretch[] }
+  | { readonly kind: "large"; readonly citation: Citation }
   | { readonly kind: "failed"; readonly citation: Citation; readonly message: string };
 
 const CONTEXT = 8;
@@ -285,14 +287,34 @@ const CONTEXT = 8;
 /** Lines `from` to `to` of a file, as the viewer asks serve.ts for them. */
 export type LineSpan = { readonly from: number; readonly to: number };
 
-/** The lines the viewer asks for: the cited ones, and CONTEXT lines around them. */
-export const linesAround = (citation: Citation): LineSpan => ({
-  from: Math.max(1, Math.min(...citation.lines.map(({ first }) => first)) - CONTEXT),
-  to: Math.max(...citation.lines.map(({ last }) => last)) + CONTEXT,
-});
+/**
+ * The spans the viewer asks for, in the file's order: each cited line or range with CONTEXT
+ * lines around it, two spans joined when at most one line lies between them.
+ */
+export function linesAround(citation: Citation): LineSpan[] {
+  const around = citation.lines
+    .map(({ first, last }) => ({ from: Math.max(1, first - CONTEXT), to: last + CONTEXT }))
+    .toSorted((a, b) => a.from - b.from);
+
+  const spans: LineSpan[] = [];
+
+  for (const span of around) {
+    const before = spans.at(-1);
+
+    if (before !== undefined && span.from <= before.to + 2) {
+      spans[spans.length - 1] = { from: before.from, to: Math.max(before.to, span.to) };
+    } else {
+      spans.push(span);
+    }
+  }
+
+  return spans;
+}
 
 const isCited = (citation: Citation, n: number): boolean =>
   citation.lines.some(({ first, last }) => n >= first && n <= last);
+
+const GAP = '<div class="line gap"><span class="n">…</span></div>';
 
 function viewerBody(s: Settings, viewer: Viewer): string {
   switch (viewer.kind) {
@@ -304,20 +326,29 @@ function viewerBody(s: Settings, viewer: Viewer): string {
       return `<p class="warn">${s.words.viewerFailed(esc(viewer.message))}</p>`;
     }
 
+    case "large": {
+      return `<p class="viewer-note">${s.words.viewerTooLarge}</p>`;
+    }
+
     case "lines": {
-      const rows = viewer.lines.map((text, i) => {
-        const n = viewer.from + i;
-        const cited = isCited(viewer.citation, n) ? " cited" : "";
+      const stretches = viewer.stretches.map(({ from, lines }) =>
+        lines
+          .map((text, i) => {
+            const n = from + i;
+            const cited = isCited(viewer.citation, n) ? " cited" : "";
 
-        return `<div class="line${cited}"><span class="n">${n}</span><code>${esc(text)}</code></div>`;
-      });
+            return `<div class="line${cited}"><span class="n">${n}</span><code>${esc(text)}</code></div>`;
+          })
+          .join(""),
+      );
 
-      return `<div class="viewer-lines">${rows.join("")}</div>`;
+      return `<div class="viewer-lines">${stretches.join(GAP)}</div>`;
     }
   }
 }
 
-// The path and the close button above the lines, each line with its number, the cited ones marked.
+// The path and the close button above the lines, each line with its number, the cited ones marked,
+// a "…" row between two stretches apart.
 export function renderViewer(
   s: Settings,
   panel: Pick<HTMLElement, "innerHTML" | "scrollTop">,

@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
 import type { AtlasMap } from "../model/atlas.ts";
+import type { Citation } from "../model/citations.ts";
 import { loadFolder } from "../model/folder.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Settings } from "../model/settings.ts";
@@ -301,6 +302,11 @@ describe("the panel's citations", () => {
   });
 });
 
+const cites = (...lines: ReadonlyArray<readonly [number, number]>): Citation => ({
+  path: "a",
+  lines: lines.map(([first, last]) => ({ first, last })),
+});
+
 describe("the viewer of a citation's lines", () => {
   const citation = { path: "src/a.go", lines: [{ first: 12, last: 13 }] } as const;
   const settings = settingsOf(CONFIG);
@@ -315,20 +321,32 @@ describe("the viewer of a citation's lines", () => {
   };
 
   test("asks for the cited lines and eight around them, from line 1 at least", () => {
-    expect(linesAround(citation)).toEqual({ from: 4, to: 21 });
-    expect(
-      linesAround({
-        path: "a",
-        lines: [
-          { first: 30, last: 30 },
-          { first: 3, last: 5 },
-        ],
-      }),
-    ).toEqual({ from: 1, to: 38 });
+    expect(linesAround(citation)).toEqual([{ from: 4, to: 21 }]);
+    expect(linesAround(cites([2, 3]))).toEqual([{ from: 1, to: 11 }]);
+  });
+
+  test("asks for each stretch of a scattered citation with its own eight lines, in the file's order", () => {
+    expect(linesAround(cites([400, 400], [3, 3]))).toEqual([
+      { from: 1, to: 11 },
+      { from: 392, to: 408 },
+    ]);
+  });
+
+  test("joins two stretches whose lines around meet, or leave one line between them", () => {
+    expect(linesAround(cites([30, 30], [44, 46]))).toEqual([{ from: 22, to: 54 }]);
+    expect(linesAround(cites([10, 10], [28, 28]))).toEqual([{ from: 2, to: 36 }]);
+    expect(linesAround(cites([10, 10], [29, 29]))).toEqual([
+      { from: 2, to: 18 },
+      { from: 21, to: 37 },
+    ]);
   });
 
   test("shows the path and a close button above the lines, numbered, the cited ones marked", () => {
-    const html = viewed({ kind: "lines", citation, from: 11, lines: ["a", "<b>", "c", "d"] });
+    const html = viewed({
+      kind: "lines",
+      citation,
+      stretches: [{ from: 11, lines: ["a", "<b>", "c", "d"] }],
+    });
 
     expect(html).toContain(
       `<div class="viewer-head"><code class="viewer-path">src/a.go:12-13</code><button type="button" class="viewer-close" data-close-viewer>${WORDS.fr.viewerClose}</button></div>`,
@@ -338,6 +356,30 @@ describe("the viewer of a citation's lines", () => {
         '<div class="line cited"><span class="n">12</span><code>&lt;b&gt;</code></div>' +
         '<div class="line cited"><span class="n">13</span><code>c</code></div>' +
         '<div class="line"><span class="n">14</span><code>d</code></div></div>',
+    );
+  });
+
+  test("shows a … row between two stretches", () => {
+    const html = viewed({
+      kind: "lines",
+      citation: cites([2, 2], [40, 40]),
+      stretches: [
+        { from: 1, lines: ["x", "y"] },
+        { from: 40, lines: ["z"] },
+      ],
+    });
+
+    expect(html).toContain(
+      '<div class="viewer-lines"><div class="line"><span class="n">1</span><code>x</code></div>' +
+        '<div class="line cited"><span class="n">2</span><code>y</code></div>' +
+        '<div class="line gap"><span class="n">…</span></div>' +
+        '<div class="line cited"><span class="n">40</span><code>z</code></div></div>',
+    );
+  });
+
+  test("says a file is too large to show", () => {
+    expect(viewed({ kind: "large", citation })).toContain(
+      `<p class="viewer-note">${WORDS.fr.viewerTooLarge}</p>`,
     );
   });
 

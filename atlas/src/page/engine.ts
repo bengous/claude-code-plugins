@@ -36,7 +36,7 @@ import { drawView } from "./draw.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
-import type { ThreadState, Viewer } from "./panel.ts";
+import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
 import { linesAround, renderCrumbs, renderOpenList, renderPanel, renderViewer } from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
@@ -967,24 +967,39 @@ const isSourceLines = (v: unknown): v is SourceLines =>
   v.lines.every((line) => typeof line === "string");
 /* oxlint-enable anti-slop/no-runtime-typeof */
 
+// The route answers 413 for a file over its cap, which the viewer names as too large to show.
+async function stretchOf(path: string, { from, to }: LineSpan): Promise<Stretch | "large"> {
+  const query = new URLSearchParams({ path, from: String(from), to: String(to) });
+  const response = await fetch(`${SOURCE_PATH}?${query}`, { cache: "no-store" });
+
+  if (response.status === 413) {
+    return "large";
+  }
+
+  if (!response.ok) {
+    throw new Error(`${response.status} ${await response.text()}`);
+  }
+
+  const answer: unknown = await response.json();
+
+  if (!isSourceLines(answer)) {
+    throw new TypeError(`${SOURCE_PATH}: the answer holds no path, from and lines`);
+  }
+
+  return { from: answer.from, lines: answer.lines };
+}
+
 async function linesOf(citation: Citation): Promise<Viewer> {
-  const { from, to } = linesAround(citation);
-  const query = new URLSearchParams({ path: citation.path, from: String(from), to: String(to) });
-
   try {
-    const response = await fetch(`${SOURCE_PATH}?${query}`, { cache: "no-store" });
+    const read = await Promise.all(
+      linesAround(citation).map(async (span) => await stretchOf(citation.path, span)),
+    );
 
-    if (!response.ok) {
-      throw new Error(`${response.status} ${await response.text()}`);
-    }
+    const stretches = read.filter((stretch) => stretch !== "large");
 
-    const answer: unknown = await response.json();
-
-    if (!isSourceLines(answer)) {
-      throw new TypeError(`${SOURCE_PATH}: the answer holds no path, from and lines`);
-    }
-
-    return { kind: "lines", citation, from: answer.from, lines: answer.lines };
+    return stretches.length < read.length
+      ? { kind: "large", citation }
+      : { kind: "lines", citation, stretches };
   } catch (error: unknown) {
     return { kind: "failed", citation, message: failure(error) };
   }
@@ -1107,15 +1122,25 @@ sourcesButton.addEventListener("click", () => {
   store(SOURCES_KEY, sourcesInFull ? "full" : "markers");
 });
 
-document.addEventListener("keydown", (e) => {
-  const typing = e.target instanceof HTMLInputElement;
-
-  if (e.key !== "Escape" || typing || openList.matches(":popover-open") || unzoom()) {
+// Escape and a click on the empty sheet bring the fit back, else close the lines viewer where the
+// reader stands, else deselect, then go up a level.
+function stepBack(): void {
+  if (unzoom()) {
     return;
   }
 
-  if (place !== navigate(tree, place, { type: "escape" })) {
+  if (viewer !== null) {
+    closeCitation();
+  } else if (place !== navigate(tree, place, { type: "escape" })) {
     send({ type: "escape" });
+  }
+}
+
+document.addEventListener("keydown", (e) => {
+  const typing = e.target instanceof HTMLInputElement;
+
+  if (e.key === "Escape" && !typing && !openList.matches(":popover-open")) {
+    stepBack();
   }
 });
 
@@ -1128,12 +1153,7 @@ addEventListener("hashchange", () => {
   settle().catch(fail);
 });
 
-// A click on the empty sheet brings the fit back, else deselects, then goes up a level.
-svg.addEventListener("click", () => {
-  if (!unzoom() && place !== navigate(tree, place, { type: "escape" })) {
-    send({ type: "escape" });
-  }
-});
+svg.addEventListener("click", stepBack);
 
 // Every view is laid out again when the aspect of the drawing area moves by more than RELAYOUT
 // (a resized window, the panel hidden or shown), once the resizing settles, with the Config's
