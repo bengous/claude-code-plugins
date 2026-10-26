@@ -91,6 +91,7 @@ function stubRepo(
     grepGate = Promise.resolve(),
     excludedPaths = new Set<string>(),
     draft = "",
+    cursor = Number.POSITIVE_INFINITY,
     cwd = ROOT,
     findings = new Map<string, string>(),
     isBlameBroken = false,
@@ -110,7 +111,7 @@ function stubRepo(
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("session.cwd", () => ({ value: cwd }));
-  on("prompt.read", () => ({ value: { text: draft, cursor: draft.length } }));
+  on("prompt.read", () => ({ value: { text: draft, cursor: Math.min(cursor, draft.length) } }));
   on("fs.exists", (_$, e) => ({
     value: e.path === BUFFER ? findings.size > 0 : files.has(e.path),
   }));
@@ -431,10 +432,10 @@ test("a list that fits leaves the wheel to the engine", async ($, on) => {
 
 test("Show Claude puts the picked TODOs in the prompt box", async ($, on) => {
   stubRepo(on);
-  const fills: string[] = [];
+  const fills: { text: string; mode: string; cursor: number | undefined }[] = [];
 
   on("prompt.fill", (_$, e) => {
-    fills.push(e.text);
+    fills.push({ text: e.text, mode: e.mode, cursor: e.cursor });
 
     return { isFilled: true };
   });
@@ -448,8 +449,13 @@ test("Show Claude puts the picked TODOs in the prompt box", async ($, on) => {
   expect((await texts(ui)).some((text) => text.includes("2 selected"))).toBe(true);
   await ui.press({ key: "show" });
 
+  // `insert` keeps the draft; no `cursor` leaves the caret past the TODOs.
   expect(fills).toEqual([
-    "Read these TODOs:\n- src/a.ts:10: newer comment (#12)\n- src/b.sh:3: FIXME older comment\n",
+    {
+      text: "Read these TODOs:\n- src/a.ts:10: newer comment (#12)\n- src/b.sh:3: FIXME older comment\n",
+      mode: "insert",
+      cursor: undefined,
+    },
   ]);
   expect(await ui.find({ type: "Button", key: "show" })).toBeUndefined();
 });
@@ -470,6 +476,24 @@ test("Show Claude starts the TODOs on a line of their own", async ($, on) => {
   await ui.press({ key: "show" });
 
   expect(fills).toEqual(["\nRead these TODOs:\n- TODO.md:1: list item from TODO.md\n"]);
+});
+
+test("Show Claude reads the line at the caret, not the draft's end", async ($, on) => {
+  stubRepo(on, { draft: "look at\nthis", cursor: "look at\n".length });
+  const fills: string[] = [];
+
+  on("prompt.fill", (_$, e) => {
+    fills.push(e.text);
+
+    return { isFilled: true };
+  });
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await ui.press({ key: await pickKey(ui, 1) });
+  await ui.press({ key: "show" });
+
+  expect(fills).toEqual(["Read these TODOs:\n- TODO.md:1: list item from TODO.md\n"]);
 });
 
 test("a pick pressed twice is dropped, and Clear drops them all", async ($, on) => {
