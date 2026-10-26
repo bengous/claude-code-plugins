@@ -145,6 +145,25 @@ export type Swatch = { readonly light: string; readonly dark: string };
 export type LegendKey = "flow" | "dash" | "deny" | "coupled" | "outside" | "open";
 
 /**
+ * A heading of the panel, by the section it heads: `io`, `swap`, `extend`, `pitfalls`, `seams`,
+ * `traps`, `why`, `alt`, `facts`, `how` and `see` head the Panel fields of the same name;
+ * `coupledWith` introduces the couplings under `swap`.
+ */
+export type PanelHeading =
+  | "io"
+  | "swap"
+  | "coupledWith"
+  | "extend"
+  | "pitfalls"
+  | "seams"
+  | "traps"
+  | "why"
+  | "alt"
+  | "facts"
+  | "how"
+  | "see";
+
+/**
  * The ends of the arrows of a view with a container child: "shared" lets arrows into one box end
  * at the same point and run as one trunk, "exclusive" gives every arrow its own end.
  */
@@ -194,4 +213,9 @@ export type Config = {
   readonly tags?: Tags;
   /** The legend's labels, the dictionary's when absent. The legend shows the lines a view uses. */
   readonly legend?: Readonly<Partial<Record<LegendKey, string>>>;
+  /**
+   * The panel's headings in the map's own words, such as `{ io: "Terrain" }` for a map of people
+   * and places; the dictionary's for each one absent. Shown as written: no markup.
+   */
+  readonly headings?: Readonly<Partial<Record<PanelHeading, string>>>;
 };

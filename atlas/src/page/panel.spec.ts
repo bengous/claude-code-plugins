@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { DEEP } from "../../fixtures/trees.ts";
 import type { AtlasMap } from "../model/atlas.ts";
 import { loadFolder } from "../model/folder.ts";
+import type { Place } from "../model/navigation.ts";
+import type { Settings } from "../model/settings.ts";
 import { settingsOf } from "../model/settings.ts";
 import { treeOf } from "../model/tree.ts";
+import { WORDS } from "../model/words.ts";
 import { renderCrumbs, renderPanel } from "./panel.ts";
 import { esc } from "./svg.ts";
 
@@ -113,6 +116,87 @@ describe("the panel's HTML", () => {
     expect(panel.innerHTML).toContain('<h2><span class="swatch"></span>Bookshop</h2>');
     expect(panel.innerHTML).toContain('data-go="clients"');
     expect(panel.innerHTML).toContain("no wasm");
+  });
+});
+
+describe("the panel's headings", () => {
+  const ORDERS = { path: ["server", "app"], selected: "orders" };
+  const threads = { kind: "ok", threads: {} } as const;
+
+  const rendered = (settings: Settings, tree = TREE, place: Place = ORDERS): string => {
+    const panel = { innerHTML: "", scrollTop: 0 };
+    renderPanel(settings, tree, panel, place, null, threads);
+
+    return panel.innerHTML;
+  };
+
+  test("a map that names two headings shows them, and the dictionary's for the others", () => {
+    const html = rendered(
+      settingsOf({ ...CONFIG, headings: { io: "Terrain", pitfalls: "Jamais" } }),
+    );
+
+    expect(html).toContain("<h3>Terrain</h3>");
+    expect(html).toContain("<h3>Jamais</h3>");
+    expect(html).not.toContain(`<h3>${WORDS.fr.headings.io}</h3>`);
+    expect(html).not.toContain(`<h3>${WORDS.fr.headings.pitfalls}</h3>`);
+    expect(html).toContain(`<h3>${WORDS.fr.headings.swap}</h3>`);
+    expect(html).toContain(`<h3>${esc(WORDS.fr.headings.alt)}</h3>`);
+  });
+
+  test("a map that names none shows the dictionary's", () => {
+    const html = rendered(settingsOf(CONFIG));
+
+    expect(html).toContain(`<h3>${WORDS.fr.headings.io}</h3>`);
+    expect(html).toContain(`<h3>${WORDS.fr.headings.swap}</h3>`);
+    expect(html).toContain(`<p class="label">${esc(WORDS.fr.headings.coupledWith)}</p>`);
+    expect(html).toContain(`<h3>${WORDS.fr.headings.pitfalls}</h3>`);
+  });
+
+  test("every section reads its heading from the settings", () => {
+    const node = {
+      id: "a",
+      label: "A",
+      sub: "",
+      color: "clients",
+      io: [["Receives", "x"]],
+      swap: "x",
+      couples: ["b"],
+      extend: "x",
+      pitfalls: ["x"],
+      seams: [["b", "x"]],
+      traps: [["b", "x"]],
+      why: ["x"],
+      alt: "x",
+      facts: [["k", "v"]],
+      how: "x",
+      see: ["b"],
+    } as const;
+
+    const other = { id: "b", label: "B", sub: "", color: "clients" };
+    const tree = treeOf({ root: { title: "T", children: [node, other] }, links: [] });
+    const keys = Object.keys(WORDS.fr.headings);
+    const headings = Object.fromEntries(keys.map((key) => [key, `named ${key}`]));
+    const html = rendered(settingsOf({ ...CONFIG, headings }), tree, { path: [], selected: "a" });
+
+    expect(keys).toHaveLength(12);
+
+    for (const key of keys) {
+      expect(html).toContain(`named ${key}`);
+    }
+
+    for (const word of Object.values(WORDS.fr.headings)) {
+      expect(html).not.toContain(`>${esc(word)}<`);
+    }
+  });
+
+  test("a heading holding markup shows as text and runs nothing", async () => {
+    const html = rendered(
+      settingsOf({ ...CONFIG, headings: { io: "<b>x</b>", coupledWith: "<img src=x>" } }),
+    );
+
+    expect(await elementsWith(html, "h3 b, img")).toBe(0);
+    expect(html).toContain("<h3>&lt;b&gt;x&lt;/b&gt;</h3>");
+    expect(html).toContain('<p class="label">&lt;img src=x&gt;</p>');
   });
 });
 

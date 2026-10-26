@@ -1,8 +1,10 @@
-import type { Lang, LegendKey } from "./atlas.ts";
+import type { Lang, LegendKey, PanelHeading } from "./atlas.ts";
 
 // The page's own words in each language a Config may pick: everything the engine writes on the
 // page, and nothing of the map's content. The panel inserts them as HTML, so each is HTML-safe,
-// and a function's arguments arrive escaped where the panel inserts the result as HTML.
+// and a function's arguments arrive escaped where the panel inserts the result as HTML. The
+// legend's labels and the panel's headings are the defaults a Config replaces: the page escapes
+// them where it inserts them.
 export type Words = {
   readonly home: string;
   readonly fitButton: string;
@@ -29,18 +31,7 @@ export type Words = {
   readonly replyLabel: (id: string) => string;
   readonly reply: string;
   readonly replyRefused: (why: string) => string;
-  readonly io: string;
-  readonly swap: string;
-  readonly coupledWith: string;
-  readonly extend: string;
-  readonly pitfalls: string;
-  readonly seams: string;
-  readonly traps: string;
-  readonly why: string;
-  readonly alt: string;
-  readonly facts: string;
-  readonly how: string;
-  readonly see: string;
+  readonly headings: Readonly<Record<PanelHeading, string>>;
   readonly source: (src: string) => string;
   readonly zones: string;
   readonly arrowsMissing: string;
@@ -81,18 +72,20 @@ const fr: Words = {
   replyLabel: (id) => `Répondre à ${id}`,
   reply: "Répondre",
   replyRefused: (why) => `Réponse refusée : ${why}`,
-  io: "Contrat",
-  swap: "Pour remplacer",
-  coupledWith: "Change avec, entouré sur le plan :",
-  extend: "Pour étendre",
-  pitfalls: "Pièges",
-  seams: "Points d'extension",
-  traps: "Couplages à connaître",
-  why: "Pourquoi",
-  alt: "Écarté ou reporté",
-  facts: "Repères",
-  how: "Lecture",
-  see: "Voir aussi",
+  headings: {
+    io: "Contrat",
+    swap: "Pour remplacer",
+    coupledWith: "Change avec, entouré sur le plan :",
+    extend: "Pour étendre",
+    pitfalls: "Pièges",
+    seams: "Points d'extension",
+    traps: "Couplages à connaître",
+    why: "Pourquoi",
+    alt: "Écarté ou reporté",
+    facts: "Repères",
+    how: "Lecture",
+    see: "Voir aussi",
+  },
   source: (src) => `Source : ${src}`,
   zones: "Zones",
   arrowsMissing: "Flèches absentes",
@@ -134,18 +127,20 @@ const en: Words = {
   replyLabel: (id) => `Reply to ${id}`,
   reply: "Reply",
   replyRefused: (why) => `Reply refused: ${why}`,
-  io: "Contract",
-  swap: "To replace",
-  coupledWith: "Changes with it, outlined on the map:",
-  extend: "To extend",
-  pitfalls: "Pitfalls",
-  seams: "Extension points",
-  traps: "Couplings to know",
-  why: "Why",
-  alt: "Rejected or postponed",
-  facts: "Facts",
-  how: "How to read",
-  see: "See also",
+  headings: {
+    io: "Contract",
+    swap: "To replace",
+    coupledWith: "Changes with it, outlined on the map:",
+    extend: "To extend",
+    pitfalls: "Pitfalls",
+    seams: "Extension points",
+    traps: "Couplings to know",
+    why: "Why",
+    alt: "Rejected or postponed",
+    facts: "Facts",
+    how: "How to read",
+    see: "See also",
+  },
   source: (src) => `Source: ${src}`,
   zones: "Zones",
   arrowsMissing: "Arrows missing",

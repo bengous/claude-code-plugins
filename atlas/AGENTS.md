@@ -45,7 +45,8 @@ src/parts.spec.ts    a map assembled from parts/*.ts through check, fmt and the 
 src/model/           the map and what is read from it, pure or Node-only, no browser
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
-                     ratio, tags, legend labels, step words); the source of a map's atlas.d.ts
+                     ratio, tags, legend labels, panel headings, step words); the source of a
+                     map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
                      may name (labelsOf, folder.spec.ts); run, it prints them, or refuses a folder
                      the engine cannot draw, which serve.ts asks before each build
