@@ -1,6 +1,7 @@
-// A free look inside one view, pure: the camera's rect zoomed around a point or panned, kept
-// within the rect that fits the view: never wider than the fit, never narrower than MAX_ZOOM
-// allows, never off the drawing. The fit and the rect share the drawing area's aspect.
+// A free look inside one view, pure: the camera's rect zoomed around a point, panned, or pushed
+// toward an edge the mouse rests at, kept within the rect that fits the view: never wider than the
+// fit, never narrower than MAX_ZOOM allows, never off the drawing. The fit and the rect share the
+// drawing area's aspect.
 import type { Point, Rect } from "./geometry.ts";
 
 /** The smallest font size, in screen pixels, a caption shows at on its own. */
@@ -47,6 +48,35 @@ export function zoomed(vb: Rect, at: Point, factor: number, fit: Rect): Rect {
 /** The rect moved so what was under the pointer follows it by (dx, dy), in the rect's units. */
 export const panned = (vb: Rect, dx: number, dy: number, fit: Rect): Rect =>
   clamped({ ...vb, x: vb.x - dx, y: vb.y - dy }, fit);
+
+/**
+ * How hard a pointer at `at` pushes toward each edge of `box`, both in screen pixels: 0 outside the
+ * `band` along that edge, rising to 1 (right, down) or -1 (left, up) at the edge itself. A pointer
+ * outside the box pushes nowhere.
+ */
+export function edgePush(at: Point, box: Rect, band: number): Point {
+  const [px, py] = at;
+
+  if (px < box.x || px > box.x + box.w || py < box.y || py > box.y + box.h) {
+    return [0, 0];
+  }
+
+  const axis = (v: number, lo: number, size: number): number => {
+    const toLow = Math.min(1, Math.max(0, 1 - (v - lo) / band));
+    const toHigh = Math.min(1, Math.max(0, 1 - (lo + size - v) / band));
+
+    return toHigh - toLow;
+  };
+
+  return [axis(px, box.x, box.w), axis(py, box.y, box.h)];
+}
+
+/**
+ * The rect slid the way `push` (edgePush) presses, by `step` of its units at a full press, no
+ * further than the drawing.
+ */
+export const pushed = (vb: Rect, [px, py]: Point, step: number, fit: Rect): Rect =>
+  clamped({ ...vb, x: vb.x + px * step, y: vb.y + py * step }, fit);
 
 /** Whether the rect shows less than the fit: the reader zoomed in. */
 export const zoomedIn = (vb: Rect, fit: Rect): boolean => vb.w < fit.w - 1e-6;

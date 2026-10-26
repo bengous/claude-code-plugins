@@ -139,9 +139,9 @@ src/page/            what runs in the browser
   camera.ts          the camera, pure: the view shown and the one it cross-fades with, aligned
                      through the boxes along their path, any number of levels at once
                      (camera.spec.ts)
-  zoom.ts            the free look inside a view, pure: the camera's rect zoomed around a point
-                     or panned, kept within the rect that fits the view, and the captions a scale
-                     leaves readable (zoom.spec.ts)
+  zoom.ts            the free look inside a view, pure: the camera's rect zoomed around a point,
+                     panned, or pushed toward an edge the mouse rests at, kept within the rect
+                     that fits the view, and the captions a scale leaves readable (zoom.spec.ts)
   layout.ts          runs ELK's layered layout, flat, in the map's direction, its rows wrapped to an
                      aspect or its layers partitioned by rank, a ghost held to the first or the last
                      layer (layout.spec.ts, which runs ELK under Bun)
@@ -301,9 +301,11 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   click outside an open list only closes it. A box enters its container, a card or a ghost is selected where
   it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
-  the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
-  bring the fit back before they do anything else, but over the cards, and a move to another
-  view starts at its fit.
+  the rect that fits the view (`zoom.ts`); a mouse that rests near an edge of a zoomed view
+  slides it that way, faster the closer to the edge, after a short dwell so that a pass toward
+  the panel moves nothing (`edgePush` and `pushed` in `zoom.ts`), the place and the panel as
+  they were; the fit button, Escape and a click on the empty sheet bring the fit back before
+  they do anything else, but over the cards, and a move to another view starts at its fit.
 - A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
   hides, keeping its spot, unless its arrow is lit by a hover or a keyboard focus or hot from the
   selection, or its own box or card is hovered, focused or selected (`captionShown` in

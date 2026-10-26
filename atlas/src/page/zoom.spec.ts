@@ -6,7 +6,9 @@ import {
   MIN_CAPTION_PX,
   captionShown,
   clamped,
+  edgePush,
   panned,
+  pushed,
   zoomed,
   zoomedIn,
 } from "./zoom.ts";
@@ -56,6 +58,39 @@ describe("panned", () => {
 
   test("at the fit there is nowhere to pan", () => {
     expect(panned(FIT, 300, 300, FIT)).toEqual(FIT);
+  });
+});
+
+describe("edgePush and pushed", () => {
+  const BOX: Rect = { x: 100, y: 50, w: 800, h: 600 };
+
+  test("the pointer pushes toward the edge it nears, harder at the edge", () => {
+    expect(edgePush([500, 350], BOX, 50)).toEqual([0, 0]);
+    expect(edgePush([100, 350], BOX, 50)).toEqual([-1, 0]);
+    expect(edgePush([875, 350], BOX, 50)).toEqual([0.5, 0]);
+    expect(edgePush([900, 650], BOX, 50)).toEqual([1, 1]);
+    expect(edgePush([500, 75], BOX, 50)).toEqual([0, -0.5]);
+  });
+
+  test("a pointer outside the box pushes nowhere", () => {
+    expect(edgePush([50, 350], BOX, 50)).toEqual([0, 0]);
+    expect(edgePush([500, 700], BOX, 50)).toEqual([0, 0]);
+  });
+
+  const half = zoomed(FIT, [500, 500], 0.5, FIT);
+
+  test("a push slides the rect its way, a half press half as far, and keeps its size", () => {
+    expect(pushed(half, [1, 0], 40, FIT)).toEqual({ ...half, x: half.x + 40 });
+    expect(pushed(half, [-0.5, 1], 40, FIT)).toEqual({ ...half, x: half.x - 20, y: half.y + 40 });
+  });
+
+  test("a push stops at the drawing's edge, and at the fit there is nowhere to slide", () => {
+    expect(pushed(half, [1, 1], 10_000, FIT)).toEqual({
+      ...half,
+      x: FIT.x + FIT.w - half.w,
+      y: FIT.y + FIT.h - half.h,
+    });
+    expect(pushed(FIT, [1, 1], 300, FIT)).toEqual(FIT);
   });
 });
 

@@ -8,8 +8,8 @@
 // when the drawing area's aspect or the fonts change. Clicks and keys become navigation events
 // (navigation.ts): the place changes, the camera (camera.ts) carries the reader from the box of
 // the child in the parent's view into the child's view and back, cross-fading the two on the way,
-// and the panel follows. Inside a view, the wheel zooms, a drag pans and two fingers pinch, within
-// the view's fit (zoom.ts).
+// and the panel follows. Inside a view, the wheel zooms, a drag pans, two fingers pinch and a mouse
+// resting near an edge slides a zoomed view that way, all within the view's fit (zoom.ts).
 //
 // Nothing in the data has a position or a size, and nothing should get one: ELK and libavoid lay
 // each view out (draw.ts). Text is measured from the rendered fonts (measure.ts), so layout waits
@@ -66,7 +66,7 @@ import {
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
-import { captionShown, panned, zoomed, zoomedIn } from "./zoom.ts";
+import { captionShown, edgePush, panned, pushed, zoomed, zoomedIn } from "./zoom.ts";
 
 const { tree, settings } = drawableOf(map, config);
 
@@ -689,6 +689,76 @@ svg.addEventListener(
 
 fitButton.addEventListener("click", () => {
   unzoom();
+});
+
+// A mouse resting near an edge of a zoomed view slides it that way, faster the closer to the edge,
+// up to EDGE.speed screen px per second, once it rested there EDGE.dwellMs: a pass toward the
+// panel or the header moves nothing. At the fit, during a drag or a move, or under a touch, nothing
+// slides.
+const EDGE = { band: 56, speed: 900, dwellMs: 180 };
+
+// The longest gap between two frames that counts, in ms: a tab shown again does not leap.
+const FRAME_CAP = 50;
+
+let push: Point = [0, 0];
+
+let pushSince = 0;
+
+let pushLast = 0;
+
+let pushRaf = 0;
+
+function pushFrame(now: number): void {
+  pushRaf = 0;
+
+  if (push[0] === 0 && push[1] === 0) {
+    return;
+  }
+
+  if (now - pushSince >= EDGE.dwellMs && cam?.kind === "idle" && pointers.size === 0) {
+    const { vb, space } = cam.image;
+    const step = (EDGE.speed * Math.min(now - pushLast, FRAME_CAP) * unitsPerPx(vb)) / 1000;
+    const slid = pushed(vb, push, step, imageOf(space).vb);
+
+    if (slid.x !== vb.x || slid.y !== vb.y) {
+      look(slid);
+    }
+  }
+
+  pushLast = now;
+  pushRaf = requestAnimationFrame(pushFrame);
+}
+
+function setPush(next: Point): void {
+  const now = performance.now();
+
+  if (push[0] === 0 && push[1] === 0) {
+    pushSince = now;
+  }
+
+  push = next;
+
+  if (pushRaf === 0 && (next[0] !== 0 || next[1] !== 0)) {
+    pushLast = now;
+    pushRaf = requestAnimationFrame(pushFrame);
+  }
+}
+
+svg.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse" || !isZoomed()) {
+    setPush([0, 0]);
+
+    return;
+  }
+
+  const r = svg.getBoundingClientRect();
+  setPush(
+    edgePush([e.clientX, e.clientY], { x: r.left, y: r.top, w: r.width, h: r.height }, EDGE.band),
+  );
+});
+
+svg.addEventListener("pointerleave", () => {
+  setPush([0, 0]);
 });
 
 // A move between a view and one of its ancestors is animated; any other, and the first, lands at
