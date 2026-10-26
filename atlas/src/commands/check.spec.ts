@@ -286,6 +286,15 @@ describe("checkMap", () => {
     ]);
   });
 
+  test("a work phase listed twice, or empty, is refused, naming the phases field", () => {
+    expect(checkMap(MAP, { ...CONFIG, phases: ["v1", "v2", "v1"] }, THREADS)).toEqual([
+      'phases: "v1" is listed twice; list each work phase once',
+    ]);
+    expect(checkMap(MAP, { ...CONFIG, phases: ["v1", ""] }, THREADS)).toEqual([
+      'phases: "" names no phase; give each work phase a name, or remove this one',
+    ]);
+  });
+
   test("a palette key that cannot name a CSS custom property is refused", () => {
     const palette = { ...CONFIG.palette, "light blue": { light: "#00f", dark: "#88f" } };
 

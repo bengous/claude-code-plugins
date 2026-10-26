@@ -92,6 +92,23 @@ function checkSwatch(name: string, swatch: Swatch): void {
   }
 }
 
+// The stepper draws a button per phase and the fragment names one: each must name one phase.
+function checkPhases(phases: readonly string[]): void {
+  for (const [i, phase] of phases.entries()) {
+    if (phase.trim() === "") {
+      throw new ConfigError(
+        `phases: ${JSON.stringify(phase)} names no phase; give each work phase a name, or remove this one`,
+      );
+    }
+
+    if (phases.indexOf(phase) !== i) {
+      throw new ConfigError(
+        `phases: ${JSON.stringify(phase)} is listed twice; list each work phase once`,
+      );
+    }
+  }
+}
+
 function checkPalette(palette: Config["palette"]): void {
   for (const [key, swatch] of Object.entries(palette)) {
     if (!PALETTE_KEY.test(key)) {
@@ -129,6 +146,8 @@ export function settingsOf(config: Config): Settings {
     throw new ConfigError(`direction "${String(direction)}": "RIGHT" or "DOWN"`);
   }
 
+  const phases = config.phases ?? [];
+  checkPhases(phases);
   const words = WORDS[lang];
 
   return {
@@ -150,7 +169,7 @@ export function settingsOf(config: Config): Settings {
     legend: { ...words.legend, ...config.legend },
     headings: { ...words.headings, ...config.headings },
     sources: config.sources ?? null,
-    phases: config.phases ?? [],
+    phases,
   };
 }
 

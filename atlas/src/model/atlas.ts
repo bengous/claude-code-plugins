@@ -262,8 +262,9 @@ export type Config = {
   readonly sources?: { readonly root: string };
   /**
    * The work phases, in order, such as `["MVP", "Payments"]`: a node or a link names the one that
-   * brings it (`phase`), and the header's stepper picks one to dim what comes after it. None, and
-   * no stepper, when absent.
+   * brings it (`phase`), and the header's stepper picks one to dim what comes after it. Each is
+   * listed once and names something; the page and `atlas check` refuse an empty or repeated one.
+   * None, and no stepper, when absent.
    */
   readonly phases?: readonly string[];
 };
