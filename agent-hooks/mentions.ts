@@ -1834,8 +1834,12 @@ export type CommitInvocation = {
   readonly cwd: string | null;
   readonly lost: string | null;
   readonly git: GitCommand;
+  /** For each of `git.args`, whether Bash expands part of it when the line runs (`$NAME`, `$(…)`, backticks). */
+  readonly argsExpand: readonly boolean[];
   /** The body of the first heredoc the command reads, as written: `-F -` takes its message from it. */
   readonly heredoc: string | null;
+  /** Whether Bash expands that body: its delimiter is unquoted and it holds a `$` or a backtick. */
+  readonly heredocExpands: boolean;
 };
 
 const COMMIT = /(?<![\w.-])commit(?![\w.-])/u;
@@ -1876,6 +1880,7 @@ export function commitsOf(
     }
 
     const [heredoc] = command.heredocs;
+    const body = heredoc === undefined ? null : script.slice(heredoc.start, heredoc.end);
 
     return [
       {
@@ -1883,7 +1888,9 @@ export function commitsOf(
         cwd: view.cwd,
         lost: view.lost,
         git,
-        heredoc: heredoc === undefined ? null : script.slice(heredoc.start, heredoc.end),
+        argsExpand: view.unwrapped.argv.slice(git.index + 1).map((word) => word.expands),
+        heredoc: body,
+        heredocExpands: heredoc?.expands === true && /[$`]/u.test(body ?? ""),
       },
     ];
   });

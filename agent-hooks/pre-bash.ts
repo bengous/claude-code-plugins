@@ -752,7 +752,7 @@ async function judgeCommits(
   const judged: Judged[] = [];
 
   for (const commit of commitsOf(command, cwd)) {
-    const written = commitMessageOf(commit.git.args, commit.heredoc);
+    const written = commitMessageOf(commit.git.args, commit.heredoc, commit);
     const dir = commit.cwd ?? (isAbsoluteLocation(commit.git.location) ? "/" : null);
 
     if (written.form === "kept") {
@@ -784,9 +784,7 @@ async function judgeCommits(
     }
 
     if (written.opaque) {
-      notes.add(
-        "agent-hooks: a commit went unjudged: its -m runs a substitution the hook cannot read before the line runs",
-      );
+      notes.add(UNSEEN_MESSAGE);
       continue;
     }
 
@@ -803,7 +801,14 @@ async function judgeCommits(
       continue;
     }
 
-    const files = git(dir, commit.git.location, ["diff", "--name-only", "HEAD"]) ?? "";
+    const files =
+      git(
+        dir,
+        commit.git.location,
+        written.takes === "staged"
+          ? ["diff", "--cached", "--name-only"]
+          : ["diff", "--name-only", "HEAD"],
+      ) ?? "";
 
     judged.push({
       message,
@@ -824,30 +829,38 @@ async function judgeCommits(
     }
   }
 
-  const noted = notes.size === 0 ? ALLOW : note([...notes].join("\n"));
+  if (refused.length > 0) {
+    try {
+      saveRefused(key, [
+        ...new Set([...(refusedBefore ?? []), ...refused.map(({ hash }) => hash)]),
+      ]);
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
 
-  if (refused.length === 0) {
-    return noted;
+      // A refusal its rerun cannot get past would refuse a legitimate message forever.
+      notes.add(
+        `agent-hooks: the commit judge refused a message but could not save the refusal (${why}): the commit passed`,
+      );
+      refused.length = 0;
+    }
   }
 
-  try {
-    saveRefused(key, [...new Set([...(refusedBefore ?? []), ...refused.map(({ hash }) => hash)])]);
-  } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
+  const noted = [...notes].join("\n");
 
-    // A refusal its rerun cannot get past would refuse a legitimate message forever.
-    return note(
-      `agent-hooks: the commit judge refused a message but could not save the refusal (${why}): the commit passed`,
-    );
+  if (refused.length > 0) {
+    return refusal(noted === "" ? judgeRefusal(refused) : `${judgeRefusal(refused)}\n${noted}`);
   }
 
-  return refusal(judgeRefusal(refused));
+  return noted === "" ? ALLOW : note(noted);
 }
 
+const UNSEEN_MESSAGE =
+  "agent-hooks: a commit went unjudged: part of its message is known only once the line runs";
+
 /**
- * The message in the file `-F` names, read where git reads it, after its `-C`. None when the line writes the file
- * before the commit, which the hook runs ahead of: the file still holds an older message. None when it is not there
- * or too large, and a note when it cannot be read.
+ * The message in the file `-F` names, read where git reads it, after its `-C`. None, with a note, when the line names
+ * the file's name before the commit, under any spelling of its path: the hook runs ahead of the line, so the file may
+ * still hold an older message. None when it is not there or too large, and a note when it cannot be read.
  */
 function messageFileOf(
   line: string,
@@ -856,7 +869,13 @@ function messageFileOf(
   file: string | null,
   notes: Set<string>,
 ): string | null {
-  if (file === null || line.slice(0, commit.start).includes(file)) {
+  if (file === null) {
+    return null;
+  }
+
+  if (line.slice(0, commit.start).includes(path.basename(file))) {
+    notes.add(UNSEEN_MESSAGE);
+
     return null;
   }
 

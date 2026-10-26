@@ -118,20 +118,24 @@ what the code does and why, the reason in words; how the change came about and h
 pull request.
 
 - What is judged: a `git commit` written as such, in a subshell too, that writes a message (`-m`, the
-  heredoc `-F -` reads, or the file `-F` names when the line did not write it first: the hook runs before
-  the line), an amend that writes one included, once the landing guard let the line through (its refusal
-  wins, and nothing is judged). Not judged: a commit that keeps or reuses a message (`--no-edit`, `-C`,
+  heredoc `-F -` reads, or the file `-F` names), its `--trailer` values with it, an amend that writes one
+  included, once the landing guard let the line through (its refusal wins, and nothing is judged). A
+  message only the line's run gives goes unjudged with a note, since the hook runs before the line: a value
+  Bash expands (`-m "$MSG"`, `-m "$(cat msg.txt)"`, backticks; a heredoc read through `$(cat <<'EOF' …)`
+  is literal), a `-F -` fed by a pipe or by a heredoc Bash expands, a `-F` file whose name the line names
+  before the commit. Not judged: a commit that keeps or reuses a message (`--no-edit`, `-C`,
   `--fixup=amend:`), one that makes none (`--dry-run`, `--porcelain`, `-h`), a commit inside `$(…)` or
   backticks, behind `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function; a commit
   whose `cd` the walk cannot follow and that no absolute `git -C` places (with a note); `merge`,
   `cherry-pick`, `revert`, `rebase`; every other command.
 - Haiku runs as `claude -p --model haiku`, with no tool, hook, MCP server or saved session, given the
-  message, then the files the commit touches (`git diff --name-only HEAD` where it runs, none before the
-  branch's first commit); the commits of one line at once. It lists each passage that could break the rule
-  with a kind, and the kit refuses when one is `process` (the change explained by what produced it: a
-  review and its findings, a session, a lead's decision, a plan label) or `check-event` (a check reported
-  as an event: a test seen red, before and after numbers, a run id, a statistic given to justify a choice).
-  A bare `#N` passes. `JUDGE_PROMPT` in `commit-judge.ts` is the prompt measured: a change to it is measured
+  message, then the files the commit takes, on stdin: the index (`git diff --cached --name-only`), or the
+  tracked changes on disk for `-a` and pathspecs (`git diff --name-only HEAD`), read before the line runs;
+  the commits of one line at once. It lists each passage that could break the rule with a kind, and the kit
+  refuses when one is `process` (the change explained by what produced it: a review and its findings, a
+  session, a lead's decision, a plan label) or `check-event` (a check reported as an event: a test seen
+  red, before and after numbers, a run id, a statistic given to justify a choice), and its quote is in the
+  message, whitespace aside. A bare `#N` passes. `JUDGE_PROMPT` in `commit-judge.ts` is the prompt measured: a change to it is measured
   again before it lands.
 - A refusal is a PreToolUse deny whose reason starts with `agent-hooks:`, quotes each passage, and gives
   both ways out on the same footing: rewrite these passages, or rerun exactly the same command when the
@@ -139,11 +143,11 @@ pull request.
   the hash of each message refused to that agent, and that message committed again unchanged passes
   unjudged from then on, a rerun that a red pre-commit or a denied prompt stopped included. It ages out
   with the beats. A refusal the kit cannot save lets the commit through, with a note: its rerun would be
-  judged again. `noise` counts these refusals with the landing guard's.
+  judged again. A refusal carries the notes of the line's other commits. `noise` counts these refusals with
+  the landing guard's.
 - Haiku with no answer (no `claude` on PATH, an error exit, an unreadable answer twice, no time left before
   the hook's deadline) lets the commit through, with a `systemMessage` that starts with `agent-hooks:`. A
-  `-m "$(cat msg.txt)"`, whose text only the line's run gives, goes unjudged with the same kind of note. A
-  commit Haiku passes is silent. Each judged commit waits for Haiku's answer.
+  commit Haiku passes is silent. Each judged commit waits for Haiku's answer, after the landing guard's.
 
 ## Reading a Stop
 

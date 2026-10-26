@@ -67,8 +67,6 @@ type Output = {
   readonly decision: string | undefined;
   readonly reason: string | undefined;
   readonly note: string | undefined;
-  /** The command of `updatedInput`, when the hook rewrote it. */
-  readonly rewritten: string | undefined;
 };
 
 let temp: TempRepo;
@@ -157,7 +155,6 @@ async function preBash(
     decision: stringField(specific, "permissionDecision"),
     reason: stringField(specific, "permissionDecisionReason"),
     note: stringField(output, "systemMessage"),
-    rewritten: stringField(recordField(specific, "updatedInput") ?? {}, "command"),
   };
 }
 
@@ -1287,8 +1284,8 @@ describe("pre-bash outside the doors", () => {
  * read and counts its calls; exits 1 while `claude.fail` exists.
  */
 const FAKE_CLAUDE = `#!/bin/sh
-for input; do :; done
-printf '%s' "$input" > "$FAKE_GH_DIR/claude.input"
+cat > "$FAKE_GH_DIR/claude.input"
+input=$(cat "$FAKE_GH_DIR/claude.input")
 echo call >> "$FAKE_GH_DIR/claude.calls"
 [ -f "$FAKE_GH_DIR/claude.fail" ] && exit 1
 case "$input" in
@@ -1342,16 +1339,18 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     expect((await preBash("git commit -qm 'fix: read partial dates'", repo)).stdout).toBe("");
   });
 
-  test("gives the judge the message, then the files the commit touches", async () => {
+  test("gives the judge the message, then the files the commit takes: the index, or every tracked change for -a", async () => {
     writeRepoFile(repo, "src/parse.ts", "x\n");
     git(repo, "add", "src/parse.ts");
     writeRepoFile(repo, "README.md", "y\n");
 
     await preBash("git commit -qm 'fix: a' -m 'Partial dates parse.'", repo);
 
-    expect(judgeInput()).toBe(
-      "Message:\nfix: a\n\nPartial dates parse.\n\nFiles:\nREADME.md\nsrc/parse.ts",
-    );
+    expect(judgeInput()).toBe("Message:\nfix: a\n\nPartial dates parse.\n\nFiles:\nsrc/parse.ts");
+
+    await preBash("git commit -aqm 'fix: b'", repo);
+
+    expect(judgeInput()).toBe("Message:\nfix: b\n\nFiles:\nREADME.md\nsrc/parse.ts");
   });
 
   test("lists no file on a branch with no commit yet", async () => {
@@ -1421,13 +1420,12 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     expect(judgeInput()).toStartWith("Message:\nfix: from a file\n\n");
   });
 
-  test("leaves unjudged a commit that keeps its message, makes none, or whose message the line writes first", async () => {
+  test("leaves unjudged, in silence, a commit that keeps its message or makes none", async () => {
     for (const command of [
       "git commit --amend --no-edit",
       "git commit --no-edit",
       "git commit -C HEAD",
       "git commit --dry-run -m 'review of #1'",
-      "printf 'review of #1' > msg.txt && git commit -F msg.txt",
       "bash -c 'git commit -m x'",
       "ls -la",
     ]) {
@@ -1487,11 +1485,42 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     );
   });
 
-  test("a -m substitution other than a heredoc goes unjudged, with a note", async () => {
-    expect((await preBash('git commit -m "$(cat msg.txt)"', repo)).note).toBe(
-      "agent-hooks: a commit went unjudged: its -m runs a substitution the hook cannot read before the line runs",
-    );
+  test("a message only the line's run gives goes unjudged, with a note", async () => {
+    writeRepoFile(repo, "msg.txt", "fix: an older message\n");
+
+    for (const command of [
+      'git commit -m "$(cat msg.txt)"',
+      'git commit -m "$MSG"',
+      "git commit -m `cat msg.txt`",
+      "printf 'review of #1' | git commit -F -",
+      "git commit -F - <<EOF\nreview of $PR\nEOF",
+      "printf 'review of #1' > msg.txt && git commit -F msg.txt",
+      "printf 'review of #1' > msg.txt && git commit -F ./msg.txt",
+    ]) {
+      expect((await preBash(command, repo)).note).toBe(
+        "agent-hooks: a commit went unjudged: part of its message is known only once the line runs",
+      );
+    }
+
     expect(judgeInput()).toBeNull();
+  });
+
+  test("a refusal keeps the notes of the line's other commits", async () => {
+    const output = await preBash(
+      "git commit -qm 'fix: a, review of #1' && git commit -m \"$MSG\"",
+      repo,
+    );
+
+    expect(output.reason).toBe(
+      `${REFUSAL}\nagent-hooks: a commit went unjudged: part of its message is known only once the line runs`,
+    );
+  });
+
+  test("hands a message past the argument size limit through", async () => {
+    const long = `fix: a\n\n${"Partial dates parse. ".repeat(10_000)}`;
+
+    expect((await preBash(`git commit -F - <<'EOF'\n${long}\nEOF`, repo)).stdout).toBe("");
+    expect(judgeInput()).toStartWith("Message:\nfix: a\n\nPartial dates parse.");
   });
 
   test("a commit whose cd the walk cannot follow says so, in a repository with the key", async () => {

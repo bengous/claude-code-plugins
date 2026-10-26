@@ -12,12 +12,32 @@ export type CommitForm = "new" | "amend" | "kept";
 
 export type CommitMessage = {
   readonly form: CommitForm;
-  /** The message as written: the `-m` values, or the heredoc `-F -` reads; null when a file holds it, or none shows. */
+  /**
+   * The message as written: the `-m` values, or the heredoc `-F -` reads, then the `--trailer` values; null when a
+   * file holds it, or none shows.
+   */
   readonly message: string | null;
   /** The file `-F` names, read where the commit runs. */
   readonly file: string | null;
-  /** Whether a `-m` value is a substitution other than a heredoc (`"$(cat msg.txt)"`), known only once the line runs. */
+  /**
+   * Whether part of the message is known only once the line runs: a `-m` or `--trailer` value Bash expands
+   * (`"$MSG"`, `"$(cat msg.txt)"`, backticks) other than a literal heredoc, or a `-F -` fed by a pipe or by a
+   * heredoc Bash expands.
+   */
   readonly opaque: boolean;
+  /**
+   * What the commit takes: `staged`, the index; `worktree`, the tracked files as they are on disk, for `-a` or
+   * pathspecs.
+   */
+  readonly takes: "staged" | "worktree";
+};
+
+/** How Bash treats the words `commitMessageOf` reads, as `commitsOf` found them. */
+export type CommitExpansion = {
+  /** For each argument, whether Bash expands part of it when the line runs. */
+  readonly argsExpand: readonly boolean[];
+  /** Whether Bash expands the heredoc the command reads. */
+  readonly heredocExpands: boolean;
 };
 
 /** Options of `git commit` that take a value, as the next word or after `=`. */
@@ -56,22 +76,44 @@ const NO_COMMIT = new Set(["--dry-run", "--short", "--porcelain", "--long", "--h
 
 const HEREDOC_BODY = /<<-?\s*\\?(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\s*(?:\n|$)/u;
 
+/** A `-m` value as Bash hands it over, or undefined when only the line's run gives it. */
+function textOf(value: string, expands: boolean): string | undefined {
+  if (!expands) {
+    return value;
+  }
+
+  const [, quote, , body] = (value.startsWith("$(") ? HEREDOC_BODY.exec(value) : null) ?? [];
+
+  return body === undefined || (quote === "" && /[$`]/u.test(body)) ? undefined : body;
+}
+
 /** What a `git commit` does with its message, from its arguments as Bash hands them over and the heredoc it reads. */
-export function commitMessageOf(args: readonly string[], heredoc: string | null): CommitMessage {
+export function commitMessageOf(
+  args: readonly string[],
+  heredoc: string | null,
+  expansion: CommitExpansion,
+): CommitMessage {
   let amend = false;
   let noEdit = false;
   let reused = false;
   let none = false;
+  let all = false;
+  let pathspec = false;
   let file: string | null = null;
-  const messages: string[] = [];
+  const messages: (string | undefined)[] = [];
+  const trailers: (string | undefined)[] = [];
 
-  const take = (name: string, value: string | undefined): void => {
+  const take = (name: string, value: string | undefined, at: number): void => {
     if (value === undefined) {
       return;
     }
 
+    const text = textOf(value, expansion.argsExpand[at] === true);
+
     if (name === "-m" || name === "--message") {
-      messages.push(value);
+      messages.push(text);
+    } else if (name === "--trailer") {
+      trailers.push(text);
     } else if (name === "-F" || name === "--file") {
       file = value;
     }
@@ -84,6 +126,7 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
     const arg = args[index] ?? "";
 
     if (arg === "--") {
+      pathspec ||= index + 1 < args.length;
       break;
     }
 
@@ -94,18 +137,28 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
       const name = equals === -1 ? arg : arg.slice(0, equals);
       amend ||= name === "--amend";
       noEdit ||= name === "--no-edit";
+      all ||= name === "--all";
 
       if (VALUE_OPTIONS.has(name)) {
-        take(name, equals === -1 ? args[index + 1] : arg.slice(equals + 1));
+        take(
+          name,
+          equals === -1 ? args[index + 1] : arg.slice(equals + 1),
+          equals === -1 ? index + 1 : index,
+        );
         index += equals === -1 ? 1 : 0;
       }
     } else if (arg.startsWith("-") && arg.length > 1) {
       for (let at = 1; at < arg.length; at += 1) {
         const letter = arg[at] ?? "";
         const attached = arg.slice(at + 1);
+        all ||= letter === "a";
 
         if (SHORT_VALUE_OPTIONS.has(letter)) {
-          take(`-${letter}`, attached === "" ? args[index + 1] : attached);
+          take(
+            `-${letter}`,
+            attached === "" ? args[index + 1] : attached,
+            attached === "" ? index + 1 : index,
+          );
           index += attached === "" ? 1 : 0;
           break;
         }
@@ -114,25 +167,30 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
           break;
         }
       }
+    } else {
+      pathspec = true;
     }
   }
 
-  const texts = messages.map((message) =>
-    message.startsWith("$(") ? HEREDOC_BODY.exec(message)?.[3] : message,
-  );
-
-  const written = texts.flatMap((text) => (text === undefined ? [] : [text.trim()]));
-
   const stdin = file !== null && STDIN.has(file);
-  const fromStdin: string | null = stdin ? (heredoc?.trim() ?? null) : null;
-  const named: string | null = stdin ? null : file;
-  const message = written.length > 0 ? written.join("\n\n") : fromStdin;
+  const fromStdin = stdin && heredoc !== null && !expansion.heredocExpands ? heredoc.trim() : null;
+  const written = messages.flatMap((text) => (text === undefined ? [] : [text.trim()]));
+  const body = written.length > 0 ? written.join("\n\n") : fromStdin;
+  const lines = trailers.flatMap((text) => (text === undefined ? [] : [text.trim()]));
+  const message = body === null || lines.length === 0 ? body : `${body}\n\n${lines.join("\n")}`;
   const writes = messages.length > 0 || file !== null;
 
   const form: CommitForm =
     none || reused || ((amend || noEdit) && !writes) ? "kept" : amend ? "amend" : "new";
 
-  return { form, message, file: named, opaque: texts.includes(undefined) };
+  return {
+    form,
+    message,
+    file: stdin ? null : file,
+    opaque:
+      messages.includes(undefined) || trailers.includes(undefined) || (stdin && fromStdin === null),
+    takes: all || pathspec ? "worktree" : "staged",
+  };
 }
 
 /** The instructions the judge was measured with: changing them invalidates the measurement (see SKILL.md). */
@@ -226,12 +284,12 @@ export async function judge(
         '{"disableAllHooks":true}',
         "--system-prompt",
         JUDGE_PROMPT,
-        judgeInput(message, files),
       ],
-      { cwd: tmpdir(), timeoutMs },
+      // On stdin, not as an argument: Linux caps one argument at 128 KiB, and a heredoc message is not capped.
+      { cwd: tmpdir(), timeoutMs, stdin: judgeInput(message, files) },
     );
 
-    const judgment = judgmentOf(result);
+    const judgment = judgmentOf(result, message);
 
     if (judgment.kind === "answered" || result.kind !== "exited" || result.code !== 0) {
       return judgment;
@@ -243,7 +301,7 @@ export async function judge(
   return failed;
 }
 
-function judgmentOf(result: RunResult): Judgment {
+function judgmentOf(result: RunResult, message: string): Judgment {
   switch (result.kind) {
     case "missing": {
       return { kind: "failed", why: "claude is not on PATH" };
@@ -254,7 +312,7 @@ function judgmentOf(result: RunResult): Judgment {
     }
 
     case "exited": {
-      const faults = result.code === 0 ? faultsIn(result.stdout) : null;
+      const faults = result.code === 0 ? faultsIn(result.stdout, message) : null;
 
       return faults === null
         ? { kind: "failed", why: `claude -p exited ${result.code} with no readable answer` }
@@ -270,17 +328,21 @@ function judgmentOf(result: RunResult): Judgment {
 
 /**
  * The faulty passages in `claude -p --output-format json`'s output: its result message, alone or the last of the
- * array the user's `verbose` setting prints, holds Haiku's JSON object. Null when that object has no passage list.
+ * array the user's `verbose` setting prints, holds Haiku's JSON object. Null when that object has no passage list. A
+ * passage whose quote is not in the message, whitespace aside, is dropped: it would refuse over words the agent
+ * cannot find.
  */
-function faultsIn(stdout: string): Fault[] | null {
+function faultsIn(stdout: string, message: string): Fault[] | null {
+  const squashed = squash(message);
+
   try {
     const output: unknown = JSON.parse(stdout);
 
-    const message = Array.isArray(output)
+    const last = Array.isArray(output)
       ? output.findLast((item) => isRecord(item) && item["type"] === "result")
       : output;
 
-    const result = isRecord(message) ? stringField(message, "result") : undefined;
+    const result = isRecord(last) ? stringField(last, "result") : undefined;
     const answer: unknown = JSON.parse(/\{[\s\S]*\}/u.exec(result ?? "")?.[0] ?? "null");
     const passages = isRecord(answer) ? answer["passages"] : undefined;
 
@@ -290,13 +352,18 @@ function faultsIn(stdout: string): Fault[] | null {
 
     return passages.flatMap((passage): Fault[] => {
       const kind = isRecord(passage) ? stringField(passage, "kind") : undefined;
-      const quote = isRecord(passage) ? (stringField(passage, "quote") ?? "") : "";
+      const quote = isRecord(passage) ? squash(stringField(passage, "quote") ?? "") : "";
+      const found = quote !== "" && squashed.includes(quote);
 
-      return kind === "process" || kind === "check-event" ? [{ kind, quote }] : [];
+      return found && (kind === "process" || kind === "check-event") ? [{ kind, quote }] : [];
     });
   } catch {
     return null;
   }
+}
+
+function squash(text: string): string {
+  return text.replaceAll(/\s+/gu, " ").trim();
 }
 
 const FAULT_WORDS: Readonly<Record<FaultKind, string>> = {

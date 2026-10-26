@@ -1,8 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
+import type { CommitExpansion, Fault } from "./commit-judge.ts";
 import { JUDGE_PROMPT, commitMessageOf, judge, judgeInput, judgeRefusal } from "./commit-judge.ts";
-import type { Argv, RunResult, Runner } from "./exec.ts";
+import type { Argv, RunOptions, RunResult, Runner } from "./exec.ts";
 import { deadlineIn } from "./exec.ts";
+
+const LITERAL: CommitExpansion = { argsExpand: [], heredocExpands: false };
+
+/** The expansion of `args` where each word at `expanding` is one Bash expands. */
+function expanding(...indexes: number[]): CommitExpansion {
+  return {
+    argsExpand: Array.from({ length: 8 }, (_, at) => indexes.includes(at)),
+    heredocExpands: false,
+  };
+}
 
 describe("commitMessageOf", () => {
   test.each([
@@ -10,7 +21,6 @@ describe("commitMessageOf", () => {
     [["-qm", "fix: a"], null, "new", "fix: a", null],
     [["-m", "fix: a", "-m", "body"], null, "new", "fix: a\n\nbody", null],
     [["--message=fix: a"], null, "new", "fix: a", null],
-    [["-m", "$(cat <<'EOF'\nfix: d\nEOF\n)"], null, "new", "fix: d", null],
     [["-F", "-"], "fix: c\n\nbody\n", "new", "fix: c\n\nbody", null],
     [["-F", "msg.txt"], null, "new", null, "msg.txt"],
     [["-F", "/dev/stdin"], "fix: c\n", "new", "fix: c", null],
@@ -21,6 +31,13 @@ describe("commitMessageOf", () => {
     [["--amend", "-m", "fix: b"], null, "amend", "fix: b", null],
     [["--amend", "-F", "msg.txt"], null, "amend", null, "msg.txt"],
     [["-am", "fix: b", "--amend"], null, "amend", "fix: b", null],
+    [
+      ["-m", "fix: a", "--trailer", "Reviewed-by: an agent"],
+      null,
+      "new",
+      "fix: a\n\nReviewed-by: an agent",
+      null,
+    ],
     [["--amend", "--no-edit"], null, "kept", null, null],
     [["--amend"], null, "kept", null, null],
     [["--no-edit"], null, "kept", null, null],
@@ -31,22 +48,56 @@ describe("commitMessageOf", () => {
     [["--porcelain"], null, "kept", null, null],
     [["-h"], null, "kept", null, null],
   ] as const)("%j with heredoc %j is %s", (args, heredoc, form, message, file) => {
-    expect(commitMessageOf(args, heredoc)).toEqual({ form, message, file, opaque: false });
+    expect(commitMessageOf(args, heredoc, LITERAL)).toMatchObject({
+      form,
+      message,
+      file,
+      opaque: false,
+    });
   });
 
-  test("a -m substitution other than a heredoc is known only once the line runs", () => {
-    expect(commitMessageOf(["-m", "fix: a", "-m", "$(cat body.txt)"], null)).toEqual({
-      form: "new",
+  test("a heredoc read through a substitution is literal unless Bash expands its body", () => {
+    const quoted = "$(cat <<'EOF'\nfix: d, $5 a seat\nEOF\n)";
+    const bare = "$(cat <<EOF\nfix: d, $USER\nEOF\n)";
+
+    expect(commitMessageOf(["-m", quoted], null, expanding(1))).toMatchObject({
+      message: "fix: d, $5 a seat",
+      opaque: false,
+    });
+    expect(commitMessageOf(["-m", bare], null, expanding(1)).opaque).toBe(true);
+  });
+
+  test("a value Bash expands, or a -F - no literal heredoc feeds, is known only once the line runs", () => {
+    expect(
+      commitMessageOf(["-m", "fix: a", "-m", "$(cat body.txt)"], null, expanding(3)),
+    ).toMatchObject({
       message: "fix: a",
-      file: null,
       opaque: true,
     });
+    expect(commitMessageOf(["-m", "$MSG"], null, expanding(1)).opaque).toBe(true);
+    expect(commitMessageOf(["--message=$MSG"], null, expanding(0)).opaque).toBe(true);
+    expect(commitMessageOf(["-m", "x", "--trailer", "$WHO"], null, expanding(3)).opaque).toBe(true);
+    expect(commitMessageOf(["-F", "-"], null, LITERAL).opaque).toBe(true);
+    expect(
+      commitMessageOf(["-F", "-"], "fix: $X\n", { argsExpand: [], heredocExpands: true }).opaque,
+    ).toBe(true);
+    expect(commitMessageOf(["-m", "$MSG"], null, LITERAL).opaque).toBe(false);
+  });
+
+  test("takes the index, or the tracked files on disk for -a and pathspecs", () => {
+    expect(commitMessageOf(["-qm", "x"], null, LITERAL).takes).toBe("staged");
+    expect(commitMessageOf(["-am", "x"], null, LITERAL).takes).toBe("worktree");
+    expect(commitMessageOf(["--all", "-m", "x"], null, LITERAL).takes).toBe("worktree");
+    expect(commitMessageOf(["-m", "x", "a.ts"], null, LITERAL).takes).toBe("worktree");
+    expect(commitMessageOf(["-m", "x", "--", "a.ts"], null, LITERAL).takes).toBe("worktree");
   });
 });
 
-function runner(results: readonly RunResult[], calls: Argv[] = []): Runner {
-  return (argv) => {
-    calls.push(argv);
+type Call = { readonly argv: Argv; readonly options: RunOptions };
+
+function runner(results: readonly RunResult[], calls: Call[] = []): Runner {
+  return (argv, options) => {
+    calls.push({ argv, options });
     const result = results[Math.min(calls.length, results.length) - 1];
 
     if (result === undefined) {
@@ -66,28 +117,39 @@ function answer(result: string): RunResult {
   };
 }
 
+const MESSAGE =
+  "fix: a, from the review of #312\n\nThe new test was  seen red first, as a bare #312 says.";
+
 const REVIEW = answer(
   JSON.stringify({
     passages: [
       { quote: "From the review of #312", kind: "process" },
-      { quote: "seen red first", kind: "check-event" },
+      { quote: "from the review of #312", kind: "process" },
+      { quote: "seen red\nfirst", kind: "check-event" },
+      { quote: "after the second review", kind: "process" },
+      { quote: "", kind: "check-event" },
       { quote: "a bare #312", kind: "fact" },
     ],
     reason: "r",
   }),
 );
 
+const FAULTS: readonly Fault[] = [
+  { kind: "process", quote: "from the review of #312" },
+  { kind: "check-event", quote: "seen red first" },
+];
+
 const CLEAN = answer(
   'Here it is: {"passages": [{"quote": "#312", "kind": "fact"}], "reason": "r"}',
 );
 
 describe("judge", () => {
-  test("asks Haiku with no tool, hook, MCP server or saved session, the message then the files", async () => {
-    const calls: Argv[] = [];
+  test("asks Haiku with no tool, hook, MCP server or saved session, the message then the files on stdin", async () => {
+    const calls: Call[] = [];
 
     await judge("fix: a", ["a.ts", "b.ts"], deadlineIn(30_000), runner([CLEAN], calls));
 
-    expect(calls).toEqual([
+    expect(calls.map((call) => call.argv)).toEqual([
       [
         "claude",
         "-p",
@@ -103,20 +165,17 @@ describe("judge", () => {
         '{"disableAllHooks":true}',
         "--system-prompt",
         JUDGE_PROMPT,
-        "Message:\nfix: a\n\nFiles:\na.ts\nb.ts",
       ],
     ]);
+    expect(calls[0]?.options.stdin).toBe("Message:\nfix: a\n\nFiles:\na.ts\nb.ts");
   });
 
-  test("keeps the process and check-event passages; a message of facts alone passes", async () => {
-    expect(await judge("m", [], deadlineIn(30_000), runner([REVIEW]))).toEqual({
+  test("keeps the process and check-event passages the message holds, whitespace aside; facts alone pass", async () => {
+    expect(await judge(MESSAGE, [], deadlineIn(30_000), runner([REVIEW]))).toEqual({
       kind: "answered",
-      faults: [
-        { kind: "process", quote: "From the review of #312" },
-        { kind: "check-event", quote: "seen red first" },
-      ],
+      faults: FAULTS,
     });
-    expect(await judge("m", [], deadlineIn(30_000), runner([CLEAN]))).toEqual({
+    expect(await judge(MESSAGE, [], deadlineIn(30_000), runner([CLEAN]))).toEqual({
       kind: "answered",
       faults: [],
     });
@@ -137,7 +196,9 @@ describe("judge", () => {
       stderr: "",
     };
 
-    expect(await judge("m", [], deadlineIn(30_000), runner([verbose]))).toEqual({
+    expect(
+      await judge("fix: a\n\nReview of #333.", [], deadlineIn(30_000), runner([verbose])),
+    ).toEqual({
       kind: "answered",
       faults: [{ kind: "process", quote: "Review of #333" }],
     });
@@ -145,24 +206,22 @@ describe("judge", () => {
 
   test("asks once more after an answer it cannot read, never after an error exit", async () => {
     const unreadable = answer('{"verdict": "ok"}');
-    const calls: Argv[] = [];
+    const calls: Call[] = [];
 
-    expect(await judge("m", [], deadlineIn(30_000), runner([unreadable, REVIEW], calls))).toEqual({
+    expect(
+      await judge(MESSAGE, [], deadlineIn(30_000), runner([unreadable, REVIEW], calls)),
+    ).toEqual({
       kind: "answered",
-      faults: [
-        { kind: "process", quote: "From the review of #312" },
-        { kind: "check-event", quote: "seen red first" },
-      ],
+      faults: FAULTS,
     });
     expect(calls).toHaveLength(2);
-
     expect(await judge("m", [], deadlineIn(30_000), runner([unreadable]))).toEqual({
       kind: "failed",
       why: "claude -p exited 0 with no readable answer",
     });
 
     const failed: RunResult = { kind: "exited", code: 1, stdout: "", stderr: "" };
-    const once: Argv[] = [];
+    const once: Call[] = [];
 
     expect(await judge("m", [], deadlineIn(30_000), runner([failed, REVIEW], once))).toEqual({
       kind: "failed",
@@ -172,7 +231,7 @@ describe("judge", () => {
   });
 
   test("a missing claude or a timeout gets no second ask", async () => {
-    const calls: Argv[] = [];
+    const calls: Call[] = [];
 
     expect(
       await judge(
@@ -189,7 +248,7 @@ describe("judge", () => {
   });
 
   test("asks nothing once the hook's deadline is too close", async () => {
-    const calls: Argv[] = [];
+    const calls: Call[] = [];
 
     expect(await judge("m", [], deadlineIn(1000), runner([REVIEW], calls))).toEqual({
       kind: "failed",
