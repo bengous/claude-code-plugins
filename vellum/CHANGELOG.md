@@ -2,6 +2,10 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.18.2 - 2026-10-26
+
+Internal changes only: the zustand dependency is updated to v5.0.16.
+
 ## 0.18.1 - 2026-10-26
 
 ### Fixed
