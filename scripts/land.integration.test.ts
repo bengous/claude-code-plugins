@@ -481,8 +481,8 @@ describe("land", () => {
       `${work}.wt/claude-code-types`,
     );
 
-    expect(why(await landing("chore/claude-code-types"))).toEndWith(
-      "is where the types run recreates its worktree, under a landing: check chore/claude-code-types out elsewhere, then land",
+    expect(why(await landing("chore/claude-code-types"))).toContain(
+      "is where the types run recreates its worktree, under a landing: move that checkout elsewhere (git worktree move ",
     );
   });
 });

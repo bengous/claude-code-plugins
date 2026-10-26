@@ -611,7 +611,7 @@ export async function land(
 
   if (branch === ROLLING_BRANCH && checkout === (await worktreePath(cwd))) {
     return refused(
-      `${checkout} is where the types run recreates its worktree, under a landing: check ${branch} out elsewhere, then land`,
+      `${checkout} is where the types run recreates its worktree, under a landing: move that checkout elsewhere (git worktree move ${checkout} <path>), then land`,
     );
   }
 
