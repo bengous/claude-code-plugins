@@ -69,7 +69,7 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      no absolute path, no `..`, no link out of the root; and its lines, for a
                      file with no NUL byte under a cap (SOURCE_CAP_BYTES for the page), bytes not
                      UTF-8 read as U+FFFD, read through one descriptor opened without following a
-                     link or waiting on a FIFO, every filesystem error a refusal (sources.spec.ts)
+                     link or waiting on a FIFO, every filesystem error a refusal (sources.integration.spec.ts)
   words.ts           the page's own words in each language a Config picks: the dictionary
   tree.ts            the tree indexed for views at any depth: each node's chain from the root,
                      open points counted down each subtree, couplings both ways, and what stands
@@ -162,7 +162,7 @@ src/server/          what crosses processes
                      the lines a citation names, the server's JSON line; bunFlags, which every
                      bun atlas starts takes
   source.ts          the route of a citation's lines and its refusals, the plugin's one route
-                     that reads a file of the user's (source.spec.ts)
+                     that reads a file of the user's (source.integration.spec.ts)
   coalesce.ts        one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.spec.ts)
   open.ts            hands an address to the desktop's browser, detached, for the mod (open.spec.ts)
