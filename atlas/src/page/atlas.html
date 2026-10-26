@@ -54,6 +54,10 @@
     outlines its couplings, lifted to the boxes and ghosts of the view.
     Couplings are symmetric: listing B in A's `couples` also outlines A when
     B is selected.
+  - A view with a leaf child that has an `io` gets a switch in its controls:
+    its leaves as cards side by side, a column each, a row of leads, then a
+    row per first element of their `io` pairs; a column's header selects its
+    leaf. Another container opens on its drawing.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -237,6 +241,7 @@ body {
   position: relative; min-width: 0; min-height: 0;
   background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
 }
+.sheet { height: 100%; }
 /* touch-action none: the page keeps a finger's drag and a pinch for its own pan and zoom. */
 #map { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; touch-action: none; }
 
@@ -258,6 +263,36 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .app:has(> .panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .controls button[aria-pressed="false"], .controls button:disabled { color: var(--ink-3); }
 .controls button:disabled { cursor: default; border-color: var(--line); }
+/* The switch between the drawing and the cards, shown where the open container has cards (cardsOf). */
+.controls .mode { display: flex; }
+.controls .mode[hidden] { display: none; }
+.controls .mode button:first-child { border-radius: 4px 0 0 4px; }
+.controls .mode button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
+.stage:has(.mode:not([hidden])) .hint { max-width: calc(100% - 560px); }
+
+/* The cards (panel.ts's cardsHtml): a container's leaves side by side, over the drawing, which stays laid out beneath; the legend and the hint, which read the drawing, hide. */
+.cards { position: absolute; inset: 0; overflow: auto; padding: 52px 16px 16px; background: var(--sheet); }
+.cards[hidden] { display: none; }
+.stage:has(> .cards:not([hidden])) :is(.legend, .hint) { display: none; }
+.cards table { border-collapse: separate; border-spacing: 8px 0; font-size: 14px; line-height: 1.45; }
+.cards th, .cards td { text-align: left; vertical-align: top; padding: 8px 12px; }
+.cards td:not(:first-child) { background: var(--surface); border-inline: 1px solid var(--line); width: 280px; min-width: 220px; }
+.cards thead th { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--zc); border-bottom: 0; border-radius: 6px 6px 0 0; padding-block: 10px 4px; }
+.cards td.selected, .cards th.selected { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-inline-color: var(--accent); }
+.cards tbody tr:last-child td.selected { border-bottom-color: var(--accent); }
+.cards thead th.selected { border-top-color: var(--zc); }
+.cards thead button {
+  font-family: var(--f-display); font-weight: 700; font-size: 24px; line-height: 1.05; letter-spacing: 0.01em; text-align: left;
+  color: var(--zc); background: none; border: 0; padding: 0; cursor: pointer;
+}
+.cards thead button:hover { text-decoration: underline; }
+.cards tbody th { font-weight: 400; color: var(--ink-2); white-space: nowrap; border-top: 1px solid var(--line); }
+.cards tbody tr:not(:first-child) td:not(:first-child) { border-top: 1px solid var(--line); }
+.cards tbody tr:last-child td:not(:first-child) { border-bottom: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+.cards .lead { font-size: 15px; }
+.cards td p { margin: 0 0 6px; }
+.cards td p:last-child { margin-bottom: 0; }
+.cards code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend svg { width: 26px; height: 8px; overflow: visible; }
 .hint {
@@ -290,16 +325,16 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel li::marker { color: var(--zc, var(--ink-3)); }
 .panel code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
 .panel .alt { color: var(--ink-2); }
-/* A citation (citations.ts, panel.ts): a small mono marker of its lines, its path shown once the panel shows its sources in full. */
-.panel cite.cite {
+/* A citation (citations.ts, panel.ts), in the panel or the cards: a small mono marker of its lines, its path shown once the Sources toggle shows them in full. */
+.panel cite.cite, .cards cite.cite {
   font-style: normal; font-family: var(--f-mono); font-size: 11px; line-height: 1.3; color: var(--ink-3); white-space: nowrap;
   background: var(--sheet); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; vertical-align: 1px;
 }
-.panel .cite-path { display: none; }
-.panel.full-sources .cite-path { display: inline; white-space: normal; overflow-wrap: anywhere; }
+.panel .cite-path, .cards .cite-path { display: none; }
+.panel.full-sources .cite-path, .cards.full-sources .cite-path { display: inline; white-space: normal; overflow-wrap: anywhere; }
 /* With the Config's sources root, a marker is a button that opens its lines in the panel. */
-.panel .cite-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-.panel cite.cite:has(.cite-open:hover) { border-color: var(--accent); color: var(--accent); }
+.panel .cite-open, .cards .cite-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.panel cite.cite:has(.cite-open:hover), .cards cite.cite:has(.cite-open:hover) { border-color: var(--accent); color: var(--accent); }
 /* The lines a marker cites, in place of the panel's fields: the path and the close button above, the cited lines marked. */
 .panel .viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
 .panel .viewer-path { font-size: 12.5px; background: none; padding: 0; overflow-wrap: anywhere; }
@@ -452,18 +487,26 @@ svg text.illegible { visibility: hidden; }
   <p class="sub" id="subtitle"></p>
   <button type="button" class="open-btn" id="btn-open" popovertarget="open-list"></button>
   <div class="open-list" id="open-list" popover></div>
-  <button type="button" class="sources-btn" id="btn-sources" aria-controls="panel" aria-pressed="false"></button>
+  <button type="button" class="sources-btn" id="btn-sources" aria-controls="panel cards" aria-pressed="false"></button>
   <nav class="crumbs" id="crumbs"></nav>
 </header>
 
 <main class="app">
   <section class="stage" id="stage">
-    <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group"></svg>
+    <!-- The drawing's own box: inert under the cards, which an SVG element alone cannot be. -->
+    <div class="sheet" id="sheet">
+      <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group"></svg>
+    </div>
+    <div class="cards" id="cards" hidden></div>
     <div class="controls">
       <button type="button" id="btn-home"></button>
       <button type="button" id="btn-fit" disabled></button>
       <button type="button" id="btn-legend" aria-controls="legend" aria-pressed="true"></button>
       <button type="button" id="btn-panel" aria-controls="panel" aria-pressed="true"></button>
+      <span class="mode" id="mode" hidden>
+        <button type="button" id="btn-map" aria-controls="cards" aria-pressed="true"></button>
+        <button type="button" id="btn-cards" aria-controls="cards" aria-pressed="false"></button>
+      </span>
     </div>
     <p class="hint" id="hint"></p>
     <!-- legend.ts writes one line per arrow kind or node mark the map uses: a new kind adds its line there. -->

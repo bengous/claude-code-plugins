@@ -339,7 +339,7 @@ describe("the fragment's parameters", () => {
     for (const [tree, place, hash] of forms) {
       expect(hashOf(tree, place, DEFAULTS)).toBe(hash);
       expect(placeOfHash(tree, `#${hash}`)).toEqual(place);
-      expect(paramsOfHash(`#${hash}`)).toEqual(DEFAULTS);
+      expect(paramsOfHash(tree, `#${hash}`)).toEqual(DEFAULTS);
     }
   });
 
@@ -358,7 +358,7 @@ describe("the fragment's parameters", () => {
       const hash = `#${hashOf(sample, place, CARDS)}`;
 
       expect(placeOfHash(sample, hash)).toEqual(place);
-      expect(paramsOfHash(hash)).toEqual(CARDS);
+      expect(paramsOfHash(sample, hash)).toEqual(CARDS);
     }
   });
 
@@ -368,7 +368,10 @@ describe("the fragment's parameters", () => {
     const tree = treeOf({
       root: {
         title: "T",
-        children: separated.map((id) => withLeaf(id, `${id} leaf?mode=map&mode=map`)),
+        children: [
+          ...separated.map((id) => withLeaf(id, `${id} leaf?mode=map&mode=map`)),
+          { ...card("k?mode=map"), io: [["Receives", "x"]] },
+        ],
       },
       links: [{ from: "a?b leaf?mode=map&mode=map", to: "c&d leaf?mode=map&mode=map", label: "l" }],
     });
@@ -377,6 +380,7 @@ describe("the fragment's parameters", () => {
       ...separated.flatMap((id) => [at([id]), at([id], `${id} leaf?mode=map&mode=map`)]),
       at(["a?b"], "c&d"),
       at([], "a?b"),
+      at([], "k?mode=map"),
     ];
 
     expect(hashOf(tree, at(["a?b"], "c&d"), CARDS)).toBe("a%3Fb/c%26d?mode=cards");
@@ -386,7 +390,7 @@ describe("the fragment's parameters", () => {
         const hash = `#${hashOf(tree, place, params)}`;
 
         expect(placeOfHash(tree, hash)).toEqual(place);
-        expect(paramsOfHash(hash)).toEqual(params);
+        expect(paramsOfHash(tree, hash)).toEqual(params);
       }
     }
   });
@@ -409,18 +413,29 @@ describe("the fragment's parameters", () => {
       const hash = `#app/email?${params}`;
 
       expect(placeOfHash(sample, hash)).toEqual(place);
-      expect(paramsOfHash(hash)).toEqual(DEFAULTS);
+      expect(paramsOfHash(sample, hash)).toEqual(DEFAULTS);
     }
   });
 
   test("a parameter dropped leaves the others read; of a key given twice, the first read counts", () => {
-    expect(paramsOfHash("#orders?nope=1&mode&mode=cards")).toEqual(CARDS);
-    expect(paramsOfHash("#orders?mode=cards&mode=map")).toEqual(CARDS);
-    expect(paramsOfHash("#orders?mode=bogus&mode=cards")).toEqual(CARDS);
-    expect(paramsOfHash("#orders?mode=map&mode=cards")).toEqual(DEFAULTS);
+    expect(paramsOfHash(sample, "#orders?nope=1&mode&mode=cards")).toEqual(CARDS);
+    expect(paramsOfHash(sample, "#orders?mode=cards&mode=map")).toEqual(CARDS);
+    expect(paramsOfHash(sample, "#orders?mode=bogus&mode=cards")).toEqual(CARDS);
+    expect(paramsOfHash(sample, "#orders?mode=map&mode=cards")).toEqual(DEFAULTS);
     expect(placeOfHash(sample, "#orders?nope=1&mode=cards")).toEqual(
       at(["server", "app"], "orders"),
     );
+  });
+
+  test("the cards on a container that has none go back to the map, written, read or moved to", () => {
+    const data = at(["server", "data"], "db");
+
+    expect(hashOf(sample, data, CARDS)).toBe("db");
+    expect(paramsOfHash(sample, "#db?mode=cards")).toEqual(DEFAULTS);
+    expect(placeOfHash(sample, "#db?mode=cards")).toEqual(data);
+    expect(pageStateOf(sample, data, CARDS).mode).toBe("map");
+    expect(paramsAfter(sample, data, at(["server", "data"]), CARDS)).toEqual(DEFAULTS);
+    expect(hashOf(deep, at(["A", "A1"]), CARDS)).toBe("A1");
   });
 });
 
@@ -579,7 +594,7 @@ describe("a walk through every map", () => {
 
       expect(placeOfHash(tree, hash)).toEqual(place);
       expect(hash).not.toContain("?");
-      expect(paramsOfHash(hash)).toEqual(DEFAULTS);
+      expect(paramsOfHash(tree, hash)).toEqual(DEFAULTS);
     }
 
     const crumbs = new Set(places.map((place) => JSON.stringify(crumbsOf(tree, place))));

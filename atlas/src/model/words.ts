@@ -10,6 +10,9 @@ export type Words = {
   readonly fitButton: string;
   readonly legendButton: string;
   readonly panelButton: string;
+  /** The stage's switch between a view's drawing and its leaves as cards side by side. */
+  readonly mapButton: string;
+  readonly cardsButton: string;
   /** The header's toggle that shows each citation in full instead of its lines' marker. */
   readonly sourcesButton: string;
   readonly sourcesTitle: string;
@@ -52,6 +55,8 @@ const fr: Words = {
   fitButton: "Ajuster",
   legendButton: "Légende",
   panelButton: "Panneau",
+  mapButton: "Plan",
+  cardsButton: "Fiches",
   sourcesButton: "Sources",
   sourcesTitle: "Montrer chaque citation en entier, son chemin avec ses lignes",
   viewerClose: "Fermer",
@@ -113,6 +118,8 @@ const en: Words = {
   fitButton: "Fit",
   legendButton: "Legend",
   panelButton: "Panel",
+  mapButton: "Map",
+  cardsButton: "Cards",
   sourcesButton: "Sources",
   sourcesTitle: "Show each citation in full, its path with its lines",
   viewerClose: "Close",

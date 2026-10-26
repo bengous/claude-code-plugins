@@ -1,3 +1,4 @@
+import { cardsOf } from "./cards.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, nodeOf } from "./tree.ts";
 import { showsIn, viewOf } from "./view.ts";
@@ -97,13 +98,15 @@ export type Mode = "map" | "cards";
  * - A key PARAMS does not name, a part without "=", a value that does not decode or that its
  *   codec refuses, is dropped, keeping the place and every other parameter, as a selection the
  *   view does not show is dropped; of a key given twice, the first value read counts.
+ * - A value the place cannot show goes back to its default, written, read and moved alike
+ *   (shownAt): the cards, where the open container has none (cardsOf).
  * - What survives a move (paramsAfter): the mode goes back to "map" when the open container
  *   changes; a phase stays across moves; a journey is a place of its own, which a move outside
  *   the journey leaves.
  * - `window.atlas` shows each field (pageStateOf).
  *
- * A new parameter is a field here, its default in DEFAULTS, its codec in PARAMS, and its rule in
- * paramsAfter.
+ * A new parameter is a field here, its default in DEFAULTS, its codec in PARAMS, its rule in
+ * paramsAfter, and what a place cannot show of it in shownAt.
  */
 export type Params = { readonly mode: Mode };
 
@@ -137,13 +140,22 @@ const PARAMS_JOIN = "&";
 
 const VALUE_START = "=";
 
+/** The parameters as a place, normalised, can show them (Params gives the rules). */
+function shownAt(tree: Tree, place: Place, params: Params): Params {
+  const shown = params.mode === "map" || cardsOf(tree, openOf(place)) !== null;
+
+  return shown ? params : { ...params, mode: DEFAULTS.mode };
+}
+
 /**
- * The parameters after a move from one place to another (Params says what survives a move).
+ * The parameters after a move from one place to another, as the second can show them (Params
+ * says what survives a move).
  */
 export function paramsAfter(tree: Tree, from: Place, to: Place, params: Params): Params {
-  const moved = openOf(normalised(tree, from)) !== openOf(normalised(tree, to));
+  const place = normalised(tree, to);
+  const moved = openOf(normalised(tree, from)) !== openOf(place);
 
-  return moved ? { ...params, mode: DEFAULTS.mode } : params;
+  return shownAt(tree, place, moved ? { ...params, mode: DEFAULTS.mode } : params);
 }
 
 function placeHash(tree: Tree, place: Place): string {
@@ -172,13 +184,14 @@ function written<K extends keyof Params>(key: K, params: Params): string[] {
  * The place is the bare id a jump would land on it with ("" for the root's view), or, when no
  * jump lands there (a selected ghost or container, a selection on the root's view other than an
  * outside leaf), the open container and the selection as `<open>/<selected>`, the root's view
- * written as nothing before the slash. Each id is percent-encoded. A place is written as the tree
- * can show it (normalised).
+ * written as nothing before the slash. Each id is percent-encoded. A place and its parameters are
+ * written as the tree can show them (normalised, shownAt).
  */
 export function hashOf(tree: Tree, given: Place, params: Params = DEFAULTS): string {
   const place = normalised(tree, given);
+  const shown = shownAt(tree, place, params);
 
-  const parts = Object.keys(PARAMS).flatMap((key) => (isParam(key) ? written(key, params) : []));
+  const parts = Object.keys(PARAMS).flatMap((key) => (isParam(key) ? written(key, shown) : []));
 
   return (
     placeHash(tree, place) + (parts.length === 0 ? "" : PARAMS_START + parts.join(PARAMS_JOIN))
@@ -199,7 +212,7 @@ export type PageState = Params & {
   readonly fragment: string;
 };
 
-/** The page's state at a place, as the tree can show it (normalised), with its parameters. */
+/** The page's state at a place and its parameters, as the tree can show them (normalised, shownAt). */
 export function pageStateOf(tree: Tree, given: Place, params: Params = DEFAULTS): PageState {
   const place = normalised(tree, given);
   const view = viewOf(tree, openOf(place));
@@ -213,7 +226,7 @@ export function pageStateOf(tree: Tree, given: Place, params: Params = DEFAULTS)
   ]);
 
   return Object.freeze({
-    ...params,
+    ...shownAt(tree, place, params),
     path: Object.freeze([...place.path]),
     selected: place.selected,
     visible: Object.freeze([...visible]),
@@ -255,10 +268,11 @@ function entryOf(part: string): [string, string][] {
 }
 
 /**
- * The parameters a URL fragment carries, with or without its "#", each at its default where the
- * fragment gives none it can read (Params gives the grammar and its rules).
+ * The parameters a URL fragment carries, with or without its "#", as the place it names can show
+ * them: each at its default where the fragment gives none it can read (Params gives the grammar
+ * and its rules).
  */
-export function paramsOfHash(hash: string): Params {
+export function paramsOfHash(tree: Tree, hash: string): Params {
   const entries = cut(hash)[1]
     .split(PARAMS_JOIN)
     .flatMap((part) => entryOf(part));
@@ -277,7 +291,7 @@ export function paramsOfHash(hash: string): Params {
     }
   }
 
-  return params;
+  return shownAt(tree, placeOfHash(tree, hash), params);
 }
 
 /**

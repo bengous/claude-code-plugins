@@ -17,10 +17,11 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
+import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import type { PageState, Params, Place, PlaceEvent } from "../model/navigation.ts";
+import type { Mode, PageState, Params, Place, PlaceEvent } from "../model/navigation.ts";
 import {
   DEFAULTS,
   HOME,
@@ -46,7 +47,14 @@ import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
 import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
-import { linesAround, renderCrumbs, renderOpenList, renderPanel, renderViewer } from "./panel.ts";
+import {
+  cardsHtml,
+  linesAround,
+  renderCrumbs,
+  renderOpenList,
+  renderPanel,
+  renderViewer,
+} from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
@@ -81,6 +89,16 @@ const legendButton = byId("btn-legend", HTMLButtonElement);
 const legend = byId("legend", HTMLDivElement);
 
 const sourcesButton = byId("btn-sources", HTMLButtonElement);
+
+const drawing = byId("sheet", HTMLDivElement);
+
+const cardsView = byId("cards", HTMLDivElement);
+
+const modeSwitch = byId("mode", HTMLSpanElement);
+
+const mapButton = byId("btn-map", HTMLButtonElement);
+
+const cardsButton = byId("btn-cards", HTMLButtonElement);
 
 function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   const text =
@@ -152,6 +170,8 @@ function dressPage(): void {
   byId("btn-fit", HTMLButtonElement).textContent = words.fitButton;
   legendButton.textContent = words.legendButton;
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
+  mapButton.textContent = words.mapButton;
+  cardsButton.textContent = words.cardsButton;
   byId("hint", HTMLElement).textContent = words.hint;
   legend.setAttribute("aria-label", words.legendButton);
 
@@ -735,6 +755,34 @@ function renderLegend(key: Key): void {
   legend.classList.toggle("empty", keys.length === 0);
 }
 
+// The container whose cards the stage shows, so a render of the same keeps where they were
+// scrolled; undefined while the drawing shows.
+let cardsShown: Key | undefined;
+
+// The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
+// which stays laid out beneath, out of reach of the pointer and the keyboard (inert).
+function renderMode(key: Key): void {
+  const cards = cardsOf(tree, key);
+  const table = params.mode === "cards" ? cards : null;
+  modeSwitch.hidden = cards === null;
+  mapButton.setAttribute("aria-pressed", String(table === null));
+  cardsButton.setAttribute("aria-pressed", String(table !== null));
+  cardsView.hidden = table === null;
+  drawing.inert = table !== null;
+
+  if (table === null) {
+    cardsShown = undefined;
+
+    return;
+  }
+
+  const [left, top] = cardsShown === key ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
+  cardsView.innerHTML = cardsHtml(settings, table, place.selected);
+  cardsView.scrollLeft = left;
+  cardsView.scrollTop = top;
+  cardsShown = key;
+}
+
 // serve.ts prints each selection, with the map's own label, for the agent's session (wire.ts); a
 // page reloaded on a #id posts it again, so a revived server's session hears it too.
 let toldSelection: string | null = null;
@@ -801,6 +849,7 @@ function render(): void {
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
+  renderMode(key);
   pageState = pageStateOf(tree, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
@@ -1069,19 +1118,57 @@ function closeCitation(): void {
   }
 }
 
+// The citation of the marker a click lands on, in the panel or the cards.
+function citedAt(target: Element): Citation | null {
+  const cited = target.closest("[data-cite]");
+
+  return cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
+}
+
 panel.addEventListener("click", (e) => {
   if (!(e.target instanceof Element)) {
     return;
   }
 
   const cited = e.target.closest(MARKER);
-  const citation = cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
+  const citation = citedAt(e.target);
 
   if (cited !== null && citation !== null) {
     void openCitation(citation, cited);
   } else if (e.target.closest("[data-close-viewer]") !== null) {
     closeCitation();
   }
+});
+
+// A column's header selects its leaf, as a click on its card does; a marker in a cell shows its
+// lines in the panel, as one in the panel does.
+cardsView.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) {
+    return;
+  }
+
+  const header = e.target.closest("[data-select]");
+  const cited = e.target.closest(MARKER);
+  const citation = citedAt(e.target);
+
+  if (header instanceof HTMLElement) {
+    send({ type: "select", id: header.dataset["select"] ?? "" });
+  } else if (cited !== null && citation !== null) {
+    void openCitation(citation, cited);
+  }
+});
+
+function showMode(mode: Mode): void {
+  params = { ...params, mode };
+  rerender();
+}
+
+mapButton.addEventListener("click", () => {
+  showMode("map");
+});
+
+cardsButton.addEventListener("click", () => {
+  showMode("cards");
 });
 
 addEventListener("focus", () => {
@@ -1153,6 +1240,7 @@ const SOURCES_KEY = "atlas.sources";
 function showSources(full: boolean): void {
   sourcesInFull = full;
   panel.classList.toggle("full-sources", full);
+  cardsView.classList.toggle("full-sources", full);
   sourcesButton.setAttribute("aria-pressed", String(full));
 }
 
@@ -1189,7 +1277,7 @@ document.addEventListener("keydown", (e) => {
 // typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
-  params = paramsOfHash(location.hash);
+  params = paramsOfHash(tree, location.hash);
   viewer = null;
   render();
   settle().catch(fail);
@@ -1268,7 +1356,7 @@ async function start(): Promise<void> {
   builtAspect = aspect();
   threads = await loadThreads();
   place = placeOfHash(tree, location.hash);
-  params = paramsOfHash(location.hash);
+  params = paramsOfHash(tree, location.hash);
   render();
   await settle();
   document.fonts.addEventListener("loadingdone", () => {
