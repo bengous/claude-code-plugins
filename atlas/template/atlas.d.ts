@@ -63,9 +63,12 @@ export type Panel = {
 export type Node = Panel & {
   /** Unique among the nodes of the map: links, `couples`, `see` and the page's #id name it. */
   readonly id: string;
-  /** The short name the map draws: a few words. */
+  /**
+   * The short name the map draws: a few words, shown as written, markup and citations included,
+   * there and as the panel's heading of a node without `title`.
+   */
   readonly label: string;
-  /** The panel's heading, `label` when absent. */
+  /** The panel's heading, HTML as the Panel's fields; `label` when absent. */
   readonly title?: string;
   /** A mono subtitle, "\n" between lines. */
   readonly sub: string;

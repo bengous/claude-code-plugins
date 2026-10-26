@@ -225,8 +225,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   fit (`zoomOf` in `engine.ts`), `sourcesInFull`, and the `citation` whose lines the panel
   shows, or null; a getter, so a page script cannot assign it.
 - A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
-  marker of its lines, the whole citation as its tooltip; a `<cite>` of other text and a `kicker`
-  show as written. The header's Sources toggle, shown when the map has a citation, shows every
+  marker of its lines, the whole citation as its tooltip; a `<cite>` of other text, a `kicker`,
+  and a `label`, plain text even as the heading of a node without `title`, show as written. The header's Sources toggle, shown when the map has a citation, shows every
   citation in full, remembered per browser under `atlas.sources` (`sourcesInFull`).
 - With the Config's `sources`, a marker is a button: a click shows the cited lines and eight
   around them in the panel, read from serve.ts, under the path and a close button, until the

@@ -249,6 +249,35 @@ describe("the panel's citations", () => {
     );
   });
 
+  test("a label, plain text, shows as written as the heading of a node without a title: no marker", () => {
+    const labelled = {
+      id: "l",
+      label: "L <cite>l.ts:1</cite> <b>b</b>",
+      sub: "",
+      color: "clients",
+    };
+
+    const titled = { ...labelled, id: "t", title: "T <cite>t.ts:2</cite> <b>b</b>" };
+    const both = treeOf({ root: { title: "R", children: [labelled, titled] }, links: [] });
+    const settings = settingsOf({ ...CONFIG, sources: { root: "repo" } });
+
+    const heading = (id: string): string => {
+      const shown = { innerHTML: "", scrollTop: 0 };
+      renderPanel(settings, both, shown, { path: [], selected: id }, null, {
+        kind: "ok",
+        threads: {},
+      });
+
+      return /<h2>.*?<\/h2>/u.exec(shown.innerHTML)?.[0] ?? "";
+    };
+
+    expect(heading("l")).toBe(
+      '<h2><span class="swatch"></span>L &lt;cite&gt;l.ts:1&lt;/cite&gt; &lt;b&gt;b&lt;/b&gt;</h2>',
+    );
+    expect(heading("t")).toContain('data-cite="t.ts:2"');
+    expect(heading("t")).toContain("<b>b</b>");
+  });
+
   test("without a sources root, no marker is a button", () => {
     expect(panel.innerHTML).not.toContain("data-cite");
     expect(panel.innerHTML).not.toContain('<button type="button" class="cite-open"');

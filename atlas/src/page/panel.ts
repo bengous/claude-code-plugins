@@ -150,7 +150,8 @@ function laterSections(
 
 type Shown = {
   readonly info: Panel;
-  readonly title: string;
+  /** The heading as HTML: a `title` through fieldHtml, or a label, plain text, escaped. */
+  readonly heading: string;
   readonly color: string;
   readonly brief: readonly string[];
   readonly coupled: readonly string[];
@@ -164,7 +165,7 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
   return [
     `<div style="--zc: var(${shown.color})">`,
     info.kicker === undefined ? "" : `<p class="kicker">${esc(info.kicker)}</p>`,
-    `<h2><span class="swatch"></span>${fieldHtml(s, shown.title)}</h2>`,
+    `<h2><span class="swatch"></span>${shown.heading}</h2>`,
     info.lead === undefined ? "" : `<p class="lead">${fieldHtml(s, info.lead)}</p>`,
     shown.brief.length === 0 ? "" : `<ul class="brief">${list(s, shown.brief, true)}</ul>`,
     info.io === undefined
@@ -239,7 +240,7 @@ export function renderPanel(
       tree,
       {
         info,
-        title,
+        heading: fieldHtml(s, title),
         color: "--accent",
         brief: [],
         coupled: [],
@@ -253,7 +254,7 @@ export function renderPanel(
 
     const shown: Shown = {
       info: node,
-      title: node.title ?? node.label,
+      heading: node.title === undefined ? esc(node.label) : fieldHtml(s, node.title),
       color: paletteVar(node.color),
       brief: node.brief ?? [],
       coupled: couplingsOf(tree, id),
