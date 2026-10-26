@@ -192,6 +192,17 @@ test("CI's output says whether a listed module or its tests changed", () => {
   expect(githubOutput([])).toBe("mutate=false\n");
 });
 
+test("a pass over another tree runs the tests that tree names, as a base before a rename", () => {
+  const tree = mkdtempSync(join(tmpdir(), "mutation-tree-"));
+  mkdirSync(join(tree, "agent-hooks"));
+  writeFileSync(join(tree, "agent-hooks", "config.test.ts"), "");
+
+  expect(runOptions("agent-hooks/config.ts", tree).commandRunner.command).toBe(
+    "bun test ./agent-hooks/config.test.ts",
+  );
+  rmSync(tree, { recursive: true, force: true });
+});
+
 test("a pass mutates one module whole, against its own tests alone", () => {
   expect(runOptions("agent-hooks/config.ts")).toEqual({
     mutate: ["agent-hooks/config.ts"],

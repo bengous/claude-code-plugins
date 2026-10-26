@@ -581,7 +581,7 @@ export async function controlsOf(repoRoot: string, registry: Registry): Promise<
     ignorePatterns: bunfig.test?.pathIgnorePatterns ?? [],
     extraRoots: testRuns(
       { kind: "all", reason: "every suite" },
-      { ignored: bunfig.test?.pathIgnorePatterns ?? [], integration: [], workers: 2 },
+      { ignored: bunfig.test?.pathIgnorePatterns ?? [], unit: [], integration: [], workers: 2 },
     )
       .flat()
       .filter((argument) => argument.startsWith("./"))

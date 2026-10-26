@@ -19,6 +19,7 @@
  * event runs everything.
  */
 
+import { existsSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join } from "node:path";
@@ -26,7 +27,7 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
-import { retryBunReported } from "./flaky-report.ts";
+import { retryReported } from "./flaky-report.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 /** A top-level directory, or `.claude/hooks`. */
@@ -187,6 +188,8 @@ export function kitsOf(scope: Scope, modulePlugins: readonly string[]): readonly
  */
 export const INTEGRATION_FILE = /\.integration\.(?:test|spec)\.tsx?$/u;
 
+const TEST_FILE = /\.(?:test|spec)\.tsx?$/u;
+
 const INTEGRATION_GLOBS = [
   "**/*.integration.test.ts",
   "**/*.integration.test.tsx",
@@ -204,9 +207,13 @@ export function integrationWorkers(cores: number): number {
   return Math.max(2, Math.floor(cores / 2));
 }
 
-/** What the runs are cut from: `bunfig.toml`'s ignored paths, every integration file, its workers. */
+/**
+ * What the runs are cut from: `bunfig.toml`'s ignored paths, the test files it leaves in, unit and
+ * integration, and the integration run's workers.
+ */
 export type Suites = {
   readonly ignored: readonly string[];
+  readonly unit: readonly string[];
   readonly integration: readonly string[];
   readonly workers: number;
 };
@@ -214,24 +221,31 @@ export type Suites = {
 /**
  * The `bun` argument lists of the scope's suites; `bun test` alone skips dot directories. The unit
  * runs leave the integration files out, which then run by name: a path `--path-ignore-patterns`
- * matches is skipped even when named, and the flag replaces `bunfig.toml`'s list.
+ * matches is skipped even when named, and the flag replaces `bunfig.toml`'s list. A scope's unit
+ * with no unit file is left out of its unit run, which bun fails when it finds none. Each flag is
+ * one argument, `--name=value`: `flaky-report.ts`'s retry keeps the arguments that start with `-`.
  */
 export function testRuns(scope: Scope, suites: Suites): readonly (readonly string[])[] {
   const unitRun = [
     "test",
     "--parallel",
-    "--pass-with-no-tests",
-    ...[...suites.ignored, ...INTEGRATION_GLOBS].flatMap((glob) => [
-      "--path-ignore-patterns",
-      glob,
-    ]),
+    ...[...suites.ignored, ...INTEGRATION_GLOBS].map((glob) => `--path-ignore-patterns=${glob}`),
   ];
+
+  const holdsUnit = (root: string): boolean =>
+    suites.unit.some((path) => `./${path}`.startsWith(root));
 
   const roots =
     scope.kind === "all" ? null : ["./scripts/", ...scope.units.map((unit) => `./${unit}/`)];
 
+  const scoped = roots?.filter((root) => holdsUnit(root)) ?? [];
+
   const unitRuns =
-    roots === null ? [unitRun, [...unitRun, `./${HOOKS_UNIT}/`]] : [[...unitRun, ...roots]];
+    roots === null
+      ? [unitRun, [...unitRun, `./${HOOKS_UNIT}/`]]
+      : scoped.length === 0
+        ? []
+        : [[...unitRun, ...scoped]];
 
   const integration = suites.integration
     .map((path) => `./${path}`)
@@ -244,14 +258,13 @@ export function testRuns(scope: Scope, suites: Suites): readonly (readonly strin
         [
           "test",
           `--parallel=${suites.workers}`,
-          "--timeout",
-          `${INTEGRATION_TIMEOUT_MS}`,
+          `--timeout=${INTEGRATION_TIMEOUT_MS}`,
           ...integration,
         ],
       ];
 }
 
-/** `bunfig.toml`'s ignored paths, and the integration files, tracked or new, that it leaves in. */
+/** `bunfig.toml`'s ignored paths, and the test files on disk, tracked or new, that it leaves in. */
 export async function suitesOf(repoRoot: string): Promise<Suites> {
   const bunfig: { default: { test?: { pathIgnorePatterns?: string[] } } } = await import(
     join(repoRoot, "bunfig.toml")
@@ -264,12 +277,19 @@ export async function suitesOf(repoRoot: string): Promise<Suites> {
     .quiet()
     .text();
 
-  const integration = nulSeparated(listed).filter(
+  const tests = nulSeparated(listed).filter(
     (path) =>
-      INTEGRATION_FILE.test(path) && !ignored.some((glob) => new Bun.Glob(glob).match(path)),
+      TEST_FILE.test(path) &&
+      !ignored.some((glob) => new Bun.Glob(glob).match(path)) &&
+      existsSync(join(repoRoot, path)),
   );
 
-  return { ignored, integration, workers: integrationWorkers(availableParallelism()) };
+  return {
+    ignored,
+    unit: tests.filter((path) => !INTEGRATION_FILE.test(path)),
+    integration: tests.filter((path) => INTEGRATION_FILE.test(path)),
+    workers: integrationWorkers(availableParallelism()),
+  };
 }
 
 export function githubOutput(scope: Scope, kits: readonly string[]): string {
@@ -317,6 +337,9 @@ async function runTests(
   scope: Scope,
   retryJob: string | undefined,
 ): Promise<number> {
+  // The retry runs bun, and writes `flaky-reports/`, in the current directory.
+  process.chdir(repoRoot);
+
   for (const [at, args] of testRuns(scope, await suitesOf(repoRoot)).entries()) {
     console.error(`affected: bun ${args.join(" ")}`);
 
@@ -325,7 +348,7 @@ async function runTests(
     const code =
       retryJob === undefined
         ? await Bun.spawn(argv, { cwd: repoRoot, stdio: ["inherit", "inherit", "inherit"] }).exited
-        : await retryBunReported(argv, retryJob, `${retryJob}-${at + 1}`);
+        : await retryReported("bun", argv, retryJob, `${retryJob}-${at + 1}`);
 
     if (code !== 0) return code;
   }

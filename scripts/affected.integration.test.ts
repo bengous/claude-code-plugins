@@ -92,21 +92,18 @@ describe("what the scope runs", () => {
   const UNIT_RUN = [
     "test",
     "--parallel",
-    "--pass-with-no-tests",
-    "--path-ignore-patterns",
-    "archive/**",
-    ...[
-      "**/*.integration.test.ts",
-      "**/*.integration.test.tsx",
-      "**/*.integration.spec.ts",
-      "**/*.integration.spec.tsx",
-    ].flatMap((glob) => ["--path-ignore-patterns", glob]),
+    "--path-ignore-patterns=archive/**",
+    "--path-ignore-patterns=**/*.integration.test.ts",
+    "--path-ignore-patterns=**/*.integration.test.tsx",
+    "--path-ignore-patterns=**/*.integration.spec.ts",
+    "--path-ignore-patterns=**/*.integration.spec.tsx",
   ];
 
-  const INTEGRATION_RUN = ["test", "--parallel=3", "--timeout", "20000"];
+  const INTEGRATION_RUN = ["test", "--parallel=3", "--timeout=20000"];
 
   const suites = {
     ignored: ["archive/**"],
+    unit: ["scripts/affected.test.ts", ".claude/hooks/guard.test.ts", "todos/hooks/scan.spec.ts"],
     integration: [
       "scripts/land.integration.test.ts",
       ".claude/hooks/auto-sweep.integration.test.ts",
@@ -133,6 +130,20 @@ describe("what the scope runs", () => {
   test("no integration run when the scope holds no integration file", () => {
     expect(testRuns({ kind: "units", units: ["todos"] }, { ...suites, integration: [] })).toEqual([
       [...UNIT_RUN, "./scripts/", "./todos/"],
+    ]);
+  });
+
+  test("a unit whose tests are all integration ones is left out of the unit run", () => {
+    expect(testRuns({ kind: "units", units: ["vellum"] }, suites)).toEqual([
+      [...UNIT_RUN, "./scripts/"],
+      [
+        ...INTEGRATION_RUN,
+        "./scripts/land.integration.test.ts",
+        "./vellum/src/standalone.integration.spec.ts",
+      ],
+    ]);
+    expect(testRuns({ kind: "units", units: [] }, { ...suites, unit: [] })).toEqual([
+      [...INTEGRATION_RUN, "./scripts/land.integration.test.ts"],
     ]);
   });
 

@@ -205,6 +205,34 @@ describe("retryBun", () => {
     expect([green.calls.length, unnamed.calls.length]).toEqual([1, 1]);
   });
 
+  test("keeps each one-argument option on the rerun, and drops the filters", async () => {
+    const { exec, calls } = fakeBun([
+      { code: 1, junit: FIRST_RUN, output: SUMMARY_TWO_FAILED },
+      { code: 1, junit: SECOND_RUN, output: "" },
+    ]);
+
+    const argv = ["bun", "test", "--parallel=2", "--timeout=20000", "--path-ignore-patterns=a/**"];
+
+    await retryBun([...argv, "./sub/"], exec, dir);
+
+    expect(calls[1]?.slice(0, 7)).toEqual([
+      ...argv,
+      "./sub/flaky.test.ts",
+      "./sub/timeout.test.ts",
+    ]);
+  });
+
+  test("reads no report an earlier run left: a rerun that writes none finds no flake", async () => {
+    await Bun.write(join(dir, "bun-2.xml"), SECOND_RUN);
+
+    const { exec } = fakeBun([
+      { code: 1, junit: FIRST_RUN, output: SUMMARY_TWO_FAILED },
+      { code: 1, junit: null, output: "error: Invalid timeout" },
+    ]);
+
+    expect(await retryBun(["bun", "test", "vellum"], exec, dir)).toEqual({ code: 1, flakes: [] });
+  });
+
   test("refuses a command that is not bun test", async () => {
     const { exec } = fakeBun([]);
 
@@ -886,7 +914,7 @@ describe("ci.yml", () => {
     const runs = (await ci()).win32?.steps.map((step) => step.run);
 
     expect(runs).toContain(
-      "bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout 20000 vellum",
+      "bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout=20000 vellum",
     );
     expect(runs).toContain(
       "bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum",
@@ -921,17 +949,11 @@ describe("ci.yml", () => {
     ]);
   });
 
-  test("the flaky job's download and report continue on error, so its own check never turns red", async () => {
+  test("every step of the flaky job continues on error, so its own check never turns red", async () => {
     const flaky = (await ci()).flaky;
 
-    const tolerant = flaky?.steps.filter(
-      (step) =>
-        step.uses?.startsWith("actions/download-artifact@") === true ||
-        step.run?.startsWith("bun ./scripts/flaky-report.ts report") === true,
-    );
-
     expect(flaky?.["continue-on-error"]).toBeUndefined();
-    expect(tolerant?.map((step) => step["continue-on-error"])).toEqual([true, true]);
+    expect(flaky?.steps.map((step) => step["continue-on-error"])).toEqual([true, true, true, true]);
   });
 
   test("the flaky job alone writes issues, from every report of the run, in no concurrency group that could cancel it", async () => {

@@ -243,7 +243,7 @@ jobs:
       # Unit and integration suites in one run, on the integration tier's budget (`testRuns` in
       # `scripts/affected.ts`): the job is no required check, and runs vellum's suites alone.
       - name: Run vellum's suites
-        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout 20000 vellum
+        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout=20000 vellum
 
       - name: Test the vellum hooks module
         run: bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
@@ -425,9 +425,9 @@ jobs:
   # the one job that writes issues, so the suites' jobs keep the read-only token. It runs after
   # them, red or green, `validate` running on every event, but not on a fork's pull request, whose
   # token cannot write issues.
-  # Bookkeeping, never a verdict: the download and the report continue on error, on the steps rather
-  # than the job, since a job's `continue-on-error` still leaves its own check red, which
-  # `gh pr checks` and the pull request show. No concurrency group: GitHub cancels a pending job a
+  # Bookkeeping, never a verdict: every step continues on error, the checkout and the setup too, since
+  # the job runs on every event; on the steps rather than the job, since a job's `continue-on-error`
+  # still leaves its own check red, which `gh pr checks` and the pull request show. No concurrency group: GitHub cancels a pending job a
   # third one replaces, and a cancelled check refuses a landing; two jobs racing can at worst open
   # one test's issue twice.
   flaky:
@@ -442,9 +442,11 @@ jobs:
       issues: write
     steps:
       - name: Checkout
+        continue-on-error: true
         uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
+        continue-on-error: true
         uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun

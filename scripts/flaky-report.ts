@@ -17,7 +17,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
 import { $ } from "bun";
@@ -199,7 +199,11 @@ function junitTo(path: string): string[] {
   return ["--reporter=junit", `--reporter-outfile=${path}`];
 }
 
-/** Runs `bun test`; on a failure junit accounts for, reruns the failed files alone, once. */
+/**
+ * Runs `bun test`; on a failure junit accounts for, reruns the failed files alone, once. The rerun
+ * keeps the arguments after `test` that start with `-` and drops the filters, so each option is
+ * one argument: `--timeout=20000`, never `--timeout 20000`.
+ */
 export async function retryBun(argv: readonly string[], exec: Exec, dir: string): Promise<Retried> {
   const testAt = argv.indexOf("test");
 
@@ -208,6 +212,11 @@ export async function retryBun(argv: readonly string[], exec: Exec, dir: string)
   await mkdir(dir, { recursive: true });
 
   const firstReport = join(dir, "bun-1.xml");
+  const secondReport = join(dir, "bun-2.xml");
+
+  // A report an earlier run left would be read for this one, when bun writes none.
+  await Promise.all([firstReport, secondReport].map((path) => rm(path, { force: true })));
+
   const first = await exec([...argv, ...junitTo(firstReport)]);
 
   if (first.code === 0) return { code: 0, flakes: [] };
@@ -223,7 +232,6 @@ export async function retryBun(argv: readonly string[], exec: Exec, dir: string)
 
   const files = [...new Set(failed.map(({ file }) => (isAbsolute(file) ? file : `./${file}`)))];
   const options = argv.filter((arg, at) => at <= testAt || arg.startsWith("-"));
-  const secondReport = join(dir, "bun-2.xml");
 
   console.error(`flaky-report: retrying ${files.join(" ")}`);
 
@@ -366,16 +374,20 @@ export function playwrightFlakes(playwright: PlaywrightReport): Flake[] {
 }
 
 /**
- * `retry bun` for a caller that runs several suites in one job: each writes its report under a
- * `name` of its own. Answers the exit code of the suite's last run.
+ * Runs the suite through its retry and writes `flaky-reports/<name>.json`: a job that runs several
+ * suites gives each a name of its own. Answers the exit code of the suite's last run.
  */
-export async function retryBunReported(
+export async function retryReported(
+  runner: "bun" | "kit",
   argv: readonly string[],
   job: string,
   name: string,
 ): Promise<number> {
   const runUrl = runUrlOf(process.env);
-  const { code, flakes } = await retryBun(argv, execTeed, REPORTS);
+
+  const { code, flakes } =
+    runner === "bun" ? await retryBun(argv, execTeed, REPORTS) : await retryKit(argv, execTeed);
+
   await write(REPORTS, name, { job, runUrl, flakes });
 
   return code;
@@ -707,18 +719,9 @@ if (import.meta.main) {
   }
 
   switch (command.kind) {
-    case "retry": {
-      const runUrl = runUrlOf(process.env);
-
-      const { code, flakes } =
-        command.runner === "bun"
-          ? await retryBun(command.argv, execTeed, REPORTS)
-          : await retryKit(command.argv, execTeed);
-
-      await write(REPORTS, command.runner, { job: command.job, runUrl, flakes });
-      process.exit(code);
+    case "retry":
+      process.exit(await retryReported(command.runner, command.argv, command.job, command.runner));
       break;
-    }
 
     case "playwright": {
       const runUrl = runUrlOf(process.env);

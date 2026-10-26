@@ -331,13 +331,15 @@ export function githubOutput(hunks: readonly Hunk[]): string {
 }
 
 /**
- * What a pass adds to `stryker.config.ts`: one module, whole, and its own `.test.ts` alone, so a
- * flaky suite of another module never kills its mutants.
+ * What a pass adds to `stryker.config.ts`: one module, whole, and its own tests alone, as the tree
+ * at `root` names them, so a flaky suite of another module never kills its mutants.
  */
-export function runOptions(module: string) {
+export function runOptions(module: string, root: string = REPO_ROOT) {
   return {
     mutate: [module],
-    commandRunner: { command: `bun test ./${testFileOf(module)}` },
+    commandRunner: {
+      command: `bun test ./${testFileOf(module, (path) => existsSync(join(root, path)))}`,
+    },
   };
 }
 
@@ -346,7 +348,7 @@ export async function mutate(repoRoot: string, module: string): Promise<MutantRe
   // Stryker copies the working directory into its sandbox, and mutates the copy.
   process.chdir(repoRoot);
 
-  return new Runner({ ...config, ...runOptions(module) }).runMutationTest();
+  return new Runner({ ...config, ...runOptions(module, repoRoot) }).runMutationTest();
 }
 
 async function existsAt(repoRoot: string, sha: string, path: string): Promise<boolean> {
@@ -359,11 +361,15 @@ async function mutateAt(
   sha: string,
   module: string,
 ): Promise<MutantResult[] | null> {
-  const present = await Promise.all(
-    [module, testFileOf(module)].map((path) => existsAt(repoRoot, sha, path)),
+  const stem = module.slice(0, -".ts".length);
+
+  const [found, plain, integration] = await Promise.all(
+    [module, `${stem}.test.ts`, `${stem}.integration.test.ts`].map((path) =>
+      existsAt(repoRoot, sha, path),
+    ),
   );
 
-  if (present.includes(false)) return null;
+  if (!found || !(plain || integration)) return null;
   const dir = await snapshotAt(repoRoot, sha);
 
   try {
