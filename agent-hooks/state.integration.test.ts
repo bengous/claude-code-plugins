@@ -13,16 +13,15 @@ import {
   checkoutKey,
   endBeats,
   freshState,
-  landedMark,
   latestStateForCheckout,
   liveOthers,
-  loadMark,
+  loadRefused,
   loadState,
-  markPath,
   pruneStates,
+  refusedPath,
   rootName,
   rootRecord,
-  saveMark,
+  saveRefused,
   saveState,
   stateDir,
   statePath,
@@ -461,50 +460,47 @@ describe("heartbeats", () => {
   });
 });
 
-describe("commit marks", () => {
-  const earlier = { at: 1000, promptId: "p1" };
-  const mark = { at: 2000, promptId: "p2", head: "abc", previous: earlier };
-
-  test("a saved mark reads back; an absent one reads as none, an unreadable one as none, reported", () => {
+describe("refused messages", () => {
+  test("saved hashes read back; absent ones read as none, unreadable ones as none, reported", () => {
     const error = spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      expect(loadMark("s1", temp.repo)).toBeNull();
+      expect(loadRefused("s1.a2")).toEqual([]);
 
-      saveMark("s1", temp.repo, mark);
+      saveRefused("s1.a2", ["h1", "h2"]);
 
-      expect(loadMark("s1", temp.repo)).toEqual(mark);
+      expect(loadRefused("s1.a2")).toEqual(["h1", "h2"]);
+      expect(loadRefused("s1")).toEqual([]);
 
-      writeFileSync(markPath("s1", temp.repo), '{"at":"soon"}');
+      writeFileSync(refusedPath("s1.a2"), '{"h1":true}');
 
-      expect(loadMark("s1", temp.repo)).toBeNull();
+      expect(loadRefused("s1.a2")).toEqual([]);
       expect(error).toHaveBeenCalledTimes(1);
     } finally {
       error.mockRestore();
     }
   });
 
-  test("a mark whose commit left HEAD where it was gives way to the one before it", () => {
-    expect(landedMark(mark, "def")).toEqual({ at: 2000, promptId: "p2" });
-    expect(landedMark(mark, "abc")).toEqual(earlier);
-    expect(landedMark({ ...mark, previous: null }, "abc")).toBeNull();
-    expect(landedMark({ ...mark, head: null }, null)).toEqual(earlier);
-    expect(landedMark({ ...mark, head: null }, "abc")).toEqual({ at: 2000, promptId: "p2" });
-    expect(landedMark(null, "abc")).toBeNull();
+  test("saving none removes the file, absent or not", () => {
+    saveRefused("s1", []);
+    saveRefused("s1", ["h1"]);
+    saveRefused("s1", []);
+
+    expect(existsSync(refusedPath("s1"))).toBe(false);
   });
 
-  test("a mark ages out with the beats", () => {
+  test("a refused-messages file ages out with the beats", () => {
     const now = 100 * DAY_MS;
-    saveMark("old", temp.repo, mark);
-    saveMark("recent", temp.repo, mark);
+    saveRefused("old", ["h1"]);
+    saveRefused("recent", ["h1"]);
     const old = new Date(now - 8 * DAY_MS);
     const recent = new Date(now - 6 * DAY_MS);
-    utimesSync(markPath("old", temp.repo), old, old);
-    utimesSync(markPath("recent", temp.repo), recent, recent);
+    utimesSync(refusedPath("old"), old, old);
+    utimesSync(refusedPath("recent"), recent, recent);
 
     pruneStates(STALE_TEMPORARY_MS, now);
 
-    expect(existsSync(markPath("old", temp.repo))).toBe(false);
-    expect(existsSync(markPath("recent", temp.repo))).toBe(true);
+    expect(existsSync(refusedPath("old"))).toBe(false);
+    expect(existsSync(refusedPath("recent"))).toBe(true);
   });
 });

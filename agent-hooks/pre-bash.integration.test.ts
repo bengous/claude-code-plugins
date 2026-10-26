@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import {
-  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -15,7 +14,6 @@ import path from "node:path";
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { cachePath } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import type { GuardVerdict } from "./pre-bash.ts";
 import { encodeGuard, runPreBash } from "./pre-bash.ts";
 import { beatPath } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
@@ -1285,390 +1283,199 @@ describe("pre-bash outside the doors", () => {
 });
 
 /**
- * Haiku's stand-in: answers `review` when the facts it receives show a finished review, `self` otherwise, and keeps
- * the facts; exits 1 while `claude.fail` exists.
+ * Haiku's stand-in: finds a process passage in a message that names a "review of", none otherwise; keeps what it
+ * read and counts its calls; exits 1 while `claude.fail` exists.
  */
 const FAKE_CLAUDE = `#!/bin/sh
-for facts; do :; done
-printf '%s' "$facts" > "$FAKE_GH_DIR/claude.facts"
+for input; do :; done
+printf '%s' "$input" > "$FAKE_GH_DIR/claude.input"
+echo call >> "$FAKE_GH_DIR/claude.calls"
 [ -f "$FAKE_GH_DIR/claude.fail" ] && exit 1
-case "$facts" in
-  *"[review finished"*) trigger=review ;;
-  *) trigger=self ;;
-esac
-cat <<EOF
-{"type":"result","result":"{\\\\"trigger\\\\": \\\\"$trigger\\\\"}"}
+case "$input" in
+  *"review of"*) cat <<'EOF'
+{"type":"result","result":"{\\"passages\\": [{\\"quote\\": \\"review of #1\\", \\"kind\\": \\"process\\"}, {\\"quote\\": \\"#1\\", \\"kind\\": \\"fact\\"}]}"}
 EOF
+  ;;
+  *) cat <<'EOF'
+{"type":"result","result":"{\\"passages\\": []}"}
+EOF
+  ;;
+esac
 `;
 
-/** git's signing program for the tests: signs anything, as gpg reports it on its status fd. */
-const FAKE_GPG = `#!/bin/sh
-cat > /dev/null
-printf '\\n[GNUPG:] SIG_CREATED D 1 8 00 1 FAKE\\n' >&2
-printf -- '-----BEGIN PGP SIGNATURE-----\\nfake\\n-----END PGP SIGNATURE-----\\n'
-`;
+const JUDGED = JSON.stringify({ profile: { commitMessages: "judged" } });
 
-const TRACED = JSON.stringify({ profile: { provenance: "trailers" } });
+const REFUSAL = [
+  "agent-hooks: this commit message tells how the change came about or how it was checked, which goes in the pull request, not in the history:",
+  '- "review of #1" (how the change came about)',
+  "A commit message says what the code does and why, the reason in words. Rewrite these passages, or rerun exactly the same command if the message is right.",
+].join("\n");
 
-/** The facts the fake classifier last received. */
-function classifierFacts(): string {
-  return readFileSync(path.join(temp.bin, "claude.facts"), "utf8");
+/** What the fake judge read last, or null when it never ran. */
+function judgeInput(): string | null {
+  const file = path.join(temp.bin, "claude.input");
+
+  return existsSync(file) ? readFileSync(file, "utf8") : null;
 }
 
-function stamp(trigger: string, session = SESSION): string {
-  return ` --trailer 'Agent-Trigger: ${trigger}' --trailer 'Agent-Session: ${session}'`;
+function judgeCalls(): number {
+  const file = path.join(temp.bin, "claude.calls");
+
+  return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").length : 0;
 }
 
-describe("pre-bash writes provenance trailers into an agent's commit", () => {
+describe("pre-bash has Haiku judge an agent's commit message", () => {
   let repo = "";
-  let transcript = "";
-  let records = 0;
-
-  /** Appends records to the session's transcript, each stamped now: after every commit the hook saw before. */
-  function said(...items: Record<string, unknown>[]): void {
-    mkdirSync(path.dirname(transcript), { recursive: true });
-
-    for (const item of items) {
-      records += 1;
-      const timestamp = new Date(Date.now() + records).toISOString();
-      appendFileSync(transcript, `${JSON.stringify({ ...item, timestamp })}\n`);
-    }
-  }
-
-  function commit(
-    command: string,
-    cwd = repo,
-    extra: Record<string, unknown> = {},
-  ): Promise<Output> {
-    return preBash(command, cwd, { transcript_path: transcript, prompt_id: "p-fixture", ...extra });
-  }
-
-  /** The commit the hook saw lands: HEAD moves, and the transcript records its result. */
-  function landed(): void {
-    git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "landed");
-    said(record("commit-call"), record("commit-ok"));
-  }
 
   beforeEach(() => {
-    repo = makeRepo("traced", { [CONFIG_RELATIVE_PATH]: TRACED }, "git@github.com:o/n.git");
-    transcript = path.join(temp.dir, "projects", `${SESSION}.jsonl`);
-    records = 0;
+    repo = makeRepo("judged", { [CONFIG_RELATIVE_PATH]: JUDGED }, "git@github.com:o/n.git");
     const file = path.join(temp.bin, "claude");
     writeFileSync(file, FAKE_CLAUDE);
     chmodSync(file, 0o755);
   });
 
-  test("names the trigger and the session after the commit's last argument, the rest of the tool input kept, in silence", async () => {
-    said(record("typed"));
-    const command = "git commit -qm 'fix: a'";
-
-    expect((await commit(command)).stdout).toBe(
-      `${JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          updatedInput: {
-            command: `git commit -qm 'fix: a'${stamp("human")}`,
-            description: "test",
-          },
-        },
-      })}\n`,
-    );
-  });
-
-  test("three commits after a review are review, three times", async () => {
-    said(record("typed"), record("typed-review-launch"), record("notified-user"));
-
-    for (let index = 0; index < 3; index += 1) {
-      expect((await commit("git commit -qm x")).rewritten).toBe(
-        `git commit -qm x${stamp("review")}`,
-      );
-      landed();
-    }
-  });
-
-  test("your message then three commits are human, then self, then self", async () => {
-    said(record("typed"));
-
-    for (const trigger of ["human", "self", "self"]) {
-      expect((await commit("git commit -qm x")).rewritten).toBe(
-        `git commit -qm x${stamp(trigger)}`,
-      );
-      landed();
-    }
-  });
-
-  test("a message typed while the agent worked counts as yours", async () => {
-    landed();
-    said(record("queued-typed"));
-
-    expect((await commit("git commit -qm x")).rewritten).toBe(`git commit -qm x${stamp("human")}`);
-  });
-
-  test("a commit that never landed leaves the window where it was", async () => {
-    said(record("typed"));
-
-    expect((await commit("git commit -qm x")).rewritten).toBe(`git commit -qm x${stamp("human")}`);
-    expect((await commit("git commit -qm 'x, again'")).rewritten).toBe(
-      `git commit -qm 'x, again'${stamp("human")}`,
-    );
-
-    landed();
-
-    expect((await commit("git commit -qm y")).rewritten).toBe(`git commit -qm y${stamp("self")}`);
-  });
-
-  test("the commits after the first of one line continue its review, and are the agent's own otherwise", async () => {
-    said(record("typed"), record("typed-review-launch"), record("notified-user"));
-
-    expect((await commit("git commit -qm a && git commit -qm b")).rewritten).toBe(
-      `git commit -qm a${stamp("review")} && git commit -qm b${stamp("review")}`,
-    );
-
-    landed();
-    said(record("typed"));
-
-    expect((await commit("git commit -qm c; git commit -qm d; git commit -qm e")).rewritten).toBe(
-      `git commit -qm c${stamp("human")}; git commit -qm d${stamp("self")}; git commit -qm e${stamp("self")}`,
-    );
-  });
-
-  test("the classifier reads the transcript's facts and the message of the commit judged", async () => {
-    said(record("typed"), record("say"));
-    await commit("git stash push -m wip && git commit -qm 'fix(parse): read partial dates'");
-
-    expect(classifierFacts()).toBe(
-      "[user message] Fix the date parser.\n\n[agent] The parser is fixed; committing.\n\n[THE COMMIT TO CLASSIFY] fix(parse): read partial dates",
-    );
-
-    writeRepoFile(repo, "msg.txt", "fix(parse): keep the century\n");
-    await commit("git commit -F msg.txt");
-
-    expect(classifierFacts()).toEndWith("[THE COMMIT TO CLASSIFY] fix(parse): keep the century");
-
-    writeRepoFile(repo, "sub/msg.txt", "fix(sub): read where git reads it\n");
-    await commit("git -C sub commit -F msg.txt");
-
-    expect(classifierFacts()).toEndWith(
-      "[THE COMMIT TO CLASSIFY] fix(sub): read where git reads it",
-    );
-
-    await commit("printf 'feat: brand new\\n' > msg.txt && git commit -F msg.txt");
-
-    expect(classifierFacts()).toEndWith(
-      "[THE COMMIT TO CLASSIFY] (message not shown in the command)",
-    );
-  });
-
-  test("stamps every form of a commit written as such", async () => {
-    const here = stamp("human");
-    const outside = temp.dir;
-
-    const forms: [string, string, string][] = [
-      ["git commit -F msg.txt", `git commit -F msg.txt${here}`, repo],
-      ["git commit -F - <<'EOF'\nfix: a\nEOF", `git commit -F -${here} <<'EOF'\nfix: a\nEOF`, repo],
-      [
-        "git commit -m \"$(cat <<'EOF'\nfix: a\nEOF\n)\"",
-        `git commit -m "$(cat <<'EOF'\nfix: a\nEOF\n)"${here}`,
-        repo,
-      ],
-      ["git commit -qm x -- a.ts", `git commit -qm x${here} -- a.ts`, repo],
-      ["git commit -S0xC0FFEE -m x", `git commit -S0xC0FFEE -m x${here}`, repo],
-      [`git -C ${repo} commit -m x`, `git -C ${repo} commit -m x${here}`, outside],
-      ["GIT_EDITOR=true git commit -m x", `GIT_EDITOR=true git commit -m x${here}`, repo],
-      [`cd ${repo} && git commit -m x`, `cd ${repo} && git commit -m x${here}`, outside],
-      [
-        "git commit -m a && git commit --allow-empty -m b",
-        `git commit -m a${here} && git commit --allow-empty -m b${stamp("self")}`,
-        repo,
-      ],
-      [`(cd ${repo} && git commit -m x)`, `(cd ${repo} && git commit -m x${here})`, outside],
-      [
-        `cd "$NOWHERE" && git -C ${repo} commit -m x`,
-        `cd "$NOWHERE" && git -C ${repo} commit -m x${here}`,
-        repo,
-      ],
-    ];
-
-    for (const [command, rewritten, cwd] of forms) {
-      said(record("typed"));
-
-      expect((await commit(command, cwd)).rewritten).toBe(rewritten);
-    }
-  });
-
-  test("a refusal of the landing guard in the same line wins, and a push to the trunk passes", async () => {
-    writeRepoFile(
-      repo,
-      CONFIG_RELATIVE_PATH,
-      JSON.stringify({
-        profile: { landing: { trunk: "dev", release: "main" }, provenance: "trailers" },
-      }),
-    );
-    said(record("typed"));
-
-    const refused = await commit("git commit -qm x && git push origin dev:main");
+  test("refuses a message that tells how the change came about, quoting it, and lets a message of facts through in silence", async () => {
+    const refused = await preBash("git commit -qm 'fix: a, from the review of #1'", repo);
 
     expect(refused.decision).toBe("deny");
-    expect(refused.rewritten).toBeUndefined();
-    expect((await commit("git commit -qm x && git push origin dev")).rewritten).toBe(
-      `git commit -qm x${stamp("human")} && git push origin dev`,
+    expect(refused.reason).toBe(REFUSAL);
+    expect((await preBash("git commit -qm 'fix: read partial dates'", repo)).stdout).toBe("");
+  });
+
+  test("gives the judge the message, then the files the commit touches", async () => {
+    writeRepoFile(repo, "src/parse.ts", "x\n");
+    git(repo, "add", "src/parse.ts");
+    writeRepoFile(repo, "README.md", "y\n");
+
+    await preBash("git commit -qm 'fix: a' -m 'Partial dates parse.'", repo);
+
+    expect(judgeInput()).toBe(
+      "Message:\nfix: a\n\nPartial dates parse.\n\nFiles:\nREADME.md\nsrc/parse.ts",
     );
   });
 
-  test("leaves as written a commit that keeps or reuses its message, one that makes none, a nested or substituted commit, and every other command", async () => {
-    said(record("typed"));
+  test("lists no file on a branch with no commit yet", async () => {
+    const fresh = path.join(temp.dir, "fresh");
+    writeRepoFile(fresh, CONFIG_RELATIVE_PATH, JUDGED);
+    git(fresh, "init", "-q");
 
+    await preBash("git commit -qm 'fix: a'", fresh);
+
+    expect(judgeInput()).toBe("Message:\nfix: a\n\nFiles:\n");
+  });
+
+  test("the same command run again passes once; a rewritten message is judged again", async () => {
+    const command = "git commit -qm 'fix: a, from the review of #1'";
+
+    expect((await preBash(command, repo)).decision).toBe("deny");
+    expect((await preBash(command, repo)).stdout).toBe("");
+    expect(judgeCalls()).toBe(1);
+    expect((await preBash(command, repo)).decision).toBe("deny");
+
+    expect((await preBash("git commit -qm 'fix: a, after the review of #1'", repo)).decision).toBe(
+      "deny",
+    );
+    expect((await preBash("git commit -qm 'fix: a'", repo)).stdout).toBe("");
+    expect((await preBash(command, repo)).decision).toBe("deny");
+  });
+
+  test("a refusal holds for the agent it was given to", async () => {
+    const command = "git commit -qm 'fix: a, from the review of #1'";
+
+    expect((await preBash(command, repo, { agent_id: "a2" })).decision).toBe("deny");
+    expect((await preBash(command, repo)).decision).toBe("deny");
+    expect((await preBash(command, repo, { agent_id: "a2" })).stdout).toBe("");
+  });
+
+  test("judges each commit of a line, and names each refused one by its subject", async () => {
+    const output = await preBash(
+      "git commit -qm 'fix: a, review of #1' && git commit -qm 'fix: b' && git commit -qm 'fix: c, review of #1'",
+      repo,
+    );
+
+    expect(judgeCalls()).toBe(3);
+    expect(output.reason).toStartWith("agent-hooks: these commit messages tell");
+    expect(output.reason).toContain('In "fix: a, review of #1":');
+    expect(output.reason).toContain('In "fix: c, review of #1":');
+    expect(output.reason).not.toContain('In "fix: b":');
+  });
+
+  test("reads the message where git reads it: a heredoc, a file, a file under -C", async () => {
+    await preBash("git commit -F - <<'EOF'\nfix: from stdin\nEOF", repo);
+
+    expect(judgeInput()).toStartWith("Message:\nfix: from stdin\n\n");
+
+    writeRepoFile(repo, "sub/msg.txt", "fix: from a file\n");
+    await preBash("git -C sub commit -F msg.txt", repo);
+
+    expect(judgeInput()).toStartWith("Message:\nfix: from a file\n\n");
+  });
+
+  test("leaves unjudged a commit that keeps its message, makes none, or whose message the line writes first", async () => {
     for (const command of [
       "git commit --amend --no-edit",
       "git commit --no-edit",
       "git commit -C HEAD",
-      "git commit --fixup=amend:HEAD",
-      "git commit --porcelain",
-      'cd "$NOWHERE" && git commit --amend --no-edit',
+      "git commit --dry-run -m 'review of #1'",
+      "printf 'review of #1' > msg.txt && git commit -F msg.txt",
       "bash -c 'git commit -m x'",
-      'echo "$(git commit -m x)"',
-      "git merge --no-ff feature",
       "ls -la",
     ]) {
-      expect((await commit(command)).stdout).toBe("");
+      expect((await preBash(command, repo)).stdout).toBe("");
     }
 
-    expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
+    expect(judgeInput()).toBeNull();
   });
 
-  test("leaves a commit as written in a repository whose profile does not ask for trailers", async () => {
-    said(record("typed"));
+  test("judges nothing in a repository whose profile does not ask for it", async () => {
     const plain = makeRepo("plain", {}, "git@github.com:o/n.git");
 
-    expect((await commit("git commit -m x", plain)).stdout).toBe("");
-    expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
+    expect((await preBash("git commit -m 'review of #1'", plain)).stdout).toBe("");
+    expect(judgeInput()).toBeNull();
   });
 
-  test("an amend that writes a new message keeps the Agent trailers of the commit it replaces", async () => {
-    const kept = " --trailer 'Agent-Trigger: review' --trailer 'Agent-Session: s-old'";
-
-    git(
+  test("a refusal of the landing guard in the same line wins, before any judge", async () => {
+    writeRepoFile(
       repo,
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "fix: a",
-      "--trailer",
-      "Agent-Trigger: review",
-      "--trailer",
-      "Agent-Session: s-old",
+      CONFIG_RELATIVE_PATH,
+      JSON.stringify({
+        profile: { landing: { trunk: "dev", release: "main" }, commitMessages: "judged" },
+      }),
     );
 
-    expect((await commit("git commit --amend -m 'fix: b'")).rewritten).toBe(
-      `git commit --amend -m 'fix: b'${kept}`,
+    const refused = await preBash(
+      "git commit -qm 'review of #1' && git push origin dev:main",
+      repo,
     );
-    expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
 
-    said(record("typed"));
-
-    expect((await commit("git commit -qm c && git commit --amend -m 'c, typo'")).rewritten).toBe(
-      `git commit -qm c${stamp("human")} && git commit --amend -m 'c, typo'${stamp("human")}`,
-    );
+    expect(refused.reason).toStartWith("agent-hooks: a push to 'main' moves the release");
+    expect(judgeInput()).toBeNull();
+    expect(
+      (await preBash("git commit -qm 'review of #1' && git push origin dev", repo)).reason,
+    ).toBe(REFUSAL);
   });
 
-  test("a transcript it cannot read costs the commit its trailers, with one note", async () => {
-    const missing = await commit("git commit -m a && git commit -m b");
-
-    expect(missing.rewritten).toBeUndefined();
-    expect(missing.note).toStartWith(
-      `agent-hooks: no provenance trailer: the transcript ${transcript} cannot be read (`,
-    );
-    expect(missing.note?.split("\n")).toHaveLength(1);
-
-    const none = await preBash("git commit -m x", repo);
-
-    expect(none.note).toBe(
-      "agent-hooks: no provenance trailer: the hook received no transcript_path",
-    );
-  });
-
-  test("a commit whose cd the walk cannot follow says so once, in a repository with the key", async () => {
-    said(record("typed"));
-
-    const lost = await commit('cd "$NOWHERE" && git commit -m a && git commit -m b');
-
-    expect(lost.rewritten).toBeUndefined();
-    expect(lost.note).toBe(
-      "agent-hooks: no provenance trailer: an earlier cd $NOWHERE leaves the commit's directory unknown",
-    );
-  });
-
-  test("a classifier that gives no answer leaves the trigger to the facts, with a note", async () => {
-    said(record("typed"), record("typed-review-launch"), record("notified-user"));
+  test("a judge that gives no answer, asked twice, lets the commit through with a note", async () => {
     writeFileSync(path.join(temp.bin, "claude.fail"), "");
 
-    const output = await commit("git commit -qm x");
+    const output = await preBash("git commit -qm 'review of #1'", repo);
 
-    expect(output.rewritten).toBe(`git commit -qm x${stamp("human")}`);
+    expect(output.decision).toBeUndefined();
     expect(output.note).toBe(
-      "agent-hooks: the provenance classifier gave no answer (claude -p exited 1 with no trigger): Agent-Trigger comes from the transcript's facts alone",
+      "agent-hooks: the commit judge gave no answer (claude -p exited 1 with no readable answer): the commit passed",
     );
+    expect(judgeCalls()).toBe(2);
   });
 
-  test("a subagent's commit reads its own transcript and names its session after the main one", async () => {
-    transcript = path.join(temp.dir, "projects", SESSION, "subagents", "agent-a2.jsonl");
-    said(record("brief"));
-
-    expect(
-      (
-        await preBash("git commit -qm x", repo, {
-          transcript_path: path.join(temp.dir, "projects", `${SESSION}.jsonl`),
-          agent_id: "a2",
-          prompt_id: "p-fixture",
-        })
-      ).rewritten,
-    ).toBe(`git commit -qm x${stamp("human", `${SESSION}.a2`)}`);
-  });
-
-  test("the rewritten command commits, through a commit-msg hook and a signature, with both trailers", async () => {
-    said(record("typed"));
-    const gpg = path.join(temp.bin, "gpg");
-    writeFileSync(gpg, FAKE_GPG);
-    chmodSync(gpg, 0o755);
-    const hook = path.join(repo, ".git", "hooks", "commit-msg");
-    writeFileSync(hook, '#!/bin/sh\ncp "$1" "$(dirname "$0")/../seen-message"\n');
-    chmodSync(hook, 0o755);
-    git(repo, "config", "commit.gpgsign", "true");
-    git(repo, "config", "gpg.program", gpg);
-
-    const rewritten = (await commit("git commit -q --allow-empty -m 'fix: a'")).rewritten ?? "";
-    git(repo, "-c", "alias.run=!sh -c", "run", rewritten);
-
-    expect(git(repo, "log", "-1", "--format=%(trailers)")).toBe(
-      `Agent-Trigger: human\nAgent-Session: ${SESSION}\n\n`,
-    );
-    expect(readFileSync(path.join(repo, ".git", "seen-message"), "utf8")).toContain(
-      "Agent-Trigger: human",
-    );
-    expect(git(repo, "cat-file", "commit", "HEAD")).toContain(
-      "gpgsig -----BEGIN PGP SIGNATURE-----",
+  test("a commit whose cd the walk cannot follow says so, in a repository with the key", async () => {
+    expect((await preBash('cd "$NOWHERE" && git commit -m a', repo)).note).toBe(
+      "agent-hooks: a commit went unjudged: an earlier cd $NOWHERE leaves its directory unknown",
     );
   });
 });
 
 describe("encodeGuard", () => {
   const text = 'say "hi"\nnext';
-  const updatedInput = { command: "git commit --trailer 'Agent-Trigger: self' -m x", timeout: 5 };
-
-  test("a rewrite hands back the whole tool input, then the notes when there are any", () => {
-    const silent: GuardVerdict = { kind: "rewrite", updatedInput, notes: null };
-    const noted: GuardVerdict = { kind: "rewrite", updatedInput, notes: text };
-
-    expect(encodeGuard(silent)).toBe(
-      `{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":${JSON.stringify(updatedInput)}}}`,
-    );
-    expect(encodeGuard(noted)).toBe(
-      `{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":${JSON.stringify(updatedInput)}},"systemMessage":${JSON.stringify(text)}}`,
-    );
-  });
 
   test("an allow prints nothing, a note its systemMessage, a refusal the deny shape", () => {
     expect(encodeGuard({ kind: "allow" })).toBeNull();

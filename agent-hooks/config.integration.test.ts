@@ -13,7 +13,7 @@ import {
   loadApprovals,
   loadConfig,
   loadLanding,
-  loadProvenance,
+  loadCommitMessages,
   matchesFilter,
   parseProfile,
   pkgOf,
@@ -396,13 +396,13 @@ describe("loadConfig errors", () => {
 });
 
 describe("loadConfig profile", () => {
-  test("no profile reads as no landing, no approvals, no review, a shared checkout and no provenance", () => {
+  test("no profile reads as no landing, no approvals, no review, a shared checkout and no commit judge", () => {
     expect(load("{}").profile).toEqual({
       landing: null,
       approvals: null,
       review: null,
       worktree: "shared",
-      provenance: null,
+      commitMessages: null,
     });
   });
 
@@ -414,7 +414,7 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: null,
       worktree: "shared",
-      provenance: null,
+      commitMessages: null,
     });
   });
 
@@ -427,7 +427,7 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: { risky: ["scripts/land.ts", ".github/workflows/**"] },
       worktree: "shared",
-      provenance: null,
+      commitMessages: null,
     });
   });
 
@@ -457,7 +457,7 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: null,
       worktree: "per-task",
-      provenance: null,
+      commitMessages: null,
     });
     expect(load(`{ "profile": { "worktree": "shared" } }`).profile.worktree).toBe("shared");
     expect(
@@ -469,7 +469,7 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: null,
       worktree: "per-task",
-      provenance: null,
+      commitMessages: null,
     });
   });
 
@@ -480,13 +480,15 @@ describe("loadConfig profile", () => {
     expectConfigError(`{ "profile": { "worktree": true } }`, "profile.worktree");
   });
 
-  test("reads profile.provenance", () => {
-    expect(load(`{ "profile": { "provenance": "trailers" } }`).profile.provenance).toBe("trailers");
+  test("reads profile.commitMessages", () => {
+    expect(load(`{ "profile": { "commitMessages": "judged" } }`).profile.commitMessages).toBe(
+      "judged",
+    );
   });
 
-  test("a provenance other than trailers", () => {
-    expect(configErrorOf(`{ "profile": { "provenance": "notes" } }`).message).toBe(
-      `agent-hooks: ${configPath(temp.repo)}: profile.provenance: expected trailers`,
+  test("a commitMessages other than judged", () => {
+    expect(configErrorOf(`{ "profile": { "commitMessages": "trailers" } }`).message).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.commitMessages: expected judged`,
     );
   });
 
@@ -530,25 +532,25 @@ describe("loadConfig profile", () => {
   });
 });
 
-describe("loadProvenance", () => {
-  test("reads profile.provenance alone: the rest of the file may be invalid", () => {
+describe("loadCommitMessages", () => {
+  test("reads profile.commitMessages alone: the rest of the file may be invalid", () => {
     writeConfig(
       temp.repo,
-      `{ "presets": ["no-such-preset"], "profile": { "provenance": "trailers", "worktree": "each" } }`,
+      `{ "presets": ["no-such-preset"], "profile": { "commitMessages": "judged", "worktree": "each" } }`,
     );
 
-    expect(loadProvenance(temp.repo)).toBe("trailers");
+    expect(loadCommitMessages(temp.repo)).toBe("judged");
   });
 
-  test("no provenance reads as null, an invalid one names its key", () => {
+  test("no commitMessages reads as null, an invalid one names its key", () => {
     writeConfig(temp.repo, "{}");
 
-    expect(loadProvenance(temp.repo)).toBeNull();
+    expect(loadCommitMessages(temp.repo)).toBeNull();
 
-    writeConfig(temp.repo, `{ "profile": { "provenance": true } }`);
+    writeConfig(temp.repo, `{ "profile": { "commitMessages": true } }`);
 
-    expect(() => loadProvenance(temp.repo)).toThrow(
-      `agent-hooks: ${configPath(temp.repo)}: profile.provenance: expected trailers`,
+    expect(() => loadCommitMessages(temp.repo)).toThrow(
+      `agent-hooks: ${configPath(temp.repo)}: profile.commitMessages: expected judged`,
     );
   });
 });
@@ -696,7 +698,7 @@ describe("parseProfile", () => {
       approvals: null,
       review: { risky: ["a"] },
       worktree: "per-task",
-      provenance: null,
+      commitMessages: null,
     });
   });
 

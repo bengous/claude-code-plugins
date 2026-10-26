@@ -24,7 +24,7 @@ const TEMPORARY_SUFFIX = ".tmp";
 
 const BEAT_SUFFIX = ".beat";
 
-const MARK_SUFFIX = ".commit";
+const REFUSED_SUFFIX = ".refused";
 
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
@@ -265,7 +265,7 @@ export function saveState(state: SessionState, now = Date.now()): void {
 
 /**
  * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, every
- * heartbeat and commit mark whose mtime is older than the TTL, and every temporary file older than
+ * heartbeat and refused-messages file whose mtime is older than the TTL, and every temporary file older than
  * `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its own within one hook, so a
  * younger one may be a save under way, half written.
  */
@@ -296,7 +296,7 @@ function isStale(file: string, filePath: string, staleTemporaryMs: number, now: 
     return now - modifiedAt(filePath) > staleTemporaryMs;
   }
 
-  if (file.endsWith(BEAT_SUFFIX) || file.endsWith(MARK_SUFFIX)) {
+  if (file.endsWith(BEAT_SUFFIX) || file.endsWith(REFUSED_SUFFIX)) {
     return now - modifiedAt(filePath) > STATE_TTL_MS;
   }
 
@@ -468,86 +468,53 @@ function beatSince(file: string, since: number): boolean {
   }
 }
 
-/** Where an agent's commit stands in its transcript: the window of its next commit opens there. */
-export type CommitMark = {
-  /** When pre-bash saw the commit, in ms since the epoch: a transcript record is before it by its timestamp. */
-  readonly at: number;
-  /** The prompt that turn answered, null outside a prompt. */
-  readonly promptId: string | null;
-};
-
 /**
- * The last commit pre-bash stamped for one agent in one checkout. Kept beside the state file rather than in it:
- * pre-bash writes it while an edit hook of the same agent may be saving the state.
+ * The file holding the hashes of the commit messages the judge refused to agent `key` last: one of them, committed
+ * again unchanged, passes. Kept apart from the state files, which are per checkout and saved by the edit hooks.
  */
-export type SavedMark = CommitMark & {
-  /**
-   * HEAD before the commit, null while the branch has none: still HEAD at the next one means it never landed
-   * (refused, denied, failed).
-   */
-  readonly head: string | null;
-  /** The mark this one replaced, which stands again when this commit never landed. */
-  readonly previous: CommitMark | null;
-};
-
-export function markPath(key: string, checkout: string): string {
-  return path.join(stateDir(), `${sanitize(key)}__${checkoutKey(checkout)}${MARK_SUFFIX}`);
+export function refusedPath(key: string): string {
+  return path.join(stateDir(), `${sanitize(key)}${REFUSED_SUFFIX}`);
 }
 
-/** The commit mark of agent `key` in the checkout; none when absent, and none when unreadable, which is reported. */
-export function loadMark(key: string, checkout: string): SavedMark | null {
-  const file = markPath(key, checkout);
+/** The hashes the judge refused to agent `key` last; none when absent, and none when unreadable, which is reported. */
+export function loadRefused(key: string): string[] {
+  const file = refusedPath(key);
   let value: unknown;
 
   try {
     value = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      console.error(`agent-hooks: ${file}: unreadable commit mark, ignored`);
+      console.error(`agent-hooks: ${file}: unreadable refused messages, ignored`);
     }
 
-    return null;
+    return [];
   }
 
-  const previous = isRecord(value) ? value["previous"] : undefined;
+  if (!Array.isArray(value) || !value.every((hash) => typeof hash === "string")) {
+    console.error(`agent-hooks: ${file}: unreadable refused messages, ignored`);
 
-  if (
-    !isMark(value) ||
-    !(value["head"] === null || typeof value["head"] === "string") ||
-    !(previous === null || isMark(previous))
-  ) {
-    console.error(`agent-hooks: ${file}: unreadable commit mark, ignored`);
-
-    return null;
+    return [];
   }
 
-  return {
-    at: value["at"],
-    promptId: value["promptId"],
-    head: value["head"],
-    previous: previous === null ? null : { at: previous["at"], promptId: previous["promptId"] },
-  };
+  return value;
 }
 
-function isMark(value: unknown): value is Record<string, unknown> & CommitMark {
-  return (
-    isRecord(value) &&
-    typeof value["at"] === "number" &&
-    (value["promptId"] === null || typeof value["promptId"] === "string")
-  );
-}
+/** Replaces the hashes the judge refused to agent `key`; none removes the file. */
+export function saveRefused(key: string, hashes: readonly string[]): void {
+  if (hashes.length > 0) {
+    writeAtomically(refusedPath(key), JSON.stringify(hashes));
 
-/** The mark the next commit's window opens at: this one, or the one before it when its commit never moved HEAD. */
-export function landedMark(mark: SavedMark | null, head: string | null): CommitMark | null {
-  if (mark === null) {
-    return null;
+    return;
   }
 
-  return mark.head === head ? mark.previous : { at: mark.at, promptId: mark.promptId };
-}
-
-export function saveMark(key: string, checkout: string, mark: SavedMark): void {
-  writeAtomically(markPath(key, checkout), JSON.stringify(mark));
+  try {
+    unlinkSync(refusedPath(key));
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
 }
 
 function sanitize(value: string): string {

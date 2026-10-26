@@ -1,7 +1,7 @@
 {
   "name": "agent-hooks",
   "version": "1.6.0",
-  "description": "Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end; in every repository, a landing guard on Bash refuses the one-way doors of a push, a merge or a release; where the profile asks, each agent commit names what triggered it and its session in trailers",
+  "description": "Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end; in every repository, a landing guard on Bash refuses the one-way doors of a push, a merge or a release; where the profile asks, Haiku refuses once an agent's commit message that tells how the change came about or how it was checked",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"

@@ -1,8 +1,16 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
+import type { Fault, Judgment } from "./commit-judge.ts";
+import { commitMessageOf, judge, judgeRefusal } from "./commit-judge.ts";
 import type { Approval, LandingProfile } from "./config.ts";
-import { ConfigError, configPath, loadApprovals, loadLanding, loadProvenance } from "./config.ts";
+import {
+  ConfigError,
+  configPath,
+  loadApprovals,
+  loadCommitMessages,
+  loadLanding,
+} from "./config.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { deadlineIn, run } from "./exec.ts";
 import {
@@ -47,35 +55,15 @@ import {
   mentionsGit,
   mentionsPackageManager,
 } from "./mentions.ts";
-import type { Transcript, Trigger } from "./provenance.ts";
-import {
-  agentTrailersIn,
-  classify,
-  commitMessageOf,
-  factTriggerOf,
-  factsOf,
-  latestTypedText,
-  provenanceTrailers,
-  readTranscript,
-  takesTrailers,
-  trailersOf,
-  transcriptPathOf,
-} from "./provenance.ts";
-import { git as runGit } from "./scope.ts";
-import { landedMark, loadMark, saveMark } from "./state.ts";
+import { git as runGit, sha256 } from "./scope.ts";
+import { loadRefused, saveRefused } from "./state.ts";
+import { readHuman } from "./transcript.ts";
 
 export type GuardVerdict =
   | { readonly kind: "allow" }
   /** Passes; `systemMessage`, shown to the user. */
   | { readonly kind: "note"; readonly text: string }
-  | { readonly kind: "deny"; readonly reason: string }
-  /** Runs `updatedInput`, the tool input with its command rewritten; `notes`, when any, shown to the user. */
-  | {
-      readonly kind: "rewrite";
-      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- tool_input is the harness's per-tool shape, handed back whole as updatedInput with only its command changed.
-      readonly updatedInput: Readonly<Record<string, unknown>>;
-      readonly notes: string | null;
-    };
+  | { readonly kind: "deny"; readonly reason: string };
 
 const ALLOW: GuardVerdict = { kind: "allow" };
 
@@ -107,7 +95,7 @@ export type PreBashOptions = {
   readonly now?: number;
   /** Overrides PRE_BASH_DEADLINE_MS for the tests. */
   readonly deadlineMs?: number;
-  /** Runs the provenance classifier; the tests pass a fake. */
+  /** Runs the commit judge; the tests pass a fake. */
   readonly runner?: Runner;
 };
 
@@ -453,11 +441,11 @@ function humanOf(input: Input | null): HumanMessage {
   }
 
   try {
-    const transcript = readTranscript(input.transcriptPath, false, input.promptId);
+    const human = readHuman(input.transcriptPath, input.promptId);
 
-    return input.promptId !== undefined && !transcript.holdsPrompt
+    return input.promptId !== undefined && !human.holdsPrompt
       ? { kind: "unreadable", why: "the transcript does not hold this turn's prompt yet: retry" }
-      : { kind: "read", text: latestTypedText(transcript) };
+      : { kind: "read", text: human.latestTyped };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -737,39 +725,32 @@ async function judgeLine(
   return combine(await Promise.all(doors.map((door) => judgeDoor(door, context, depth))));
 }
 
-/** Where a commit's trailers go in the line, and the trailers. */
-type Stamp = { readonly offset: number; readonly trailers: Promise<Trailers> };
-
-type Trailers = readonly (readonly [string, string])[];
-
-type Provenance = { readonly command: string; readonly notes: readonly string[] };
-
-type TriggerRead = { readonly trigger: Trigger; readonly note: string | null };
-
-/** What a line stamped so far in one checkout: the trigger of its first new commit, the trailers of its last one. */
-type Stamped = { readonly first: Promise<TriggerRead>; readonly latest: Promise<Trailers> };
+/** A commit of the line whose message goes to the judge, and the judge's answer once it comes. */
+type Judged = {
+  readonly message: string;
+  readonly hash: string;
+  readonly judgment: Promise<Judgment>;
+};
 
 /**
- * The line with provenance trailers at the end of each `git commit` it runs as written in a repository whose profile
- * asks for them, and a note for each such commit it could not stamp. A new commit names its trigger and its
- * session, and moves the agent's commit mark in its checkout, once per checkout and line; an amend that writes a new
- * message keeps the `Agent-*` trailers of the commit it replaces; a commit that keeps its message, or makes none, is
- * left as written.
+ * Has Haiku judge the message of each `git commit` the line runs as written in a repository whose profile asks for
+ * it: refused when a message tells how the change came about or how it was checked. A message refused to this agent
+ * last time, committed again unchanged, passes: the refusal holds once. A commit that keeps its message, makes none,
+ * or whose message the line does not show, is not judged; a judge that gives no answer lets the commit through with
+ * a note.
  */
-async function withProvenance(
+async function judgeCommits(
   command: string,
   cwd: string,
   input: Input,
-  now: number,
   deadline: Deadline,
   runner: Runner,
-): Promise<Provenance> {
+): Promise<GuardVerdict> {
   const notes = new Set<string>();
-  const stamps: Stamp[] = [];
-  const checkouts = new Map<string, Stamped>();
-  const session = stateKey(input);
-  let transcript: TranscriptRead | null = null;
-  let trailersTaken: boolean | null = null;
+  const key = stateKey(input);
+  let refusedBefore: ReadonlySet<string> | null = null;
+  let overridden = false;
+  const judged: Judged[] = [];
 
   for (const commit of commitsOf(command, cwd)) {
     const written = commitMessageOf(commit.git.args, commit.heredoc);
@@ -782,9 +763,9 @@ async function withProvenance(
     if (dir === null) {
       const here = rootOf(cwd, []);
 
-      if (here !== null && keyRead(here, loadProvenance).kind === "read") {
+      if (here !== null && keyRead(here, loadCommitMessages).kind === "read") {
         notes.add(
-          `agent-hooks: no provenance trailer: an earlier ${commit.lost ?? "cd"} leaves the commit's directory unknown`,
+          `agent-hooks: a commit went unjudged: an earlier ${commit.lost ?? "cd"} leaves its directory unknown`,
         );
       }
 
@@ -792,85 +773,62 @@ async function withProvenance(
     }
 
     const root = rootOf(dir, commit.git.location);
-    const read = root === null ? null : keyRead(root, loadProvenance);
+    const read = root === null ? null : keyRead(root, loadCommitMessages);
 
-    if (root === null || read === null || read.kind === "absent") {
+    if (read === null || read.kind === "absent") {
       continue;
     }
 
     if (read.kind === "unreadable") {
-      notes.add(`agent-hooks: no provenance trailer: ${read.error}`);
+      notes.add(`agent-hooks: a commit went unjudged: ${read.error}`);
       continue;
     }
 
-    trailersTaken ??= takesTrailers(git(dir, [], ["--version"]) ?? "");
+    const message = written.message ?? messageFileOf(command, commit, dir, written.file, notes);
 
-    if (!trailersTaken) {
-      notes.add(
-        "agent-hooks: no provenance trailer: this git has no --trailer, which came with 2.32",
-      );
+    if (message === null || message === "") {
       continue;
     }
 
-    const earlier = checkouts.get(root);
+    const hash = sha256(message);
+    refusedBefore ??= new Set(loadRefused(key));
 
-    if (written.form === "amend") {
-      const kept =
-        earlier?.latest ??
-        Promise.resolve(
-          agentTrailersIn(
-            git(dir, commit.git.location, ["log", "-1", "--format=%(trailers:only,unfold)"]) ?? "",
-          ),
-        );
-
-      stamps.push({ offset: commit.offset, trailers: kept });
+    if (refusedBefore.has(hash)) {
+      overridden = true;
       continue;
     }
 
-    transcript ??= transcriptOf(input);
+    const files = git(dir, commit.git.location, ["diff", "--name-only", "HEAD"]) ?? "";
 
-    if (transcript.kind === "unreadable") {
-      notes.add(`agent-hooks: no provenance trailer: ${transcript.why}`);
-      continue;
-    }
-
-    const first =
-      earlier?.first.then(followingOf) ??
-      triggerAt(
-        root,
-        transcript.transcript,
-        written.message ?? messageFileOf(command, commit, dir, written.file, notes),
-        input,
-        now,
-        deadline,
-        runner,
-      );
-
-    const trailers = first.then((found) => {
-      if (found.note !== null) {
-        notes.add(found.note);
-      }
-
-      return provenanceTrailers(found.trigger, session);
+    judged.push({
+      message,
+      hash,
+      judgment: judge(message, files.split("\n").filter(Boolean), deadline, runner),
     });
-
-    checkouts.set(root, { first: earlier?.first ?? first, latest: trailers });
-    stamps.push({ offset: commit.offset, trailers });
   }
 
-  const written = await Promise.all(
-    stamps.map(async (stamp) => ({ offset: stamp.offset, text: trailersOf(await stamp.trailers) })),
-  );
+  const refused: { message: string; hash: string; faults: readonly Fault[] }[] = [];
 
-  return {
-    command: written
-      .toSorted((left, right) => right.offset - left.offset)
-      .reduce(
-        (line, stamp) => `${line.slice(0, stamp.offset)}${stamp.text}${line.slice(stamp.offset)}`,
-        command,
-      ),
-    notes: [...notes],
-  };
+  for (const { message, hash, judgment } of judged) {
+    const answer = await judgment;
+
+    if (answer.kind === "failed") {
+      notes.add(`agent-hooks: the commit judge gave no answer (${answer.why}): the commit passed`);
+    } else if (answer.faults.length > 0) {
+      refused.push({ message, hash, faults: answer.faults });
+    }
+  }
+
+  if (judged.length > 0 || overridden) {
+    saveRefused(
+      key,
+      refused.map((commit) => commit.hash),
+    );
+  }
+
+  const noted = notes.size === 0 ? ALLOW : note([...notes].join("\n"));
+
+  return refused.length === 0 ? noted : refusal(judgeRefusal(refused));
 }
 
 /**
@@ -905,86 +863,14 @@ function messageFileOf(
       : null;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    notes.add(
-      `agent-hooks: the classifier saw no message: ${resolved} cannot be read (${message})`,
-    );
+    notes.add(`agent-hooks: a commit went unjudged: ${resolved} cannot be read (${message})`);
 
     return null;
   }
 }
 
-/** A message file past this size is not a commit message the classifier needs whole. */
+/** A message file past this size is not a commit message the judge needs whole. */
 const MESSAGE_FILE_BYTES = 64 * 1024;
-
-/**
- * The trigger of a commit after the first one a line makes in the same checkout: nothing reached the agent between
- * them, so it continues the first's review, and is the agent's own otherwise.
- */
-function followingOf(first: TriggerRead): TriggerRead {
-  return { trigger: first.trigger === "review" ? "review" : "self", note: null };
-}
-
-type TranscriptRead =
-  | { readonly kind: "read"; readonly transcript: Transcript }
-  | { readonly kind: "unreadable"; readonly why: string };
-
-/** The agent's own transcript, or why it cannot be read. */
-function transcriptOf(input: Input): TranscriptRead {
-  if (input.transcriptPath === undefined) {
-    return { kind: "unreadable", why: "the hook received no transcript_path" };
-  }
-
-  const file = transcriptPathOf(input.transcriptPath, input.sessionId, input.agentId);
-
-  try {
-    return {
-      kind: "read",
-      transcript: readTranscript(file, input.agentId !== undefined, input.promptId),
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return { kind: "unreadable", why: `the transcript ${file} cannot be read (${message})` };
-  }
-}
-
-/**
- * The trigger of the agent's commit in `checkout`: `review` when Haiku reads in the facts that it applies a review,
- * else what the facts alone say since the agent's last commit that landed there. Moves the agent's commit mark there
- * to the hook's start.
- */
-async function triggerAt(
-  checkout: string,
-  transcript: Transcript,
-  message: string | null,
-  input: Input,
-  now: number,
-  deadline: Deadline,
-  runner: Runner,
-): Promise<TriggerRead> {
-  const key = stateKey(input);
-  const subagent = input.agentId !== undefined;
-  const head = git(checkout, [], ["rev-parse", "--verify", "--quiet", "HEAD"]);
-  const mark = landedMark(loadMark(key, checkout), head);
-  const fact = factTriggerOf(transcript, mark, input.promptId, subagent);
-
-  try {
-    saveMark(key, checkout, { at: now, promptId: input.promptId ?? null, head, previous: mark });
-  } catch (error) {
-    console.error(
-      `agent-hooks: commit mark not saved: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  const answer = await classify(factsOf(transcript, mark, message, subagent), deadline, runner);
-
-  return answer.kind === "answered"
-    ? { trigger: answer.review ? "review" : fact, note: null }
-    : {
-        trigger: fact,
-        note: `agent-hooks: the provenance classifier gave no answer (${answer.why}): Agent-Trigger comes from the transcript's facts alone`,
-      };
-}
 
 /** The first refusal among the verdicts, else their notes joined, else an allow. */
 export function combine(verdicts: readonly GuardVerdict[]): GuardVerdict {
@@ -1018,16 +904,6 @@ export function encodeGuard(verdict: GuardVerdict): string | null {
           permissionDecisionReason: verdict.reason,
         },
       });
-    }
-
-    case "rewrite": {
-      const specific = { hookEventName: "PreToolUse", updatedInput: verdict.updatedInput };
-
-      return JSON.stringify(
-        verdict.notes === null
-          ? { hookSpecificOutput: specific }
-          : { hookSpecificOutput: specific, systemMessage: verdict.notes },
-      );
     }
 
     default: {
@@ -1087,16 +963,15 @@ export async function runPreBash(
         `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
       );
 
-    if (verdict.kind === "deny" || input === null || toolInput === undefined) {
+    if (verdict.kind === "deny" || input === null) {
       return encodeGuard(verdict);
     }
 
     return encodeGuard(
-      stamped(
+      combine([
         verdict,
-        await provenanceOf(command, cwd, input, now, deadline, options.runner ?? run),
-        toolInput,
-      ),
+        await judgeCommitsOf(command, cwd, input, deadline, options.runner ?? run),
+      ]),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1107,43 +982,21 @@ export async function runPreBash(
   }
 }
 
-/** `withProvenance`, whose crash costs the commit its trailers and never the guard's verdict. */
-async function provenanceOf(
+/** `judgeCommits`, whose crash lets the commits through with a note and never costs the guard's verdict. */
+async function judgeCommitsOf(
   command: string,
   cwd: string,
   input: Input,
-  now: number,
   deadline: Deadline,
   runner: Runner,
-): Promise<Provenance> {
+): Promise<GuardVerdict> {
   try {
-    return await withProvenance(command, cwd, input, now, deadline, runner);
+    return await judgeCommits(command, cwd, input, deadline, runner);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
-    return { command, notes: [`agent-hooks: provenance crashed (${message}): no trailer`] };
+    return note(`agent-hooks: the commit judge crashed (${message}): the commit passed`);
   }
-}
-
-/** The guard's verdict with the provenance trailers: a rewrite when a commit got some, its notes beside the guard's. */
-function stamped(
-  verdict: GuardVerdict,
-  provenance: Provenance,
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- tool_input is the harness's per-tool shape, handed back whole as updatedInput with only its command changed.
-  toolInput: Readonly<Record<string, unknown>>,
-): GuardVerdict {
-  const notes = [...(verdict.kind === "note" ? [verdict.text] : []), ...provenance.notes];
-  const text = notes.length === 0 ? null : notes.join("\n");
-
-  if (provenance.command !== stringField(toolInput, "command")) {
-    return {
-      kind: "rewrite",
-      updatedInput: { ...toolInput, command: provenance.command },
-      notes: text,
-    };
-  }
-
-  return text === null ? ALLOW : note(text);
 }
 
 async function pastDeadline(deadline: Deadline): Promise<null> {
