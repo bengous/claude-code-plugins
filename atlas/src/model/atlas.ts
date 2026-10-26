@@ -97,6 +97,12 @@ export type Node = Panel & {
    * rank, a sibling without one sits after every rank.
    */
   readonly rank?: number;
+  /**
+   * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
+   * phase picked, the page dims it and draws it dashed; a container is dimmed too once every node
+   * below it is. A node without a phase is never dimmed.
+   */
+  readonly phase?: string;
   readonly open?: readonly OpenPoint[];
   /** Drawn inside this node, packed in this order. */
   readonly children?: readonly Node[];
@@ -134,6 +140,12 @@ export type Link = {
    * link with a container end names the arrow, whose tags are its leaf links'.
    */
   readonly tags?: readonly string[];
+  /**
+   * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
+   * phase picked, the page dims it and draws it dashed, and an arrow once every link it stands
+   * for is. A link without a phase is never dimmed.
+   */
+  readonly phase?: string;
 };
 
 /** A map: the root of its tree and every link, wherever their ends sit in the tree. */
@@ -246,4 +258,10 @@ export type Config = {
    * large to show. Citations are neither verified nor opened when absent.
    */
   readonly sources?: { readonly root: string };
+  /**
+   * The work phases, in order, such as `["MVP", "Payments"]`: a node or a link names the one that
+   * brings it (`phase`), and the header's stepper picks one to dim what comes after it. None, and
+   * no stepper, when absent.
+   */
+  readonly phases?: readonly string[];
 };

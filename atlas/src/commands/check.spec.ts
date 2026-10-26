@@ -136,6 +136,33 @@ describe("validate", () => {
     ]);
   });
 
+  const PHASED = settingsOf({ ...CONFIG, phases: ["v1", "v2"] });
+
+  const phased = (nodePhase: string, linkPhase: string): AtlasMap =>
+    withLinks(
+      withNode(MAP, "orders", (n) => ({ ...n, phase: nodePhase })),
+      (l) => (l.from === "orders" && l.to === "db" ? { ...l, phase: linkPhase } : l),
+    );
+
+  test("a phase on a node or a link, among the config's phases, passes", () => {
+    expect(errorsOf(phased("v2", "v1"), PHASED)).toEqual([]);
+  });
+
+  test("a phase the config's phases do not list is rejected, on a node and on a link", () => {
+    expect(errorsOf(phased("v3", "V1"), PHASED)).toEqual([
+      'node orders: phase "v3" is not in the config\'s phases (v1, v2); name one of them, or add it to the phases',
+      'link orders → db: phase "V1" is not in the config\'s phases (v1, v2); name one of them, or add it to the phases',
+    ]);
+  });
+
+  test("a phase on a map whose config lists no phases is rejected, on a node and on a link", () => {
+    expect(errorsOf(phased("v1", "v1"))).toEqual([
+      'node orders: phase "v1", but the config lists no phases; list the work phases in order in the config\'s phases, or remove this one',
+      'link orders → db: phase "v1", but the config lists no phases; list the work phases in order in the config\'s phases, or remove this one',
+    ]);
+    expect(errorsOf(phased("v1", "v1"), settingsOf({ ...CONFIG, phases: [] }))).toHaveLength(2);
+  });
+
   test("an unknown id in see, seams or traps is rejected on the root and on any node", () => {
     const root = { ...MAP, root: { ...MAP.root, seams: [["nowhere", "x"]] as const } };
 

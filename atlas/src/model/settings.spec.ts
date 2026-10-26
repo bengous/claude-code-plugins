@@ -27,7 +27,15 @@ describe("settingsOf", () => {
       legend: WORDS.en.legend,
       headings: WORDS.en.headings,
       sources: null,
+      phases: [],
     });
+  });
+
+  test("a Config's work phases are kept in their order", () => {
+    expect(settingsOf({ title: "T", palette: {}, phases: ["v2", "v1"] }).phases).toEqual([
+      "v2",
+      "v1",
+    ]);
   });
 
   test("a Config's sources root is kept as written", () => {

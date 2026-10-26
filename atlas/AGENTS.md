@@ -47,7 +47,7 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
                      ratio, reading direction, tags, legend labels, panel headings, step words,
-                     sources root); the source of a map's atlas.d.ts
+                     sources root, work phases); the source of a map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
                      may name (labelsOf, folder.spec.ts); its sources root, a draft's from the
                      map it drafts (sourcesRootOf); run, it prints them with the paths the map
@@ -92,10 +92,10 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
 src/commands/        what cli.ts does to a map folder
   check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, a
                      rank on an outside node, the root's tour, see/seams/traps ids on every panel,
-                     a <cite> that reads as no citation, tags against the Config's, open points against its step words, and threads,
-                     and reports the open points; with the Config's sources, each cited file,
-                     read once as serve.ts reads it but for the size cap, and its lines, or the
-                     missing root in one line (check.spec.ts)
+                     a <cite> that reads as no citation, tags and phases against the Config's, open
+                     points against its step words, and threads, and reports the open points; with
+                     the Config's sources, each cited file, read once as serve.ts reads it but for
+                     the size cap, and its lines, or the missing root in one line (check.spec.ts)
   reply.ts           adds an entry to a thread of a map folder (reply.spec.ts)
   drafts.ts          a map folder's data files, and its drafts: made, adopted, dropped
 

@@ -35,6 +35,8 @@ export type Settings = {
   readonly headings: Readonly<Record<PanelHeading, string>>;
   /** The folder the citations name their paths from, relative to the map folder; null: none. */
   readonly sources: { readonly root: string } | null;
+  /** The work phases, in order; none: no stepper. */
+  readonly phases: readonly string[];
 };
 
 export const OPEN_COLOR: Swatch = { light: "#c2410c", dark: "#fb923c" };
@@ -148,6 +150,7 @@ export function settingsOf(config: Config): Settings {
     legend: { ...words.legend, ...config.legend },
     headings: { ...words.headings, ...config.headings },
     sources: config.sources ?? null,
+    phases: config.phases ?? [],
   };
 }
 
