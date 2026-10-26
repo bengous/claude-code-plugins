@@ -1569,8 +1569,34 @@ addEventListener("hashchange", () => {
   settle().catch(fail);
 });
 
-svg.addEventListener("click", () => {
-  backOut();
+// A label shown takes no pointer events, so a click on it reaches the sheet: it is found by where
+// it lies.
+function onArrow(e: MouseEvent): boolean {
+  if (e.target instanceof Element && e.target.closest(".flow, .flow-hit") !== null) {
+    return true;
+  }
+
+  const labels = heldOf(st, openOf(here()))?.arrows.flatMap(({ label }) => label ?? []) ?? [];
+
+  return labels.some((label) => {
+    const r = label.getBoundingClientRect();
+
+    return (
+      !label.classList.contains("illegible") &&
+      e.clientX >= r.left &&
+      e.clientX <= r.right &&
+      e.clientY >= r.top &&
+      e.clientY <= r.bottom
+    );
+  });
+}
+
+// On a journey, a click on an arrow, its band or its label is no click on the empty sheet: it
+// leaves nothing.
+svg.addEventListener("click", (e) => {
+  if (pageState.journey === null || !onArrow(e)) {
+    backOut();
+  }
 });
 
 // Every view is laid out again when the aspect of the drawing area moves by more than RELAYOUT
