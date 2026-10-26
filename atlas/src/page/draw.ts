@@ -16,6 +16,9 @@
 //    that overlaps the least (placement.ts). The drawing's extent covers the labels and the
 //    routes, so the camera frames them. On libavoid's failure (libavoid.wasm unreachable) the
 //    view is drawn without arrows and the panel says why: never block the page.
+// 4. Captions: the arrows' labels, the boxes' tags and the cards' sub-titles, which the engine
+//    hides while they are too small to read on screen (captionShown, zoom.ts), each keeping its
+//    spot; an arrow's path carries its whole label as a tooltip.
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
@@ -35,6 +38,7 @@ import {
   GHOST,
   LABEL,
   cardSize,
+  fontSize,
   labelSize,
   subLines,
   tagOf,
@@ -68,6 +72,18 @@ export type ArrowEl = {
   readonly g: SVGGElement;
   readonly path: SVGPathElement;
   readonly marker: string;
+  readonly label: SVGTextElement | null;
+};
+
+/**
+ * A text the engine hides while it is too small to read on screen (captionShown, zoom.ts): an
+ * arrow's label, a box's tag, a line of a card's sub-title. `size`: its font size in world units;
+ * `arrow`: the arrow it names, whose lit or hot state shows it.
+ */
+export type Caption = {
+  readonly text: SVGTextElement;
+  readonly size: number;
+  readonly arrow: ArrowEl | null;
 };
 
 export type Drawn = {
@@ -82,6 +98,7 @@ export type Drawn = {
   readonly rects: ReadonlyMap<string, Rect>;
   readonly items: Registry;
   readonly arrows: readonly ArrowEl[];
+  readonly captions: readonly Caption[];
   readonly avoidError: string | null;
 };
 
@@ -459,6 +476,7 @@ function drawChip(
   register(items, chip.id, g);
 }
 
+// Returns the box's tag, a caption.
 function drawBox(
   frames: SVGGElement,
   top: SVGGElement,
@@ -468,12 +486,12 @@ function drawBox(
   items: Registry,
   words: Words,
   pick: Pick,
-): void {
+): SVGTextElement {
   const cls = `box${box.column === null ? "" : " outside"}`;
   const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, frames);
   el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 10, class: "box-bg" }, g);
   text(g, { x: r.x + 16, y: r.y + 31, class: BOX.title }, box.label);
-  text(g, { x: r.x + 16, y: r.y + 48, class: BOX.tag }, tagOf(box.sub));
+  const tag = text(g, { x: r.x + 16, y: r.y + 48, class: BOX.tag }, tagOf(box.sub));
   openBadge(g, box.open, r.x + r.w - 16, r.y + 16, false);
   onActivate(g, words.zoneLabel(box.label), () => {
     pick({ type: "enter", id: box.id });
@@ -490,9 +508,18 @@ function drawBox(
 
     drawChip(top, chip, cell, r, items, pick);
   }
+
+  return tag;
 }
 
-function drawCard(layer: SVGGElement, box: LeafBox, r: Rect, items: Registry, pick: Pick): void {
+// Returns the lines of the card's sub-title, captions.
+function drawCard(
+  layer: SVGGElement,
+  box: LeafBox,
+  r: Rect,
+  items: Registry,
+  pick: Pick,
+): SVGTextElement[] {
   const lines = subLines(box.sub);
   const cls = `card${box.column === null ? "" : " outside"}${box.off ? " off" : ""}`;
   const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, layer);
@@ -502,16 +529,19 @@ function drawCard(layer: SVGGElement, box: LeafBox, r: Rect, items: Registry, pi
   const top = r.y + r.h / 2 - (CARD.ls + (lines.length > 0 ? 5 + lines.length * CARD.lh : 0)) / 2;
   text(g, { x: cx, y: top + CARD.ls * 0.8, class: CARD.lbl, "text-anchor": "middle" }, box.label);
 
-  for (const [i, line] of lines.entries()) {
+  const subs = lines.map((line, i) => {
     const y = top + CARD.ls + 5 + i * CARD.lh + CARD.ss * 0.85;
-    text(g, { x: cx, y, class: CARD.sub, "text-anchor": "middle" }, line);
-  }
+
+    return text(g, { x: cx, y, class: CARD.sub, "text-anchor": "middle" }, line);
+  });
 
   onActivate(g, box.label, () => {
     pick({ type: "select", id: box.id });
   });
 
   register(items, box.id, g);
+
+  return subs;
 }
 
 // A ghost drawn twice carries a mark at the edge its arrows cross, so the two pills read as one
@@ -552,6 +582,35 @@ function drawGhost(
 }
 
 // A shortened label answers the pointer with the whole text, as a tooltip.
+function drawLabel(
+  g: SVGGElement,
+  variants: readonly string[],
+  { spot, variant }: Spotted,
+): SVGTextElement {
+  const whole = variants[0] ?? "";
+  const shown = variants[variant] ?? whole;
+
+  const t = text(
+    g,
+    {
+      x: spot.x + spot.w / 2,
+      y: spot.y + LABEL.ascent,
+      class: LABEL.cls,
+      "text-anchor": "middle",
+    },
+    shown,
+  );
+
+  if (variant > 0) {
+    t.setAttribute("pointer-events", "auto");
+    el("title", {}, t).textContent = whole;
+  }
+
+  return t;
+}
+
+// The group takes no pointer events, its path's stroke does: it answers the pointer with the
+// arrow's whole text, as a tooltip, the one way left to read a label the engine hides.
 function drawArrow(
   layer: SVGGElement,
   arrow: Arrow,
@@ -561,30 +620,21 @@ function drawArrow(
 ): ArrowEl {
   const g = el("g", { class: `flow ${arrow.kind}`, "pointer-events": "none" }, layer);
   const path = arrowPath(g, rounded(pts, mode === "packed" ? 9 : 7), arrow.kind, arrow.two);
+  const variants = labelVariants(arrow, mode);
+  const [whole] = variants;
 
-  if (label !== null) {
-    const variants = labelVariants(arrow, mode);
-    const { spot, variant } = label;
-    const shown = variants[variant] ?? variants[0] ?? "";
-
-    const t = text(
-      g,
-      {
-        x: spot.x + spot.w / 2,
-        y: spot.y + LABEL.ascent,
-        class: LABEL.cls,
-        "text-anchor": "middle",
-      },
-      shown,
-    );
-
-    if (variant > 0) {
-      t.setAttribute("pointer-events", "auto");
-      el("title", {}, g).textContent = variants[0] ?? shown;
-    }
+  if (whole !== undefined) {
+    path.setAttribute("pointer-events", "visibleStroke");
+    el("title", {}, path).textContent = whole;
   }
 
-  return { arrow, g, path, marker: path.getAttribute("marker-end") ?? "" };
+  return {
+    arrow,
+    g,
+    path,
+    marker: path.getAttribute("marker-end") ?? "",
+    label: label === null ? null : drawLabel(g, variants, label),
+  };
 }
 
 export async function drawView(
@@ -610,6 +660,9 @@ export async function drawView(
   const arrowLayer = el("g", {}, layer);
   const top = el("g", {}, layer);
   const registry: Registry = new Map();
+  const captions: Caption[] = [];
+  const tagFont = fontSize(BOX.tag);
+  const subFont = fontSize(CARD.sub);
 
   const rectOf = (id: string): Rect => {
     const r = laid.rects.get(id);
@@ -626,12 +679,17 @@ export async function drawView(
 
     switch (item.figure.kind) {
       case "box": {
-        drawBox(frames, top, item.figure.box, item.figure.cells, r, registry, words, pick);
+        const { box, cells } = item.figure;
+        const tag = drawBox(frames, top, box, cells, r, registry, words, pick);
+        captions.push({ text: tag, size: tagFont, arrow: null });
         break;
       }
 
       case "card": {
-        drawCard(top, item.figure.box, r, registry, pick);
+        for (const sub of drawCard(top, item.figure.box, r, registry, pick)) {
+          captions.push({ text: sub, size: subFont, arrow: null });
+        }
+
         break;
       }
 
@@ -654,6 +712,14 @@ export async function drawView(
     return pts === null ? [] : [drawArrow(arrowLayer, a, mode, pts, laid.labels[i] ?? null)];
   });
 
+  const labelFont = fontSize(LABEL.cls);
+
+  for (const arrow of arrows) {
+    if (arrow.label !== null) {
+      captions.push({ text: arrow.label, size: labelFont, arrow });
+    }
+  }
+
   const rects = new Map(view.boxes.map((b): [string, Rect] => [b.id, rectOf(b.id)]));
 
   return {
@@ -665,6 +731,7 @@ export async function drawView(
     rects,
     items: registry,
     arrows,
+    captions,
     avoidError: laid.avoidError,
   };
 }

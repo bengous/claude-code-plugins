@@ -22,13 +22,23 @@ const measSvg = el(
 
 const probes = new Map<string, SVGTextElement>();
 
-export function textWidth(content: string, cls: string): number {
+function probeOf(cls: string): SVGTextElement {
   const probe = probes.get(cls) ?? el("text", { class: cls }, measSvg);
   probes.set(cls, probe);
+
+  return probe;
+}
+
+export function textWidth(content: string, cls: string): number {
+  const probe = probeOf(cls);
   probe.textContent = content;
 
   return probe.getComputedTextLength();
 }
+
+/** The font size atlas.html gives a text class, in world units. */
+export const fontSize = (cls: string): number =>
+  Number.parseFloat(getComputedStyle(probeOf(cls)).fontSize);
 
 /** A leaf's card: its label, then its subtitle lines. */
 export const CARD = {

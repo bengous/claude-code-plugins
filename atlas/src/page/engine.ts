@@ -38,7 +38,7 @@ import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
-import { panned, zoomed, zoomedIn } from "./zoom.ts";
+import { captionShown, panned, zoomed, zoomedIn } from "./zoom.ts";
 
 const { tree, settings } = drawableOf(map, config);
 
@@ -338,20 +338,47 @@ function paintLayer(layer: SVGGElement, op: number, transform: string): void {
   }
 }
 
+// A caption too small to read on screen hides, unless its arrow is lit or hot (captionShown): at
+// the fit of a busy view, labels and sub-titles would show at 7 or 8 px. Each layer keeps the
+// scale it was last painted at, which a hover or a selection reads.
+const scales = new WeakMap<SVGGElement, number>();
+
+function showCaptions(d: Drawn): void {
+  const scale = scales.get(d.layer);
+
+  if (scale === undefined) {
+    return;
+  }
+
+  for (const c of d.captions) {
+    const lit = c.arrow?.g.classList.contains("lit") ?? false;
+    const hot = c.arrow?.g.classList.contains("hot") ?? false;
+    c.text.classList.toggle("illegible", !captionShown(c.size, scale, lit, hot));
+  }
+}
+
+function paintView(d: Drawn, op: number, transform: string, scale: number): void {
+  paintLayer(d.layer, op, transform);
+  scales.set(d.layer, scale);
+  showCaptions(d);
+}
+
 // The layers painted last: a frame touches the image's own layers and hides those that left it.
 let painted = new Set<SVGGElement>();
 
+// The stage's width is read before the viewBox is written, so a frame forces no layout.
 function paint(img: Image): void {
+  const scale = svg.getBoundingClientRect().width / img.vb.w;
   svg.setAttribute("viewBox", `${img.vb.x} ${img.vb.y} ${img.vb.w} ${img.vb.h}`);
-  const own = drawn(img.space).layer;
-  paintLayer(own, img.op, "");
-  const now = new Set([own]);
+  const own = drawn(img.space);
+  paintView(own, img.op, "", scale);
+  const now = new Set([own.layer]);
 
   if (img.other !== null) {
     const s = between(img.other.space, img.space);
-    const other = drawn(img.other.space).layer;
-    paintLayer(other, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`);
-    now.add(other);
+    const other = drawn(img.other.space);
+    paintView(other, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`, scale * s.k);
+    now.add(other.layer);
   }
 
   for (const layer of painted) {
@@ -569,7 +596,8 @@ function moveTo(key: Key, from: Key): void {
   }
 }
 
-// Selecting a node lights its arrows and outlines its couplings, lifted to the view's items.
+// Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
+// lifted to the view's items.
 function highlight(d: Drawn, p: Place): void {
   const selected = p.selected;
   const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
@@ -593,10 +621,11 @@ function highlight(d: Drawn, p: Place): void {
   }
 
   d.layer.classList.toggle("selecting", selected !== null);
+  showCaptions(d);
 }
 
 // Arrows rest faded; hovering a box, a card, a chip or a pill lights the arrows that touch it and
-// fades the others further. The labels of a lit arrow stay readable.
+// fades the others further. The labels of a lit arrow stay readable, and show at any size.
 function hover(target: EventTarget | null): void {
   const d = heldOf(st, openOf(place));
 
@@ -619,6 +648,7 @@ function hover(target: EventTarget | null): void {
   }
 
   d.layer.classList.toggle("focusing", id !== null);
+  showCaptions(d);
 }
 
 svg.addEventListener("pointerover", (e) => {

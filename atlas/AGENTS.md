@@ -108,7 +108,8 @@ src/page/            what runs in the browser
                      through the boxes along their path, any number of levels at once
                      (camera.spec.ts)
   zoom.ts            the free look inside a view, pure: the camera's rect zoomed around a point
-                     or panned, kept within the rect that fits the view (zoom.spec.ts)
+                     or panned, kept within the rect that fits the view, and the captions a scale
+                     leaves readable (zoom.spec.ts)
   layout.ts          runs ELK's layered layout, flat, its rows wrapped to an aspect, a ghost held
                      to the first or the last layer (layout.spec.ts, which runs ELK under Bun)
   avoid.ts           runs libavoid (avoid.spec.ts)
@@ -206,6 +207,9 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
   bring the fit back before they do anything else, and a move to another view starts at its fit.
+- A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
+  hides, keeping its spot, unless its arrow is lit by a hover or hot from the selection
+  (`captionShown` in `zoom.ts`); an arrow's path carries its whole label as a tooltip.
 - The breadcrumb stays on one line: from five crumbs on, the levels between the root and the
   last two fold into `…`, their names in its tooltip (`foldedCrumbs` in `navigation.ts`).
 - A ghost drawn in both columns carries a `›` mark at the edge its arrows cross and a tooltip
