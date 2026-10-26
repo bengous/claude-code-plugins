@@ -1,8 +1,7 @@
-import { resolve } from "node:path";
-
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
 import { citationText, citedLines, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
+import { sourcesRootOf } from "../model/folder.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
 import type { Settings } from "../model/settings.ts";
@@ -180,17 +179,17 @@ export function checkMap(map: AtlasMap, config: Config, threads: unknown): strin
 }
 
 /**
- * Each citation of the map whose file the viewer would refuse (sourceText: not under the Config's
- * sources root, relative to the map folder `dir`, unreadable, over the cap, not text), or whose
+ * Each citation of the map whose file the viewer would refuse (sourceText: not under the sources
+ * root of the map folder `dir`, sourcesRootOf, unreadable, over the cap, not text), or whose
  * lines run past that file's end, as "<root | node id>: <field>: <citation>: <why>". None
  * without `sources`.
  */
 export function checkCitations(map: AtlasMap, config: Config, dir: string): string[] {
-  if (config.sources === undefined) {
+  const root = sourcesRootOf(dir, config);
+
+  if (root === null) {
     return [];
   }
-
-  const root = resolve(dir, config.sources.root);
 
   return mapCitations(map).flatMap(({ where, field, citation }) => {
     const cited = `${where}: ${field}: ${citationText(citation)}`;

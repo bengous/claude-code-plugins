@@ -49,9 +49,10 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      ratio, reading direction, tags, legend labels, panel headings, step words,
                      sources root); the source of a map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
-                     may name (labelsOf, folder.spec.ts); run, it prints them with the sources
-                     root and the paths the map cites (FolderLine), or refuses a folder the
-                     engine cannot draw, which serve.ts asks before each build
+                     may name (labelsOf, folder.spec.ts); its sources root, a draft's from the
+                     map it drafts (sourcesRootOf); run, it prints them with the paths the map
+                     cites (FolderLine), or refuses a folder the engine cannot draw, which
+                     serve.ts asks before each build
   settings.ts        the Config with its defaults filled in, refusing what the engine cannot use,
                      and the palette as the page's CSS custom properties (settings.spec.ts)
   drawable.ts        the tree and the settings a map folder makes, or why no view can show it:

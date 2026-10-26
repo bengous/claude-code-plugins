@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { FOLDER_LINE, folderLineOf, labelsOf, loadFolder, readFolderLine } from "./folder.ts";
+import {
+  FOLDER_LINE,
+  folderLineOf,
+  labelsOf,
+  loadFolder,
+  readFolderLine,
+  sourcesRootOf,
+} from "./folder.ts";
 import { treeOf } from "./tree.ts";
 
 const FIXTURES = join(import.meta.dir, "..", "..", "fixtures");
@@ -42,6 +49,23 @@ describe("folderLineOf", () => {
     expect(folderLineOf({ ...map, root }, config, CITATIONS).sources?.paths).not.toContain(
       "LICENSE",
     );
+  });
+
+  test("resolves a draft's sources root from the map it drafts, whose files the draft lacks", async () => {
+    const { map, config } = await loadFolder(CITATIONS);
+    const draft = join(CITATIONS, "drafts", "try");
+
+    expect(folderLineOf(map, config, draft).sources?.root).toBe(join(CITATIONS, "repo"));
+    expect(sourcesRootOf(draft, config)).toBe(join(CITATIONS, "repo"));
+  });
+
+  test("resolves the root of a folder named drafts/<name> that drafts no map from that folder", () => {
+    const lone = join(FIXTURES, "drafts", "lone");
+
+    expect(sourcesRootOf(lone, { title: "T", palette: {}, sources: { root: "repo" } })).toBe(
+      join(lone, "repo"),
+    );
+    expect(sourcesRootOf(lone, { title: "T", palette: {} })).toBeNull();
   });
 
   test("carries no sources for a map whose Config names none", async () => {

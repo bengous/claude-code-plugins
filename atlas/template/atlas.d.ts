@@ -233,8 +233,9 @@ export type Config = {
    */
   readonly headings?: Readonly<Partial<Record<PanelHeading, string>>>;
   /**
-   * The folder the map's citations name their paths from, `root` relative to the map folder, such
-   * as `".."` for the repository a map folder sits in. With it, `atlas check` verifies each
+   * The folder the map's citations name their paths from, `root` relative to the map folder (a
+   * draft's, to the map it drafts), such as `".."` for the repository a map folder sits in. With
+   * it, `atlas check` verifies each
    * `<cite>path:lines</cite>`: a text file at that path under the folder, of at most 1 MiB, every
    * line cited within it;
    * and a click on a citation's marker shows its lines in the panel. Citations are neither

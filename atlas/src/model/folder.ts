@@ -1,4 +1,5 @@
-import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { AtlasMap, Config } from "./atlas.ts";
 import { mapCitations } from "./citations.ts";
@@ -17,6 +18,9 @@ export const MAP_FILE = "map.ts";
 export const CONFIG_FILE = "atlas.config.ts";
 
 export const THREADS_FILE = "threads.json";
+
+/** The folder of a map folder that holds its drafts, `drafts/<name>`, each a map folder of its own. */
+export const DRAFTS = "drafts";
 
 export type Folder = { readonly map: AtlasMap; readonly config: Config };
 
@@ -46,21 +50,39 @@ export function labelsOf(tree: Tree): Record<string, string> {
   );
 }
 
+/**
+ * The folder the citations of the map folder `dir` start from: the Config's sources root,
+ * resolved from `dir`, or, for a draft (`<map>/drafts/<name>`, which copies the map's own files
+ * alone), from the map it drafts; null without `sources`.
+ */
+export function sourcesRootOf(dir: string, config: Config): string | null {
+  if (config.sources === undefined) {
+    return null;
+  }
+
+  const drafts = dirname(dir);
+  const drafted = dirname(drafts);
+  const isDraft = basename(drafts) === DRAFTS && existsSync(join(drafted, MAP_FILE));
+
+  return resolve(isDraft ? drafted : dir, config.sources.root);
+}
+
 /** What serve.ts knows of the map, which it never imports: the line this module prints. */
 export type FolderLine = {
   /** labelsOf: the ids a selection may name. */
   readonly labels: Readonly<Record<string, string>>;
   /**
-   * The Config's sources root, resolved from the map folder, and every path a citation or a `src`
-   * of the map names, the only ones the page may ask the lines of; null without `sources`.
+   * The map's sources root (sourcesRootOf), and every path a citation or a `src` of the map
+   * names, the only ones the page may ask the lines of; null without `sources`.
    */
   readonly sources: { readonly root: string; readonly paths: readonly string[] } | null;
 };
 
 export function folderLineOf(map: AtlasMap, config: Config, dir: string): FolderLine {
   const { tree } = drawableOf(map, config);
+  const root = sourcesRootOf(dir, config);
 
-  if (config.sources === undefined) {
+  if (root === null) {
     return { labels: labelsOf(tree), sources: null };
   }
 
@@ -69,10 +91,7 @@ export function folderLineOf(map: AtlasMap, config: Config, dir: string): Folder
     ...[map.root, ...tree.nodes.values()].flatMap(({ src }) => (src === undefined ? [] : [src])),
   ];
 
-  return {
-    labels: labelsOf(tree),
-    sources: { root: resolve(dir, config.sources.root), paths: [...new Set(named)].toSorted() },
-  };
+  return { labels: labelsOf(tree), sources: { root, paths: [...new Set(named)].toSorted() } };
 }
 
 // The map's code shares this process's stdout and may print to it: the line is marked.

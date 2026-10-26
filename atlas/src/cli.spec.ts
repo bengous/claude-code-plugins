@@ -225,6 +225,13 @@ describe("check", () => {
       "node browser: lead: client.txt:9: 9 ends past line 3, the last of client.txt\n",
     );
     expect(run.stderr).toBe("check: map failed\n");
+
+    const draft = cli("draft", dir, "try").stdout.trim();
+    const drafted = cli("check", draft);
+
+    expect(failedReport(drafted.stdout, "map")).toBe(
+      "node browser: lead: client.txt:9: 9 ends past line 3, the last of client.txt\n",
+    );
   });
 
   test("reports a stale atlas.d.ts, which oxlint and oxfmt leave alone, and sync makes it current", async () => {

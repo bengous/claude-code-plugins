@@ -11,7 +11,6 @@ import { dirname, join, resolve } from "node:path";
 
 import { checkCitations, checkMap, openReport } from "./commands/check.ts";
 import {
-  DRAFTS,
   DraftError,
   TSCONFIG_FILE,
   TYPES_FILE,
@@ -26,7 +25,7 @@ import { ReplyError, appendReply } from "./commands/reply.ts";
 import { InventoryError, inventoryOf, printed, summaryOf } from "./inventory/inventory.ts";
 import type { Link, Node } from "./model/atlas.ts";
 import { drawableOf } from "./model/drawable.ts";
-import { MAP_FILE, THREADS_FILE, loadFolder } from "./model/folder.ts";
+import { DRAFTS, MAP_FILE, THREADS_FILE, loadFolder } from "./model/folder.ts";
 import { WHO, openItems, readThreads } from "./model/threads.ts";
 import type { Tree } from "./model/tree.ts";
 import { chainOf, couplingsOf, nodeOf } from "./model/tree.ts";

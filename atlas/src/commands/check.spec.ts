@@ -401,6 +401,10 @@ describe("checkCitations, with the Config's sources", () => {
     }
   });
 
+  test("passes the fixture checked as a draft of it, its sources root the map's", () => {
+    expect(checkCitations(CITED, CITED_CONFIG, join(CITATIONS, "drafts", "try"))).toEqual([]);
+  });
+
   test("verifies no citation without sources", () => {
     const { sources: _, ...unsourced } = CITED_CONFIG;
     const gone = citing((n) => ({ ...n, lead: "Gone <cite>orders/gone.go:9999</cite>." }));
