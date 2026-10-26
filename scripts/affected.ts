@@ -66,7 +66,9 @@ const PULL_REQUEST_BASE = "HEAD^1";
 
 const GATES_ONLY = ["docs/", ".claude-plugin/", ".claude/rules/"];
 
-const EVERYTHING = ["scripts/", "tools/", ".github/", ".lefthook/", ".claude/"];
+// `vellum/types/` is the engine contract every hooks module compiles against, and its first line
+// pins the Claude Code build every module's kit runs on in CI.
+const EVERYTHING = ["scripts/", "tools/", ".github/", ".lefthook/", ".claude/", "vellum/types/"];
 
 const COMMANDS = ["test", "github-output", "print"] as const;
 

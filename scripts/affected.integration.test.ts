@@ -38,6 +38,7 @@ describe("classify", () => {
     ["todos/hooks/scan.ts", { kind: "unit", unit: "todos" }],
     ["session-archive/session-archive.ts", { kind: "unit", unit: "session-archive" }],
     ["vellum/README.md", { kind: "unit", unit: "vellum" }],
+    ["vellum/types/claude-code.d.ts", { kind: "all" }],
   ];
 
   test.each(rows)("%s", (path, expected) => {
