@@ -537,6 +537,26 @@
         "open-points"
       ],
       "source": "./atlas"
+    },
+    {
+      "name": "wrap-archive",
+      "description": "Offers to archive a Desktop session whose task looks finished: after a turn you prompted ends with an answer, a small model judges the task done or not, and a band above the prompt asks Archive or Keep; nothing is archived without a click, and the session's model never sees the judgment",
+      "version": "0.1.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "archive",
+        "sessions",
+        "desktop",
+        "mod",
+        "function-hooks",
+        "band"
+      ],
+      "source": "./wrap-archive"
     }
   ],
   "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"

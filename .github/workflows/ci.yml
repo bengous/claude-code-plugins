@@ -151,6 +151,14 @@ jobs:
         if: contains(fromJSON(steps.scope.outputs.kits), 'atlas')
         run: claude plugin test atlas
 
+      - name: Validate the wrap-archive hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'wrap-archive')
+        run: claude plugin validate wrap-archive
+
+      - name: Test the wrap-archive hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'wrap-archive')
+        run: claude plugin test wrap-archive
+
       # main is a delayed fast-forward pointer on dev's history: releases move it
       # with `git push origin dev:main`. Fail loudly if main ever leaves that line.
       - name: Guard main as a strict prefix of dev

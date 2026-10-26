@@ -1,2 +1,2 @@
 [test]
-pathIgnorePatterns = ["vellum/**/*.test.ts", "todos/**/*.test.ts", "secret-pane/**/*.test.ts", "pinpoint/**/*.test.ts", "atlas/**/*.test.ts", "archive/**"]
+pathIgnorePatterns = ["vellum/**/*.test.ts", "todos/**/*.test.ts", "secret-pane/**/*.test.ts", "pinpoint/**/*.test.ts", "atlas/**/*.test.ts", "wrap-archive/**/*.test.ts", "archive/**"]
