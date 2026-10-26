@@ -147,7 +147,9 @@ pull request.
   the landing guard's.
 - Haiku with no answer (no `claude` on PATH, an error exit, an unreadable answer twice, no time left before
   the hook's deadline) lets the commit through, with a `systemMessage` that starts with `agent-hooks:`. A
-  commit Haiku passes is silent. Each judged commit waits for Haiku's answer, after the landing guard's.
+  commit Haiku passes is silent. Haiku runs beside the landing guard, so a judged commit waits for the longer
+  of the two; a refusal the guard's refusal hid is not kept. A long option is read by any unique prefix, as
+  git reads it (`--mess=…`).
 
 ## Reading a Stop
 

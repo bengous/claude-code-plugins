@@ -84,10 +84,22 @@ describe("commitMessageOf", () => {
     expect(commitMessageOf(["-m", "$MSG"], null, LITERAL).opaque).toBe(false);
   });
 
+  test("reads a long option by any unique prefix, as git does", () => {
+    expect(commitMessageOf(["--mess=fix: a"], null, LITERAL).message).toBe("fix: a");
+    expect(commitMessageOf(["--mes", "fix: a"], null, LITERAL).message).toBe("fix: a");
+    expect(commitMessageOf(["--am", "--no-e"], null, LITERAL).form).toBe("kept");
+    expect(commitMessageOf(["--am", "-m", "fix: b"], null, LITERAL).form).toBe("amend");
+    expect(commitMessageOf(["--dry", "-m", "x"], null, LITERAL).form).toBe("kept");
+    expect(
+      commitMessageOf(["-m", "fix: a", "--trai", "Reviewed-by: an agent"], null, LITERAL).message,
+    ).toBe("fix: a\n\nReviewed-by: an agent");
+  });
+
   test("takes the index, or the tracked files on disk for -a and pathspecs", () => {
     expect(commitMessageOf(["-qm", "x"], null, LITERAL).takes).toBe("staged");
     expect(commitMessageOf(["-am", "x"], null, LITERAL).takes).toBe("worktree");
     expect(commitMessageOf(["--all", "-m", "x"], null, LITERAL).takes).toBe("worktree");
+    expect(commitMessageOf(["--al", "-m", "x"], null, LITERAL).takes).toBe("worktree");
     expect(commitMessageOf(["-m", "x", "a.ts"], null, LITERAL).takes).toBe("worktree");
     expect(commitMessageOf(["-m", "x", "--", "a.ts"], null, LITERAL).takes).toBe("worktree");
   });

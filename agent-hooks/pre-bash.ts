@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { Fault, Judgment } from "./commit-judge.ts";
 import { commitMessageOf, judge, judgeRefusal } from "./commit-judge.ts";
-import type { Approval, LandingProfile } from "./config.ts";
+import type { Approval, CommitMessagesMode, LandingProfile } from "./config.ts";
 import {
   ConfigError,
   configPath,
@@ -733,6 +733,20 @@ type Judged = {
 };
 
 /**
+ * Records the judge's refusals and gives its verdict. Called only once the landing guard let the line through: a
+ * refusal the agent never saw must not let the same message pass unjudged later.
+ */
+type Settle = () => GuardVerdict;
+
+/** What `git diff` lists for the commits of one line in one checkout: read once, before the line runs. */
+function filesOf(dir: string, location: readonly string[], takes: "staged" | "worktree"): string[] {
+  const args =
+    takes === "staged" ? ["diff", "--cached", "--name-only"] : ["diff", "--name-only", "HEAD"];
+
+  return (git(dir, location, args) ?? "").split("\n").filter(Boolean);
+}
+
+/**
  * Has Haiku judge the message of each `git commit` the line runs as written in a repository whose profile asks for
  * it: refused when a message tells how the change came about or how it was checked. A message once refused to this
  * agent passes unjudged from then on: the refusal holds once, and a rerun that fails later (a red pre-commit, a
@@ -745,11 +759,13 @@ async function judgeCommits(
   input: Input,
   deadline: Deadline,
   runner: Runner,
-): Promise<GuardVerdict> {
+): Promise<Settle> {
   const notes = new Set<string>();
   const key = stateKey(input);
   let refusedBefore: readonly string[] | null = null;
   const judged: Judged[] = [];
+  const profiles = new Map<string, KeyRead<CommitMessagesMode> | null>();
+  const filesByCheckout = new Map<string, string[]>();
 
   for (const commit of commitsOf(command, cwd)) {
     const written = commitMessageOf(commit.git.args, commit.heredoc, commit);
@@ -771,8 +787,14 @@ async function judgeCommits(
       continue;
     }
 
-    const root = rootOf(dir, commit.git.location);
-    const read = root === null ? null : keyRead(root, loadCommitMessages);
+    const checkout = `${dir}\u0000${commit.git.location.join("\u0000")}`;
+
+    if (!profiles.has(checkout)) {
+      const root = rootOf(dir, commit.git.location);
+      profiles.set(checkout, root === null ? null : keyRead(root, loadCommitMessages));
+    }
+
+    const read = profiles.get(checkout) ?? null;
 
     if (read === null || read.kind === "absent") {
       continue;
@@ -801,20 +823,15 @@ async function judgeCommits(
       continue;
     }
 
-    const files =
-      git(
-        dir,
-        commit.git.location,
-        written.takes === "staged"
-          ? ["diff", "--cached", "--name-only"]
-          : ["diff", "--name-only", "HEAD"],
-      ) ?? "";
+    if (deadline.remaining() === 0) {
+      notes.add("agent-hooks: a commit went unjudged: no time left before the hook's deadline");
+      continue;
+    }
 
-    judged.push({
-      message,
-      hash,
-      judgment: judge(message, files.split("\n").filter(Boolean), deadline, runner),
-    });
+    const filesKey = `${checkout}\u0000${written.takes}`;
+    const files = filesByCheckout.get(filesKey) ?? filesOf(dir, commit.git.location, written.takes);
+    filesByCheckout.set(filesKey, files);
+    judged.push({ message, hash, judgment: judge(message, files, deadline, runner) });
   }
 
   const refused: { message: string; hash: string; faults: readonly Fault[] }[] = [];
@@ -829,29 +846,36 @@ async function judgeCommits(
     }
   }
 
-  if (refused.length > 0) {
-    try {
-      saveRefused(key, [
-        ...new Set([...(refusedBefore ?? []), ...refused.map(({ hash }) => hash)]),
-      ]);
-    } catch (error) {
-      const why = error instanceof Error ? error.message : String(error);
+  return () => settled(key, refusedBefore ?? [], refused, notes);
+}
 
-      // A refusal its rerun cannot get past would refuse a legitimate message forever.
-      notes.add(
+function settled(
+  key: string,
+  refusedBefore: readonly string[],
+  refused: readonly { message: string; hash: string; faults: readonly Fault[] }[],
+  notes: ReadonlySet<string>,
+): GuardVerdict {
+  const noted = [...notes];
+
+  if (refused.length === 0) {
+    return noted.length === 0 ? ALLOW : note(noted.join("\n"));
+  }
+
+  try {
+    saveRefused(key, [...new Set([...refusedBefore, ...refused.map(({ hash }) => hash)])]);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+
+    // A refusal its rerun cannot get past would refuse a legitimate message forever.
+    return note(
+      [
+        ...noted,
         `agent-hooks: the commit judge refused a message but could not save the refusal (${why}): the commit passed`,
-      );
-      refused.length = 0;
-    }
+      ].join("\n"),
+    );
   }
 
-  const noted = [...notes].join("\n");
-
-  if (refused.length > 0) {
-    return refusal(noted === "" ? judgeRefusal(refused) : `${judgeRefusal(refused)}\n${noted}`);
-  }
-
-  return noted === "" ? ALLOW : note(noted);
+  return refusal([judgeRefusal(refused), ...noted].join("\n"));
 }
 
 const UNSEEN_MESSAGE =
@@ -989,22 +1013,20 @@ export async function runPreBash(
 
     const cwd = stringField(payload, "cwd") ?? process.cwd();
 
+    const judging =
+      input === null ? null : judgeCommitsOf(command, cwd, input, deadline, options.runner ?? run);
+
     const verdict =
       (await Promise.race([judgeLine(command, cwd, context, 0), pastDeadline(deadline)])) ??
       note(
         `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
       );
 
-    if (verdict.kind === "deny" || input === null) {
+    if (verdict.kind === "deny" || judging === null) {
       return encodeGuard(verdict);
     }
 
-    return encodeGuard(
-      combine([
-        verdict,
-        await judgeCommitsOf(command, cwd, input, deadline, options.runner ?? run),
-      ]),
-    );
+    return encodeGuard(combine([verdict, (await judging)()]));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -1014,21 +1036,36 @@ export async function runPreBash(
   }
 }
 
-/** `judgeCommits`, whose crash lets the commits through with a note and never costs the guard's verdict. */
+/**
+ * `judgeCommits`, started beside the landing guard so Haiku's wait overlaps the guard's lookups. Its crash lets the
+ * commits through with a note and never costs the guard's verdict.
+ */
 async function judgeCommitsOf(
   command: string,
   cwd: string,
   input: Input,
   deadline: Deadline,
   runner: Runner,
-): Promise<GuardVerdict> {
+): Promise<Settle> {
   try {
-    return await judgeCommits(command, cwd, input, deadline, runner);
+    const settle = await judgeCommits(command, cwd, input, deadline, runner);
+
+    return () => {
+      try {
+        return settle();
+      } catch (error) {
+        return judgeCrashed(error instanceof Error ? error.message : String(error));
+      }
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
-    return note(`agent-hooks: the commit judge crashed (${message}): the commit passed`);
+    return () => judgeCrashed(message);
   }
+}
+
+function judgeCrashed(message: string): GuardVerdict {
+  return note(`agent-hooks: the commit judge crashed (${message}): the commit passed`);
 }
 
 async function pastDeadline(deadline: Deadline): Promise<null> {

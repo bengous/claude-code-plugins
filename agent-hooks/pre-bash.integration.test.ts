@@ -1284,8 +1284,9 @@ describe("pre-bash outside the doors", () => {
  * read and counts its calls; exits 1 while `claude.fail` exists.
  */
 const FAKE_CLAUDE = `#!/bin/sh
-cat > "$FAKE_GH_DIR/claude.input"
-input=$(cat "$FAKE_GH_DIR/claude.input")
+input=$(cat; echo .)
+input=\${input%.}
+printf '%s' "$input" > "$FAKE_GH_DIR/claude.input"
 echo call >> "$FAKE_GH_DIR/claude.calls"
 [ -f "$FAKE_GH_DIR/claude.fail" ] && exit 1
 case "$input" in
@@ -1442,7 +1443,7 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     expect(judgeInput()).toBeNull();
   });
 
-  test("a refusal of the landing guard in the same line wins, before any judge", async () => {
+  test("a refusal of the landing guard wins, and the judge's refusal it hid is not remembered", async () => {
     writeRepoFile(
       repo,
       CONFIG_RELATIVE_PATH,
@@ -1457,7 +1458,7 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     );
 
     expect(refused.reason).toStartWith("agent-hooks: a push to 'main' moves the release");
-    expect(judgeInput()).toBeNull();
+    expect(existsSync(path.join(temp.stateDir, `${SESSION}.refused`))).toBe(false);
     expect(
       (await preBash("git commit -qm 'review of #1' && git push origin dev", repo)).reason,
     ).toBe(REFUSAL);

@@ -61,6 +61,94 @@ const VALUE_OPTIONS = new Set([
   "--pathspec-from-file",
 ]);
 
+/** The long options of `git commit`, as `git commit --git-completion-helper` lists them: git takes any unique prefix. */
+const LONG_OPTIONS = [
+  "--quiet",
+  "--verbose",
+  "--file",
+  "--author",
+  "--date",
+  "--message",
+  "--reedit-message",
+  "--reuse-message",
+  "--fixup",
+  "--squash",
+  "--reset-author",
+  "--trailer",
+  "--signoff",
+  "--template",
+  "--edit",
+  "--cleanup",
+  "--status",
+  "--gpg-sign",
+  "--all",
+  "--include",
+  "--interactive",
+  "--patch",
+  "--unified",
+  "--inter-hunk-context",
+  "--only",
+  "--no-verify",
+  "--dry-run",
+  "--short",
+  "--branch",
+  "--ahead-behind",
+  "--porcelain",
+  "--long",
+  "--null",
+  "--amend",
+  "--no-post-rewrite",
+  "--untracked-files",
+  "--pathspec-from-file",
+  "--pathspec-file-nul",
+  "--verify",
+  "--post-rewrite",
+  "--no-quiet",
+  "--no-verbose",
+  "--no-file",
+  "--no-author",
+  "--no-date",
+  "--no-message",
+  "--no-reedit-message",
+  "--no-reuse-message",
+  "--no-fixup",
+  "--no-squash",
+  "--no-reset-author",
+  "--no-trailer",
+  "--no-signoff",
+  "--no-template",
+  "--no-edit",
+  "--no-cleanup",
+  "--no-status",
+  "--no-gpg-sign",
+  "--no-all",
+  "--no-include",
+  "--no-interactive",
+  "--no-patch",
+  "--no-only",
+  "--no-dry-run",
+  "--no-short",
+  "--no-branch",
+  "--no-ahead-behind",
+  "--no-porcelain",
+  "--no-long",
+  "--no-null",
+  "--no-amend",
+  "--no-untracked-files",
+  "--no-pathspec-from-file",
+  "--no-pathspec-file-nul",
+];
+
+/**
+ * The long option `name` stands for: itself, or the one option it is a prefix of. An ambiguous prefix is left as it
+ * is: git refuses it, and no commit runs.
+ */
+function longOption(name: string): string {
+  const matches = LONG_OPTIONS.filter((option) => option.startsWith(name));
+
+  return LONG_OPTIONS.includes(name) || matches.length !== 1 ? name : (matches[0] ?? name);
+}
+
 /** Short options of `git commit` that take a value, attached or as the next word. */
 const SHORT_VALUE_OPTIONS = new Set(["m", "F", "C", "c", "t"]);
 
@@ -130,11 +218,15 @@ export function commitMessageOf(
       break;
     }
 
-    none ||= NO_COMMIT.has(arg.split("=")[0] ?? arg);
+    const equals = arg.indexOf("=");
+
+    const name = arg.startsWith("--")
+      ? longOption(equals === -1 ? arg : arg.slice(0, equals))
+      : arg;
+
+    none ||= NO_COMMIT.has(arg.startsWith("--") ? name : (arg.split("=")[0] ?? arg));
 
     if (arg.startsWith("--")) {
-      const equals = arg.indexOf("=");
-      const name = equals === -1 ? arg : arg.slice(0, equals);
       amend ||= name === "--amend";
       noEdit ||= name === "--no-edit";
       all ||= name === "--all";
