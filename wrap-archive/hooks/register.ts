@@ -1,20 +1,13 @@
 import type { EngineInterface, PromptSubmitInput, Register, TurnCompleteInput } from "claude-code";
 import { atom, read, update } from "claude-code";
 
-import type { Phase, RecordedPrompt } from "../types/index.d.ts";
+const phaseState = atom({ plugin: "wrap-archive", key: "phase" } as const, "idle");
 
-const IDLE: Phase = "idle";
-
-const NO_PROMPT: RecordedPrompt | null = null;
-
-const phaseState = atom({ plugin: "wrap-archive", key: "phase" } as const, IDLE);
-
-const promptState = atom({ plugin: "wrap-archive", key: "prompt" } as const, NO_PROMPT);
+const promptState = atom({ plugin: "wrap-archive", key: "prompt" } as const, null);
 
 const isProbedState = atom({ plugin: "wrap-archive", key: "isProbed" } as const, false);
 
-// The desktop app's session tools, as `$.mcp.call` names their server.
-const APP_SERVER = "ccd_session_mgmt";
+const DESKTOP_SESSION_SERVER = "ccd_session_mgmt";
 
 const JUDGE_MODEL = "haiku";
 
@@ -31,7 +24,11 @@ const JUDGE_SYSTEM = [
   "not_done: the answer asks the user a question, presents a plan awaiting approval, proposes a follow-up or next step, reports partial work or a failure, or you cannot tell.",
 ].join("\n");
 
+const DONE_VERDICT = /^done[.!]?$/iu;
+
 let judge: AbortController | undefined;
+
+let isArchiving = false;
 
 function isPersons(e: PromptSubmitInput): boolean {
   return (e.origin.kind === "composer" || e.origin.kind === "bridge") && e.isMeta !== true;
@@ -50,7 +47,7 @@ function judgePrompt(prompt: string, answer: string): string {
 
 async function isArchiveReachable($: EngineInterface): Promise<boolean> {
   try {
-    const result = await $.mcp.call(APP_SERVER, "get_session", { session_id: "self" });
+    const result = await $.mcp.call(DESKTOP_SESSION_SERVER, "get_session", { session_id: "self" });
 
     return !result.isError;
   } catch {
@@ -59,51 +56,58 @@ async function isArchiveReachable($: EngineInterface): Promise<boolean> {
   }
 }
 
+// `judge` is set before the first await, so a person's prompt landing during any of them withdraws this run.
 async function evaluate($: EngineInterface, e: TurnCompleteInput): Promise<void> {
-  if ((await read($, phaseState)) !== "idle") return;
-  const prompt = await read($, promptState);
-
-  if (prompt === null || !prompt.isPersons) return;
-
-  if (!(await read($, isProbedState))) {
-    await update($, isProbedState, () => true);
-
-    if (!(await isArchiveReachable($))) {
-      await update($, phaseState, () => "inert");
-
-      return;
-    }
-  }
-
   const controller = new AbortController();
 
   judge = controller;
-  await update($, phaseState, () => "judging");
+  const isWithdrawn = () => judge !== controller;
 
-  const verdict = await $.model.complete(
-    {
-      model: JUDGE_MODEL,
-      system: JUDGE_SYSTEM,
-      prompt: judgePrompt(prompt.text, e.answer),
-      effort: "low",
-      maxTokens: JUDGE_MAX_TOKENS,
-      timeoutMs: JUDGE_TIMEOUT_MS,
-    },
-    { signal: controller.signal },
-  );
+  try {
+    if ((await read($, phaseState)) !== "idle" || isWithdrawn()) return;
+    const prompt = await read($, promptState);
 
-  if (judge !== controller) return;
-  judge = undefined;
-  const isDone = verdict.isAnswered && verdict.text.trim() === "done";
+    if (prompt === null || isWithdrawn()) return;
 
-  await update($, phaseState, (phase) =>
-    phase === "judging" ? (isDone ? "offering" : "idle") : phase,
-  );
+    if (!(await read($, isProbedState))) {
+      await update($, isProbedState, () => true);
 
-  if (!verdict.isAnswered && verdict.reason === "api-error") {
-    $.ui.status(
-      `wrap-archive: the judge failed (${verdict.error}, status ${String(verdict.status)})`,
+      if (!(await isArchiveReachable($))) {
+        await update($, phaseState, () => "inert");
+
+        return;
+      }
+    }
+
+    if (isWithdrawn()) return;
+    await update($, phaseState, () => "judging");
+
+    const verdict = await $.model.complete(
+      {
+        model: JUDGE_MODEL,
+        system: JUDGE_SYSTEM,
+        prompt: judgePrompt(prompt, e.answer),
+        effort: "low",
+        maxTokens: JUDGE_MAX_TOKENS,
+        timeoutMs: JUDGE_TIMEOUT_MS,
+      },
+      { signal: controller.signal },
     );
+
+    if (isWithdrawn()) return;
+    const isDone = verdict.isAnswered && DONE_VERDICT.test(verdict.text.trim());
+
+    await update($, phaseState, (phase) =>
+      phase === "judging" ? (isDone ? "offering" : "idle") : phase,
+    );
+
+    if (!verdict.isAnswered && verdict.reason === "api-error") {
+      $.ui.status(
+        `wrap-archive: the judge failed (${verdict.error}, status ${String(verdict.status)})`,
+      );
+    }
+  } finally {
+    if (judge === controller) judge = undefined;
   }
 }
 
@@ -123,18 +127,23 @@ function contentText(content: readonly { type: string; text?: string }[]): strin
 }
 
 async function archive($: EngineInterface): Promise<void> {
+  if (isArchiving) return;
+  isArchiving = true;
+
   try {
-    const result = await $.mcp.call(APP_SERVER, "archive_session", {
+    await update($, phaseState, () => "quiet");
+
+    const result = await $.mcp.call(DESKTOP_SESSION_SERVER, "archive_session", {
       session_id: "self",
       reason: "wrap-archive: task finished",
     });
 
     // The app answers before it stops an archived session, so its words show either way, a refusal's too.
-    await update($, phaseState, () => "quiet");
     $.ui.status(`wrap-archive: ${contentText(result.content) || "the session was not archived"}`);
   } catch (error) {
-    await update($, phaseState, () => "quiet");
     $.ui.status(`wrap-archive: the archive call failed: ${String(error)}`);
+  } finally {
+    isArchiving = false;
   }
 }
 
@@ -151,10 +160,14 @@ export const register: Register = (on) => {
       judge?.abort();
       judge = undefined;
       await update($, phaseState, (phase) => (phase === "inert" ? phase : "idle"));
-      await update($, promptState, () => ({ text: e.text, isPersons: true }));
+
+      // Typed over a running turn, the prompt joins the request that turn answers.
+      await update($, promptState, (prompt) =>
+        e.turnId !== undefined && prompt !== null ? `${prompt}\n\n${e.text}` : e.text,
+      );
       $.ui.status(undefined);
     } else if (e.turnId === undefined) {
-      await update($, promptState, () => ({ text: "", isPersons: false }));
+      await update($, promptState, () => null);
     }
 
     return next(e);
@@ -170,7 +183,8 @@ export const register: Register = (on) => {
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
-    if (e.props.hasSurvey || (await read($, phaseState)) !== "offering") return next(e);
+    if (e.props.hasSurvey || e.props.isWorking || (await read($, phaseState)) !== "offering")
+      return next(e);
     const { Box, Button, Text } = $.ui.resolve(e);
 
     const band = Box({
