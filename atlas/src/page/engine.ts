@@ -781,7 +781,7 @@ function hover(target: EventTarget | null): void {
 // lighting what it hovers.
 function focusedItem(): Element | null {
   const active = document.activeElement;
-  const layer = heldOf(st, openOf(place))?.layer;
+  const layer = heldOf(st, openOf(here()))?.layer;
 
   return active !== null && layer?.contains(active) === true && active.matches(":focus-visible")
     ? active
@@ -1169,6 +1169,10 @@ function keepingPanelFocus(keys: readonly string[], move: () => void): void {
 // or to the other one when that copy is disabled.
 const NAV_KEYS = ["data-nav"];
 
+// Leaving a journey: the focus goes to the first marker or button that moves the reader in the
+// panel of the place it started from, not to its reply fields, where Escape and the arrows type.
+const LEAVE_KEYS = ["data-leave", "data-cite", "data-go"];
+
 // The step before or after the one shown, while there is one.
 function stepBy(delta: number): void {
   const played = journeyOf(tree, pageState.journey);
@@ -1432,7 +1436,7 @@ panel.addEventListener("click", (e) => {
       play(pageState.journey, Number(step.dataset["step"]));
     });
   } else if (e.target.closest("[data-leave]") !== null) {
-    leave();
+    keepingPanelFocus(LEAVE_KEYS, leave);
   }
 });
 
