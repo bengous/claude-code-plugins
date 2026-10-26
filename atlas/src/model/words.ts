@@ -10,6 +10,9 @@ export type Words = {
   readonly fitButton: string;
   readonly legendButton: string;
   readonly panelButton: string;
+  /** The header's toggle that shows each citation in full instead of its lines' marker. */
+  readonly sourcesButton: string;
+  readonly sourcesTitle: string;
   readonly hint: string;
   /** The tooltip of each copy of a node drawn twice, in both columns. */
   readonly copies: {
@@ -44,6 +47,8 @@ const fr: Words = {
   fitButton: "Ajuster",
   legendButton: "Légende",
   panelButton: "Panneau",
+  sourcesButton: "Sources",
+  sourcesTitle: "Montrer chaque citation en entier, son chemin avec ses lignes",
   hint: "clic sur une boîte pour y entrer, sur une carte pour la choisir · molette pour zoomer, glisser pour déplacer · Échap ou clic sur le fond pour remonter",
   copies: {
     source: (label) => `${label} — ses flèches partent d'ici`,
@@ -99,6 +104,8 @@ const en: Words = {
   fitButton: "Fit",
   legendButton: "Legend",
   panelButton: "Panel",
+  sourcesButton: "Sources",
+  sourcesTitle: "Show each citation in full, its path with its lines",
   hint: "click a box to enter it, a card to select it · wheel to zoom, drag to pan · Escape or a click on the background to go up",
   copies: {
     source: (label) => `${label} — its arrows leave from here`,

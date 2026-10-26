@@ -20,7 +20,9 @@ export type Side = "in" | "out" | "both";
 
 /**
  * The panel's content, in the order the panel shows it. Its text is HTML (<code>), but for
- * `kicker`, `facts`, `src` and the first of each `io` pair, which the panel shows as written.
+ * `kicker`, `facts`, `src` and the first of each `io` pair, which the panel shows as written. A
+ * `<cite>path:lines</cite>` (lines `12`, `12-30`, or a comma list of those) shows as a marker of
+ * its lines, the whole citation as its tooltip.
  */
 export type Panel = {
   /** A small mono line above the title: the source file and lines. */

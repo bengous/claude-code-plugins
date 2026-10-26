@@ -85,25 +85,32 @@ function htmlFields(panel: Shown): [string, string][] {
 const nodesOf = (nodes: readonly Node[]): Node[] =>
   nodes.flatMap((node) => [node, ...nodesOf(node.children ?? [])]);
 
-/**
- * Each piece of markup a panel would not keep in the map's HTML fields, an open point's text
- * among them, as "<root | node id>: <field>: <tag> …".
- */
-export function mapMarkupFaults(map: AtlasMap): string[] {
+/** One HTML field of a panel of the map: `where` is "root" or "node <id>". */
+export type HtmlField = { readonly where: string; readonly field: string; readonly text: string };
+
+/** Every HTML field of the map's panels, an open point's text among them, in panel order. */
+export function mapHtmlFields(map: AtlasMap): HtmlField[] {
   const panels: [string, Shown][] = [
     ["root", map.root],
     ...nodesOf(map.root.children).map((node): [string, Shown] => [`node ${node.id}`, node]),
   ];
 
   return panels.flatMap(([where, panel]) =>
-    htmlFields(panel).flatMap(([field, text]) =>
-      markupFaults(text).map(
-        (tag) =>
-          `${where}: ${field}: ${tag} is not markup a panel keeps (${KEPT_TAGS.join(", ")}, with no attribute)`,
-      ),
-    ),
+    htmlFields(panel).map(([field, text]) => ({ where, field, text })),
   );
 }
+
+/**
+ * Each piece of markup a panel would not keep in the map's HTML fields, an open point's text
+ * among them, as "<root | node id>: <field>: <tag> …".
+ */
+export const mapMarkupFaults = (map: AtlasMap): string[] =>
+  mapHtmlFields(map).flatMap(({ where, field, text }) =>
+    markupFaults(text).map(
+      (tag) =>
+        `${where}: ${field}: ${tag} is not markup a panel keeps (${KEPT_TAGS.join(", ")}, with no attribute)`,
+    ),
+  );
 
 /** A map whose text holds markup a panel would not keep, every fault listed. */
 export class MarkupError extends Error {

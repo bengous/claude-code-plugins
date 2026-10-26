@@ -9,7 +9,7 @@ import type { Settings } from "../model/settings.ts";
 import { settingsOf } from "../model/settings.ts";
 import { treeOf } from "../model/tree.ts";
 import { WORDS } from "../model/words.ts";
-import { renderCrumbs, renderPanel } from "./panel.ts";
+import { fieldHtml, renderCrumbs, renderPanel } from "./panel.ts";
 import { esc } from "./svg.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
@@ -197,6 +197,55 @@ describe("the panel's headings", () => {
     expect(await elementsWith(html, "h3 b, img")).toBe(0);
     expect(html).toContain("<h3>&lt;b&gt;x&lt;/b&gt;</h3>");
     expect(html).toContain('<p class="label">&lt;img src=x&gt;</p>');
+  });
+});
+
+describe("the panel's citations", () => {
+  const node = {
+    id: "a",
+    label: "A",
+    sub: "",
+    color: "clients",
+    kicker: "src/a.ts:1-9 <cite>src/a.ts:1</cite>",
+    lead: "Takes a cart <cite>src/a.ts:12-30</cite>, as <cite>the docs</cite> say.",
+    io: [["Receives", "a cart <cite>src/web.ts:4</cite>"]],
+    pitfalls: ["Slow <cite>src/b.ts:4,8-9</cite>."],
+  } as const;
+
+  const tree = treeOf({ root: { title: "T", children: [node] }, links: [] });
+  const panel = { innerHTML: "", scrollTop: 0 };
+
+  renderPanel(settingsOf(CONFIG), tree, panel, { path: [], selected: "a" }, null, {
+    kind: "ok",
+    threads: {},
+  });
+
+  test("a citation shows as a marker of its lines, the whole citation its tooltip", () => {
+    expect(panel.innerHTML).toContain(
+      'Takes a cart <cite class="cite" title="src/a.ts:12-30"><span class="cite-path">src/a.ts:</span>12-30</cite>,',
+    );
+    expect(panel.innerHTML).toContain(
+      '<cite class="cite" title="src/web.ts:4"><span class="cite-path">src/web.ts:</span>4</cite>',
+    );
+    expect(panel.innerHTML).toContain(
+      '<cite class="cite" title="src/b.ts:4,8-9"><span class="cite-path">src/b.ts:</span>4,8-9</cite>',
+    );
+  });
+
+  test("a <cite> of any other text shows as written", () => {
+    expect(panel.innerHTML).toContain("as <cite>the docs</cite> say");
+  });
+
+  test("a kicker stays escaped text, a citation in it included", () => {
+    expect(panel.innerHTML).toContain(
+      '<p class="kicker">src/a.ts:1-9 &lt;cite&gt;src/a.ts:1&lt;/cite&gt;</p>',
+    );
+  });
+
+  test("fieldHtml, which every HTML field goes through, keeps the panel's markup and its markers", () => {
+    expect(fieldHtml('<b>x</b> <cite>a.ts:1</cite> <img src="y">')).toBe(
+      '<b>x</b> <cite class="cite" title="a.ts:1"><span class="cite-path">a.ts:</span>1</cite> &lt;img src="y">',
+    );
   });
 });
 

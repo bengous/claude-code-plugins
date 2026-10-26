@@ -1,4 +1,6 @@
 import type { OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Citation } from "../model/citations.ts";
+import { citedLines, withCitations } from "../model/citations.ts";
 import { keptMarkup } from "../model/markup.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Crumb } from "../model/navigation.ts";
@@ -12,9 +14,10 @@ import { chainOf, couplingsOf, nodeOf } from "../model/tree.ts";
 import { esc } from "./svg.ts";
 
 // The panel shows the fields of Panel (atlas.ts) in their order: the HTML fields through
-// keptMarkup (markup.ts), which shows any tag but a few plain ones as text, so a map's text runs
-// nothing in the page that holds the reply token; the plain fields, ids, labels and the headings
-// the settings hold, the Config's or the dictionary's, escaped.
+// fieldHtml, keptMarkup (markup.ts), which shows any tag but a few plain ones as text, so a map's
+// text runs nothing in the page that holds the reply token, then each citation as a marker of its
+// lines; the plain fields, ids, labels and the headings the settings hold, the Config's or the
+// dictionary's, escaped.
 //
 // threads.json as the page last read it, or why it could not.
 export type ThreadState =
@@ -22,6 +25,16 @@ export type ThreadState =
   | { readonly kind: "error"; readonly message: string };
 
 const heading = (s: Settings, key: PanelHeading): string => esc(s.headings[key]);
+
+// The path hides until the panel shows the sources in full (`full-sources`, atlas.html).
+const marker = (citation: Citation): string => {
+  const lines = citedLines(citation);
+
+  return `<cite class="cite" title="${esc(`${citation.path}:${lines}`)}"><span class="cite-path">${esc(citation.path)}:</span>${lines}</cite>`;
+};
+
+/** An HTML field of a map as every part of the panel shows it: its kept markup, its markers. */
+export const fieldHtml = (html: string): string => withCitations(keptMarkup(html), marker);
 
 const threadOf = (state: ThreadState, id: string): readonly Entry[] =>
   state.kind === "ok" ? (state.threads[id] ?? []) : [];
@@ -47,7 +60,7 @@ function openPoint(s: Settings, o: OpenPoint, state: ThreadState): string {
   return [
     `<div class="open-point">`,
     `<p class="open-id"><code>${esc(o.id)}</code> · ${waits(s, waitsFor(thread))}</p>`,
-    `<p class="warn">${keptMarkup(o.text)}</p>`,
+    `<p class="warn">${fieldHtml(o.text)}</p>`,
     log,
     `<form class="reply" data-open="${esc(o.id)}">`,
     `<input name="text" required autocomplete="off" placeholder="${s.words.replyPlaceholder(esc(nameOf(s, "human")))}" aria-label="${s.words.replyLabel(esc(o.id))}">`,
@@ -78,20 +91,20 @@ function chip(tree: Tree, id: string): string {
 }
 
 const pointList = (tree: Tree, items: readonly Pair[]): string =>
-  `<ul class="points">${items.map(([id, t]) => `<li>${keptMarkup(t)} ${chip(tree, id)}</li>`).join("")}</ul>`;
+  `<ul class="points">${items.map(([id, t]) => `<li>${fieldHtml(t)} ${chip(tree, id)}</li>`).join("")}</ul>`;
 
 const pairs = (items: readonly Pair[], escape: boolean): string =>
-  items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : keptMarkup(v)}</dd>`).join("");
+  items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : fieldHtml(v)}</dd>`).join("");
 
 const list = (items: readonly string[], escape: boolean): string =>
-  items.map((i) => `<li>${escape ? esc(i) : keptMarkup(i)}</li>`).join("");
+  items.map((i) => `<li>${escape ? esc(i) : fieldHtml(i)}</li>`).join("");
 
 function replaceSection(s: Settings, tree: Tree, info: Panel, coupled: readonly string[]): string {
   if (info.swap === undefined && coupled.length === 0) {
     return "";
   }
 
-  const swap = info.swap === undefined ? "" : `<p>${keptMarkup(info.swap)}</p>`;
+  const swap = info.swap === undefined ? "" : `<p>${fieldHtml(info.swap)}</p>`;
 
   const chips =
     coupled.length === 0
@@ -112,7 +125,7 @@ function laterSections(
   const h = (key: PanelHeading): string => `<h3>${heading(s, key)}</h3>`;
 
   return [
-    info.extend === undefined ? "" : `${h("extend")}<p>${keptMarkup(info.extend)}</p>`,
+    info.extend === undefined ? "" : `${h("extend")}<p>${fieldHtml(info.extend)}</p>`,
     info.pitfalls === undefined || info.pitfalls.length === 0
       ? ""
       : `${h("pitfalls")}<ul>${list(info.pitfalls, false)}</ul>`,
@@ -121,12 +134,12 @@ function laterSections(
     info.why === undefined || info.why.length === 0
       ? ""
       : `${h("why")}<ul>${list(info.why, false)}</ul>`,
-    info.alt === undefined ? "" : `${h("alt")}<p class="alt">${keptMarkup(info.alt)}</p>`,
+    info.alt === undefined ? "" : `${h("alt")}<p class="alt">${fieldHtml(info.alt)}</p>`,
     info.facts === undefined
       ? ""
       : `${h("facts")}<dl class="facts">${pairs(info.facts, true)}</dl>`,
     openSection(s, open, state),
-    info.how === undefined ? "" : `${h("how")}<p>${keptMarkup(info.how)}</p>`,
+    info.how === undefined ? "" : `${h("how")}<p>${fieldHtml(info.how)}</p>`,
   ].join("");
 }
 
@@ -146,8 +159,8 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
   return [
     `<div style="--zc: var(${shown.color})">`,
     info.kicker === undefined ? "" : `<p class="kicker">${esc(info.kicker)}</p>`,
-    `<h2><span class="swatch"></span>${keptMarkup(shown.title)}</h2>`,
-    info.lead === undefined ? "" : `<p class="lead">${keptMarkup(info.lead)}</p>`,
+    `<h2><span class="swatch"></span>${fieldHtml(shown.title)}</h2>`,
+    info.lead === undefined ? "" : `<p class="lead">${fieldHtml(info.lead)}</p>`,
     shown.brief.length === 0 ? "" : `<ul class="brief">${list(shown.brief, true)}</ul>`,
     info.io === undefined
       ? ""

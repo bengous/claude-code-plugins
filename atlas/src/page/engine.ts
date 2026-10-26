@@ -17,6 +17,7 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
+import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import type { PageState, Place, PlaceEvent } from "../model/navigation.ts";
 import { HOME, navigate, openOf, pageStateOf, placeOfHash } from "../model/navigation.ts";
@@ -68,6 +69,8 @@ const openList = byId("open-list", HTMLElement);
 const legendButton = byId("btn-legend", HTMLButtonElement);
 
 const legend = byId("legend", HTMLDivElement);
+
+const sourcesButton = byId("btn-sources", HTMLButtonElement);
 
 function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   const text =
@@ -141,6 +144,13 @@ function dressPage(): void {
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
   byId("hint", HTMLElement).textContent = words.hint;
   legend.setAttribute("aria-label", words.legendButton);
+
+  if (mapCitations(map).length === 0) {
+    sourcesButton.remove();
+  } else {
+    sourcesButton.textContent = words.sourcesButton;
+    sourcesButton.title = words.sourcesTitle;
+  }
 }
 
 dressPage();
@@ -177,6 +187,9 @@ let builtAspect = 1;
 let threads: ThreadState = { kind: "ok", threads: {} };
 
 let panelAvoidError: string | null = null;
+
+// The panel shows each citation as a marker of its lines, or in full once the reader asks.
+let sourcesInFull = false;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -729,8 +742,9 @@ function tellSelection(id: string | null): void {
 }
 
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
-// so a page script cannot assign it, answering the frozen state of the last render and the zoom
-// of the view shown, 1 at its fit, 2 when half its width fills the stage.
+// so a page script cannot assign it, answering the frozen state of the last render, the zoom of
+// the view shown, 1 at its fit, 2 when half its width fills the stage, and whether the panel
+// shows its citations in full.
 let pageState: PageState = pageStateOf(tree, place);
 
 const zoomOf = (): number =>
@@ -739,7 +753,7 @@ const zoomOf = (): number =>
     : 1;
 
 Object.defineProperty(window, "atlas", {
-  get: () => Object.freeze({ ...pageState, zoom: zoomOf() }),
+  get: () => Object.freeze({ ...pageState, zoom: zoomOf(), sourcesInFull }),
   enumerable: true,
 });
 
@@ -943,35 +957,59 @@ byId("btn-home", HTMLButtonElement).addEventListener("click", () => {
   send({ type: "home" });
 });
 
-// A button that shows or hides an element, remembered per browser. When storage is blocked, the
-// element starts shown and the button still works for the visit.
+// A reader's choice, remembered per browser. Blocked storage throws on each access: the choice
+// then starts as its default and lasts for the visit.
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Blocked storage: the choice lasts for this visit only.
+  }
+}
+
+// A button that shows or hides an element, remembered per browser; the element starts shown.
 function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string): void {
   const show = (visible: boolean): void => {
     target.hidden = !visible;
     button.setAttribute("aria-pressed", String(visible));
   };
 
-  try {
-    show(localStorage.getItem(key) !== "hidden");
-  } catch {
-    show(true);
-  }
+  show(stored(key) !== "hidden");
 
   button.addEventListener("click", () => {
     const visible = target.hidden !== false;
     show(visible);
-
-    try {
-      localStorage.setItem(key, visible ? "shown" : "hidden");
-    } catch {
-      // Blocked storage: the choice lasts for this visit only.
-    }
+    store(key, visible ? "shown" : "hidden");
   });
 }
 
 bindToggle(legendButton, legend, "atlas.legend");
 
 bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
+
+// The citations show as markers until the reader asks for them in full, remembered per browser.
+const SOURCES_KEY = "atlas.sources";
+
+function showSources(full: boolean): void {
+  sourcesInFull = full;
+  panel.classList.toggle("full-sources", full);
+  sourcesButton.setAttribute("aria-pressed", String(full));
+}
+
+showSources(stored(SOURCES_KEY) === "full");
+
+sourcesButton.addEventListener("click", () => {
+  showSources(!sourcesInFull);
+  store(SOURCES_KEY, sourcesInFull ? "full" : "markers");
+});
 
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;

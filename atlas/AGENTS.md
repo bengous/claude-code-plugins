@@ -58,6 +58,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   markup.ts          the markup a panel keeps from a map's text (code, cite, b, i, em, strong, br,
                      no attribute), the rest shown as text, and the faults check and the server
                      refuse, by node and field (markup.spec.ts)
+  citations.ts       a <cite>path:lines</cite> read as a citation, pure, and every citation of a
+                     map by node and field (citations.spec.ts)
   words.ts           the page's own words in each language a Config picks: the dictionary
   tree.ts            the tree indexed for views at any depth: each node's chain from the root,
                      open points counted down each subtree, couplings both ways, and what stands
@@ -117,7 +119,8 @@ src/page/            what runs in the browser
   avoid.ts           runs libavoid (avoid.spec.ts)
   legend.ts          the legend's lines, one per arrow kind or node mark a view uses
                      (legend.spec.ts)
-  panel.ts           the panel, the breadcrumb and the open points' list (panel.spec.ts)
+  panel.ts           the panel, the breadcrumb and the open points' list; fieldHtml, the one way
+                     an HTML field reaches the page, its citations as markers (panel.spec.ts)
   measure.ts         sizes text: one scale for every view
   geometry.ts        rects, points and similarities
   svg.ts             SVG building blocks
@@ -136,7 +139,8 @@ fixtures/sample/     the sample map folder
 fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at in the browser;
                      fixtures/large/ a seeded random map, wide and deep, to time a view on;
                      fixtures/bands/ a map read DOWN, its views in bands by rank, to look at;
-                     the three import the plugin's own types and carry no generated files
+                     fixtures/citations/ a map whose panels end each claim with a citation;
+                     the four import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
@@ -204,7 +208,11 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
   ghosts) and the fragment, frozen and replaced at each move, with the view's `zoom`, 1 at its
-  fit (`zoomOf` in `engine.ts`); a getter, so a page script cannot assign it.
+  fit (`zoomOf` in `engine.ts`), and `sourcesInFull`; a getter, so a page script cannot assign it.
+- A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
+  marker of its lines, the whole citation as its tooltip; a `<cite>` of other text and a `kicker`
+  show as written. The header's Sources toggle, shown when the map has a citation, shows every
+  citation in full, remembered per browser under `atlas.sources` (`sourcesInFull`).
 - Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
