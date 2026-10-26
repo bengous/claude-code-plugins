@@ -108,9 +108,10 @@ export type View = {
   readonly arrows: readonly Arrow[];
   /**
    * The legend lines the view uses: the kinds its arrows draw, the marks its boxes and ghosts
-   * carry, and "coupled" when selecting one of them outlines another.
+   * carry, and "coupled" when selecting one of them outlines another; "later" is the phase
+   * picked's (`dimsIn` in phases.ts).
    */
-  readonly legend: Readonly<Record<LegendKey, boolean>>;
+  readonly legend: Readonly<Record<Exclude<LegendKey, "later">, boolean>>;
 };
 
 const LABELS_SHOWN = 2;
@@ -158,7 +159,8 @@ const pairKey = (a: string, b: string): string => JSON.stringify(a < b ? [a, b] 
 
 const endsKey = (from: string, to: string): string => JSON.stringify([from, to]);
 
-function labelOf(tree: Tree, links: readonly Link[], two: boolean): string {
+/** The label of an arrow standing for `links`, as `Arrow.label` reads it. */
+export function labelOf(tree: Tree, links: readonly Link[], two: boolean): string {
   const namers = new Set(links.map((l) => endsKey(l.from, l.to)));
 
   if (two) {

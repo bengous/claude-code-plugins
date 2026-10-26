@@ -33,8 +33,22 @@ describe("legendKeys", () => {
         coupled: false,
         outside: false,
         open: false,
+        later: false,
       }),
     ).toEqual([]);
+  });
+
+  test("what comes after the phase picked has the last line, when the page says the view draws some", () => {
+    const { legend } = viewOf(sample, null);
+
+    expect(legendKeys({ ...legend, later: true })).toEqual([
+      "flow",
+      "coupled",
+      "outside",
+      "open",
+      "later",
+    ]);
+    expect(legendKeys({ ...legend, later: false })).toEqual(["flow", "coupled", "outside", "open"]);
   });
 });
 
@@ -46,5 +60,11 @@ describe("legendHtml", () => {
         '<span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><circle cx="13" cy="6" r="4.5" fill="var(--open)"/></svg>open point</span>',
       ].join(""),
     );
+  });
+
+  test("the line of what comes after the phase picked, in both languages", () => {
+    expect(legendHtml(["later"], WORDS.fr.legend)).toEndWith("après la phase choisie</span>");
+    expect(legendHtml(["later"], WORDS.en.legend)).toEndWith("after the phase picked</span>");
+    expect(legendHtml(["later"], WORDS.en.legend)).toContain('class="later-mark"');
   });
 });

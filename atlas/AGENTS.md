@@ -47,7 +47,7 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
                      ratio, reading direction, tags, legend labels, panel headings, step words,
-                     sources root); the source of a map's atlas.d.ts
+                     sources root, work phases); the source of a map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
                      may name (labelsOf, folder.spec.ts); its sources root, a draft's from the
                      map it drafts (sourcesRootOf); run, it prints them with the paths the map
@@ -82,20 +82,26 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   cards.ts           a container's leaf children side by side: a column per leaf, a row for the
                      leads unless none has one, then one per first element of their `io` pairs;
                      none for fewer than two leaves, or when no leaf has `io` (cards.spec.ts)
+  phases.ts          what a picked work phase dims: the nodes and links of the phases after it,
+                     a container by its own phase or, without one, once all its descendants
+                     are, a link without a phase once an end is, an arrow once every link it
+                     stands for is; the label of an arrow that stays, from its lit links;
+                     whether a view draws something dimmed (phases.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
-                     grammar on `Params`), and the page's state window.atlas shows agents
+                     grammar on `Params`, read against the tree and the Config's phases,
+                     `Scope`), and the page's state window.atlas shows agents
                      (navigation.spec.ts)
   threads.ts         open points and threads: who a point waits for (threads.spec.ts)
 
 src/commands/        what cli.ts does to a map folder
   check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, a
                      rank on an outside node, the root's tour, see/seams/traps ids on every panel,
-                     a <cite> that reads as no citation, tags against the Config's, open points against its step words, and threads,
-                     and reports the open points; with the Config's sources, each cited file,
-                     read once as serve.ts reads it but for the size cap, and its lines, or the
-                     missing root in one line (check.spec.ts)
+                     a <cite> that reads as no citation, tags and phases against the Config's, open
+                     points against its step words, and threads, and reports the open points; with
+                     the Config's sources, each cited file, read once as serve.ts reads it but for
+                     the size cap, and its lines, or the missing root in one line (check.spec.ts)
   reply.ts           adds an entry to a thread of a map folder (reply.spec.ts)
   drafts.ts          a map folder's data files, and its drafts: made, adopted, dropped
 
@@ -112,8 +118,9 @@ src/page/            what runs in the browser
   atlas.html         the page: its styles and its markup, which hold no word and no colour of a map
   aliases.d.ts       the types of atlas:map and atlas:config, the page's imports of a map folder
   engine.ts          the page's entry: draws the view of the open container the first time the
-                     reader reaches it and keeps it, paints the camera, takes input, posts the
-                     reader's selection to serve.ts
+                     reader reaches it and keeps it, paints the camera, takes input, dims what
+                     the phase picked dims in every view it keeps, posts the reader's selection
+                     to serve.ts
   stage.ts           the stage, pure: the views held, the one being laid out, those wanted now or
                      later, and what a relayout keeps or lays out again (stage.spec.ts)
   draw.ts            the renderer of one view: packed (ELK rectpacking or bands by rank, the sides,
@@ -132,7 +139,8 @@ src/page/            what runs in the browser
                      aspect or its layers partitioned by rank, a ghost held to the first or the last
                      layer (layout.spec.ts, which runs ELK under Bun)
   avoid.ts           runs libavoid (avoid.spec.ts)
-  legend.ts          the legend's lines, one per arrow kind or node mark a view uses
+  legend.ts          the legend's lines, one per arrow kind or node mark a view uses, and one for
+                     what the phase picked dims in it
                      (legend.spec.ts)
   panel.ts           the panel, the breadcrumb and the open points' list; fieldHtml, the one way
                      an HTML field reaches the page, its citations as markers; the viewer of a
@@ -160,7 +168,9 @@ fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at 
                      fixtures/bands/ a map read DOWN, its views in bands by rank, to look at;
                      fixtures/citations/ a map whose panels end each claim with a citation of
                      its repo/, its sources root;
-                     the four import the plugin's own types and carry no generated files
+                     fixtures/phases/ a shop built in three work phases, its header's stepper,
+                     to look at;
+                     the five import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
@@ -225,13 +235,14 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   view, or a leaf's parent's view with the leaf selected; `#<open>/<selected>` carries a selection
   no bare id lands on, a ghost or a container among them. After a `?` come the parameters of the
   reading state, `key=value` joined by `&`, each written only away from its default, such as
-  `#app?mode=cards`; their grammar, the rules every new one follows and what survives a move are
-  on `Params`. A fragment typed into the address bar is followed.
+  `#app?mode=cards&phase=MVP`; their grammar, the rules every new one follows and what survives a
+  move are on `Params`. A fragment typed into the address bar is followed.
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
-  ghosts), each parameter of the fragment (`mode`) and the fragment, frozen and replaced at each
-  move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`, and the
-  `citation` whose lines the panel shows, or null; a getter, so a page script cannot assign it.
+  ghosts), each parameter of the fragment (`mode`, `phase`) and the fragment, frozen and replaced
+  at each move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`,
+  and the `citation` whose lines the panel shows, or null; a getter, so a page script cannot
+  assign it.
 - A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
   marker of its lines, the whole citation as its tooltip; a `<cite>` of other text, a `kicker`,
   and a `label`, plain text even as the heading of a node without `title`, show as written. The header's Sources toggle, shown when the map has a citation, shows every
@@ -245,12 +256,21 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   `cards.ts`), the root's included, gets a Map | Cards switch in the stage's controls. Cards
   (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
   `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
-  leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, a marker
+  leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, the column
+  of a leaf the phase picked dims faded and dotted as the drawing shows it, a marker
   opening its lines in the panel, shown if it was hidden; a click elsewhere on the cards does
   nothing. The header row and the keys' column stay in sight as it scrolls, below the controls,
   which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
   Escape leaves alone, the fit and legend buttons disabled; the legend and the hint hide. Another container
   opens on its drawing.
+- With the Config's `phases`, the header shows a stepper: every phase, then each in order,
+  scrolling within its own box when the header is narrower. A phase picked (`phase=`) fades and
+  dots, in every view, what the phases after it bring, by the rule `dimmedBy` in `phases.ts`
+  states. The dots are a pattern of their own, apart from the dashes of `kind: "off"`, of outside
+  nodes and of couplings, and the legend explains them in a view that draws some (`dimsIn`). An
+  arrow that stays names only the links that do not fade (`labelAt`), in the spot its whole label
+  took, shortened as a placed label is when it does not fit. The panel shows a node's phase under
+  its own heading. The phase stays as the reader moves. A map without phases has no stepper.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
@@ -299,8 +319,9 @@ Each module explains its own where it bites.
 - `dressPage` (engine.ts) writes the Config's title, subtitle and words into the page before the
   first layout: the header's height sets the drawing area's aspect, which a "screen" packing aims
   at. Written later, the views pack for another aspect.
-- The legend shows a line only for the arrow kinds and node marks the open view draws
-  (`legendKeys` in `legend.ts`): a kind the view never uses has no line.
+- The legend shows a line only for the arrow kinds and node marks the open view draws, and for
+  what the phase picked dims in it (`legendKeys` in `legend.ts`): a kind the view never uses has
+  no line.
 - ELK's bundle does not start under Bun, where `self` exists: its worker module takes the web
   worker's branch and exports nothing. `layout.spec.ts` builds the layouter it hands `elkLayered`
   from `elk-api.js` and that branch; a script that lays a view out outside a browser (a check, a

@@ -26,6 +26,8 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //   - a tag outside the Config's `tags`, and, when they say so, a link between two leaves into an
 //     outside one that is not on the left and names no tag; a link with a container end names the
 //     arrow between boxes, whose tags are its leaf links';
+//   - a node's or a link's `phase` that the Config's `phases` do not list, or any phase when they
+//     list none;
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
 //   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
@@ -85,6 +87,25 @@ function checkLinks(tree: Tree, s: Settings, errors: string[]): void {
     ) {
       errors.push(`${linkName(link)}: a link into a third-party service names its tags`);
     }
+  }
+}
+
+function checkPhases(tree: Tree, s: Settings, errors: string[]): void {
+  const phased = [
+    ...[...tree.nodes.values()].map((n) => [`node ${n.id}`, n.phase] as const),
+    ...tree.map.links.map((l) => [linkName(l), l.phase] as const),
+  ];
+
+  for (const [where, phase] of phased) {
+    if (phase === undefined || s.phases.includes(phase)) {
+      continue;
+    }
+
+    errors.push(
+      s.phases.length === 0
+        ? `${where}: phase ${JSON.stringify(phase)}, but the config lists no phases; list the work phases in order in the config's phases, or remove this one`
+        : `${where}: phase ${JSON.stringify(phase)} is not in the config's phases (${s.phases.join(", ")}); name one of them, or add it to the phases`,
+    );
   }
 }
 
@@ -153,6 +174,7 @@ export function validate(tree: Tree, s: Settings, threads: unknown): string[] {
   const errors: string[] = [];
   checkNodes(tree, errors);
   checkLinks(tree, s, errors);
+  checkPhases(tree, s, errors);
   checkPanels(tree, errors);
   errors.push(
     ...mapBrokenCitations(tree.map).map(

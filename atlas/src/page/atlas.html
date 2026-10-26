@@ -60,6 +60,11 @@
     their `io` pairs; a column's header selects its leaf, a marker in a cell
     shows its lines in the panel, shown if hidden. Over the cards, Escape
     leaves the drawing's zoom alone. Another container opens on its drawing.
+  - A map whose Config lists `phases` gets a stepper in the header: every
+    phase, then each in order. Picking one fades and dots what a later
+    phase brings (`dimmedBy` in phases.ts); an arrow that stays names only
+    the links that do not fade. The panel shows a node's phase. The phase
+    stays in the link as the reader moves.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -70,7 +75,8 @@
   - A bare #id in the link opens the page on it: a container's view, or a
     leaf's parent's view with the leaf selected.
   - The legend shows a line for each arrow kind and node mark the view uses,
-    labelled by the Config's `legend` or the dictionary.
+    and for what the phase picked fades in it, labelled by the Config's
+    `legend` or the dictionary.
   - Open points: a node with an `open` entry carries a badge counting the
     open points of its subtree, as does every box and chip that holds it. The
     header button, with their count, lists them all, with the party each
@@ -208,7 +214,7 @@ body {
 .crumbs .fold { padding: 2px 4px; cursor: help; }
 
 /* Open points: the header button, its list (a native popover), and the badge on the map. */
-.open-btn, .sources-btn {
+.open-btn, .sources-btn, .phases button {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--open);
   border-radius: 4px; padding: 4px 10px; cursor: pointer; align-self: center;
@@ -217,6 +223,18 @@ body {
 .sources-btn { color: var(--ink-3); border-left: 1px solid var(--line); }
 .open-btn:hover, .sources-btn:hover { border-color: var(--accent); color: var(--accent); }
 .sources-btn[aria-pressed="true"] { color: var(--ink); }
+/* The stepper of the Config's work phases (engine.ts): every phase, then each in order, the one picked pressed and those after it faded; the page drops it for a map without phases. */
+/* Wider than the header, it scrolls within its own box, its padding keeping the focus ring in sight. */
+.phases { display: flex; align-self: center; max-width: calc(100% + 8px); overflow-x: auto; scrollbar-width: thin; padding: 4px; margin: -4px; }
+.phases button { border-left: 1px solid var(--line); border-radius: 0; flex: none; white-space: nowrap; }
+.phases button + button { margin-left: -1px; }
+.phases button:first-child { border-radius: 4px 0 0 4px; }
+.phases button:last-child { border-radius: 0 4px 4px 0; }
+.phases button.later { color: var(--ink-3); border-style: dotted; }
+.phases button[aria-pressed="true"] {
+  position: relative; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.phases button:hover { color: var(--accent); }
 .open-list {
   position: fixed; inset: 60px 16px auto auto; margin: 0; width: min(620px, calc(100vw - 32px)); max-height: 72vh; overflow-y: auto;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
@@ -301,6 +319,11 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .cards tbody th { font-weight: 400; color: var(--ink-2); white-space: nowrap; border-top: 1px solid var(--line); }
 .cards tbody tr:not(:first-child) td:not(:first-child) { border-top: 1px solid var(--line); }
 .cards tbody tr:last-child td:not(:first-child) { border-bottom: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+/* A leaf the phase picked dims (engine.ts): its column's contents faded and its borders dotted, as the drawing shows it; the backgrounds stay opaque under the sticky header row. */
+.cards .later > * { opacity: 0.4; }
+.cards :is(th, td).later { border-inline-style: dotted; }
+.cards tbody tr:last-child td.later { border-bottom-style: dotted; }
+.cards thead th.later { border-top-color: color-mix(in srgb, var(--zc) 40%, var(--surface)); }
 .cards .lead { font-size: 15px; }
 .cards td p { margin: 0 0 6px; }
 .cards td p:last-child { margin-bottom: 0; }
@@ -481,6 +504,13 @@ svg text.illegible { visibility: hidden; }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
 
+/* A node or an arrow that comes after the phase picked (phases.ts, engine.ts), and its legend line: faded and dotted over every other state, after them here, a pattern apart from the dashes of kind "off", of outside nodes and of couplings. */
+.box.later, .card.later, .chip.later, .ghost.later { opacity: 0.4; }
+.box.later .box-bg, .card.later rect, .chip.later rect, .ghost.later rect, .legend .later-mark { stroke-dasharray: 0 4; stroke-linecap: round; stroke-width: 2; }
+.legend .later-mark { opacity: 0.4; }
+.flow.later > * { opacity: 0.4; }
+.flow.later path { stroke-dasharray: 0 6; stroke-linecap: round; }
+
 @media (max-width: 860px) {
   html, body { height: auto; }
   body { display: block; }
@@ -496,6 +526,7 @@ svg text.illegible { visibility: hidden; }
 <header class="top">
   <h1 id="title"></h1>
   <p class="sub" id="subtitle"></p>
+  <div class="phases" id="phases" role="group"></div>
   <button type="button" class="open-btn" id="btn-open" popovertarget="open-list"></button>
   <div class="open-list" id="open-list" popover></div>
   <button type="button" class="sources-btn" id="btn-sources" aria-controls="panel cards" aria-pressed="false"></button>

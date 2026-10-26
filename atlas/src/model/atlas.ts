@@ -97,6 +97,13 @@ export type Node = Panel & {
    * rank, a sibling without one sits after every rank.
    */
   readonly rank?: number;
+  /**
+   * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
+   * phase picked, the page dims it and draws it dotted, a container by its own phase whatever the
+   * nodes below it bring; a container without one is dimmed once every node below it is. A leaf
+   * without a phase is never dimmed.
+   */
+  readonly phase?: string;
   readonly open?: readonly OpenPoint[];
   /** Drawn inside this node, packed in this order. */
   readonly children?: readonly Node[];
@@ -134,6 +141,14 @@ export type Link = {
    * link with a container end names the arrow, whose tags are its leaf links'.
    */
   readonly tags?: readonly string[];
+  /**
+   * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
+   * phase picked, the page dims it and draws it dotted, and an arrow once every link it stands
+   * for is; an arrow that stays names only its links that are not dimmed. A link without a phase
+   * is dimmed once one of its ends is, and in a view that draws one of its ends as a dimmed box or
+   * ghost.
+   */
+  readonly phase?: string;
 };
 
 /** A map: the root of its tree and every link, wherever their ends sit in the tree. */
@@ -151,18 +166,19 @@ export type Lang = "fr" | "en";
 export type Swatch = { readonly light: string; readonly dark: string };
 
 /**
- * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`) or a node mark (coupled to
- * the selected node, outside, carrying an open point). The legend shows the lines the open view
- * uses.
+ * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`), a node mark (coupled to
+ * the selected node, outside, carrying an open point), or `later`, what comes after the work
+ * phase picked. The legend shows the lines the open view uses.
  */
-export type LegendKey = "flow" | "dash" | "deny" | "coupled" | "outside" | "open";
+export type LegendKey = "flow" | "dash" | "deny" | "coupled" | "outside" | "open" | "later";
 
 /**
  * A heading of the panel, by the section it heads: `io`, `swap`, `extend`, `pitfalls`, `seams`,
  * `traps`, `why`, `alt`, `facts`, `how` and `see` head the Panel fields of the same name;
- * `coupledWith` introduces the couplings under `swap`.
+ * `coupledWith` introduces the couplings under `swap`; `phase` heads a node's work phase.
  */
 export type PanelHeading =
+  | "phase"
   | "io"
   | "swap"
   | "coupledWith"
@@ -246,4 +262,11 @@ export type Config = {
    * large to show. Citations are neither verified nor opened when absent.
    */
   readonly sources?: { readonly root: string };
+  /**
+   * The work phases, in order, such as `["MVP", "Payments"]`: a node or a link names the one that
+   * brings it (`phase`), and the header's stepper picks one to dim what comes after it. Each is
+   * listed once and names something; the page and `atlas check` refuse an empty or repeated one.
+   * None, and no stepper, when absent.
+   */
+  readonly phases?: readonly string[];
 };

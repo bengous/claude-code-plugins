@@ -27,7 +27,33 @@ describe("settingsOf", () => {
       legend: WORDS.en.legend,
       headings: WORDS.en.headings,
       sources: null,
+      phases: [],
     });
+  });
+
+  test("a Config's work phases are kept in their order", () => {
+    expect(settingsOf({ title: "T", palette: {}, phases: ["v2", "v1"] }).phases).toEqual([
+      "v2",
+      "v1",
+    ]);
+  });
+
+  test("a work phase listed twice is refused, naming the phases field", () => {
+    const config = { title: "T", palette: {}, phases: ["MVP", "v2", "MVP"] };
+
+    expect(() => settingsOf(config)).toThrow(ConfigError);
+    expect(() => settingsOf(config)).toThrow(
+      'phases: "MVP" is listed twice; list each work phase once',
+    );
+  });
+
+  test.each(["", "  "])("an empty work phase %p is refused, naming the phases field", (phase) => {
+    const config = { title: "T", palette: {}, phases: ["MVP", phase] };
+
+    expect(() => settingsOf(config)).toThrow(ConfigError);
+    expect(() => settingsOf(config)).toThrow(
+      `phases: ${JSON.stringify(phase)} names no phase; give each work phase a name, or remove this one`,
+    );
   });
 
   test("a Config's sources root is kept as written", () => {

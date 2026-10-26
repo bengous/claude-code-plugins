@@ -155,6 +155,8 @@ type Shown = {
   readonly heading: string;
   readonly color: string;
   readonly brief: readonly string[];
+  /** Its work phase, one of the Config's; null without one. */
+  readonly phase: string | null;
   readonly coupled: readonly string[];
   readonly open: readonly OpenPoint[] | undefined;
   readonly extra: string;
@@ -169,6 +171,7 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
     `<h2><span class="swatch"></span>${shown.heading}</h2>`,
     info.lead === undefined ? "" : `<p class="lead">${fieldHtml(s, info.lead)}</p>`,
     shown.brief.length === 0 ? "" : `<ul class="brief">${list(s, shown.brief, true)}</ul>`,
+    shown.phase === null ? "" : `<h3>${heading(s, "phase")}</h3><p>${esc(shown.phase)}</p>`,
     info.io === undefined
       ? ""
       : `<h3>${heading(s, "io")}</h3><dl class="facts io">${pairs(s, info.io, false)}</dl>`,
@@ -244,6 +247,7 @@ export function renderPanel(
         heading: fieldHtml(s, title),
         color: "--accent",
         brief: [],
+        phase: null,
         coupled: [],
         open: undefined,
         extra: rootExtra(s, tree) + arrowsMissing(s, avoidError),
@@ -258,6 +262,7 @@ export function renderPanel(
       heading: node.title === undefined ? esc(node.label) : fieldHtml(s, node.title),
       color: paletteVar(node.color),
       brief: node.brief ?? [],
+      phase: node.phase !== undefined && s.phases.includes(node.phase) ? node.phase : null,
       coupled: couplingsOf(tree, id),
       open: node.open,
       extra: arrowsMissing(s, avoidError),
@@ -403,11 +408,11 @@ export function renderOpenList(
 const classOf = (names: readonly string[]): string =>
   names.length === 0 ? "" : ` class="${names.join(" ")}"`;
 
-function cardHead(node: Node, selected: boolean): string {
+function cardHead(node: Node, selected: boolean, names: readonly string[]): string {
   const current = selected ? ' aria-current="true"' : "";
   const label = esc(node.label.replaceAll("\n", " "));
 
-  return `<th scope="col"${classOf(selected ? ["selected"] : [])} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
+  return `<th scope="col"${classOf(names)} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
 }
 
 const cell = (s: Settings, values: readonly string[], names: readonly string[]): string =>
@@ -417,12 +422,23 @@ const cell = (s: Settings, values: readonly string[], names: readonly string[]):
  * A container's leaf children side by side (cardsOf), as a table: a column per leaf, its header
  * its label in its colour, a button that selects it, the selected one's cells marked; the first
  * row their leads, unless none has one, then a row per `io` key, its key as the panel shows it, its values through
- * fieldHtml, the panel's markup and markers kept.
+ * fieldHtml, the panel's markup and markers kept. The columns of the leaves in `later`, which the
+ * phase picked dims, are marked later.
  */
-export function cardsHtml(s: Settings, cards: Cards, selected: string | null): string {
+export function cardsHtml(
+  s: Settings,
+  cards: Cards,
+  selected: string | null,
+  later: ReadonlySet<string> = new Set(),
+): string {
   const marked = cards.columns.map((node) => node.id === selected);
-  const mark = (i: number): string[] => (marked[i] === true ? ["selected"] : []);
-  const head = cards.columns.map((node, i) => cardHead(node, marked[i] === true)).join("");
+
+  const mark = (i: number): string[] => [
+    ...(marked[i] === true ? ["selected"] : []),
+    ...(later.has(cards.columns[i]?.id ?? "") ? ["later"] : []),
+  ];
+
+  const head = cards.columns.map((node, i) => cardHead(node, marked[i] === true, mark(i))).join("");
 
   const lead =
     cards.lead === null

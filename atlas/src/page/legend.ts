@@ -1,7 +1,7 @@
 import type { LegendKey } from "../model/atlas.ts";
 import { esc } from "./svg.ts";
 
-const ORDER: readonly LegendKey[] = ["flow", "dash", "deny", "coupled", "outside", "open"];
+const ORDER: readonly LegendKey[] = ["flow", "dash", "deny", "coupled", "outside", "open", "later"];
 
 const line = (stroke: string, dash = ""): string =>
   `<svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="${stroke}" stroke-width="2"${dash}/></svg>`;
@@ -20,12 +20,15 @@ const GLYPH: Readonly<Record<LegendKey, string>> = {
     `<rect x="1" y="1" width="24" height="10" rx="5" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/>`,
   ),
   open: mark(`<circle cx="13" cy="6" r="4.5" fill="var(--open)"/>`),
+  later: mark(
+    `<rect class="later-mark" x="1" y="1" width="24" height="10" rx="2" fill="none" stroke="var(--ink-2)" stroke-width="1.5"/>`,
+  ),
 };
 
 // The legend's lines a view draws, in legend order: a line for a kind the view never uses would
 // explain nothing on it.
-export const legendKeys = (used: Readonly<Record<LegendKey, boolean>>): LegendKey[] =>
-  ORDER.filter((key) => used[key]);
+export const legendKeys = (used: Readonly<Partial<Record<LegendKey, boolean>>>): LegendKey[] =>
+  ORDER.filter((key) => used[key] === true);
 
 export const legendHtml = (
   keys: readonly LegendKey[],

@@ -16,6 +16,10 @@ export type Words = {
   /** The header's toggle that shows each citation in full instead of its lines' marker. */
   readonly sourcesButton: string;
   readonly sourcesTitle: string;
+  /** The header's stepper of the Config's work phases: its name, its tooltip, its first step. */
+  readonly phasesLabel: string;
+  readonly phasesTitle: string;
+  readonly allPhases: string;
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -59,6 +63,9 @@ const fr: Words = {
   cardsButton: "Fiches",
   sourcesButton: "Sources",
   sourcesTitle: "Montrer chaque citation en entier, son chemin avec ses lignes",
+  phasesLabel: "Phase de travail",
+  phasesTitle: "Atténuer, en pointillé, ce qui vient après la phase choisie",
+  allPhases: "Tout",
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -79,6 +86,7 @@ const fr: Words = {
     coupled: "change avec la brique choisie",
     outside: "hors du système",
     open: "point ouvert",
+    later: "après la phase choisie",
   },
   openPoints: "Points ouverts",
   openCount: (count) => `Points ouverts : ${count}`,
@@ -92,6 +100,7 @@ const fr: Words = {
   reply: "Répondre",
   replyRefused: (why) => `Réponse refusée : ${why}`,
   headings: {
+    phase: "Phase",
     io: "Contrat",
     swap: "Pour remplacer",
     coupledWith: "Change avec, entouré sur le plan :",
@@ -122,6 +131,9 @@ const en: Words = {
   cardsButton: "Cards",
   sourcesButton: "Sources",
   sourcesTitle: "Show each citation in full, its path with its lines",
+  phasesLabel: "Work phase",
+  phasesTitle: "Dim, dotted, what comes after the phase picked",
+  allPhases: "All",
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,
@@ -142,6 +154,7 @@ const en: Words = {
     coupled: "changes with the selected brick",
     outside: "outside the system",
     open: "open point",
+    later: "after the phase picked",
   },
   openPoints: "Open points",
   openCount: (count) => `Open points: ${count}`,
@@ -155,6 +168,7 @@ const en: Words = {
   reply: "Reply",
   replyRefused: (why) => `Reply refused: ${why}`,
   headings: {
+    phase: "Phase",
     io: "Contract",
     swap: "To replace",
     coupledWith: "Changes with it, outlined on the map:",
