@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { AtlasMap, Node } from "./atlas.ts";
 import type { Dimmed } from "./phases.ts";
-import { arrowDimmed, dimmedBy } from "./phases.ts";
+import { arrowDimmed, dimmedBy, labelAt } from "./phases.ts";
 import { treeOf } from "./tree.ts";
 import type { Arrow } from "./view.ts";
 import { viewOf } from "./view.ts";
@@ -164,5 +164,38 @@ describe("arrowDimmed", () => {
     expect(arrow(null, "A", "C").links).toEqual([7]);
     expect(arrowDimmed(dimmed("v2"), arrow(null, "A", "C"))).toBe(true);
     expect(arrowDimmed(dimmed("v3"), arrow(null, "A", "C"))).toBe(false);
+  });
+});
+
+describe("labelAt", () => {
+  test("a lifted arrow's label names only the links the phase picked shows", () => {
+    expect(arrow(null, "A", "B").label).toBe("0 · 1");
+    expect(labelAt(tree, dimmed("v1"), arrow(null, "A", "B"))).toBe("0");
+    expect(labelAt(tree, dimmed("v2"), arrow(null, "A", "B"))).toBe("0 · 2");
+  });
+
+  test("every phase shown, or none of its links, an arrow keeps its own label", () => {
+    expect(labelAt(tree, dimmed(null), arrow(null, "A", "B"))).toBe("0 · 1");
+    expect(labelAt(tree, dimmed("v3"), arrow(null, "A", "B"))).toBe("0 · 1");
+    expect(labelAt(tree, dimmed("v1"), arrow(null, "A", "D"))).toBe("3 · 4");
+  });
+
+  test("the links a lit link set directly between the pair names stay unnamed", () => {
+    const named = treeOf({
+      root: { title: "T", children: [box("P", [leaf("p1")]), box("Q", [leaf("q1")])] },
+      links: [
+        { from: "P", to: "Q", label: "direct", phase: "v2" },
+        { from: "p1", to: "q1", label: "inner", phase: "v1" },
+      ],
+    });
+
+    const [pq] = viewOf(named, null).arrows;
+
+    if (pq === undefined) {
+      throw new Error("the root's view of P and Q has no arrow");
+    }
+
+    expect(labelAt(named, dimmedBy(named, PHASES, "v2"), pq)).toBe("direct");
+    expect(labelAt(named, dimmedBy(named, PHASES, "v1"), pq)).toBe("inner");
   });
 });

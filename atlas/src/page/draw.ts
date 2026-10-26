@@ -72,6 +72,10 @@ export type ArrowEl = {
   readonly path: SVGPathElement;
   readonly marker: string;
   readonly label: SVGTextElement | null;
+  /** The width of the spot its label took; 0 without a label. */
+  readonly room: number;
+  /** Its hit band, whose tooltip carries the whole label; null without a label. */
+  readonly band: SVGPathElement | null;
 };
 
 /**
@@ -669,10 +673,10 @@ function drawArrow(
   const path = arrowPath(g, d, arrow.kind, arrow.two);
   const variants = labelVariants(arrow, mode);
   const [whole] = variants;
+  const band = whole === undefined ? null : el("path", { d, class: "flow-hit" }, hits);
 
-  if (whole !== undefined) {
-    const band = el("path", { d, class: "flow-hit" }, hits);
-    el("title", {}, band).textContent = whole;
+  if (band !== null) {
+    el("title", {}, band).textContent = whole ?? "";
   }
 
   return {
@@ -681,7 +685,45 @@ function drawArrow(
     path,
     marker: path.getAttribute("marker-end") ?? "",
     label: label === null ? null : drawLabel(g, variants, label),
+    room: label?.spot.w ?? 0,
+    band,
   };
+}
+
+// The label each arrow shows, once relabel changed it from its own.
+const labelled = new WeakMap<ArrowEl, string>();
+
+/**
+ * Shows `label` in place of the arrow's own, in the spot its own took: whole, or shortened as a
+ * placed label is to the first variant that fits; the band's tooltip carries it whole.
+ */
+export function relabel(e: ArrowEl, mode: Mode, label: string): void {
+  if ((labelled.get(e) ?? e.arrow.label) === label) {
+    return;
+  }
+
+  labelled.set(e, label);
+  const variants = labelVariants({ ...e.arrow, label }, mode);
+  const whole = variants[0] ?? "";
+  const tip = e.band?.querySelector("title");
+
+  if (tip !== null && tip !== undefined) {
+    tip.textContent = whole;
+  }
+
+  if (e.label === null) {
+    return;
+  }
+
+  const shown = variants.find((t) => labelSize(t).w <= e.room) ?? ELLIPSIS;
+  e.label.textContent = shown;
+
+  if (shown === whole) {
+    e.label.removeAttribute("pointer-events");
+  } else {
+    e.label.setAttribute("pointer-events", "auto");
+    el("title", {}, e.label).textContent = whole;
+  }
 }
 
 export async function drawView(

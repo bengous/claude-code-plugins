@@ -85,7 +85,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   phases.ts          what a picked work phase dims: the nodes and links of the phases after it,
                      a container by its own phase or, without one, once all its descendants
                      are, a link without a phase once an end is, an arrow once every link it
-                     stands for is (phases.spec.ts)
+                     stands for is; the label of an arrow that stays, from its lit links
+                     (phases.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
@@ -265,7 +266,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   it, a container by its own phase or, without one, once all its descendants are, a link without
   a phase once one of its ends is or a container holding one, an arrow once every link it stands
   for is (`dimmedBy` in `phases.ts`); a leaf without a phase never fades, and `kind: "off"` keeps
-  its own dash. The phase stays as the reader moves. A map without phases has no stepper.
+  its own dash. An arrow that stays names only the links that do not fade (`labelAt`), in the
+  spot its whole label took, shortened as a placed label is when it does not fit. The phase stays as the reader moves. A map without phases has no stepper.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.

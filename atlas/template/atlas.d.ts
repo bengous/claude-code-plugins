@@ -144,7 +144,8 @@ export type Link = {
   /**
    * The work phase that brings it, one of the Config's `phases` (`atlas check`). With an earlier
    * phase picked, the page dims it and draws it dashed, and an arrow once every link it stands
-   * for is. A link without a phase is dimmed once one of its ends is, or a container holding one.
+   * for is; an arrow that stays names only its links that are not dimmed. A link without a phase
+   * is dimmed once one of its ends is, or a container holding one.
    */
   readonly phase?: string;
 };

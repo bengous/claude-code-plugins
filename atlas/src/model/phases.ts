@@ -1,6 +1,7 @@
 import type { Tree } from "./tree.ts";
 import { chainOf, nodeOf } from "./tree.ts";
 import type { Arrow } from "./view.ts";
+import { labelOf } from "./view.ts";
 
 /**
  * What a picked work phase dims: the nodes and the links whose phase comes after it in the
@@ -65,3 +66,21 @@ export function dimmedBy(tree: Tree, phases: readonly string[], phase: string | 
 /** Whether an arrow is dimmed: every link it stands for is. */
 export const arrowDimmed = (dimmed: Dimmed, arrow: Arrow): boolean =>
   arrow.links.every((i) => dimmed.links.has(i));
+
+/**
+ * An arrow's label at the phase picked: read from the links it stands for that are not dimmed,
+ * as its own is read from all of them; its own while every link or none is dimmed.
+ */
+export function labelAt(tree: Tree, dimmed: Dimmed, arrow: Arrow): string {
+  const shown = arrow.links.filter((i) => !dimmed.links.has(i));
+
+  if (shown.length === 0 || shown.length === arrow.links.length) {
+    return arrow.label;
+  }
+
+  return labelOf(
+    tree,
+    shown.flatMap((i) => tree.map.links[i] ?? []),
+    arrow.two,
+  );
+}

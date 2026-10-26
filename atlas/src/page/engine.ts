@@ -33,7 +33,7 @@ import {
   placeOfHash,
 } from "../model/navigation.ts";
 import type { Dimmed } from "../model/phases.ts";
-import { arrowDimmed, dimmedBy } from "../model/phases.ts";
+import { arrowDimmed, dimmedBy, labelAt } from "../model/phases.ts";
 import type { PaletteRule } from "../model/settings.ts";
 import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
@@ -44,7 +44,7 @@ import { SELECTION_PATH, SOURCE_PATH } from "../server/wire.ts";
 import type { Camera, Image, Key } from "./camera.ts";
 import { betweenOf, camera, shown } from "./camera.ts";
 import type { Drawn, Packing } from "./draw.ts";
-import { drawView } from "./draw.ts";
+import { drawView, relabel } from "./draw.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
@@ -912,6 +912,7 @@ function dimView(d: Drawn): void {
 
   for (const e of d.arrows) {
     e.g.classList.toggle("later", arrowDimmed(dimmed, e.arrow));
+    relabel(e, d.mode, labelAt(tree, dimmed, e.arrow));
   }
 }
 

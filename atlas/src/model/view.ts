@@ -158,7 +158,8 @@ const pairKey = (a: string, b: string): string => JSON.stringify(a < b ? [a, b] 
 
 const endsKey = (from: string, to: string): string => JSON.stringify([from, to]);
 
-function labelOf(tree: Tree, links: readonly Link[], two: boolean): string {
+/** The label of an arrow standing for `links`, as `Arrow.label` reads it. */
+export function labelOf(tree: Tree, links: readonly Link[], two: boolean): string {
   const namers = new Set(links.map((l) => endsKey(l.from, l.to)));
 
   if (two) {
