@@ -102,17 +102,18 @@ export type Mode = "map" | "cards";
  *   codec refuses, is dropped, keeping the place and every other parameter, as a selection the
  *   view does not show is dropped; of a key given twice, the first value read counts.
  * - A value the place or the map cannot show goes back to its default, written, read and moved
- *   alike (shownAt): the cards, where the open container has none (cardsOf), or on a journey,
- *   whose arrow they cannot show; a phase the Config does not list (Scope); a journey the root
- *   does not declare, or without a step; a step past its journey's last, or without a journey.
+ *   alike (shownAt): the cards, where the open container has none (cardsOf); a phase the Config
+ *   does not list (Scope); a journey the root does not declare, or without a step; a step past
+ *   its journey's last, or without a journey.
  * - What survives a move (paramsAfter): the mode goes back to "map" when the open container
- *   changes; a phase stays across moves; a journey is a place of its own, which a move outside
- *   the journey leaves.
+ *   changes, or when the move leaves a journey; a phase stays across moves; a journey is a place
+ *   of its own, which a move outside the journey leaves.
  * - A journey and its step, `journey=<id>&step=<n>` with n from 1, show the view of that step
- *   (shownPlace, stepView in journeys.ts), nothing selected; the place written before them is
- *   where the journey started, which leaving it returns to. Every move is made from the step's
- *   view and leaves the journey; another step, or another journey, is no move and keeps that
- *   place. A phase picked stays on a journey.
+ *   (shownPlace, stepView in journeys.ts) as a drawing, nothing selected; the place written
+ *   before them, and the mode, are where the journey started, which leaving it returns to, such
+ *   as `app?mode=cards&journey=checkout&step=2`, the cards of app shown again once it is left.
+ *   Every move is made from the step's view, a drawing, and leaves the journey; another step, or
+ *   another journey, is no move and keeps that place. A phase picked stays on a journey.
  * - `window.atlas` shows each field (pageStateOf).
  *
  * A new parameter is a field here, its default in DEFAULTS, its codec in PARAMS, its rule in
@@ -195,7 +196,7 @@ function playedOf(tree: Tree, params: Params): { journey: Journey; step: number 
 /** The parameters as a place, normalised, and the map can show them (Params gives the rules). */
 function shownAt({ tree, phases }: Scope, place: Place, params: Params): Params {
   const played = playedOf(tree, params);
-  const cards = params.mode === "cards" && played === null && cardsOf(tree, openOf(place)) !== null;
+  const cards = params.mode === "cards" && cardsOf(tree, openOf(place)) !== null;
   const phase = params.phase !== null && phases.includes(params.phase);
 
   return {
@@ -237,9 +238,10 @@ export function shownPlace(scope: Scope, given: Place, params: Params): Place {
 export function paramsAfter(scope: Scope, from: Place, to: Place, params: Params): Params {
   const place = normalised(scope.tree, to);
   const moved = openOf(normalised(scope.tree, from)) !== openOf(place);
+  const drawn = params.journey !== DEFAULTS.journey;
   const left = { ...params, journey: DEFAULTS.journey, step: DEFAULTS.step };
 
-  return shownAt(scope, place, moved ? { ...left, mode: DEFAULTS.mode } : left);
+  return shownAt(scope, place, moved || drawn ? { ...left, mode: DEFAULTS.mode } : left);
 }
 
 function placeHash(tree: Tree, place: Place): string {

@@ -3,7 +3,7 @@ import type { AtlasMap } from "../../src/model/atlas.ts";
 export default {
   root: {
     title: "Journeys",
-    lead: "A bookshop whose root declares two journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow.",
+    lead: "A bookshop whose root declares two journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow. Data's leaves have cards, to start a journey from them.",
     journeys: [
       {
         id: "place-order",
@@ -100,8 +100,26 @@ export default {
         sub: "the state",
         color: "data",
         children: [
-          { id: "db", label: "Database", sub: "PostgreSQL", color: "data" },
-          { id: "outbox", label: "Outbox", sub: "mails to send", color: "data" },
+          {
+            id: "db",
+            label: "Database",
+            sub: "PostgreSQL",
+            color: "data",
+            io: [
+              ["Receives", "orders, sessions"],
+              ["Produces", "an order placed"],
+            ],
+          },
+          {
+            id: "outbox",
+            label: "Outbox",
+            sub: "mails to send",
+            color: "data",
+            io: [
+              ["Receives", "an order placed"],
+              ["Produces", "a confirmation"],
+            ],
+          },
         ],
       },
       {

@@ -1140,10 +1140,10 @@ function send(ev: PlaceEvent): void {
 }
 
 // Plays a journey's step, picked from the menu (its first), a panel button or an arrow key; the
-// reader's place stays where the journey started, which leaving returns to. The cards cannot show
-// the step's arrow, and a phase picked stays.
+// reader's place and mode stay where the journey started, which leaving returns to. The step shows
+// as a drawing, the cards being unable to show its arrow (renderMode), and a phase picked stays.
 function play(journey: string | null, step: number): void {
-  params = { ...params, mode: DEFAULTS.mode, journey, step };
+  params = { ...params, journey, step };
   viewer = null;
   render();
   settle().catch(fail);

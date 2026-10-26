@@ -699,12 +699,29 @@ describe("a journey", () => {
     });
   });
 
-  test("the cards cannot show a journey's arrow: on a journey, the mode goes back to the map", () => {
+  test("a journey started from the cards keeps them as where it started, which leaving it returns to", () => {
+    const app = at(["server", "app"]);
     const cards = playing(2, CARDS);
 
-    expect(hashOf(onJourneys, at(["server", "app"]), cards)).toBe("app?journey=checkout&step=2");
-    expect(paramsOfHash(onJourneys, "#app?mode=cards&journey=checkout&step=2")).toEqual(playing(2));
-    expect(pageStateOf(onJourneys, at(["server", "app"]), cards).mode).toBe("map");
+    expect(hashOf(onJourneys, app, cards)).toBe("app?mode=cards&journey=checkout&step=2");
+    expect(paramsOfHash(onJourneys, "#app?mode=cards&journey=checkout&step=2")).toEqual(cards);
+    expect(pageStateOf(onJourneys, app, cards).mode).toBe("cards");
+    expect(hashOf(onJourneys, app, { ...cards, journey: null, step: 1 })).toBe("app?mode=cards");
+    expect(hashOf(onJourneys, at(["server"]), cards)).toBe("server?journey=checkout&step=2");
+  });
+
+  test("a move from the step's view leaves the cards with the journey, even in the view it started from", () => {
+    const app = at(["server", "app"]);
+    const cards = playing(2, CARDS);
+    const from = shownPlace(onJourneys, app, cards);
+
+    expect(from).toEqual(app);
+
+    for (const event of [{ type: "select", id: "catalog" }, { type: "home" }] as const) {
+      expect(paramsAfter(onJourneys, from, navigate(journeyed, from, event), cards)).toEqual(
+        DEFAULTS,
+      );
+    }
   });
 
   test("a journey the root does not declare or without a step, and a step past the last or without a journey, go back to their defaults", () => {
