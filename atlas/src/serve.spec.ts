@@ -189,14 +189,24 @@ let main: Served | undefined;
 
 let original = "";
 
-// The sample's data, a label changed, that takes a second to load: each build loads the data in a
-// fresh process.
-const slowData = (label: string): string =>
+// The sample's data, a label changed, whose load writes `began` and then holds its build until
+// `gate` exists: each build loads the data in a fresh process.
+const gatedData = (label: string, began: string, gate: string): string =>
   original
-    .replace("export default", "Bun.sleepSync(1000);\n\nexport default")
+    .replace(
+      "export default",
+      [
+        `await Bun.write(${JSON.stringify(began)}, "");`,
+        `while (!(await Bun.file(${JSON.stringify(gate)}).exists())) await Bun.sleep(10);`,
+        "",
+        "export default",
+      ].join("\n"),
+    )
     .replace("Nightly backup", label);
 
 const isBuilt = (line: string): boolean => line.startsWith("atlas: built ");
+
+const isFailed = (line: string): boolean => line.startsWith("atlas: failed ");
 
 function served(): Served {
   if (main === undefined) {
@@ -206,8 +216,8 @@ function served(): Served {
   return main;
 }
 
-async function page(): Promise<Page> {
-  const { base } = served();
+async function page(on: Served = served()): Promise<Page> {
+  const { base } = on;
   const response = await fetch(`${base}/atlas.html`);
   const html = await response.text();
   const src = /<script type="module"[^>]* src="\.\/([^"]+)"/u.exec(html)?.[1];
@@ -217,10 +227,10 @@ async function page(): Promise<Page> {
 }
 
 // Waits through reloads until the page shows what the test saved.
-async function reloadedTo(shows: (p: Page) => boolean): Promise<Page> {
+async function reloadedTo(shows: (p: Page) => boolean, on: Served = served()): Promise<Page> {
   for (;;) {
-    await within(served().events.next(isReload), "reload");
-    const p = await page();
+    await within(on.events.next(isReload), "reload");
+    const p = await page(on);
 
     if (shows(p)) {
       return p;
@@ -228,10 +238,48 @@ async function reloadedTo(shows: (p: Page) => boolean): Promise<Page> {
   }
 }
 
+async function until(holds: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + WAIT_MS;
+
+  while (!holds()) {
+    if (Date.now() > deadline) {
+      throw new Error(`no ${what} within ${WAIT_MS} ms`);
+    }
+
+    await Bun.sleep(10);
+  }
+}
+
 function saveAtomically(file: string, text: string): void {
   const temporary = join(dirname(file), `.${MAP_FILE}.${crypto.randomUUID()}.tmp`);
   writeFileSync(temporary, text);
   renameSync(temporary, file);
+}
+
+// An atomic save staged outside the folder: the server's watch sees its one rename, where a save
+// staged beside the file shows its temporary file first, and a writer held between the two on a
+// loaded machine makes the server build twice, the first time on the old text.
+function saveAsOneEvent(file: string, text: string): void {
+  const staging = mkdtempSync(join(tmpdir(), "atlas-staged-"));
+  const temporary = join(staging, MAP_FILE);
+  writeFileSync(temporary, text);
+  renameSync(temporary, file);
+  rmSync(staging, { recursive: true });
+}
+
+// A server of the test's own, on a copy of the sample: no build another test caused still runs or
+// waits behind it.
+async function onOwnServer(run: (folder: string, own: Served) => Promise<void>): Promise<void> {
+  const folder = copyOfSample();
+  const own = await serve(folder);
+
+  try {
+    await run(folder, own);
+  } finally {
+    own.child.kill();
+    await own.child.exited;
+    rmSync(folder, { recursive: true, force: true });
+  }
 }
 
 async function restore(): Promise<void> {
@@ -321,25 +369,37 @@ describe("serve.ts", () => {
   test(
     "saves during a slow build leave one build waiting behind it",
     async () => {
-      const { log, events } = served();
-      const from = log.items.length;
-      events.skip();
-      saveAtomically(join(dir, MAP_FILE), slowData("Backup 0"));
-      await Bun.sleep(300);
+      await onOwnServer(async (folder, own) => {
+        const signals = mkdtempSync(join(tmpdir(), "atlas-gate-"));
+        const gate = join(signals, "gate");
 
-      for (let i = 1; i <= 4; i += 1) {
-        saveAtomically(join(dir, MAP_FILE), slowData(`Backup ${i}`));
-        await Bun.sleep(150);
-      }
+        const save = (label: string): void => {
+          saveAsOneEvent(join(folder, MAP_FILE), gatedData(label, join(signals, label), gate));
+        };
 
-      await reloadedTo((p) => p.script.includes("Backup 4"));
-      // A queue of one build per save would log its next build within this time.
-      await Bun.sleep(1500);
-      const builds = log.items.slice(from).filter((line) => isBuild(line));
+        try {
+          save("Backup 0");
+          await until(() => existsSync(join(signals, "Backup 0")), "build loading Backup 0");
 
-      expect(builds).toHaveLength(2);
+          // The server asks for a build 50 ms after a save's last event: spaced wider, each save
+          // asks on its own, and the gate opens a second after the last, so the first build holds
+          // through every request.
+          for (let i = 1; i <= 4; i += 1) {
+            save(`Backup ${i}`);
+            await Bun.sleep(150);
+          }
 
-      await restore();
+          await Bun.sleep(1000);
+          writeFileSync(gate, "");
+          await reloadedTo((p) => p.script.includes("Backup 4"), own);
+          // A queue of one build per save would log its next build within this time.
+          await Bun.sleep(1500);
+
+          expect(own.log.items.filter((line) => isBuild(line))).toHaveLength(2);
+        } finally {
+          rmSync(signals, { recursive: true, force: true });
+        }
+      });
     },
     WAIT_MS * 3,
   );
@@ -347,19 +407,18 @@ describe("serve.ts", () => {
   test(
     "a change to threads.json alone builds nothing: the page reads it by itself",
     async () => {
-      const { log, events } = served();
-      log.skip();
-      events.skip();
-      const file = join(dir, THREADS_FILE);
-      writeFileSync(file, await Bun.file(file).text());
-      await Bun.sleep(1000);
-      saveAtomically(join(dir, MAP_FILE), original.replace("Nightly backup", "Weekly backup"));
-      const build = await within(log.next(isBuild), "build");
+      await onOwnServer(async (folder, own) => {
+        const file = join(folder, THREADS_FILE);
+        writeFileSync(file, await Bun.file(file).text());
+        // A build the change started would begin 50 ms after it, ahead of the save's build.
+        await Bun.sleep(1000);
+        saveAsOneEvent(join(folder, MAP_FILE), original.replace("Nightly backup", "Weekly backup"));
+        const build = await within(own.log.next(isBuild), "build");
 
-      expect(build).toContain("reload sent");
+        expect(build).toContain("reload sent");
 
-      await reloadedTo((p) => p.script.includes("Weekly backup"));
-      await restore();
+        await reloadedTo((p) => p.script.includes("Weekly backup"), own);
+      });
     },
     WAIT_MS * 3,
   );
@@ -534,14 +593,12 @@ describe("a map folder that goes away", () => {
   test(
     "leaves the server up, answering an error page, and is served again once made anew",
     async () => {
-      const gone = copyOfSample();
-      const other = await serve(gone);
-
-      try {
+      // A removal or a copy is many writes, which a loaded machine spreads over several builds:
+      // the test waits for the build or the page each step makes, not the next build.
+      await onOwnServer(async (gone, other) => {
         rmSync(gone, { recursive: true });
-        const build = await within(other.log.next(isBuild), "build");
+        await within(other.log.next(isFailed), "failed build");
 
-        expect(build).toContain("failed");
         expect((await fetch(`${other.base}/atlas.html`)).status).toBe(500);
         expect(other.child.exitCode).toBeNull();
 
@@ -550,16 +607,12 @@ describe("a map folder that goes away", () => {
 
         expect((await fetch(`${other.base}/atlas.html`)).status).toBe(200);
 
-        const text = original.replace("Nightly backup", "Weekly backup");
-        saveAtomically(join(gone, MAP_FILE), text);
-        const edit = await within(other.log.next(isBuild), "build of an edit");
+        other.events.skip();
+        saveAtomically(join(gone, MAP_FILE), original.replace("Nightly backup", "Weekly backup"));
+        const edited = await reloadedTo((p) => p.script.includes("Weekly backup"), other);
 
-        expect(edit).toContain("reload sent");
-      } finally {
-        other.child.kill();
-        await other.child.exited;
-        rmSync(gone, { recursive: true, force: true });
-      }
+        expect(edited.status).toBe(200);
+      });
     },
     WAIT_MS * 3,
   );
