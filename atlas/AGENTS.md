@@ -255,7 +255,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   `cards.ts`), the root's included, gets a Map | Cards switch in the stage's controls. Cards
   (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
   `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
-  leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, a marker
+  leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, the column
+  of a leaf the phase picked dims faded and dashed as the drawing shows it, a marker
   opening its lines in the panel, shown if it was hidden; a click elsewhere on the cards does
   nothing. The header row and the keys' column stay in sight as it scrolls, below the controls,
   which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which

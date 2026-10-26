@@ -323,6 +323,11 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .cards tbody th { font-weight: 400; color: var(--ink-2); white-space: nowrap; border-top: 1px solid var(--line); }
 .cards tbody tr:not(:first-child) td:not(:first-child) { border-top: 1px solid var(--line); }
 .cards tbody tr:last-child td:not(:first-child) { border-bottom: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+/* A leaf the phase picked dims (engine.ts): its column's contents faded and its borders dashed, as the drawing shows it; the backgrounds stay opaque under the sticky header row. */
+.cards .later > * { opacity: 0.4; }
+.cards :is(th, td).later { border-inline-style: dashed; }
+.cards tbody tr:last-child td.later { border-bottom-style: dashed; }
+.cards thead th.later { border-top-color: color-mix(in srgb, var(--zc) 40%, var(--surface)); }
 .cards .lead { font-size: 15px; }
 .cards td p { margin: 0 0 6px; }
 .cards td p:last-child { margin-bottom: 0; }

@@ -456,6 +456,19 @@ describe("the cards", () => {
     expect(app).not.toContain("selected");
   });
 
+  test("the columns of the leaves the phase picked dims are marked later, header and cells", () => {
+    const html = cardsHtml(settings, cardsIn(TREE, "app"), "catalog", new Set(["catalog", "app"]));
+
+    expect(html).toContain(
+      '<th scope="col" class="selected later" style="--zc: var(--palette-app)"><button type="button" data-select="catalog" aria-current="true">Catalog</button></th>',
+    );
+    expect(html).toContain(
+      '<td class="lead selected later"><p>Lists, searches and shows the books.</p>',
+    );
+    expect(html.match(/later"/gu)).toHaveLength(4);
+    expect(app).not.toContain("later");
+  });
+
   test("a cell with a citation shows its marker; pairs sharing a key share a cell; a missing key leaves it empty", () => {
     const tree = treeOf({
       root: {

@@ -883,7 +883,7 @@ function renderMode(key: Key): void {
   const [left, top] = same ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
 
   const write = (): void => {
-    cardsView.innerHTML = cardsHtml(settings, table, place.selected);
+    cardsView.innerHTML = cardsHtml(settings, table, place.selected, dimmed.nodes);
     cardsView.scrollLeft = left;
     cardsView.scrollTop = top;
   };
@@ -1001,8 +1001,8 @@ function render(): void {
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
-  renderMode(key);
   renderPhase();
+  renderMode(key);
   pageState = pageStateOf(scope, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;

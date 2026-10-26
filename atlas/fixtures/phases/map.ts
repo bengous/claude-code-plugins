@@ -42,6 +42,10 @@ export default {
             sub: "pays the cart",
             color: "billing",
             phase: "Payments",
+            io: [
+              ["Receives", "the cart"],
+              ["Produces", "an order, a charge"],
+            ],
           },
           {
             id: "invoices",
@@ -49,6 +53,10 @@ export default {
             sub: "the bills",
             color: "billing",
             phase: "Payments",
+            io: [
+              ["Receives", "an order"],
+              ["Produces", "a PDF bill, mailed"],
+            ],
           },
           {
             id: "refunds",
@@ -56,6 +64,10 @@ export default {
             sub: "reverses a payment",
             color: "billing",
             phase: "Growth",
+            io: [
+              ["Receives", "an order to reverse"],
+              ["Produces", "a refund"],
+            ],
           },
         ],
       },

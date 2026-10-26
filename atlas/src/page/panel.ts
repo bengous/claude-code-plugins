@@ -403,11 +403,11 @@ export function renderOpenList(
 const classOf = (names: readonly string[]): string =>
   names.length === 0 ? "" : ` class="${names.join(" ")}"`;
 
-function cardHead(node: Node, selected: boolean): string {
+function cardHead(node: Node, selected: boolean, names: readonly string[]): string {
   const current = selected ? ' aria-current="true"' : "";
   const label = esc(node.label.replaceAll("\n", " "));
 
-  return `<th scope="col"${classOf(selected ? ["selected"] : [])} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
+  return `<th scope="col"${classOf(names)} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
 }
 
 const cell = (s: Settings, values: readonly string[], names: readonly string[]): string =>
@@ -417,12 +417,23 @@ const cell = (s: Settings, values: readonly string[], names: readonly string[]):
  * A container's leaf children side by side (cardsOf), as a table: a column per leaf, its header
  * its label in its colour, a button that selects it, the selected one's cells marked; the first
  * row their leads, unless none has one, then a row per `io` key, its key as the panel shows it, its values through
- * fieldHtml, the panel's markup and markers kept.
+ * fieldHtml, the panel's markup and markers kept. The columns of the leaves in `later`, which the
+ * phase picked dims, are marked later.
  */
-export function cardsHtml(s: Settings, cards: Cards, selected: string | null): string {
+export function cardsHtml(
+  s: Settings,
+  cards: Cards,
+  selected: string | null,
+  later: ReadonlySet<string> = new Set(),
+): string {
   const marked = cards.columns.map((node) => node.id === selected);
-  const mark = (i: number): string[] => (marked[i] === true ? ["selected"] : []);
-  const head = cards.columns.map((node, i) => cardHead(node, marked[i] === true)).join("");
+
+  const mark = (i: number): string[] => [
+    ...(marked[i] === true ? ["selected"] : []),
+    ...(later.has(cards.columns[i]?.id ?? "") ? ["later"] : []),
+  ];
+
+  const head = cards.columns.map((node, i) => cardHead(node, marked[i] === true, mark(i))).join("");
 
   const lead =
     cards.lead === null
