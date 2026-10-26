@@ -469,14 +469,14 @@ function beatSince(file: string, since: number): boolean {
 }
 
 /**
- * The file holding the hashes of the commit messages the judge refused to agent `key` last: one of them, committed
- * again unchanged, passes. Kept apart from the state files, which are per checkout and saved by the edit hooks.
+ * The file holding the hashes of the commit messages the judge refused to agent `key`: each of them, committed again
+ * unchanged, passes. Kept apart from the state files, which are per checkout and saved by the edit hooks.
  */
 export function refusedPath(key: string): string {
   return path.join(stateDir(), `${sanitize(key)}${REFUSED_SUFFIX}`);
 }
 
-/** The hashes the judge refused to agent `key` last; none when absent, and none when unreadable, which is reported. */
+/** The hashes the judge refused to agent `key`; none when absent, and none when unreadable, which is reported. */
 export function loadRefused(key: string): string[] {
   const file = refusedPath(key);
   let value: unknown;
@@ -500,21 +500,8 @@ export function loadRefused(key: string): string[] {
   return value;
 }
 
-/** Replaces the hashes the judge refused to agent `key`; none removes the file. */
 export function saveRefused(key: string, hashes: readonly string[]): void {
-  if (hashes.length > 0) {
-    writeAtomically(refusedPath(key), JSON.stringify(hashes));
-
-    return;
-  }
-
-  try {
-    unlinkSync(refusedPath(key));
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  }
+  writeAtomically(refusedPath(key), JSON.stringify(hashes));
 }
 
 function sanitize(value: string): string {

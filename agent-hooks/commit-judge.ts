@@ -16,6 +16,8 @@ export type CommitMessage = {
   readonly message: string | null;
   /** The file `-F` names, read where the commit runs. */
   readonly file: string | null;
+  /** Whether a `-m` value is a substitution other than a heredoc (`"$(cat msg.txt)"`), known only once the line runs. */
+  readonly opaque: boolean;
 };
 
 /** Options of `git commit` that take a value, as the next word or after `=`. */
@@ -115,11 +117,11 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
     }
   }
 
-  const written = messages.flatMap((message) => {
-    const text = message.startsWith("$(") ? HEREDOC_BODY.exec(message)?.[3] : message;
+  const texts = messages.map((message) =>
+    message.startsWith("$(") ? HEREDOC_BODY.exec(message)?.[3] : message,
+  );
 
-    return text === undefined ? [] : [text.trim()];
-  });
+  const written = texts.flatMap((text) => (text === undefined ? [] : [text.trim()]));
 
   const stdin = file !== null && STDIN.has(file);
   const fromStdin: string | null = stdin ? (heredoc?.trim() ?? null) : null;
@@ -130,7 +132,7 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
   const form: CommitForm =
     none || reused || ((amend || noEdit) && !writes) ? "kept" : amend ? "amend" : "new";
 
-  return { form, message, file: named };
+  return { form, message, file: named, opaque: texts.includes(undefined) };
 }
 
 /** The instructions the judge was measured with: changing them invalidates the measurement (see SKILL.md). */
@@ -190,7 +192,8 @@ export function judgeInput(message: string, files: readonly string[]): string {
 
 /**
  * Asks Haiku, headless, with no tool, no hook, no MCP server and no saved session, which passages of the message tell
- * how the change came about or how it was checked. An answer it cannot read is asked once more while time is left.
+ * how the change came about or how it was checked. An answer it cannot read is asked once more while time is left;
+ * an error exit is not, as it would fail the same way.
  */
 export async function judge(
   message: string,
@@ -230,7 +233,7 @@ export async function judge(
 
     const judgment = judgmentOf(result);
 
-    if (judgment.kind === "answered" || result.kind !== "exited") {
+    if (judgment.kind === "answered" || result.kind !== "exited" || result.code !== 0) {
       return judgment;
     }
 

@@ -1364,19 +1364,29 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     expect(judgeInput()).toBe("Message:\nfix: a\n\nFiles:\n");
   });
 
-  test("the same command run again passes once; a rewritten message is judged again", async () => {
+  test("a message refused once passes unjudged on every rerun; a rewritten message is judged again", async () => {
     const command = "git commit -qm 'fix: a, from the review of #1'";
 
     expect((await preBash(command, repo)).decision).toBe("deny");
     expect((await preBash(command, repo)).stdout).toBe("");
+    expect((await preBash(command, repo)).stdout).toBe("");
     expect(judgeCalls()).toBe(1);
-    expect((await preBash(command, repo)).decision).toBe("deny");
 
     expect((await preBash("git commit -qm 'fix: a, after the review of #1'", repo)).decision).toBe(
       "deny",
     );
     expect((await preBash("git commit -qm 'fix: a'", repo)).stdout).toBe("");
-    expect((await preBash(command, repo)).decision).toBe("deny");
+    expect((await preBash(command, repo)).stdout).toBe("");
+    expect(judgeCalls()).toBe(3);
+  });
+
+  test("a line whose commits were refused one after the other gets through on its rerun", async () => {
+    const first = "git commit -qm 'fix: a, review of #1'";
+    const both = `${first} && git commit -qm 'fix: b, review of #1'`;
+
+    expect((await preBash(first, repo)).decision).toBe("deny");
+    expect((await preBash(both, repo)).decision).toBe("deny");
+    expect((await preBash(both, repo)).stdout).toBe("");
   });
 
   test("a refusal holds for the agent it was given to", async () => {
@@ -1455,7 +1465,7 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     ).toBe(REFUSAL);
   });
 
-  test("a judge that gives no answer, asked twice, lets the commit through with a note", async () => {
+  test("a judge that gives no answer lets the commit through with a note", async () => {
     writeFileSync(path.join(temp.bin, "claude.fail"), "");
 
     const output = await preBash("git commit -qm 'review of #1'", repo);
@@ -1464,7 +1474,24 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
     expect(output.note).toBe(
       "agent-hooks: the commit judge gave no answer (claude -p exited 1 with no readable answer): the commit passed",
     );
-    expect(judgeCalls()).toBe(2);
+  });
+
+  test("a refusal it cannot save lets the commit through with a note, so no rerun is refused forever", async () => {
+    mkdirSync(path.join(temp.stateDir, `${SESSION}.refused`), { recursive: true });
+
+    const output = await preBash("git commit -qm 'review of #1'", repo);
+
+    expect(output.decision).toBeUndefined();
+    expect(output.note).toStartWith(
+      "agent-hooks: the commit judge refused a message but could not save the refusal (",
+    );
+  });
+
+  test("a -m substitution other than a heredoc goes unjudged, with a note", async () => {
+    expect((await preBash('git commit -m "$(cat msg.txt)"', repo)).note).toBe(
+      "agent-hooks: a commit went unjudged: its -m runs a substitution the hook cannot read before the line runs",
+    );
+    expect(judgeInput()).toBeNull();
   });
 
   test("a commit whose cd the walk cannot follow says so, in a repository with the key", async () => {

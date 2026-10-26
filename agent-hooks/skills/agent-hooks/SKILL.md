@@ -135,12 +135,14 @@ pull request.
   again before it lands.
 - A refusal is a PreToolUse deny whose reason starts with `agent-hooks:`, quotes each passage, and gives
   both ways out on the same footing: rewrite these passages, or rerun exactly the same command when the
-  message is right. A refusal holds once: `~/.local/state/agent-hooks/<agent>.refused` keeps the hashes of
-  the messages last refused to that agent, and one of them committed again unchanged passes; each line that
-  judges a commit or lets a refused one through rewrites the file. It ages out with the beats. `noise`
-  counts these refusals with the landing guard's.
-- Haiku with no answer (no `claude` on PATH, an error or an unreadable answer twice, no time left before
+  message is right. A refusal holds once per message: `~/.local/state/agent-hooks/<agent>.refused` keeps
+  the hash of each message refused to that agent, and that message committed again unchanged passes
+  unjudged from then on, a rerun that a red pre-commit or a denied prompt stopped included. It ages out
+  with the beats. A refusal the kit cannot save lets the commit through, with a note: its rerun would be
+  judged again. `noise` counts these refusals with the landing guard's.
+- Haiku with no answer (no `claude` on PATH, an error exit, an unreadable answer twice, no time left before
   the hook's deadline) lets the commit through, with a `systemMessage` that starts with `agent-hooks:`. A
+  `-m "$(cat msg.txt)"`, whose text only the line's run gives, goes unjudged with the same kind of note. A
   commit Haiku passes is silent. Each judged commit waits for Haiku's answer.
 
 ## Reading a Stop

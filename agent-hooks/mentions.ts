@@ -23,7 +23,7 @@ import {
   releaseScriptOf,
 } from "./landing.ts";
 import type { Command, Line, Span, Unwrapped, Word } from "./shell.ts";
-import { commandsOf, parseLine, separatorAfter, unwrap } from "./shell.ts";
+import { commandsOf, parseLine, unwrap } from "./shell.ts";
 
 /** Where the raw text of a line names a door, before any parsing. */
 export type Mention = {
@@ -1826,15 +1826,10 @@ export function isAbsoluteLocation(location: readonly string[]): boolean {
   );
 }
 
-/** A `git commit` a line runs as written: where its trailers go, where it runs, and the heredoc it reads. */
+/** A `git commit` a line runs as written: where it starts, where it runs, and the heredoc it reads. */
 export type CommitInvocation = {
   /** The offset in the line where the command starts: what the line runs before it ends there. */
   readonly start: number;
-  /**
-   * The offset in the line after its last argument before a `--`: options added there keep matching a permission
-   * rule written for the command's start (`Bash(git commit -m:*)`).
-   */
-  readonly offset: number;
   /** null once an earlier `cd` leaves the directory unknown. */
   readonly cwd: string | null;
   readonly lost: string | null;
@@ -1880,23 +1875,17 @@ export function commitsOf(
       return [];
     }
 
-    const words = view.unwrapped.argv.slice(git.index);
-    const separator = separatorAfter(words, 0);
-    const last = (separator === -1 ? words : words.slice(0, separator)).at(-1);
     const [heredoc] = command.heredocs;
 
-    return last === undefined
-      ? []
-      : [
-          {
-            start: command.words[0]?.start ?? last.start,
-            offset: last.end,
-            cwd: view.cwd,
-            lost: view.lost,
-            git,
-            heredoc: heredoc === undefined ? null : script.slice(heredoc.start, heredoc.end),
-          },
-        ];
+    return [
+      {
+        start: command.words[0]?.start ?? 0,
+        cwd: view.cwd,
+        lost: view.lost,
+        git,
+        heredoc: heredoc === undefined ? null : script.slice(heredoc.start, heredoc.end),
+      },
+    ];
   });
 }
 

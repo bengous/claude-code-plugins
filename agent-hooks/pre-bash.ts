@@ -734,10 +734,10 @@ type Judged = {
 
 /**
  * Has Haiku judge the message of each `git commit` the line runs as written in a repository whose profile asks for
- * it: refused when a message tells how the change came about or how it was checked. A message refused to this agent
- * last time, committed again unchanged, passes: the refusal holds once. A commit that keeps its message, makes none,
- * or whose message the line does not show, is not judged; a judge that gives no answer lets the commit through with
- * a note.
+ * it: refused when a message tells how the change came about or how it was checked. A message once refused to this
+ * agent passes unjudged from then on: the refusal holds once, and a rerun that fails later (a red pre-commit, a
+ * denied prompt) is not refused again. A commit that keeps its message, makes none, or whose message the line does
+ * not show, is not judged; a judge that gives no answer lets the commit through with a note.
  */
 async function judgeCommits(
   command: string,
@@ -748,8 +748,7 @@ async function judgeCommits(
 ): Promise<GuardVerdict> {
   const notes = new Set<string>();
   const key = stateKey(input);
-  let refusedBefore: ReadonlySet<string> | null = null;
-  let overridden = false;
+  let refusedBefore: readonly string[] | null = null;
   const judged: Judged[] = [];
 
   for (const commit of commitsOf(command, cwd)) {
@@ -784,6 +783,13 @@ async function judgeCommits(
       continue;
     }
 
+    if (written.opaque) {
+      notes.add(
+        "agent-hooks: a commit went unjudged: its -m runs a substitution the hook cannot read before the line runs",
+      );
+      continue;
+    }
+
     const message = written.message ?? messageFileOf(command, commit, dir, written.file, notes);
 
     if (message === null || message === "") {
@@ -791,10 +797,9 @@ async function judgeCommits(
     }
 
     const hash = sha256(message);
-    refusedBefore ??= new Set(loadRefused(key));
+    refusedBefore ??= loadRefused(key);
 
-    if (refusedBefore.has(hash)) {
-      overridden = true;
+    if (refusedBefore.includes(hash)) {
       continue;
     }
 
@@ -819,16 +824,24 @@ async function judgeCommits(
     }
   }
 
-  if (judged.length > 0 || overridden) {
-    saveRefused(
-      key,
-      refused.map((commit) => commit.hash),
+  const noted = notes.size === 0 ? ALLOW : note([...notes].join("\n"));
+
+  if (refused.length === 0) {
+    return noted;
+  }
+
+  try {
+    saveRefused(key, [...new Set([...(refusedBefore ?? []), ...refused.map(({ hash }) => hash)])]);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+
+    // A refusal its rerun cannot get past would refuse a legitimate message forever.
+    return note(
+      `agent-hooks: the commit judge refused a message but could not save the refusal (${why}): the commit passed`,
     );
   }
 
-  const noted = notes.size === 0 ? ALLOW : note([...notes].join("\n"));
-
-  return refused.length === 0 ? noted : refusal(judgeRefusal(refused));
+  return refusal(judgeRefusal(refused));
 }
 
 /**

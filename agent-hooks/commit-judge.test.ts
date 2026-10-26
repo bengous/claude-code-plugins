@@ -31,7 +31,16 @@ describe("commitMessageOf", () => {
     [["--porcelain"], null, "kept", null, null],
     [["-h"], null, "kept", null, null],
   ] as const)("%j with heredoc %j is %s", (args, heredoc, form, message, file) => {
-    expect(commitMessageOf(args, heredoc)).toEqual({ form, message, file });
+    expect(commitMessageOf(args, heredoc)).toEqual({ form, message, file, opaque: false });
+  });
+
+  test("a -m substitution other than a heredoc is known only once the line runs", () => {
+    expect(commitMessageOf(["-m", "fix: a", "-m", "$(cat body.txt)"], null)).toEqual({
+      form: "new",
+      message: "fix: a",
+      file: null,
+      opaque: true,
+    });
   });
 });
 
@@ -134,7 +143,7 @@ describe("judge", () => {
     });
   });
 
-  test("asks once more after an answer it cannot read, then says why it has none", async () => {
+  test("asks once more after an answer it cannot read, never after an error exit", async () => {
     const unreadable = answer('{"verdict": "ok"}');
     const calls: Argv[] = [];
 
@@ -147,12 +156,19 @@ describe("judge", () => {
     });
     expect(calls).toHaveLength(2);
 
-    const failed: RunResult = { kind: "exited", code: 1, stdout: "", stderr: "" };
+    expect(await judge("m", [], deadlineIn(30_000), runner([unreadable]))).toEqual({
+      kind: "failed",
+      why: "claude -p exited 0 with no readable answer",
+    });
 
-    expect(await judge("m", [], deadlineIn(30_000), runner([failed]))).toEqual({
+    const failed: RunResult = { kind: "exited", code: 1, stdout: "", stderr: "" };
+    const once: Argv[] = [];
+
+    expect(await judge("m", [], deadlineIn(30_000), runner([failed, REVIEW], once))).toEqual({
       kind: "failed",
       why: "claude -p exited 1 with no readable answer",
     });
+    expect(once).toHaveLength(1);
   });
 
   test("a missing claude or a timeout gets no second ask", async () => {

@@ -481,14 +481,6 @@ describe("refused messages", () => {
     }
   });
 
-  test("saving none removes the file, absent or not", () => {
-    saveRefused("s1", []);
-    saveRefused("s1", ["h1"]);
-    saveRefused("s1", []);
-
-    expect(existsSync(refusedPath("s1"))).toBe(false);
-  });
-
   test("a refused-messages file ages out with the beats", () => {
     const now = 100 * DAY_MS;
     saveRefused("old", ["h1"]);

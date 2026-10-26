@@ -219,48 +219,40 @@ describe("assess accounts for each mention", () => {
   });
 });
 
-/** Each commit as the line with a mark where its trailers go, and the directory it runs in. */
-function marked(command: string): [string, string | null][] {
+/** Each commit as the line from its start, its arguments, and the directory it runs in. */
+function found(command: string): [string, readonly string[], string | null][] {
   return commitsOf(command, CWD, { exists: () => true }).map((commit) => [
-    `${command.slice(0, commit.offset)}|${command.slice(commit.offset)}`,
+    command.slice(commit.start),
+    commit.git.args,
     commit.cwd,
   ]);
 }
 
 describe("commitsOf", () => {
-  test("finds a git commit as written, its wrappers, assignments and location peeled, its trailers after its last argument", () => {
-    expect(marked("git commit -m x")).toEqual([["git commit -m x|", CWD]]);
-    expect(marked("FOO=1 timeout 60 git -C sub commit -qm x 2>&1")).toEqual([
-      ["FOO=1 timeout 60 git -C sub commit -qm x| 2>&1", CWD],
+  test("finds a git commit as written, its wrappers, assignments and location peeled", () => {
+    expect(found("git commit -m x")).toEqual([["git commit -m x", ["-m", "x"], CWD]]);
+    expect(found("FOO=1 timeout 60 git -C sub commit -qm x 2>&1")).toEqual([
+      ["FOO=1 timeout 60 git -C sub commit -qm x 2>&1", ["-qm", "x"], CWD],
     ]);
-    expect(marked(`git "commit" -m x`)).toEqual([[`git "commit" -m x|`, CWD]]);
-  });
-
-  test("puts the trailers before a `--` that ends the options", () => {
-    expect(marked("git commit -m x -- a.ts")).toEqual([["git commit -m x| -- a.ts", CWD]]);
-    expect(marked("git commit -- a.ts")).toEqual([["git commit| -- a.ts", CWD]]);
+    expect(found(`git "commit" -m x`)).toEqual([[`git "commit" -m x`, ["-m", "x"], CWD]]);
   });
 
   test("follows a cd, in a subshell too, and finds each commit of the line", () => {
-    expect(marked("cd sub && git commit -m a; git commit -m b")).toEqual([
-      ["cd sub && git commit -m a|; git commit -m b", `${CWD}/sub`],
-      ["cd sub && git commit -m a; git commit -m b|", `${CWD}/sub`],
+    expect(found("cd sub && git commit -m a; git commit -m b")).toEqual([
+      ["git commit -m a; git commit -m b", ["-m", "a"], `${CWD}/sub`],
+      ["git commit -m b", ["-m", "b"], `${CWD}/sub`],
     ]);
-    expect(marked("(cd sub && git commit -m a) && git commit -m b")).toEqual([
-      ["(cd sub && git commit -m a|) && git commit -m b", `${CWD}/sub`],
-      ["(cd sub && git commit -m a) && git commit -m b|", CWD],
+    expect(found("(cd sub && git commit -m a) && git commit -m b")).toEqual([
+      ["git commit -m a) && git commit -m b", ["-m", "a"], `${CWD}/sub`],
+      ["git commit -m b", ["-m", "b"], CWD],
     ]);
-    expect(marked('cd "$DIR" && git commit -m a')).toEqual([
-      ['cd "$DIR" && git commit -m a|', null],
-    ]);
+    expect(found('cd "$DIR" && git commit -m a')).toEqual([["git commit -m a", ["-m", "a"], null]]);
   });
 
   test("a message written by a substitution or a heredoc is still the commit's, the heredoc handed over", () => {
-    expect(marked("git commit -m \"$(cat <<'EOF'\nfix: a\nEOF\n)\"")).toEqual([
-      ["git commit -m \"$(cat <<'EOF'\nfix: a\nEOF\n)\"|", CWD],
-    ]);
-    expect(marked("git commit -F - <<'EOF'\nfix: a\nEOF")).toEqual([
-      ["git commit -F -| <<'EOF'\nfix: a\nEOF", CWD],
+    expect(found("git commit -m \"$(cat <<'EOF'\nfix: a\nEOF\n)\"")).toHaveLength(1);
+    expect(found("git commit -F - <<'EOF'\nfix: a\nEOF")).toEqual([
+      ["git commit -F - <<'EOF'\nfix: a\nEOF", ["-F", "-"], CWD],
     ]);
     expect(
       commitsOf("git commit -F - <<'EOF'\nfix: a\nEOF", CWD, { exists: () => true })[0]?.heredoc,
@@ -268,12 +260,12 @@ describe("commitsOf", () => {
   });
 
   test("a commit inside a substitution, a nested script, behind xargs, or another subcommand is none", () => {
-    expect(marked('echo "$(git commit -m a)"')).toEqual([]);
-    expect(marked("bash -c 'git commit -m a'")).toEqual([]);
-    expect(marked("echo -m a | xargs git commit")).toEqual([]);
-    expect(marked("git merge --no-ff x && git cherry-pick y && git revert z")).toEqual([]);
-    expect(marked("git log --grep commit")).toEqual([]);
-    expect(marked("f() { git commit -m a; }; f")).toEqual([]);
+    expect(found('echo "$(git commit -m a)"')).toEqual([]);
+    expect(found("bash -c 'git commit -m a'")).toEqual([]);
+    expect(found("echo -m a | xargs git commit")).toEqual([]);
+    expect(found("git merge --no-ff x && git cherry-pick y && git revert z")).toEqual([]);
+    expect(found("git log --grep commit")).toEqual([]);
+    expect(found("f() { git commit -m a; }; f")).toEqual([]);
   });
 });
 
