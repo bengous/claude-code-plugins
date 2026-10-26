@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { TOOLS_TYPES_PATH, TYPES_PATH } from "./claude-code-types.ts";
 import {
   type Commit,
   isEligible,
@@ -134,6 +135,19 @@ describe("isEligible", () => {
 
   test("a lockfile alone is not", () => {
     expect(isEligible(commitOf("a", "chore(deps): lock", ["bun.lock", 900]))).toBe(false);
+  });
+
+  test("Claude Code's own types alone are not", () => {
+    expect(
+      isEligible(
+        commitOf(
+          "a",
+          "chore(vellum): types from Claude Code 2.1.309",
+          [TYPES_PATH, 32],
+          [TOOLS_TYPES_PATH, 8],
+        ),
+      ),
+    ).toBe(false);
   });
 
   test("a commit with no file is not", () => {

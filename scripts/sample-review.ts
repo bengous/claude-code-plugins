@@ -14,7 +14,7 @@
  * The candidates are the non-merge commits whose committer date falls in an
  * ISO week, Monday 00:00 UTC to the next (the last complete one, or the one
  * `--week` names), minus the version bumps (`chore(<scope>): x.y.z`) and the commits with no code in them
- * (documentation, lockfiles). Each candidate draws an exponential clock from a
+ * (documentation, lockfiles, Claude Code's own types). Each candidate draws an exponential clock from a
  * hash of the week and its sha, divided by the square root of its code lines;
  * the `--count` smallest clocks are the sample. That is weighted sampling
  * without replacement, with nothing random in it: the same week and the same
@@ -24,6 +24,8 @@
 
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
+
+import { TOOLS_TYPES_PATH, TYPES_PATH } from "./claude-code-types.ts";
 
 const DEFAULT_COUNT = 3;
 
@@ -39,6 +41,8 @@ const WEEK_TEXT = /^(\d{4})-W(\d{2})$/u;
 export const VERSION_BUMP = /^chore(?:\([^)]*\))?: \d+\.\d+\.\d+(?:[\s,]|$)/u;
 
 const LOCKFILE = /(?:^|\/)(?:[^/]*\.lock|package-lock\.json|bun\.lockb)$/u;
+
+const GENERATED = new Set([TYPES_PATH, TOOLS_TYPES_PATH]);
 
 const MARKDOWN = /\.mdx?$/u;
 
@@ -154,7 +158,7 @@ function isDocumentation(path: string): boolean {
 }
 
 function isCode(path: string): boolean {
-  return !isDocumentation(path) && !LOCKFILE.test(path);
+  return !isDocumentation(path) && !LOCKFILE.test(path) && !GENERATED.has(path);
 }
 
 function codeLines(commit: Commit): number {
