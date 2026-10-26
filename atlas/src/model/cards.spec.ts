@@ -20,12 +20,22 @@ describe("cardsOf", () => {
   test("one column per leaf child, in data order; a container child has none", () => {
     const tree = rootOf([
       leaf("b", { io: [["Receives", "x"]] }),
-      { ...leaf("box"), children: [leaf("inner", { io: [["Receives", "y"]] })] },
+      { ...leaf("box"), children: [leaf("inner", { io: [["Receives", "y"]] }), leaf("other")] },
       leaf("a"),
     ]);
 
     expect(cardsOf(tree, null)?.columns.map((column) => column.id)).toEqual(["b", "a"]);
-    expect(cardsOf(tree, "box")?.columns.map((column) => column.id)).toEqual(["inner"]);
+    expect(cardsOf(tree, "box")?.columns.map((column) => column.id)).toEqual(["inner", "other"]);
+  });
+
+  test("a container of one leaf has none, whatever its io and its container children", () => {
+    const tree = rootOf([
+      leaf("only", { io: [["Receives", "x"]] }),
+      { ...leaf("box"), children: [leaf("inner", { io: [["Receives", "y"]] })] },
+    ]);
+
+    expect(cardsOf(tree, null)).toBeNull();
+    expect(cardsOf(tree, "box")).toBeNull();
   });
 
   test("a first row holds each leaf's lead, then one row per key, in first-seen order", () => {
@@ -51,6 +61,15 @@ describe("cardsOf", () => {
     expect(cards?.rows.map((row) => row.key)).toEqual(["Produces", "Receives", "Emits"]);
   });
 
+  test("no row of leads when no leaf has one, an empty lead counted as none", () => {
+    const tree = rootOf([
+      leaf("p", { lead: "", io: [["Receives", "a"]] }),
+      leaf("q", { io: [["Receives", "b"]] }),
+    ]);
+
+    expect(cardsOf(tree, null)?.lead).toBeNull();
+  });
+
   test("pairs sharing a first element join in one cell, in their order", () => {
     const tree = rootOf([
       leaf("p", {
@@ -60,11 +79,12 @@ describe("cardsOf", () => {
           ["Receives", "c"],
         ],
       }),
+      leaf("q"),
     ]);
 
     expect(cardsOf(tree, null)?.rows).toEqual([
-      { key: "Receives", cells: [["a", "c"]] },
-      { key: "Produces", cells: [["b"]] },
+      { key: "Receives", cells: [["a", "c"], []] },
+      { key: "Produces", cells: [["b"], []] },
     ]);
   });
 
@@ -94,7 +114,7 @@ describe("cardsOf", () => {
     }
   });
 
-  test("the sample: the application's three bricks side by side, the root's one leaf", () => {
+  test("the sample: the application's three bricks side by side; the root's one leaf has none", () => {
     const sample = treeOf(SAMPLE);
     const app = cardsOf(sample, "app");
 
@@ -105,7 +125,7 @@ describe("cardsOf", () => {
       ["a search or a book id"],
       ["a cart and a delivery address"],
     ]);
-    expect(cardsOf(sample, null)?.columns.map((column) => column.id)).toEqual(["email"]);
+    expect(cardsOf(sample, null)).toBeNull();
     expect(cardsOf(sample, "data")).toBeNull();
   });
 });

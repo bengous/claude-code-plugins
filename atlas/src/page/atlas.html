@@ -54,10 +54,11 @@
     outlines its couplings, lifted to the boxes and ghosts of the view.
     Couplings are symmetric: listing B in A's `couples` also outlines A when
     B is selected.
-  - A view with a leaf child that has an `io` gets a switch in its controls:
-    its leaves as cards side by side, a column each, a row of leads, then a
-    row per first element of their `io` pairs; a column's header selects its
-    leaf. Another container opens on its drawing.
+  - A view with two leaf children or more, one of them with an `io`, gets a
+    switch in its controls: its leaves as cards side by side, a column each,
+    a row of leads unless none has one, then a row per first element of
+    their `io` pairs; a column's header selects its leaf. Another container
+    opens on its drawing.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its

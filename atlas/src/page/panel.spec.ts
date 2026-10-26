@@ -489,11 +489,29 @@ describe("the cards", () => {
     expect(sourced).toContain('data-cite="src/web.ts:4"');
   });
 
+  test("no row of leads when no leaf has one: the keys follow the headers", () => {
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [leaf("a", { io: [["Receives", "x"]] }), leaf("b", { io: [["Receives", "y"]] })],
+      },
+      links: [],
+    });
+
+    const html = cardsHtml(settings, cardsIn(tree, null), null);
+
+    expect(html).not.toContain("lead");
+    expect(html).toContain('</thead><tbody><tr><th scope="row">Receives</th>');
+  });
+
   test("a label, a key and a value holding markup a panel does not keep show as text", async () => {
     const hostile = '<img src=x onerror="alert(1)">';
 
     const tree = treeOf({
-      root: { title: "T", children: [leaf("a", { label: hostile, io: [[hostile, hostile]] })] },
+      root: {
+        title: "T",
+        children: [leaf("a", { label: hostile, io: [[hostile, hostile]] }), leaf("b", {})],
+      },
       links: [],
     });
 

@@ -80,8 +80,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      the arrows it lights; the legend lines it uses (view.spec.ts; scale.spec.ts
                      bounds the time of the index and a view on a map of 5,000 nodes)
   cards.ts           a container's leaf children side by side: a column per leaf, a row for the
-                     leads, then one per first element of their `io` pairs; none when no leaf
-                     has `io` (cards.spec.ts)
+                     leads unless none has one, then one per first element of their `io` pairs;
+                     none for fewer than two leaves, or when no leaf has `io` (cards.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
@@ -241,11 +241,12 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   serve.ts, under the path and a close button, until the close button, Escape or a move; a file
   over the route's cap shows as too large to show. serve.ts knows the paths the map cites only
   from folder.ts's line.
-- A view whose container has a leaf child with `io` (`cardsOf` in `cards.ts`), the root's
-  included, gets a Map | Cards switch in the stage's controls. Cards (`mode=cards`) lays the
-  container's leaves over the drawing as a table (`cardsHtml` in `panel.ts`): a column per leaf,
-  in data order, its header in its colour selecting it; a row of leads, then one per `io` key, each
-  cell through `fieldHtml`, a marker opening its lines in the panel. The drawing stays laid out
+- A view whose container has two leaf children or more, one of them with `io` (`cardsOf` in
+  `cards.ts`), the root's included, gets a Map | Cards switch in the stage's controls. Cards
+  (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
+  `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
+  leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, a marker
+  opening its lines in the panel. The drawing stays laid out
   beneath, inert; the legend and the hint hide. Another container opens on its drawing.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its

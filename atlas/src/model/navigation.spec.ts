@@ -319,7 +319,12 @@ const withLeaf = (id: string, leaf: string): Node => ({
   label: id,
   sub: "",
   color: "c",
-  children: [{ ...card(leaf), io: [["Receives", "x"]] }],
+  children: [{ ...card(leaf), io: [["Receives", "x"]] }, card(`${leaf} 2`)],
+});
+
+const ROOT_CARDS = treeOf({
+  root: { title: "T", children: [{ ...card("p"), io: [["Receives", "x"]] }, card("q")] },
+  links: [],
 });
 
 describe("the fragment's parameters", () => {
@@ -344,21 +349,21 @@ describe("the fragment's parameters", () => {
   });
 
   test("the mode round-trips through the fragment, after the place", () => {
-    expect(hashOf(sample, HOME, CARDS)).toBe("?mode=cards");
+    expect(hashOf(ROOT_CARDS, HOME, CARDS)).toBe("?mode=cards");
     expect(hashOf(sample, at(["server", "app"]), CARDS)).toBe("app?mode=cards");
     expect(hashOf(sample, at(["server", "app"], "email"), CARDS)).toBe("app/email?mode=cards");
 
-    for (const place of [
-      HOME,
-      at([], "email"),
-      at(["server", "app"]),
-      at(["server", "app"], "orders"),
-      at(["server", "app"], "email"),
-    ]) {
-      const hash = `#${hashOf(sample, place, CARDS)}`;
+    for (const [tree, place] of [
+      [ROOT_CARDS, HOME],
+      [ROOT_CARDS, at([], "q")],
+      [sample, at(["server", "app"])],
+      [sample, at(["server", "app"], "orders")],
+      [sample, at(["server", "app"], "email")],
+    ] as const) {
+      const hash = `#${hashOf(tree, place, CARDS)}`;
 
-      expect(placeOfHash(sample, hash)).toEqual(place);
-      expect(paramsOfHash(sample, hash)).toEqual(CARDS);
+      expect(placeOfHash(tree, hash)).toEqual(place);
+      expect(paramsOfHash(tree, hash)).toEqual(CARDS);
     }
   });
 
@@ -371,6 +376,7 @@ describe("the fragment's parameters", () => {
         children: [
           ...separated.map((id) => withLeaf(id, `${id} leaf?mode=map&mode=map`)),
           { ...card("k?mode=map"), io: [["Receives", "x"]] },
+          card("l&mode=map"),
         ],
       },
       links: [{ from: "a?b leaf?mode=map&mode=map", to: "c&d leaf?mode=map&mode=map", label: "l" }],
@@ -436,6 +442,8 @@ describe("the fragment's parameters", () => {
     expect(pageStateOf(sample, data, CARDS).mode).toBe("map");
     expect(paramsAfter(sample, data, at(["server", "data"]), CARDS)).toEqual(DEFAULTS);
     expect(hashOf(deep, at(["A", "A1"]), CARDS)).toBe("A1");
+    expect(hashOf(sample, HOME, CARDS)).toBe("");
+    expect(paramsOfHash(sample, "#?mode=cards")).toEqual(DEFAULTS);
   });
 });
 

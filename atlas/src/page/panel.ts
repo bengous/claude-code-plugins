@@ -416,7 +416,7 @@ const cell = (s: Settings, values: readonly string[], names: readonly string[]):
 /**
  * A container's leaf children side by side (cardsOf), as a table: a column per leaf, its header
  * its label in its colour, a button that selects it, the selected one's cells marked; the first
- * row their leads, then a row per `io` key, its key as the panel shows it, its values through
+ * row their leads, unless none has one, then a row per `io` key, its key as the panel shows it, its values through
  * fieldHtml, the panel's markup and markers kept.
  */
 export function cardsHtml(s: Settings, cards: Cards, selected: string | null): string {
@@ -424,16 +424,19 @@ export function cardsHtml(s: Settings, cards: Cards, selected: string | null): s
   const mark = (i: number): string[] => (marked[i] === true ? ["selected"] : []);
   const head = cards.columns.map((node, i) => cardHead(node, marked[i] === true)).join("");
 
-  const lead = cards.lead
-    .map((text, i) => cell(s, text === null ? [] : [text], ["lead", ...mark(i)]))
-    .join("");
+  const lead =
+    cards.lead === null
+      ? []
+      : [
+          `<tr><td></td>${cards.lead.map((text, i) => cell(s, text === null ? [] : [text], ["lead", ...mark(i)])).join("")}</tr>`,
+        ];
 
   const rows = cards.rows.map(
     (row) =>
       `<tr><th scope="row">${esc(row.key)}</th>${row.cells.map((values, i) => cell(s, values, mark(i))).join("")}</tr>`,
   );
 
-  return `<table><thead><tr><td></td>${head}</tr></thead><tbody><tr><td></td>${lead}</tr>${rows.join("")}</tbody></table>`;
+  return `<table><thead><tr><td></td>${head}</tr></thead><tbody>${[...lead, ...rows].join("")}</tbody></table>`;
 }
 
 // On one line: the levels folded (foldedCrumbs) name themselves in the fold's tooltip.
