@@ -2,6 +2,15 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.18.1 - 2026-10-26
+
+### Fixed
+
+- While vellum holds a session, the bands that other mods draw below the prompt (cache-clock, todos or any other) show again. Before this fix, vellum's line replaced them.
+- When the hook behind `mcp__vellum__submit` or `mcp__vellum__state` fails, the call is now denied with `vellum failed on <tool> (…); retry the call`. Before, it fell through to Claude Code's permission prompt and then failed with "no tool.call hook answered".
+
+Internal changes besides: the plugin API types follow Claude Code 2.1.308, where the lock's ask on a rule-approved shell command is stamped with vellum's name and goes to a person. In CI, the tests that start a process or a server run as a separate integration tier with a longer time budget. A test now checks that every tool hook keeps its failure handler.
+
 ## 0.18.0 - 2026-10-20
 
 ### Changed
