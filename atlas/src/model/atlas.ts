@@ -109,6 +109,32 @@ export type Node = Panel & {
   readonly children?: readonly Node[];
 };
 
+/**
+ * One step of a journey: a link of the map set directly between `from` and `to`, from its `from`
+ * to its `to`, or either way along one with `two` (`atlas check`; an arrow a view lifts from links
+ * between nodes below them does not count). The page shows it in the deepest view that draws it
+ * with both ends, and lights its arrow.
+ */
+export type Step = {
+  readonly from: string;
+  readonly to: string;
+  /** What happens along it, in a sentence or two: plain text, shown as written. */
+  readonly note?: string;
+};
+
+/**
+ * The path of one action across the map, step by step: the header's menu lists it, and picking it
+ * plays its steps. Its `id` is kebab-case and unique among the journeys, and names it in the
+ * page's URL; it has one step at least, and each step starts where the one before ends
+ * (`atlas check`).
+ */
+export type Journey = {
+  readonly id: string;
+  /** Its name in the menu and the panel, a few words: plain text, shown as written. */
+  readonly label: string;
+  readonly steps: readonly Step[];
+};
+
 /** The top of the tree: the root view's panel and the nodes that view shows. */
 export type Root = Panel & {
   readonly title: string;
@@ -117,6 +143,8 @@ export type Root = Panel & {
    * every node with children and nothing else (`atlas check`).
    */
   readonly tour?: readonly string[];
+  /** The journeys the header's menu plays, in its order; no menu when absent. */
+  readonly journeys?: readonly Journey[];
   readonly children: readonly Node[];
 };
 

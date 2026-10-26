@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Config, Lang, Link, Node } from "../model/atlas.ts";
+import type { AtlasMap, Config, Journey, Lang, Link, Node } from "../model/atlas.ts";
 import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { THREADS_FILE, loadFolder } from "../model/folder.ts";
@@ -161,6 +161,104 @@ describe("validate", () => {
       'link orders → db: phase "v1", but the config lists no phases; list the work phases in order in the config\'s phases, or remove this one',
     ]);
     expect(errorsOf(phased("v1", "v1"), settingsOf({ ...CONFIG, phases: [] }))).toHaveLength(2);
+  });
+
+  const withJourneys = (journeys: readonly Journey[], map: AtlasMap = MAP): AtlasMap => ({
+    ...map,
+    root: { ...map.root, journeys },
+  });
+
+  const CHECKOUT: Journey = {
+    id: "checkout",
+    label: "Checkout",
+    steps: [
+      { from: "browser", to: "proxy", note: "The reader opens the shop." },
+      { from: "proxy", to: "web" },
+      { from: "web", to: "orders" },
+      { from: "orders", to: "db" },
+    ],
+  };
+
+  const DEEP_SETTINGS = settingsOf({ ...CONFIG, tags: { names: ["t1"], outside: "optional" } });
+
+  test("a journey whose steps each follow a link, from where the one before ends, passes", () => {
+    expect(errorsOf(withJourneys([CHECKOUT]))).toEqual([]);
+
+    const across: Journey = {
+      id: "across-depths",
+      label: "Across depths",
+      steps: [
+        { from: "a1", to: "a3" },
+        { from: "a3", to: "a6" },
+        { from: "a6", to: "X" },
+        { from: "X", to: "a2" },
+      ],
+    };
+
+    expect(errorsOf(withJourneys([across], DEEP), DEEP_SETTINGS)).toEqual([]);
+  });
+
+  test("a step follows a two-headed link either way, a one-way link only its own way", () => {
+    const back: Journey = { id: "back", label: "Back", steps: [{ from: "B", to: "A" }] };
+
+    const upstream: Journey = {
+      id: "upstream",
+      label: "Upstream",
+      steps: [{ from: "proxy", to: "browser" }],
+    };
+
+    expect(errorsOf(withJourneys([back], DEEP), DEEP_SETTINGS)).toEqual([]);
+    expect(errorsOf(withJourneys([upstream]))).toEqual([
+      "journey upstream: step 1, proxy → browser: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way",
+    ]);
+  });
+
+  test("a step joined only through a pair a view lifts from deeper links is refused", () => {
+    // The root's view draws server → email from app → email; the storage's draws app → db, a
+    // ghost to a card, from orders → db.
+    const boxes: Journey = {
+      id: "boxes",
+      label: "Boxes",
+      steps: [{ from: "server", to: "email" }],
+    };
+
+    const ghost: Journey = { id: "ghost", label: "Ghost", steps: [{ from: "app", to: "db" }] };
+
+    expect(errorsOf(withJourneys([boxes, ghost]))).toEqual([
+      "journey boxes: step 1, server → email: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way",
+      "journey ghost: step 1, app → db: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way",
+    ]);
+  });
+
+  test("a step that does not start where the one before ends is refused", () => {
+    const broken: Journey = {
+      id: "broken",
+      label: "Broken",
+      steps: [
+        { from: "browser", to: "proxy" },
+        { from: "web", to: "orders" },
+        { from: "orders", to: "db" },
+      ],
+    };
+
+    expect(errorsOf(withJourneys([broken]))).toEqual([
+      "journey broken: step 2, web → orders: starts at web, not at proxy, where step 1 ends",
+    ]);
+  });
+
+  test("a journey id used twice, or not kebab-case, is refused", () => {
+    const shouting: Journey = { ...CHECKOUT, id: "Check_out" };
+
+    expect(errorsOf(withJourneys([CHECKOUT, shouting, CHECKOUT]))).toEqual([
+      "journey Check_out: the id must be kebab-case",
+      "journey checkout: a second journey has this id",
+    ]);
+  });
+
+  test("a journey with no step is refused", () => {
+    expect(errorsOf(withJourneys([{ id: "empty", label: "Empty", steps: [] }]))).toEqual([
+      "journey empty: no step; a journey follows one link at least",
+    ]);
   });
 
   test("an unknown id in see, seams or traps is rejected on the root and on any node", () => {
