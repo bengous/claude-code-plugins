@@ -71,10 +71,15 @@ const REVIEW_FOLLOW_UP = /review of #|review.s findings|second review|answers th
 
 const HOUR_MS = 3_600_000;
 
+const DAY_MS = 86_400_000;
+
 /**
  * The friction audit, counted by hand from git, GitHub and the transcripts
  * over 21 September to 19 October 2026, both days included: its fourth
  * release refusal fell on the 19th. Agent CI waiting is the foreground time.
+ * The Bash calls alone were counted by this script over the audit's
+ * transcripts: a refusal count follows how much the agents run, so the
+ * report reads it per 100 calls.
  */
 export const BASELINE = {
   from: "2026-09-21",
@@ -86,10 +91,16 @@ export const BASELINE = {
     ciWaitHours: 9.18,
     typedReleases: 11,
     typedDestructive: 17,
+    bashCalls: 24_797,
     isolationRefusals: 329,
     reviewFollowUps: 74,
     versionBumps: 64,
   },
+} as const;
+
+const BASELINE_PERIOD = {
+  from: new Date(`${BASELINE.from}T00:00:00Z`),
+  to: new Date(Date.parse(`${BASELINE.through}T00:00:00Z`) + DAY_MS),
 } as const;
 
 /** What a transcript line says that a counter reads. */
@@ -131,6 +142,7 @@ export interface TranscriptCounts {
     readonly releases: number;
     readonly destructive: number;
   };
+  readonly bashCalls: number;
   readonly isolationRefusals: number;
 }
 
@@ -386,6 +398,7 @@ export function countTranscripts(
   const typed: string[] = [];
   const refused = new Set<string>();
   const answered = new Map<string, number>();
+  let bashCalls = 0;
   let isolationRefusals = 0;
 
   for (const event of events) {
@@ -398,6 +411,8 @@ export function countTranscripts(
     } else if (!within(event.at, period)) {
       continue;
     } else if (event.kind === "call") {
+      bashCalls += 1;
+
       if (isCiWait(event.command)) waits.push(event);
 
       if (isGitPush(event.command)) pushes.push(event);
@@ -418,6 +433,7 @@ export function countTranscripts(
       releases: typed.filter((command) => isTypedRelease(command)).length,
       destructive: typed.filter((command) => isTypedDestructive(command)).length,
     },
+    bashCalls,
     isolationRefusals,
   };
 }
@@ -640,6 +656,18 @@ function hours(ms: number): string {
   return (ms / HOUR_MS).toFixed(2);
 }
 
+function per100(count: number, calls: number): string {
+  return calls === 0 ? "-" : ((100 * count) / calls).toFixed(1);
+}
+
+/** The days of `period` that fall inside the baseline's window: an event there counts on both sides. */
+export function baselineOverlapDays(period: Period): number {
+  const from = Math.max(period.from.getTime(), BASELINE_PERIOD.from.getTime());
+  const to = Math.min(period.to.getTime(), BASELINE_PERIOD.to.getTime());
+
+  return Math.max(0, Math.ceil((to - from) / DAY_MS));
+}
+
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
@@ -676,8 +704,15 @@ function reasonLines(denials: Lookup<DenialCounts>): readonly string[] {
 }
 
 function notesOf(report: Report): readonly string[] {
-  const { transcripts, denials, flaky } = report;
+  const { period, transcripts, denials, flaky } = report;
   const notes: string[] = [];
+  const overlap = baselineOverlapDays(period);
+
+  if (overlap > 0) {
+    notes.push(
+      `baseline: this week and the audit's window share ${plural(overlap, "day")}; an event there counts on both sides`,
+    );
+  }
 
   if (transcripts.unreadable > 0) {
     notes.push(`transcripts: ${plural(transcripts.unreadable, "line")} left out, not JSON objects`);
@@ -709,10 +744,16 @@ export function render(report: Report): string {
     ["! commands typed", String(counts.typed.total), "-"],
     ["  releases", String(counts.typed.releases), weekly(totals.typedReleases)],
     ["  destructive git", String(counts.typed.destructive), weekly(totals.typedDestructive)],
+    ["Bash calls", String(counts.bashCalls), weekly(totals.bashCalls)],
     [
       "worktree isolation refusals",
       String(counts.isolationRefusals),
       weekly(totals.isolationRefusals),
+    ],
+    [
+      "  per 100 Bash calls",
+      per100(counts.isolationRefusals, counts.bashCalls),
+      per100(totals.isolationRefusals, totals.bashCalls),
     ],
     ["classifier denials", countOf(denials, (value) => value.total), "-"],
     ["flaky issues opened", countOf(flaky, (value) => value.opened), "-"],

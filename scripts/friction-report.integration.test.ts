@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 import {
   BASELINE,
+  baselineOverlapDays,
   countCommits,
   countDenials,
   countFlaky,
@@ -448,6 +449,31 @@ describe("countTranscripts", () => {
 
     expect(counts.isolationRefusals).toBe(2);
   });
+
+  test("counts every Bash call of the week, whatever it runs", () => {
+    const counts = countTranscripts(
+      eventsOf(
+        callLine("a", "2026-10-13T10:00:00Z", "ls"),
+        callLine("b", "2026-10-13T10:01:00Z", "git push origin dev"),
+        callLine("c", "2026-10-19T00:00:00Z", "ls"),
+        resultLine("a", "2026-10-13T10:00:01Z", "ok", false),
+      ),
+      W42,
+    );
+
+    expect(counts.bashCalls).toBe(2);
+  });
+});
+
+describe("baselineOverlapDays", () => {
+  test.each([
+    ["2026-W42", 7],
+    ["2026-W43", 1],
+    ["2026-W44", 0],
+    ["2026-W38", 0],
+  ])("%s shares %i days with the audit's window", (week, days) => {
+    expect(baselineOverlapDays(periodOf(weekOf(week)))).toBe(days);
+  });
 });
 
 describe("scanTranscripts", () => {
@@ -641,6 +667,7 @@ describe("render", () => {
         ciWaits: { calls: 140, foregroundMs: 2.5 * 3_600_000 },
         pushes: { calls: 30, foregroundMs: 1_800_000 },
         typed: { total: 9, releases: 2, destructive: 3 },
+        bashCalls: 6000,
         isolationRefusals: 40,
       },
     },
@@ -680,7 +707,9 @@ describe("render", () => {
     [/^! commands typed +9 +-$/mu],
     [/^ {2}releases +2 +2\.7$/mu],
     [/^ {2}destructive git +3 +4\.1$/mu],
+    [/^Bash calls +6000 +5985\.5$/mu],
     [/^worktree isolation refusals +40 +79\.4$/mu],
+    [/^ {2}per 100 Bash calls +0\.7 +1\.3$/mu],
     [/^classifier denials +3 +-$/mu],
     [/^flaky issues opened +1 +-$/mu],
     [/^flaky issues commented +4 +-$/mu],
@@ -694,7 +723,7 @@ describe("render", () => {
   });
 
   test("aligns the counters in columns", () => {
-    const lines = render(report).split("\n").slice(4, 19);
+    const lines = render(report).split("\n").slice(4, 21);
     const widths = new Set(lines.map((line) => line.length));
 
     expect(widths.size).toBe(1);
@@ -714,6 +743,24 @@ describe("render", () => {
     expect(out).toContain("transcripts: 2 lines left out, not JSON objects");
     expect(out).toContain("denials: no denial log at /x");
     expect(out).toContain("flaky issues: gh failed: gh: not logged in");
+  });
+
+  test("says when the week shares days with the audit's window, and prints - for a rate with no calls", () => {
+    expect(render(report)).toContain(
+      "baseline: this week and the audit's window share 7 days; an event there counts on both sides",
+    );
+
+    const later = render({
+      ...report,
+      period: periodOf(weekOf("2026-W44")),
+      transcripts: {
+        ...report.transcripts,
+        counts: { ...report.transcripts.counts, bashCalls: 0, isolationRefusals: 0 },
+      },
+    });
+
+    expect(later).not.toContain("the audit's window share");
+    expect(later).toMatch(/^ {2}per 100 Bash calls +- +1\.3$/mu);
   });
 
   test("says how many denial lines it left out", () => {
