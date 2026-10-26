@@ -54,28 +54,13 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 // there would silently change what these tests assert.
 const GIT_ISOLATION = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
 
-async function runAudit(
+// No `gh` on PATH: the host's real one, and its auth, would otherwise answer the
+// GitHub prover that `--include-remote` turns on.
+function runAudit(
   cwd: string,
   ...args: string[]
 ): Promise<{ exitCode: number; result: Record<string, unknown> }> {
-  const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, ...GIT_ISOLATION },
-  });
-
-  const stdout = await new Response(proc.stdout).text();
-  const exitCode = await proc.exited;
-
-  try {
-    return { exitCode, result: JSON.parse(stdout.trim()) };
-  } catch {
-    return {
-      exitCode,
-      result: { ok: false, error: `parse-error: ${stdout.trim()}`, step: "unknown" },
-    };
-  }
+  return runAuditWithGh(cwd, null, ...args);
 }
 
 async function makeRepo(prefix: string): Promise<string> {
