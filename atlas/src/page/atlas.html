@@ -56,7 +56,11 @@
     B is selected.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
-    dictionary.
+    dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
+    lines, the whole citation as its tooltip; the header's Sources toggle,
+    remembered per browser, shows every citation in full. With the Config's
+    `sources` root, a click on a marker shows the cited lines in the panel,
+    read from serve.ts, until its close button or a move.
   - A bare #id in the link opens the page on it: a container's view, or a
     leaf's parent's view with the leaf selected.
   - The legend shows a line for each arrow kind and node mark the view uses,
@@ -114,7 +118,8 @@
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.
   2. bun atlas/src/cli.ts check <map folder>: the map (ids, couplings, nesting,
-     tags, open points, threads.json), then tsgo, oxlint and oxfmt on its
+     tags, open points, threads.json, and each citation's file and lines under
+     the Config's `sources` root), then tsgo, oxlint and oxfmt on its
      data files, then its atlas.d.ts and tsconfig.json against the plugin's
      (stale or edited: bun atlas/src/cli.ts sync <map folder>). It exits 1 on
      any failure; bun atlas/src/cli.ts fmt <map folder> fixes what oxfmt
@@ -197,12 +202,15 @@ body {
 .crumbs .fold { padding: 2px 4px; cursor: help; }
 
 /* Open points: the header button, its list (a native popover), and the badge on the map. */
-.open-btn {
+.open-btn, .sources-btn {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--open);
   border-radius: 4px; padding: 4px 10px; cursor: pointer; align-self: center;
 }
-.open-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* The toggle that shows each citation of the panel in full (engine.ts); the page drops it for a map without citations. */
+.sources-btn { color: var(--ink-3); border-left: 1px solid var(--line); }
+.open-btn:hover, .sources-btn:hover { border-color: var(--accent); color: var(--accent); }
+.sources-btn[aria-pressed="true"] { color: var(--ink); }
 .open-list {
   position: fixed; inset: 60px 16px auto auto; margin: 0; width: min(620px, calc(100vw - 32px)); max-height: 72vh; overflow-y: auto;
   background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
@@ -282,6 +290,38 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel li::marker { color: var(--zc, var(--ink-3)); }
 .panel code { font-family: var(--f-mono); font-size: 0.86em; background: var(--sheet); padding: 1px 4px; border-radius: 3px; }
 .panel .alt { color: var(--ink-2); }
+/* A citation (citations.ts, panel.ts): a small mono marker of its lines, its path shown once the panel shows its sources in full. */
+.panel cite.cite {
+  font-style: normal; font-family: var(--f-mono); font-size: 11px; line-height: 1.3; color: var(--ink-3); white-space: nowrap;
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; vertical-align: 1px;
+}
+.panel .cite-path { display: none; }
+.panel.full-sources .cite-path { display: inline; white-space: normal; overflow-wrap: anywhere; }
+/* With the Config's sources root, a marker is a button that opens its lines in the panel. */
+.panel .cite-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.panel cite.cite:has(.cite-open:hover) { border-color: var(--accent); color: var(--accent); }
+/* The lines a marker cites, in place of the panel's fields: the path and the close button above, the cited lines marked. */
+.panel .viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
+.panel .viewer-path { font-size: 12.5px; background: none; padding: 0; overflow-wrap: anywhere; }
+.panel .viewer-close {
+  flex: none; font-family: var(--f-display); font-weight: 600; font-size: 14px; letter-spacing: 0.04em; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer;
+}
+.panel .viewer-close:hover { border-color: var(--accent); color: var(--accent); }
+.panel .viewer-note { color: var(--ink-3); font-size: 13px; }
+.panel .viewer-lines {
+  font-family: var(--f-mono); font-size: 12px; line-height: 1.6;
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 4px; padding: 6px 0;
+}
+/* A long line wraps in the panel, its number on its first row. */
+.panel .viewer-lines .line { display: flex; min-height: 1.6em; }
+.panel .viewer-lines .n { flex: none; width: 5ch; padding-right: 10px; text-align: right; color: var(--ink-3); user-select: none; }
+.panel .viewer-lines code {
+  flex: 1; min-width: 0; font-size: inherit; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4;
+  background: none; padding: 0 12px 0 0; border-radius: 0;
+}
+.panel .viewer-lines .cited { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.panel .viewer-lines .cited .n { color: var(--accent); }
 .panel .warn {
   border-left: 3px solid var(--open); padding: 6px 10px; background: var(--sheet); border-radius: 0 4px 4px 0; font-size: 14px;
 }
@@ -412,6 +452,7 @@ svg text.illegible { visibility: hidden; }
   <p class="sub" id="subtitle"></p>
   <button type="button" class="open-btn" id="btn-open" popovertarget="open-list"></button>
   <div class="open-list" id="open-list" popover></div>
+  <button type="button" class="sources-btn" id="btn-sources" aria-controls="panel" aria-pressed="false"></button>
   <nav class="crumbs" id="crumbs"></nav>
 </header>
 

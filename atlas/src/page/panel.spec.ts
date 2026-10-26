@@ -3,13 +3,15 @@ import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
 import type { AtlasMap } from "../model/atlas.ts";
+import type { Citation } from "../model/citations.ts";
 import { loadFolder } from "../model/folder.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Settings } from "../model/settings.ts";
 import { settingsOf } from "../model/settings.ts";
 import { treeOf } from "../model/tree.ts";
 import { WORDS } from "../model/words.ts";
-import { renderCrumbs, renderPanel } from "./panel.ts";
+import type { Viewer } from "./panel.ts";
+import { fieldHtml, linesAround, renderCrumbs, renderPanel, renderViewer } from "./panel.ts";
 import { esc } from "./svg.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
@@ -197,6 +199,197 @@ describe("the panel's headings", () => {
     expect(await elementsWith(html, "h3 b, img")).toBe(0);
     expect(html).toContain("<h3>&lt;b&gt;x&lt;/b&gt;</h3>");
     expect(html).toContain('<p class="label">&lt;img src=x&gt;</p>');
+  });
+});
+
+describe("the panel's citations", () => {
+  const node = {
+    id: "a",
+    label: "A",
+    sub: "",
+    color: "clients",
+    kicker: "src/a.ts:1-9 <cite>src/a.ts:1</cite>",
+    lead: "Takes a cart <cite>src/a.ts:12-30</cite>, as <cite>the docs</cite> say.",
+    io: [["Receives", "a cart <cite>src/web.ts:4</cite>"]],
+    pitfalls: ["Slow <cite>src/b.ts:4,8-9</cite>."],
+  } as const;
+
+  const tree = treeOf({ root: { title: "T", children: [node] }, links: [] });
+  const panel = { innerHTML: "", scrollTop: 0 };
+
+  renderPanel(settingsOf(CONFIG), tree, panel, { path: [], selected: "a" }, null, {
+    kind: "ok",
+    threads: {},
+  });
+
+  test("a citation shows as a marker of its lines, the whole citation its tooltip", () => {
+    expect(panel.innerHTML).toContain(
+      'Takes a cart <cite class="cite" title="src/a.ts:12-30"><span class="cite-path">src/a.ts:</span>12-30</cite>,',
+    );
+    expect(panel.innerHTML).toContain(
+      '<cite class="cite" title="src/web.ts:4"><span class="cite-path">src/web.ts:</span>4</cite>',
+    );
+    expect(panel.innerHTML).toContain(
+      '<cite class="cite" title="src/b.ts:4,8-9"><span class="cite-path">src/b.ts:</span>4,8-9</cite>',
+    );
+  });
+
+  test("a <cite> of any other text shows as written", () => {
+    expect(panel.innerHTML).toContain("as <cite>the docs</cite> say");
+  });
+
+  test("a kicker stays escaped text, a citation in it included", () => {
+    expect(panel.innerHTML).toContain(
+      '<p class="kicker">src/a.ts:1-9 &lt;cite&gt;src/a.ts:1&lt;/cite&gt;</p>',
+    );
+  });
+
+  test("fieldHtml, which every HTML field goes through, keeps the panel's markup and its markers", () => {
+    expect(fieldHtml(settingsOf(CONFIG), '<b>x</b> <cite>a.ts:1</cite> <img src="y">')).toBe(
+      '<b>x</b> <cite class="cite" title="a.ts:1"><span class="cite-path">a.ts:</span>1</cite> &lt;img src="y">',
+    );
+  });
+
+  test("a label, plain text, shows as written as the heading of a node without a title: no marker", () => {
+    const labelled = {
+      id: "l",
+      label: "L <cite>l.ts:1</cite> <b>b</b>",
+      sub: "",
+      color: "clients",
+    };
+
+    const titled = { ...labelled, id: "t", title: "T <cite>t.ts:2</cite> <b>b</b>" };
+    const both = treeOf({ root: { title: "R", children: [labelled, titled] }, links: [] });
+    const settings = settingsOf({ ...CONFIG, sources: { root: "repo" } });
+
+    const heading = (id: string): string => {
+      const shown = { innerHTML: "", scrollTop: 0 };
+      renderPanel(settings, both, shown, { path: [], selected: id }, null, {
+        kind: "ok",
+        threads: {},
+      });
+
+      return /<h2>.*?<\/h2>/u.exec(shown.innerHTML)?.[0] ?? "";
+    };
+
+    expect(heading("l")).toBe(
+      '<h2><span class="swatch"></span>L &lt;cite&gt;l.ts:1&lt;/cite&gt; &lt;b&gt;b&lt;/b&gt;</h2>',
+    );
+    expect(heading("t")).toContain('data-cite="t.ts:2"');
+    expect(heading("t")).toContain("<b>b</b>");
+  });
+
+  test("without a sources root, no marker is a button", () => {
+    expect(panel.innerHTML).not.toContain("data-cite");
+    expect(panel.innerHTML).not.toContain('<button type="button" class="cite-open"');
+  });
+
+  test("with a sources root, each marker is a button that names its citation", () => {
+    const sourced = { innerHTML: "", scrollTop: 0 };
+    const settings = settingsOf({ ...CONFIG, sources: { root: "repo" } });
+
+    renderPanel(settings, tree, sourced, { path: [], selected: "a" }, null, {
+      kind: "ok",
+      threads: {},
+    });
+
+    expect(sourced.innerHTML).toContain(
+      '<cite class="cite" title="src/a.ts:12-30"><button type="button" class="cite-open" data-cite="src/a.ts:12-30" aria-label="src/a.ts:12-30"><span class="cite-path">src/a.ts:</span>12-30</button></cite>',
+    );
+    expect(sourced.innerHTML).toContain('data-cite="src/b.ts:4,8-9"');
+    expect(sourced.innerHTML).toContain("as <cite>the docs</cite> say");
+    expect(sourced.innerHTML).toContain('<p class="kicker">src/a.ts:1-9 &lt;cite&gt;');
+  });
+});
+
+const cites = (...lines: ReadonlyArray<readonly [number, number]>): Citation => ({
+  path: "a",
+  lines: lines.map(([first, last]) => ({ first, last })),
+});
+
+describe("the viewer of a citation's lines", () => {
+  const citation = { path: "src/a.go", lines: [{ first: 12, last: 13 }] } as const;
+  const settings = settingsOf(CONFIG);
+
+  const viewed = (viewer: Viewer): string => {
+    const panel = { innerHTML: "", scrollTop: 40 };
+    renderViewer(settings, panel, viewer);
+
+    expect(panel.scrollTop).toBe(0);
+
+    return panel.innerHTML;
+  };
+
+  test("asks for the cited lines and eight around them, from line 1 at least", () => {
+    expect(linesAround(citation)).toEqual([{ from: 4, to: 21 }]);
+    expect(linesAround(cites([2, 3]))).toEqual([{ from: 1, to: 11 }]);
+  });
+
+  test("asks for each stretch of a scattered citation with its own eight lines, in the file's order", () => {
+    expect(linesAround(cites([400, 400], [3, 3]))).toEqual([
+      { from: 1, to: 11 },
+      { from: 392, to: 408 },
+    ]);
+  });
+
+  test("joins two stretches whose lines around meet, or leave one line between them", () => {
+    expect(linesAround(cites([30, 30], [44, 46]))).toEqual([{ from: 22, to: 54 }]);
+    expect(linesAround(cites([10, 10], [28, 28]))).toEqual([{ from: 2, to: 36 }]);
+    expect(linesAround(cites([10, 10], [29, 29]))).toEqual([
+      { from: 2, to: 18 },
+      { from: 21, to: 37 },
+    ]);
+  });
+
+  test("shows the path and a close button above the lines, numbered, the cited ones marked", () => {
+    const html = viewed({
+      kind: "lines",
+      citation,
+      stretches: [{ from: 11, lines: ["a", "<b>", "c", "d"] }],
+    });
+
+    expect(html).toContain(
+      `<div class="viewer-head"><code class="viewer-path">src/a.go:12-13</code><button type="button" class="viewer-close" data-close-viewer>${WORDS.fr.viewerClose}</button></div>`,
+    );
+    expect(html).toContain(
+      '<div class="viewer-lines"><div class="line"><span class="n">11</span><code>a</code></div>' +
+        '<div class="line cited"><span class="n">12</span><code>&lt;b&gt;</code></div>' +
+        '<div class="line cited"><span class="n">13</span><code>c</code></div>' +
+        '<div class="line"><span class="n">14</span><code>d</code></div></div>',
+    );
+  });
+
+  test("shows a … row between two stretches", () => {
+    const html = viewed({
+      kind: "lines",
+      citation: cites([2, 2], [40, 40]),
+      stretches: [
+        { from: 1, lines: ["x", "y"] },
+        { from: 40, lines: ["z"] },
+      ],
+    });
+
+    expect(html).toContain(
+      '<div class="viewer-lines"><div class="line"><span class="n">1</span><code>x</code></div>' +
+        '<div class="line cited"><span class="n">2</span><code>y</code></div>' +
+        '<div class="line gap"><span class="n">…</span></div>' +
+        '<div class="line cited"><span class="n">40</span><code>z</code></div></div>',
+    );
+  });
+
+  test("says a file is too large to show", () => {
+    expect(viewed({ kind: "large", citation })).toContain(
+      `<p class="viewer-note">${WORDS.fr.viewerTooLarge}</p>`,
+    );
+  });
+
+  test("says it reads the lines, then why it could not, escaped", async () => {
+    expect(viewed({ kind: "loading", citation })).toContain(WORDS.fr.viewerLoading);
+
+    const failed = viewed({ kind: "failed", citation, message: "403 <img src=x>" });
+
+    expect(failed).toContain(WORDS.fr.viewerFailed("403 &lt;img src=x&gt;"));
+    expect(await elementsWith(failed, "img")).toBe(0);
   });
 });
 

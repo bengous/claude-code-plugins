@@ -206,6 +206,34 @@ describe("check", () => {
     expect(run.stderr).toBe("check: oxlint, oxfmt failed\n");
   });
 
+  test("with the Config's sources, verifies each citation under their root, relative to the map folder", async () => {
+    const dir = sampleCopy();
+    mkdirSync(join(dir, "repo"));
+    writeFileSync(join(dir, "repo", "client.txt"), "one\ntwo\nthree\n");
+    await edit(join(dir, "atlas.config.ts"), "  pins:", '  sources: { root: "repo" },\n  pins:');
+
+    await edit(
+      join(dir, "map.ts"),
+      "rendered on the server.",
+      "rendered on the server <cite>client.txt:2-3</cite>, with a cookie <cite>client.txt:9</cite>.",
+    );
+
+    const run = cli("check", dir);
+
+    expect(run.code).toBe(1);
+    expect(failedReport(run.stdout, "map")).toBe(
+      "node browser: lead: client.txt:9: 9 ends past line 3, the last of client.txt\n",
+    );
+    expect(run.stderr).toBe("check: map failed\n");
+
+    const draft = cli("draft", dir, "try").stdout.trim();
+    const drafted = cli("check", draft);
+
+    expect(failedReport(drafted.stdout, "map")).toBe(
+      "node browser: lead: client.txt:9: 9 ends past line 3, the last of client.txt\n",
+    );
+  });
+
   test("reports a stale atlas.d.ts, which oxlint and oxfmt leave alone, and sync makes it current", async () => {
     const dir = sampleCopy();
     const types = join(dir, "atlas.d.ts");

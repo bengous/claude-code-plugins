@@ -1,13 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Lang, Link, Node } from "../model/atlas.ts";
+import type { AtlasMap, Config, Lang, Link, Node } from "../model/atlas.ts";
+import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { THREADS_FILE, loadFolder } from "../model/folder.ts";
 import { settingsOf } from "../model/settings.ts";
+import { SOURCE_CAP_BYTES } from "../model/sources.ts";
 import { treeOf } from "../model/tree.ts";
-import { checkMap, validate } from "./check.ts";
+import { checkCitations, checkMap, validate } from "./check.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
 
@@ -303,6 +308,142 @@ describe("checkMap", () => {
     expect(checkMap({ ...MAP, links }, CONFIG, THREADS)).toEqual([
       "link orders → email: tag parcel is not in the config's tags",
     ]);
+  });
+
+  test("a <cite> that looks like a citation but reads as none is named, with or without sources", () => {
+    const cited = withNode(MAP, "orders", (n) => ({
+      ...n,
+      lead: "<cite>a.ts:0</cite> <cite>a.ts:1, 3</cite> <cite>redis:6379</cite>",
+      swap: "<cite>b/c.go:9-3</cite>",
+    }));
+
+    expect(checkMap(cited, CONFIG, THREADS)).toEqual([
+      "node orders: lead: a.ts:0 reads as no citation: lines count from 1: 0",
+      "node orders: swap: b/c.go:9-3 reads as no citation: the range 9-3 runs backwards",
+    ]);
+  });
+});
+
+const CITATIONS = join(import.meta.dir, "..", "..", "fixtures", "citations");
+
+const { map: CITED, config: CITED_CONFIG } = await loadFolder(CITATIONS);
+
+const ROOT = join(CITATIONS, "repo");
+
+const citing = (change: (n: Node) => Node): AtlasMap => withNode(CITED, "orders", change);
+
+const checked = (map: AtlasMap, config: Config = CITED_CONFIG): string[] =>
+  checkCitations(map, config, CITATIONS);
+
+describe("checkCitations, with the Config's sources", () => {
+  test("passes the fixture, whose every citation names lines of a file under its root", () => {
+    expect(mapCitations(CITED).length).toBeGreaterThan(20);
+    expect(checked(CITED)).toEqual([]);
+  });
+
+  test("fails a citation of a missing file, naming its node, its field and itself", () => {
+    const gone = citing((n) => ({ ...n, lead: "Gone <cite>orders/gone.go:1</cite>." }));
+
+    expect(checked(gone)).toEqual([
+      `node orders: lead: orders/gone.go:1: no file orders/gone.go under the sources root ${ROOT}`,
+    ]);
+  });
+
+  test("fails a line past the file's end", () => {
+    const past = citing((n) => ({ ...n, lead: "Far <cite>orders/orders.go:9999</cite>." }));
+
+    expect(checked(past)).toEqual([
+      "node orders: lead: orders/orders.go:9999: 9999 ends past line 55, the last of orders/orders.go",
+    ]);
+  });
+
+  test("fails a range ending past the file's end, alone in its list, in any field", () => {
+    const io = [["Receives", "a cart <cite>orders/orders.go:3,50-56</cite>"]] as const;
+
+    expect(checked(citing((n) => ({ ...n, io })))).toEqual([
+      "node orders: io: orders/orders.go:3,50-56: 50-56 ends past line 55, the last of orders/orders.go",
+    ]);
+  });
+
+  test("fails a root that does not exist in one line, naming it and the citations left unchecked", () => {
+    const count = mapCitations(CITED).length;
+
+    expect(checked(CITED, { ...CITED_CONFIG, sources: { root: "nowhere" } })).toEqual([
+      `sources: the sources root ${join(CITATIONS, "nowhere")} is not a folder; ${count} citations left unchecked`,
+    ]);
+  });
+
+  test("fails a citation that leads out of the root", () => {
+    const out = citing((n) => ({ ...n, swap: "The map <cite>../map.ts:1</cite>." }));
+
+    expect(checked(out)).toEqual([
+      "node orders: swap: ../map.ts:1: ../map.ts is no path from the sources root down",
+    ]);
+  });
+
+  test("passes the lines of a cited file over the cap or not in UTF-8, and fails one binary or that cannot be read", () => {
+    const folder = mkdtempSync(join(tmpdir(), "atlas-check-sources-"));
+    const repo = join(folder, "repo");
+
+    try {
+      mkdirSync(repo);
+      writeFileSync(join(repo, "big.txt"), `${"a".repeat(SOURCE_CAP_BYTES)}\nlast\n`);
+      writeFileSync(join(repo, "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+      writeFileSync(join(repo, "nul.bin"), Buffer.from([0x61, 0x00, 0x0a]));
+      writeFileSync(join(repo, "locked.txt"), "locked\n", { mode: 0o000 });
+
+      const lead = [
+        "<cite>big.txt:1-2</cite> <cite>big.txt:3</cite>",
+        "<cite>latin1.txt:1</cite> <cite>latin1.txt:2</cite>",
+        "<cite>nul.bin:1</cite> <cite>locked.txt:1</cite>",
+      ].join(" ");
+
+      const errors = checkCitations(
+        citing((n) => ({ ...n, lead })),
+        CITED_CONFIG,
+        folder,
+      );
+
+      expect(errors.filter((error) => error.startsWith("node orders: lead: "))).toEqual([
+        "node orders: lead: big.txt:3: 3 ends past line 2, the last of big.txt",
+        "node orders: lead: latin1.txt:2: 2 ends past line 1, the last of latin1.txt",
+        "node orders: lead: nul.bin:1: nul.bin is a binary file: it holds a NUL byte",
+        ...(process.getuid?.() === 0
+          ? []
+          : [
+              expect.stringMatching(
+                /^node orders: lead: locked\.txt:1: locked\.txt cannot be read: EACCES/u,
+              ),
+            ]),
+      ]);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  test("reads each cited file once, however many citations name it", () => {
+    const opened = spyOn(fs, "openSync");
+
+    try {
+      checked(CITED);
+      const paths = new Set(mapCitations(CITED).map(({ citation }) => citation.path));
+
+      expect(mapCitations(CITED).length).toBeGreaterThan(paths.size);
+      expect(opened).toHaveBeenCalledTimes(paths.size);
+    } finally {
+      opened.mockRestore();
+    }
+  });
+
+  test("passes the fixture checked as a draft of it, its sources root the map's", () => {
+    expect(checkCitations(CITED, CITED_CONFIG, join(CITATIONS, "drafts", "try"))).toEqual([]);
+  });
+
+  test("verifies no citation without sources", () => {
+    const { sources: _, ...unsourced } = CITED_CONFIG;
+    const gone = citing((n) => ({ ...n, lead: "Gone <cite>orders/gone.go:9999</cite>." }));
+
+    expect(checked(gone, unsourced)).toEqual([]);
   });
 });
 

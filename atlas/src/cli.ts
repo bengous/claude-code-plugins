@@ -9,9 +9,8 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { checkMap, openReport } from "./commands/check.ts";
+import { checkCitations, checkMap, openReport } from "./commands/check.ts";
 import {
-  DRAFTS,
   DraftError,
   TSCONFIG_FILE,
   TYPES_FILE,
@@ -26,7 +25,7 @@ import { ReplyError, appendReply } from "./commands/reply.ts";
 import { InventoryError, inventoryOf, printed, summaryOf } from "./inventory/inventory.ts";
 import type { Link, Node } from "./model/atlas.ts";
 import { drawableOf } from "./model/drawable.ts";
-import { MAP_FILE, THREADS_FILE, loadFolder } from "./model/folder.ts";
+import { DRAFTS, MAP_FILE, THREADS_FILE, loadFolder } from "./model/folder.ts";
 import { WHO, openItems, readThreads } from "./model/threads.ts";
 import type { Tree } from "./model/tree.ts";
 import { chainOf, couplingsOf, nodeOf } from "./model/tree.ts";
@@ -153,7 +152,11 @@ type Step = { readonly name: string; readonly ok: boolean; readonly report: stri
 async function mapStep(dir: string): Promise<Step> {
   try {
     const { map, config } = await loading(() => loadFolder(dir), "");
-    const errors = checkMap(map, config, await readJson(join(dir, THREADS_FILE)));
+
+    const errors = [
+      ...checkMap(map, config, await readJson(join(dir, THREADS_FILE))),
+      ...checkCitations(map, config, dir),
+    ];
 
     if (errors.length > 0) {
       return { name: "map", ok: false, report: errors.join("\n") };

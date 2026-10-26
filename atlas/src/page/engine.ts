@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, and the JSON of threads.json, which readThreads parses: there is no earlier place to narrow them. */
+/* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, the JSON of threads.json, which readThreads parses, and the lines serve.ts answers, which isSourceLines parses: there is no earlier place to narrow them. */
 // The page's entry (atlas.html loads it; serve.ts bundles it). It draws the map it is given,
 // atlas:map and atlas:config, which serve.ts resolves to the files of a map folder; it holds no
 // content: a new node, link or text belongs in the map's data.
@@ -17,6 +17,8 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
+import type { Citation } from "../model/citations.ts";
+import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import type { PageState, Place, PlaceEvent } from "../model/navigation.ts";
 import { HOME, navigate, openOf, pageStateOf, placeOfHash } from "../model/navigation.ts";
@@ -25,8 +27,8 @@ import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
 import { chainOf, holds } from "../model/tree.ts";
 import { coupledIn, lights, viewOf } from "../model/view.ts";
-import type { Selected } from "../server/wire.ts";
-import { SELECTION_PATH } from "../server/wire.ts";
+import type { Selected, SourceLines } from "../server/wire.ts";
+import { SELECTION_PATH, SOURCE_PATH } from "../server/wire.ts";
 import type { Camera, Image, Key } from "./camera.ts";
 import { betweenOf, camera, shown } from "./camera.ts";
 import type { Drawn, Packing } from "./draw.ts";
@@ -34,8 +36,8 @@ import { drawView } from "./draw.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
-import type { ThreadState } from "./panel.ts";
-import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
+import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
+import { linesAround, renderCrumbs, renderOpenList, renderPanel, renderViewer } from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
@@ -68,6 +70,8 @@ const openList = byId("open-list", HTMLElement);
 const legendButton = byId("btn-legend", HTMLButtonElement);
 
 const legend = byId("legend", HTMLDivElement);
+
+const sourcesButton = byId("btn-sources", HTMLButtonElement);
 
 function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   const text =
@@ -141,6 +145,13 @@ function dressPage(): void {
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
   byId("hint", HTMLElement).textContent = words.hint;
   legend.setAttribute("aria-label", words.legendButton);
+
+  if (mapCitations(map).length === 0) {
+    sourcesButton.remove();
+  } else {
+    sourcesButton.textContent = words.sourcesButton;
+    sourcesButton.title = words.sourcesTitle;
+  }
 }
 
 dressPage();
@@ -177,6 +188,18 @@ let builtAspect = 1;
 let threads: ThreadState = { kind: "ok", threads: {} };
 
 let panelAvoidError: string | null = null;
+
+// The panel shows each citation as a marker of its lines, or in full once the reader asks.
+let sourcesInFull = false;
+
+// The lines of the marker last clicked, shown in place of the panel's fields until the reader
+// closes them or moves; panelTop is where the panel was scrolled when they opened, markerAt the
+// marker's place among the panel's, which takes the focus back when they close.
+let viewer: Viewer | null = null;
+
+let panelTop = 0;
+
+let markerAt = 0;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -729,8 +752,9 @@ function tellSelection(id: string | null): void {
 }
 
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
-// so a page script cannot assign it, answering the frozen state of the last render and the zoom
-// of the view shown, 1 at its fit, 2 when half its width fills the stage.
+// so a page script cannot assign it, answering the frozen state of the last render, the zoom of
+// the view shown, 1 at its fit, 2 when half its width fills the stage, whether the panel shows its
+// citations in full, and the citation whose lines it shows, if any.
 let pageState: PageState = pageStateOf(tree, place);
 
 const zoomOf = (): number =>
@@ -739,7 +763,13 @@ const zoomOf = (): number =>
     : 1;
 
 Object.defineProperty(window, "atlas", {
-  get: () => Object.freeze({ ...pageState, zoom: zoomOf() }),
+  get: () =>
+    Object.freeze({
+      ...pageState,
+      zoom: zoomOf(),
+      sourcesInFull,
+      citation: viewer === null ? null : citationText(viewer.citation),
+    }),
   enumerable: true,
 });
 
@@ -748,7 +778,13 @@ Object.defineProperty(window, "atlas", {
 function render(): void {
   const key = openOf(place);
   panelAvoidError = heldOf(st, key)?.avoidError ?? null;
-  renderPanel(settings, tree, panel, place, panelAvoidError, threads);
+
+  if (viewer === null) {
+    renderPanel(settings, tree, panel, place, panelAvoidError, threads);
+  } else {
+    renderViewer(settings, panel, viewer);
+  }
+
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
@@ -842,6 +878,7 @@ async function settle(): Promise<void> {
 // to the view once it is drawn.
 function send(ev: PlaceEvent): void {
   place = navigate(tree, place, ev);
+  viewer = null;
   render();
   settle().catch(fail);
 }
@@ -918,6 +955,120 @@ panel.addEventListener("submit", (e) => {
   }
 });
 
+// A marker is a button only with the Config's sources root (panel.ts): a click asks serve.ts for
+// the lines around the cited ones, and shows them in the panel until the reader closes them.
+/* oxlint-disable anti-slop/no-runtime-typeof -- isSourceLines IS the boundary parser of what serve.ts answers the page: there is no earlier place to narrow it. */
+const isSourceLines = (v: unknown): v is SourceLines =>
+  typeof v === "object" &&
+  v !== null &&
+  "lines" in v &&
+  Array.isArray(v.lines) &&
+  v.lines.every((line) => typeof line === "string");
+/* oxlint-enable anti-slop/no-runtime-typeof */
+
+// The route answers 413 for a file over its cap, which the viewer names as too large to show.
+async function stretchOf(path: string, { from, to }: LineSpan): Promise<Stretch | "large"> {
+  const query = new URLSearchParams({ path, from: String(from), to: String(to) });
+  const response = await fetch(`${SOURCE_PATH}?${query}`, { cache: "no-store" });
+
+  if (response.status === 413) {
+    return "large";
+  }
+
+  if (!response.ok) {
+    throw new Error(`${response.status} ${await response.text()}`);
+  }
+
+  const answer: unknown = await response.json();
+
+  if (!isSourceLines(answer)) {
+    throw new TypeError(`${SOURCE_PATH}: the answer holds no lines`);
+  }
+
+  return { from, lines: answer.lines };
+}
+
+async function linesOf(citation: Citation): Promise<Viewer> {
+  try {
+    const read = await Promise.all(
+      linesAround(citation).map(async (span) => await stretchOf(citation.path, span)),
+    );
+
+    const stretches = read.filter((stretch) => stretch !== "large");
+
+    return stretches.length < read.length
+      ? { kind: "large", citation }
+      : { kind: "lines", citation, stretches };
+  } catch (error: unknown) {
+    return { kind: "failed", citation, message: failure(error) };
+  }
+}
+
+const MARKER = "[data-cite]";
+
+const panelFocused = (): boolean => panel.contains(document.activeElement);
+
+function focusViewerClose(): void {
+  const close = panel.querySelector(".viewer-close");
+
+  if (close instanceof HTMLElement) {
+    close.focus();
+  }
+}
+
+// A later click or move drops the lines a slower answer brings. The close button takes the focus,
+// and keeps it when the lines replace the wait, unless the reader moved it meanwhile.
+async function openCitation(citation: Citation, marker: Element): Promise<void> {
+  if (viewer === null) {
+    panelTop = panel.scrollTop;
+    markerAt = [...panel.querySelectorAll(MARKER)].indexOf(marker);
+  }
+
+  const opened: Viewer = { kind: "loading", citation };
+  viewer = opened;
+  render();
+  focusViewerClose();
+  const read = await linesOf(citation);
+
+  if (viewer === opened) {
+    const focused = panelFocused();
+    viewer = read;
+    render();
+
+    if (focused) {
+      focusViewerClose();
+    }
+  }
+}
+
+// The marker the lines opened from takes the focus back, when the viewer held it.
+function closeCitation(): void {
+  const focused = panelFocused();
+  viewer = null;
+  render();
+  panel.scrollTop = panelTop;
+  const marker = panel.querySelectorAll(MARKER)[markerAt];
+
+  if (focused && marker instanceof HTMLElement) {
+    marker.focus({ preventScroll: true });
+  }
+}
+
+panel.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) {
+    return;
+  }
+
+  const cited = e.target.closest(MARKER);
+  const citation = cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
+
+  if (cited !== null && citation !== null) {
+    void openCitation(citation, cited);
+  } else if (e.target.closest("[data-close-viewer]") !== null) {
+    closeCitation();
+  }
+});
+
 addEventListener("focus", () => {
   void loadThreads().then((next) => {
     if (cam !== null && JSON.stringify(next) !== JSON.stringify(threads)) {
@@ -943,29 +1094,37 @@ byId("btn-home", HTMLButtonElement).addEventListener("click", () => {
   send({ type: "home" });
 });
 
-// A button that shows or hides an element, remembered per browser. When storage is blocked, the
-// element starts shown and the button still works for the visit.
+// A reader's choice, remembered per browser. Blocked storage throws on each access: the choice
+// then starts as its default and lasts for the visit.
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Blocked storage: the choice lasts for this visit only.
+  }
+}
+
+// A button that shows or hides an element, remembered per browser; the element starts shown.
 function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string): void {
   const show = (visible: boolean): void => {
     target.hidden = !visible;
     button.setAttribute("aria-pressed", String(visible));
   };
 
-  try {
-    show(localStorage.getItem(key) !== "hidden");
-  } catch {
-    show(true);
-  }
+  show(stored(key) !== "hidden");
 
   button.addEventListener("click", () => {
     const visible = target.hidden !== false;
     show(visible);
-
-    try {
-      localStorage.setItem(key, visible ? "shown" : "hidden");
-    } catch {
-      // Blocked storage: the choice lasts for this visit only.
-    }
+    store(key, visible ? "shown" : "hidden");
   });
 }
 
@@ -973,15 +1132,41 @@ bindToggle(legendButton, legend, "atlas.legend");
 
 bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
 
-document.addEventListener("keydown", (e) => {
-  const typing = e.target instanceof HTMLInputElement;
+// The citations show as markers until the reader asks for them in full, remembered per browser.
+const SOURCES_KEY = "atlas.sources";
 
-  if (e.key !== "Escape" || typing || openList.matches(":popover-open") || unzoom()) {
+function showSources(full: boolean): void {
+  sourcesInFull = full;
+  panel.classList.toggle("full-sources", full);
+  sourcesButton.setAttribute("aria-pressed", String(full));
+}
+
+showSources(stored(SOURCES_KEY) === "full");
+
+sourcesButton.addEventListener("click", () => {
+  showSources(!sourcesInFull);
+  store(SOURCES_KEY, sourcesInFull ? "full" : "markers");
+});
+
+// Escape and a click on the empty sheet bring the fit back, else close the lines viewer where the
+// reader stands, else deselect, then go up a level.
+function stepBack(): void {
+  if (unzoom()) {
     return;
   }
 
-  if (place !== navigate(tree, place, { type: "escape" })) {
+  if (viewer !== null) {
+    closeCitation();
+  } else if (place !== navigate(tree, place, { type: "escape" })) {
     send({ type: "escape" });
+  }
+}
+
+document.addEventListener("keydown", (e) => {
+  const typing = e.target instanceof HTMLInputElement;
+
+  if (e.key === "Escape" && !typing && !openList.matches(":popover-open")) {
+    stepBack();
   }
 });
 
@@ -989,16 +1174,12 @@ document.addEventListener("keydown", (e) => {
 // typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
+  viewer = null;
   render();
   settle().catch(fail);
 });
 
-// A click on the empty sheet brings the fit back, else deselects, then goes up a level.
-svg.addEventListener("click", () => {
-  if (!unzoom() && place !== navigate(tree, place, { type: "escape" })) {
-    send({ type: "escape" });
-  }
-});
+svg.addEventListener("click", stepBack);
 
 // Every view is laid out again when the aspect of the drawing area moves by more than RELAYOUT
 // (a resized window, the panel hidden or shown), once the resizing settles, with the Config's

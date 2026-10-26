@@ -62,9 +62,12 @@ bun --config=${CLAUDE_PLUGIN_ROOT}/child.bunfig.toml --no-env-file ${CLAUDE_PLUG
 ```
 
 It refuses a folder that is not empty: a map already there is shown with `/atlas:board`, and
-changed through a draft, never by init. In `atlas.config.ts`, set `title` to the repository's name
-and `palette` to one key per branch id plus `outside`, each a `{ light, dark }` pair of hex
-colours. Delete the template's nodes from `map.ts`; step 5 writes it.
+changed through a draft, never by init. In `atlas.config.ts`, set `title` to the repository's name,
+`palette` to one key per branch id plus `outside`, each a `{ light, dark }` pair of hex colours,
+and `sources` to the repository the inventory read, as the path from the map folder up to its
+root: `sources: { root: "../.." }` for `docs/atlas`. With it, `check` verifies every citation
+against the files and a click on a citation shows its lines. Delete the template's nodes from
+`map.ts`; step 5 writes it.
 
 ## 4. Explore each branch
 

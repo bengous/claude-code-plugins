@@ -1,4 +1,6 @@
 import type { OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Citation } from "../model/citations.ts";
+import { citationText, citedLines, withCitations } from "../model/citations.ts";
 import { keptMarkup } from "../model/markup.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Crumb } from "../model/navigation.ts";
@@ -12,9 +14,10 @@ import { chainOf, couplingsOf, nodeOf } from "../model/tree.ts";
 import { esc } from "./svg.ts";
 
 // The panel shows the fields of Panel (atlas.ts) in their order: the HTML fields through
-// keptMarkup (markup.ts), which shows any tag but a few plain ones as text, so a map's text runs
-// nothing in the page that holds the reply token; the plain fields, ids, labels and the headings
-// the settings hold, the Config's or the dictionary's, escaped.
+// fieldHtml, keptMarkup (markup.ts), which shows any tag but a few plain ones as text, so a map's
+// text runs nothing in the page that holds the reply token, then each citation as a marker of its
+// lines; the plain fields, ids, labels and the headings the settings hold, the Config's or the
+// dictionary's, escaped.
 //
 // threads.json as the page last read it, or why it could not.
 export type ThreadState =
@@ -22,6 +25,21 @@ export type ThreadState =
   | { readonly kind: "error"; readonly message: string };
 
 const heading = (s: Settings, key: PanelHeading): string => esc(s.headings[key]);
+
+// The path hides until the panel shows the sources in full (`full-sources`, atlas.html). With a
+// sources root, a marker is a button that opens its lines (engine.ts).
+function marker(s: Settings, citation: Citation): string {
+  const whole = esc(citationText(citation));
+  const shown = `<span class="cite-path">${esc(citation.path)}:</span>${citedLines(citation)}`;
+
+  return s.sources === null
+    ? `<cite class="cite" title="${whole}">${shown}</cite>`
+    : `<cite class="cite" title="${whole}"><button type="button" class="cite-open" data-cite="${whole}" aria-label="${whole}">${shown}</button></cite>`;
+}
+
+/** An HTML field of a map as every part of the panel shows it: its kept markup, its markers. */
+export const fieldHtml = (s: Settings, html: string): string =>
+  withCitations(keptMarkup(html), (citation) => marker(s, citation));
 
 const threadOf = (state: ThreadState, id: string): readonly Entry[] =>
   state.kind === "ok" ? (state.threads[id] ?? []) : [];
@@ -47,7 +65,7 @@ function openPoint(s: Settings, o: OpenPoint, state: ThreadState): string {
   return [
     `<div class="open-point">`,
     `<p class="open-id"><code>${esc(o.id)}</code> · ${waits(s, waitsFor(thread))}</p>`,
-    `<p class="warn">${keptMarkup(o.text)}</p>`,
+    `<p class="warn">${fieldHtml(s, o.text)}</p>`,
     log,
     `<form class="reply" data-open="${esc(o.id)}">`,
     `<input name="text" required autocomplete="off" placeholder="${s.words.replyPlaceholder(esc(nameOf(s, "human")))}" aria-label="${s.words.replyLabel(esc(o.id))}">`,
@@ -77,21 +95,21 @@ function chip(tree: Tree, id: string): string {
   return `<button type="button" class="chip" data-go="${esc(id)}" style="--zc: var(${paletteVar(node.color)})"><span class="dot"></span>${label}</button>`;
 }
 
-const pointList = (tree: Tree, items: readonly Pair[]): string =>
-  `<ul class="points">${items.map(([id, t]) => `<li>${keptMarkup(t)} ${chip(tree, id)}</li>`).join("")}</ul>`;
+const pointList = (s: Settings, tree: Tree, items: readonly Pair[]): string =>
+  `<ul class="points">${items.map(([id, t]) => `<li>${fieldHtml(s, t)} ${chip(tree, id)}</li>`).join("")}</ul>`;
 
-const pairs = (items: readonly Pair[], escape: boolean): string =>
-  items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : keptMarkup(v)}</dd>`).join("");
+const pairs = (s: Settings, items: readonly Pair[], escape: boolean): string =>
+  items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${escape ? esc(v) : fieldHtml(s, v)}</dd>`).join("");
 
-const list = (items: readonly string[], escape: boolean): string =>
-  items.map((i) => `<li>${escape ? esc(i) : keptMarkup(i)}</li>`).join("");
+const list = (s: Settings, items: readonly string[], escape: boolean): string =>
+  items.map((i) => `<li>${escape ? esc(i) : fieldHtml(s, i)}</li>`).join("");
 
 function replaceSection(s: Settings, tree: Tree, info: Panel, coupled: readonly string[]): string {
   if (info.swap === undefined && coupled.length === 0) {
     return "";
   }
 
-  const swap = info.swap === undefined ? "" : `<p>${keptMarkup(info.swap)}</p>`;
+  const swap = info.swap === undefined ? "" : `<p>${fieldHtml(s, info.swap)}</p>`;
 
   const chips =
     coupled.length === 0
@@ -112,27 +130,28 @@ function laterSections(
   const h = (key: PanelHeading): string => `<h3>${heading(s, key)}</h3>`;
 
   return [
-    info.extend === undefined ? "" : `${h("extend")}<p>${keptMarkup(info.extend)}</p>`,
+    info.extend === undefined ? "" : `${h("extend")}<p>${fieldHtml(s, info.extend)}</p>`,
     info.pitfalls === undefined || info.pitfalls.length === 0
       ? ""
-      : `${h("pitfalls")}<ul>${list(info.pitfalls, false)}</ul>`,
-    info.seams === undefined ? "" : `${h("seams")}${pointList(tree, info.seams)}`,
-    info.traps === undefined ? "" : `${h("traps")}${pointList(tree, info.traps)}`,
+      : `${h("pitfalls")}<ul>${list(s, info.pitfalls, false)}</ul>`,
+    info.seams === undefined ? "" : `${h("seams")}${pointList(s, tree, info.seams)}`,
+    info.traps === undefined ? "" : `${h("traps")}${pointList(s, tree, info.traps)}`,
     info.why === undefined || info.why.length === 0
       ? ""
-      : `${h("why")}<ul>${list(info.why, false)}</ul>`,
-    info.alt === undefined ? "" : `${h("alt")}<p class="alt">${keptMarkup(info.alt)}</p>`,
+      : `${h("why")}<ul>${list(s, info.why, false)}</ul>`,
+    info.alt === undefined ? "" : `${h("alt")}<p class="alt">${fieldHtml(s, info.alt)}</p>`,
     info.facts === undefined
       ? ""
-      : `${h("facts")}<dl class="facts">${pairs(info.facts, true)}</dl>`,
+      : `${h("facts")}<dl class="facts">${pairs(s, info.facts, true)}</dl>`,
     openSection(s, open, state),
-    info.how === undefined ? "" : `${h("how")}<p>${keptMarkup(info.how)}</p>`,
+    info.how === undefined ? "" : `${h("how")}<p>${fieldHtml(s, info.how)}</p>`,
   ].join("");
 }
 
 type Shown = {
   readonly info: Panel;
-  readonly title: string;
+  /** The heading as HTML: a `title` through fieldHtml, or a label, plain text, escaped. */
+  readonly heading: string;
   readonly color: string;
   readonly brief: readonly string[];
   readonly coupled: readonly string[];
@@ -146,12 +165,12 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
   return [
     `<div style="--zc: var(${shown.color})">`,
     info.kicker === undefined ? "" : `<p class="kicker">${esc(info.kicker)}</p>`,
-    `<h2><span class="swatch"></span>${keptMarkup(shown.title)}</h2>`,
-    info.lead === undefined ? "" : `<p class="lead">${keptMarkup(info.lead)}</p>`,
-    shown.brief.length === 0 ? "" : `<ul class="brief">${list(shown.brief, true)}</ul>`,
+    `<h2><span class="swatch"></span>${shown.heading}</h2>`,
+    info.lead === undefined ? "" : `<p class="lead">${fieldHtml(s, info.lead)}</p>`,
+    shown.brief.length === 0 ? "" : `<ul class="brief">${list(s, shown.brief, true)}</ul>`,
     info.io === undefined
       ? ""
-      : `<h3>${heading(s, "io")}</h3><dl class="facts io">${pairs(info.io, false)}</dl>`,
+      : `<h3>${heading(s, "io")}</h3><dl class="facts io">${pairs(s, info.io, false)}</dl>`,
     replaceSection(s, tree, info, shown.coupled),
     laterSections(s, tree, info, shown.open, state),
     shown.extra,
@@ -221,7 +240,7 @@ export function renderPanel(
       tree,
       {
         info,
-        title,
+        heading: fieldHtml(s, title),
         color: "--accent",
         brief: [],
         coupled: [],
@@ -235,7 +254,7 @@ export function renderPanel(
 
     const shown: Shown = {
       info: node,
-      title: node.title ?? node.label,
+      heading: node.title === undefined ? esc(node.label) : fieldHtml(s, node.title),
       color: paletteVar(node.color),
       brief: node.brief ?? [],
       coupled: couplingsOf(tree, id),
@@ -247,6 +266,101 @@ export function renderPanel(
     panel.innerHTML = renderInfo(s, tree, shown, state) + nav;
   }
 
+  panel.scrollTop = 0;
+}
+
+/** Consecutive lines of a file, the first numbered `from`. */
+export type Stretch = { readonly from: number; readonly lines: readonly string[] };
+
+/**
+ * The lines a clicked marker cites, which the panel shows in place of its fields: their stretches
+ * in the file's order, or a file too large to show.
+ */
+export type Viewer =
+  | { readonly kind: "loading"; readonly citation: Citation }
+  | { readonly kind: "lines"; readonly citation: Citation; readonly stretches: readonly Stretch[] }
+  | { readonly kind: "large"; readonly citation: Citation }
+  | { readonly kind: "failed"; readonly citation: Citation; readonly message: string };
+
+const CONTEXT = 8;
+
+/** Lines `from` to `to` of a file, as the viewer asks serve.ts for them. */
+export type LineSpan = { readonly from: number; readonly to: number };
+
+/**
+ * The spans the viewer asks for, in the file's order: each cited line or range with CONTEXT
+ * lines around it, two spans joined when at most one line lies between them.
+ */
+export function linesAround(citation: Citation): LineSpan[] {
+  const around = citation.lines
+    .map(({ first, last }) => ({ from: Math.max(1, first - CONTEXT), to: last + CONTEXT }))
+    .toSorted((a, b) => a.from - b.from);
+
+  const spans: LineSpan[] = [];
+
+  for (const span of around) {
+    const before = spans.at(-1);
+
+    if (before !== undefined && span.from <= before.to + 2) {
+      spans[spans.length - 1] = { from: before.from, to: Math.max(before.to, span.to) };
+    } else {
+      spans.push(span);
+    }
+  }
+
+  return spans;
+}
+
+const isCited = (citation: Citation, n: number): boolean =>
+  citation.lines.some(({ first, last }) => n >= first && n <= last);
+
+const GAP = '<div class="line gap"><span class="n">…</span></div>';
+
+function viewerBody(s: Settings, viewer: Viewer): string {
+  switch (viewer.kind) {
+    case "loading": {
+      return `<p class="viewer-note">${s.words.viewerLoading}</p>`;
+    }
+
+    case "failed": {
+      return `<p class="warn">${s.words.viewerFailed(esc(viewer.message))}</p>`;
+    }
+
+    case "large": {
+      return `<p class="viewer-note">${s.words.viewerTooLarge}</p>`;
+    }
+
+    case "lines": {
+      const stretches = viewer.stretches.map(({ from, lines }) =>
+        lines
+          .map((text, i) => {
+            const n = from + i;
+            const cited = isCited(viewer.citation, n) ? " cited" : "";
+
+            return `<div class="line${cited}"><span class="n">${n}</span><code>${esc(text)}</code></div>`;
+          })
+          .join(""),
+      );
+
+      return `<div class="viewer-lines">${stretches.join(GAP)}</div>`;
+    }
+  }
+}
+
+// The path and the close button above the lines, each line with its number, the cited ones marked,
+// a "…" row between two stretches apart.
+export function renderViewer(
+  s: Settings,
+  panel: Pick<HTMLElement, "innerHTML" | "scrollTop">,
+  viewer: Viewer,
+): void {
+  panel.innerHTML = [
+    `<div class="viewer">`,
+    `<div class="viewer-head"><code class="viewer-path">${esc(citationText(viewer.citation))}</code>`,
+    `<button type="button" class="viewer-close" data-close-viewer>${s.words.viewerClose}</button></div>`,
+    viewerBody(s, viewer),
+    `</div>`,
+  ].join("");
   panel.scrollTop = 0;
 }
 

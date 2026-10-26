@@ -1,6 +1,8 @@
-import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { AtlasMap, Config } from "./atlas.ts";
+import { mapCitations } from "./citations.ts";
 import { drawableOf } from "./drawable.ts";
 import type { Tree } from "./tree.ts";
 
@@ -8,14 +10,17 @@ import type { Tree } from "./tree.ts";
 // AtlasMap, atlas.config.ts, whose default export is its Config, and threads.json. The data imports
 // types only, so the folder needs no package.json. serve.ts bundles the first two into the page;
 // cli.ts imports them here.
-//   bun atlas/src/model/folder.ts <map folder>   prints the map's labels by id on its last line, after
-//                                      LABELS_LINE, or exits 1 with the reason when the engine
-//                                      cannot draw the map
+//   bun atlas/src/model/folder.ts <map folder>   prints what serve.ts knows of the map, FolderLine,
+//                                      as JSON on its last line, after FOLDER_LINE, or exits 1
+//                                      with the reason when the engine cannot draw the map
 export const MAP_FILE = "map.ts";
 
 export const CONFIG_FILE = "atlas.config.ts";
 
 export const THREADS_FILE = "threads.json";
+
+/** The folder of a map folder that holds its drafts, `drafts/<name>`, each a map folder of its own. */
+export const DRAFTS = "drafts";
 
 export type Folder = { readonly map: AtlasMap; readonly config: Config };
 
@@ -45,12 +50,101 @@ export function labelsOf(tree: Tree): Record<string, string> {
   );
 }
 
-// The map's code shares this process's stdout and may print to it: the labels' line is marked.
-export const LABELS_LINE = "atlas labels: ";
+/**
+ * The folder the citations of the map folder `dir` start from: the Config's sources root,
+ * resolved from `dir`, or, for a draft (`<map>/drafts/<name>`, which copies the map's own files
+ * alone), from the map it drafts; null without `sources`.
+ */
+export function sourcesRootOf(dir: string, config: Config): string | null {
+  if (config.sources === undefined) {
+    return null;
+  }
+
+  const drafts = dirname(dir);
+  const drafted = dirname(drafts);
+  const isDraft = basename(drafts) === DRAFTS && existsSync(join(drafted, MAP_FILE));
+
+  return resolve(isDraft ? drafted : dir, config.sources.root);
+}
+
+/** What serve.ts knows of the map, which it never imports: the line this module prints. */
+export type FolderLine = {
+  /** labelsOf: the ids a selection may name. */
+  readonly labels: Readonly<Record<string, string>>;
+  /**
+   * The map's sources root (sourcesRootOf), and every path a citation of the map names, the only
+   * ones the page may ask the lines of; null without `sources`.
+   */
+  readonly sources: { readonly root: string; readonly paths: readonly string[] } | null;
+};
+
+export function folderLineOf(map: AtlasMap, config: Config, dir: string): FolderLine {
+  const { tree } = drawableOf(map, config);
+  const root = sourcesRootOf(dir, config);
+
+  if (root === null) {
+    return { labels: labelsOf(tree), sources: null };
+  }
+
+  const cited = mapCitations(map).map(({ citation }) => citation.path);
+
+  return { labels: labelsOf(tree), sources: { root, paths: [...new Set(cited)].toSorted() } };
+}
+
+// The map's code shares this process's stdout and may print to it: the line is marked.
+export const FOLDER_LINE = "atlas folder: ";
+
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser of the line this module prints, which serve.ts reads from another process as JSON.parse leaves it: there is no earlier place to narrow it. */
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isTexts = (value: unknown): value is readonly string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+function sourcesIn(value: unknown): FolderLine["sources"] | undefined {
+  if (value === null) {
+    return null;
+  }
+
+  if (!isRecord(value) || typeof value["root"] !== "string" || !isTexts(value["paths"])) {
+    return undefined;
+  }
+
+  return { root: value["root"], paths: [...value["paths"]] };
+}
+
+/** The last line of `stdout` marked FOLDER_LINE, read; anything else reads as no map, null. */
+export function readFolderLine(stdout: string): FolderLine | null {
+  const line = stdout.split("\n").findLast((printed) => printed.startsWith(FOLDER_LINE));
+
+  if (line === undefined) {
+    return null;
+  }
+
+  let value: unknown;
+
+  try {
+    value = JSON.parse(line.slice(FOLDER_LINE.length));
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(value) || !isRecord(value["labels"])) {
+    return null;
+  }
+
+  const labels = Object.entries(value["labels"]);
+  const sources = sourcesIn(value["sources"]);
+
+  return sources === undefined || !labels.every(([, label]) => typeof label === "string")
+    ? null
+    : { labels: Object.fromEntries(labels.map(([id, label]) => [id, String(label)])), sources };
+}
+/* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type */
 
 // serve.ts runs this for each build in a fresh process: an imported module keeps its first
-// evaluation for the life of the process, and the data changes on every save. It prints the map's
-// labels, labelsOf, as JSON after LABELS_LINE.
+// evaluation for the life of the process, and the data changes on every save. It prints
+// folderLineOf as JSON after FOLDER_LINE.
 if (import.meta.main) {
   const [dir, ...extra] = process.argv.slice(2);
 
@@ -60,8 +154,9 @@ if (import.meta.main) {
   }
 
   try {
-    const { map, config } = await loadFolder(resolve(dir));
-    console.log(`${LABELS_LINE}${JSON.stringify(labelsOf(drawableOf(map, config).tree))}`);
+    const folder = resolve(dir);
+    const { map, config } = await loadFolder(folder);
+    console.log(`${FOLDER_LINE}${JSON.stringify(folderLineOf(map, config, folder))}`);
   } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

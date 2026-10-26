@@ -18,6 +18,13 @@ export const HEARTBEAT_HEADER = "x-atlas-heartbeat";
 
 export const HEARTBEAT_GRACE_MS = 60_000;
 
+// The page asks here, GET ?path=&from=&to=, for the lines of a file a citation of the map names,
+// and serve.ts answers SourceLines (server/source.ts).
+export const SOURCE_PATH = "source";
+
+// Lines `from` to `to` of the file asked for, the last ones cut at its end.
+export type SourceLines = { readonly lines: readonly string[] };
+
 // What the page posts: the id of the zone or brick selected, `null` for none.
 export type Selected = { readonly id: string | null };
 

@@ -20,7 +20,10 @@ export type Side = "in" | "out" | "both";
 
 /**
  * The panel's content, in the order the panel shows it. Its text is HTML (<code>), but for
- * `kicker`, `facts`, `src` and the first of each `io` pair, which the panel shows as written.
+ * `kicker`, `facts`, `src` and the first of each `io` pair, which the panel shows as written. A
+ * `<cite>path:lines</cite>` (a path holding a `/` or a `.`; lines `12`, `12-30`, or a comma list
+ * of those, as `3, 40-42`) shows as a marker of its lines, the whole citation as its tooltip;
+ * `atlas check` names one whose lines read as none, as `a.ts:0` or `a.ts:9-3`.
  */
 export type Panel = {
   /** A small mono line above the title: the source file and lines. */
@@ -61,9 +64,12 @@ export type Panel = {
 export type Node = Panel & {
   /** Unique among the nodes of the map: links, `couples`, `see` and the page's #id name it. */
   readonly id: string;
-  /** The short name the map draws: a few words. */
+  /**
+   * The short name the map draws: a few words, shown as written, markup and citations included,
+   * there and as the panel's heading of a node without `title`.
+   */
   readonly label: string;
-  /** The panel's heading, `label` when absent. */
+  /** The panel's heading, HTML as the Panel's fields; `label` when absent. */
   readonly title?: string;
   /** A mono subtitle, "\n" between lines. */
   readonly sub: string;
@@ -230,4 +236,14 @@ export type Config = {
    * and places; the dictionary's for each one absent. Shown as written: no markup.
    */
   readonly headings?: Readonly<Partial<Record<PanelHeading, string>>>;
+  /**
+   * The folder the map's citations name their paths from, `root` relative to the map folder (a
+   * draft's, to the map it drafts), such as `".."` for the repository a map folder sits in. With
+   * it, `atlas check` verifies each
+   * `<cite>path:lines</cite>`: a file at that path under the folder, with no NUL byte, every line
+   * cited within it;
+   * and a click on a citation's marker shows its lines in the panel, a file over 1 MiB as too
+   * large to show. Citations are neither verified nor opened when absent.
+   */
+  readonly sources?: { readonly root: string };
 };

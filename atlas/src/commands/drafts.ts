@@ -14,13 +14,11 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 
-import { MAP_FILE, THREADS_FILE } from "../model/folder.ts";
+import { DRAFTS, MAP_FILE, THREADS_FILE } from "../model/folder.ts";
 
 export const TYPES_FILE = "atlas.d.ts";
 
 export const TSCONFIG_FILE = "tsconfig.json";
-
-export const DRAFTS = "drafts";
 
 const IGNORE_FILE = ".gitignore";
 

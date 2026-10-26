@@ -26,6 +26,13 @@ describe("settingsOf", () => {
       tags: { names: [], outside: "optional" },
       legend: WORDS.en.legend,
       headings: WORDS.en.headings,
+      sources: null,
+    });
+  });
+
+  test("a Config's sources root is kept as written", () => {
+    expect(settingsOf({ title: "T", palette: {}, sources: { root: "../repo" } }).sources).toEqual({
+      root: "../repo",
     });
   });
 

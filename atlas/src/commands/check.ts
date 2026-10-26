@@ -1,8 +1,12 @@
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
+import { citationText, citedLines, mapBrokenCitations, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
+import { sourcesRootOf } from "../model/folder.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
 import type { Settings } from "../model/settings.ts";
+import { sourceText } from "../model/sources.ts";
+import type { SourceText } from "../model/sources.ts";
 import type { Threads } from "../model/threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "../model/threads.ts";
 import type { Tree } from "../model/tree.ts";
@@ -18,12 +22,16 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //   - a `rank` on an outside node, which its side places;
 //   - a root's `tour` that names what is no node with children, or misses one;
 //   - an id in `see`, `seams` or `traps`, on the root or on any node, that no node carries;
+//   - a <cite> that looks like a citation but reads as none (citeOf), as `a.ts:0` or `a.ts:9-3`;
 //   - a tag outside the Config's `tags`, and, when they say so, a link between two leaves into an
 //     outside one that is not on the left and names no tag; a link with a container end names the
 //     arrow between boxes, whose tags are its leaf links';
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
-//   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration.
+//   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
+//   - with the Config's `sources`, a citation whose file the viewer would refuse, or whose lines
+//     run past the file's end (checkCitations, which reads each file once, as serve.ts does but
+//     for its size cap).
 // Layout is not checked here: ELK and libavoid lay each view out in the browser, and nothing
 // overlaps by construction. Look at the rendered page (serve.ts) for the rest.
 function checkNodes(tree: Tree, errors: string[]): void {
@@ -146,6 +154,11 @@ export function validate(tree: Tree, s: Settings, threads: unknown): string[] {
   checkNodes(tree, errors);
   checkLinks(tree, s, errors);
   checkPanels(tree, errors);
+  errors.push(
+    ...mapBrokenCitations(tree.map).map(
+      ({ where, field, text, why }) => `${where}: ${field}: ${text} reads as no citation: ${why}`,
+    ),
+  );
   const read = readThreads(threads);
   errors.push(...read.errors);
   checkOpen(tree, s, read.threads, errors);
@@ -171,6 +184,56 @@ export function checkMap(map: AtlasMap, config: Config, threads: unknown): strin
 
     throw error;
   }
+}
+
+/**
+ * Each citation of the map whose file the viewer would refuse (sourceText, of any size: not under
+ * the sources root of the map folder `dir`, sourcesRootOf, unreadable, binary), or whose lines run
+ * past that file's end, as "<root | node id>: <field>: <citation>: <why>"; one line when the root
+ * is no folder. None without `sources`.
+ */
+export function checkCitations(map: AtlasMap, config: Config, dir: string): string[] {
+  const root = sourcesRootOf(dir, config);
+
+  if (root === null) {
+    return [];
+  }
+
+  const texts = new Map<string, SourceText>();
+
+  const read = mapCitations(map).map((cited) => {
+    const { path } = cited.citation;
+    const source = texts.get(path) ?? sourceText(root, path, Number.POSITIVE_INFINITY);
+    texts.set(path, source);
+
+    return { ...cited, source };
+  });
+
+  const rootless = read.find(({ source }) => source.kind === "refused" && source.why === "root");
+
+  if (rootless?.source.kind === "refused") {
+    const count = read.length === 1 ? "1 citation" : `${read.length} citations`;
+
+    return [`sources: ${rootless.source.reason}; ${count} left unchecked`];
+  }
+
+  return read.flatMap(({ where, field, citation, source }) => {
+    const cited = `${where}: ${field}: ${citationText(citation)}`;
+
+    if (source.kind === "refused") {
+      return [`${cited}: ${source.reason}`];
+    }
+
+    const count = source.lines.length;
+
+    return citation.lines.flatMap((lines) =>
+      lines.last <= count
+        ? []
+        : [
+            `${cited}: ${citedLines({ ...citation, lines: [lines] })} ends past line ${count}, the last of ${citation.path}`,
+          ],
+    );
+  });
 }
 
 export function openReport(tree: Tree, threads: Threads): string {

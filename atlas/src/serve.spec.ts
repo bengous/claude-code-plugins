@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -22,10 +23,13 @@ import {
   HEARTBEAT_HEADER,
   HEARTBEAT_PATH,
   SELECTION_PATH,
+  SOURCE_PATH,
   bunFlags,
 } from "./server/wire.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "fixtures", "sample");
+
+const CITATIONS = join(import.meta.dir, "..", "fixtures", "citations");
 
 const WAIT_MS = 10_000;
 
@@ -439,7 +443,14 @@ describe("a request that names another host", () => {
   test("is refused on every route: a name rebound to this machine reads nothing", async () => {
     const { base, port } = served();
 
-    for (const path of ["/atlas.html", "/events", `/${THREADS_FILE}`, "/libavoid.wasm", "/"]) {
+    for (const path of [
+      "/atlas.html",
+      "/events",
+      `/${THREADS_FILE}`,
+      "/libavoid.wasm",
+      "/",
+      `/${SOURCE_PATH}?path=map.ts&from=1&to=1`,
+    ]) {
       const response = await fetch(`${base}${path}`, {
         headers: { host: `rebound.example:${port}` },
       });
@@ -809,6 +820,187 @@ describe("the hooks module's routes, named by another host", () => {
 
     expect([selected.status, beaten.status]).toEqual([403, 403]);
   });
+});
+
+const linesOf = async (base: string, path: string, from: number, to: number): Promise<Response> =>
+  await fetch(
+    `${base}/${SOURCE_PATH}?${new URLSearchParams({ path, from: String(from), to: String(to) })}`,
+  );
+
+describe("the lines of a cited file", () => {
+  test("are refused for every path, the map's own files among them, when its Config names no sources", async () => {
+    const { base } = served();
+
+    for (const path of [MAP_FILE, "deploy/Caddyfile", "src/orders.ts"]) {
+      const response = await linesOf(base, path, 1, 1);
+
+      expect(`${path} ${response.status}`).toBe(`${path} 404`);
+    }
+  });
+});
+
+// A copy of the citations fixture whose map also cites `swap.txt` and `locked.txt` under its
+// sources root, and a file out of that root, `outside/secret.txt`, beside it.
+let citedCopy = "";
+
+let cited: Served | undefined;
+
+const citing = (): Served => {
+  if (cited === undefined) {
+    throw new Error("the server of the cited copy did not start");
+  }
+
+  return cited;
+};
+
+beforeAll(async () => {
+  citedCopy = mkdtempSync(join(tmpdir(), "atlas-cited-"));
+  cpSync(CITATIONS, citedCopy, { recursive: true });
+  mkdirSync(join(citedCopy, "outside"));
+  writeFileSync(join(citedCopy, "outside", "secret.txt"), "TOP SECRET\n");
+  writeFileSync(join(citedCopy, "repo", "swap.txt"), "swap\n");
+  writeFileSync(join(citedCopy, "repo", "locked.txt"), "locked\n", { mode: 0o000 });
+  const map = join(citedCopy, MAP_FILE);
+  const text = await Bun.file(map).text();
+  const cites = "<cite>swap.txt:1</cite> <cite>locked.txt:1</cite>";
+  writeFileSync(map, text.replace("its handler <cite>", `its handler ${cites} <cite>`));
+  cited = await serve(citedCopy);
+});
+
+afterAll(async () => {
+  cited?.child.kill();
+  await cited?.child.exited;
+  rmSync(citedCopy, { recursive: true, force: true });
+});
+
+// A process that swaps `repo/swap.txt` of the cited copy, for `ms`, between a text file and a link
+// out of the root, or a FIFO, as fast as it can: what a writer racing the route's check would do.
+function swapping(into: "link" | "fifo", ms: number): Subprocess<"ignore", "ignore", "ignore"> {
+  const repo = join(citedCopy, "repo");
+
+  const code = [
+    'import { linkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";',
+    `const repo = ${JSON.stringify(repo)};`,
+    'if (Bun.spawnSync(["mkfifo", `${repo}/.pipe`]).exitCode !== 0) process.exit(2);',
+    `const until = Date.now() + ${ms};`,
+    "while (Date.now() < until) {",
+    '  writeFileSync(`${repo}/.file`, "swap\\n");',
+    "  renameSync(`${repo}/.file`, `${repo}/swap.txt`);",
+    "  rmSync(`${repo}/.other`, { force: true });",
+    into === "link"
+      ? '  symlinkSync("../outside/secret.txt", `${repo}/.other`);'
+      : "  linkSync(`${repo}/.pipe`, `${repo}/.other`);",
+    "  renameSync(`${repo}/.other`, `${repo}/swap.txt`);",
+    "}",
+    'writeFileSync(`${repo}/.file`, "swap\\n");',
+    "renameSync(`${repo}/.file`, `${repo}/swap.txt`);",
+    "rmSync(`${repo}/.pipe`, { force: true });",
+  ].join("\n");
+
+  return Bun.spawn([process.execPath, "-e", code], {
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+}
+
+// Each answer of the route for `swap.txt` while `into` swaps it, as `<status> <first words>`.
+async function racing(into: "link" | "fifo"): Promise<ReadonlyMap<string, number>> {
+  const swapper = swapping(into, 1_500);
+  const seen = new Map<string, number>();
+
+  while (swapper.exitCode === null) {
+    const answer = await linesOf(citing().base, "swap.txt", 1, 1);
+    const body = await answer.text();
+    const key = `${answer.status} ${body.includes("TOP SECRET") ? "TOP SECRET" : body.slice(0, 24)}`;
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+
+  expect(await swapper.exited).toBe(0);
+
+  return seen;
+}
+
+describe("the lines of a file a map with sources cites", () => {
+  test("are answered for a path the map cites, as its last build's folder line names them", async () => {
+    const answer = await linesOf(citing().base, "orders/orders.go", 53, 54);
+
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({
+      lines: [
+        "\t// The mail goes out before the request answers: a slow mail service slows the checkout.",
+        "\treturn id, s.Mailer.Confirm(ctx, email, id)",
+      ],
+    });
+  });
+
+  test(
+    "are refused for a path it does not cite, until a save cites it and its build is done",
+    async () => {
+      writeFileSync(join(citedCopy, "repo", "notes.txt"), "a note\n");
+
+      expect((await linesOf(citing().base, "notes.txt", 1, 1)).status).toBe(403);
+
+      const map = join(citedCopy, MAP_FILE);
+      const text = await Bun.file(map).text();
+      citing().log.skip();
+      saveAtomically(
+        map,
+        text.replace("its handler <cite>", "its handler <cite>notes.txt:1</cite> <cite>"),
+      );
+      await within(
+        citing().log.next((line) => /^atlas: built .*reload sent/u.test(line)),
+        "build",
+      );
+
+      expect(await (await linesOf(citing().base, "notes.txt", 1, 1)).json()).toEqual({
+        lines: ["a note"],
+      });
+    },
+    WAIT_MS * 3,
+  );
+
+  test.skipIf(process.getuid?.() === 0)(
+    "are refused in a short plain text for a file the filesystem will not read, and no error page",
+    async () => {
+      const answer = await linesOf(citing().base, "locked.txt", 1, 1);
+      const text = await answer.text();
+
+      expect(answer.status).toBe(403);
+      expect(answer.headers.get("content-type")).toStartWith("text/plain");
+      expect(text).toStartWith("locked.txt cannot be read: EACCES");
+      expect(text.length).toBeLessThan(300);
+    },
+  );
+
+  test(
+    "never read out of the root while the cited file is swapped for a link out of it",
+    async () => {
+      const seen = await racing("link");
+
+      expect([...seen.keys()].filter((key) => key.includes("TOP SECRET"))).toEqual([]);
+      expect([...seen.keys()].filter((key) => key.startsWith("500"))).toEqual([]);
+      expect(seen.get('200 {"lines":["swap"]}') ?? 0).toBeGreaterThan(0);
+    },
+    WAIT_MS,
+  );
+
+  test(
+    "never hang while the cited file is swapped for a FIFO, and answer every route after",
+    async () => {
+      const seen = await racing("fifo");
+
+      expect([...seen.keys()].filter((key) => key.startsWith("500"))).toEqual([]);
+
+      const after = await within(
+        linesOf(citing().base, "orders/orders.go", 1, 1),
+        "answer after the race",
+      );
+
+      expect(after.status).toBe(200);
+    },
+    WAIT_MS,
+  );
 });
 
 // The first line a process prints: a server's address.
