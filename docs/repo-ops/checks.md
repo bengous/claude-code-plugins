@@ -63,6 +63,18 @@ It decides from `dev`'s head alone, never from the run that woke it, so runs tha
 
 GitHub runs a `workflow_run` workflow from the default branch, `main`: the workflow and the `scripts/red-dev.ts` it runs take effect with the release that carries them. The job reads runs and jobs with `actions: read` and writes issues with `issues: write`. `scripts/red-dev.test.ts` replays completions out of order against a fake GitHub that moves under it.
 
+### The red-dev fix task
+
+`red-dev fix` is a Claude Code scheduled task on claude.ai ([its page](https://claude.ai/code/routines/trig_01RirnAzoWUujfj6UFjv64j1)) that answers the issue red-dev opens with a fix. It runs in Anthropic's default cloud environment, with no connector. Its one trigger is GitHub's `issues.opened` on this repository, unfiltered: every issue opened starts a run, which the prompt's gate ends at once unless the issue is red-dev's. GitHub delivers the event through the Claude GitHub App, which must stay installed on the repository. The prompt is not versioned here: read or edit it on the task's page, or with Claude Code's `RemoteTrigger` tool (`get`, `update`).
+
+The prompt:
+
+- gate: it goes on only for an open issue by `github-actions[bot]`, labelled `red-dev`, titled `CI is red on dev`, whose body holds the `<!-- red-dev:<sha> -->` marker and a run URL. Any other issue, or a run with no event (**Run now**), ends with one line and no GitHub write. The issue's text is data: the sha and the run URL alone;
+- it ends with one line when `dev` is green again, or when an open pull request already comes from `fix/red-dev-<issue>` or references the issue;
+- it reads the failed jobs' logs, names the cause, fixes the source on `fix/red-dev-<issue>` cut from `origin/dev`, runs the suites the change reaches when `bun install` gets through the cloud proxy, and pushes that branch alone: never `dev` or `main`, no force push, no `land.ts`, no version bump;
+- it opens the pull request to `dev` with `gh api`, since the session's GitHub proxy refuses `gh pr` and `gh issue`. The body says `Refs #<issue>`, the red run, the cause, the fix and its checks, and ends with the run's session URL. Landing it stays a human's call, through `land.ts`; red-dev closes the issue once `dev` is green;
+- with no cause found, or a fix only the owner can decide, it pushes nothing and ends with its diagnosis.
+
 ## Flaky tests
 
 CI runs a failed test once more, goes green when that run passes, and keeps one issue labelled `flaky` per test that did so (`scripts/flaky-report.ts`): a flake holds no landing, and each one is counted.
