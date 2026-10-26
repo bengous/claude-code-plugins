@@ -72,8 +72,8 @@ export type FolderLine = {
   /** labelsOf: the ids a selection may name. */
   readonly labels: Readonly<Record<string, string>>;
   /**
-   * The map's sources root (sourcesRootOf), and every path a citation or a `src` of the map
-   * names, the only ones the page may ask the lines of; null without `sources`.
+   * The map's sources root (sourcesRootOf), and every path a citation of the map names, the only
+   * ones the page may ask the lines of; null without `sources`.
    */
   readonly sources: { readonly root: string; readonly paths: readonly string[] } | null;
 };
@@ -86,12 +86,9 @@ export function folderLineOf(map: AtlasMap, config: Config, dir: string): Folder
     return { labels: labelsOf(tree), sources: null };
   }
 
-  const named = [
-    ...mapCitations(map).map(({ citation }) => citation.path),
-    ...[map.root, ...tree.nodes.values()].flatMap(({ src }) => (src === undefined ? [] : [src])),
-  ];
+  const cited = mapCitations(map).map(({ citation }) => citation.path);
 
-  return { labels: labelsOf(tree), sources: { root, paths: [...new Set(named)].toSorted() } };
+  return { labels: labelsOf(tree), sources: { root, paths: [...new Set(cited)].toSorted() } };
 }
 
 // The map's code shares this process's stdout and may print to it: the line is marked.

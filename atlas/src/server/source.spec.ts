@@ -105,11 +105,11 @@ describe("the source route refuses", () => {
     expect(await answer.text()).toBe("this map names no sources: its Config sets no sources root");
   });
 
-  test("a path no citation or src of the map names, a file under the root among them", async () => {
+  test("a path no citation of the map names, a file under the root among them", async () => {
     const answer = lines("src/b.go", 1, 1);
 
     expect(answer.status).toBe(403);
-    expect(await answer.text()).toBe("no citation or src of this map names src/b.go");
+    expect(await answer.text()).toBe("no citation of this map names src/b.go");
 
     for (const spelling of ["./src/a.go", "src//a.go", "src/a.go/", "SRC/A.GO", ""]) {
       expect(`${spelling} ${status(lines(spelling, 1, 1))}`).toBe(`${spelling} 403`);

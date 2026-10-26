@@ -26,7 +26,7 @@ test("labelsOf names each node by its label, by id", async () => {
 });
 
 describe("folderLineOf", () => {
-  test("carries the sources root, resolved from the map folder, and every path a citation or a src names", async () => {
+  test("carries the sources root, resolved from the map folder, and every path a citation names", async () => {
     const { map, config } = await loadFolder(CITATIONS);
 
     expect(folderLineOf(map, config, CITATIONS).sources).toEqual({
@@ -41,14 +41,13 @@ describe("folderLineOf", () => {
     });
   });
 
-  test("names a path a src alone names, and none of a kicker", async () => {
+  test("names no path a src or a kicker alone names", async () => {
     const { map, config } = await loadFolder(CITATIONS);
-    const root = { ...map.root, src: "README.md", kicker: "LICENSE:1" };
+    const root = { ...map.root, src: "README.md", kicker: "LICENSE.txt:1" };
+    const paths = folderLineOf({ ...map, root }, config, CITATIONS).sources?.paths;
 
-    expect(folderLineOf({ ...map, root }, config, CITATIONS).sources?.paths).toContain("README.md");
-    expect(folderLineOf({ ...map, root }, config, CITATIONS).sources?.paths).not.toContain(
-      "LICENSE",
-    );
+    expect(paths).not.toContain("README.md");
+    expect(paths).not.toContain("LICENSE.txt");
   });
 
   test("resolves a draft's sources root from the map it drafts, whose files the draft lacks", async () => {

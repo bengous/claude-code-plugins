@@ -5,8 +5,8 @@ import type { SourceLines } from "./wire.ts";
 // GET /source?path=<path>&from=<line>&to=<line>, the lines the page shows when a citation's marker
 // is clicked: the one route that reads a file of the user's. It answers only, in this order:
 //   - a map whose Config names a sources root (404);
-//   - a path a <cite> or a `src` of the map names, as written (403), so a request reads nothing
-//     the map does not point at;
+//   - a path a citation of the map names, as written (403), so a request reads nothing a marker
+//     does not point at;
 //   - lines from 1, `from` no later than `to` (400);
 //   - a file under the root: no absolute path, no `..`, no link out of it (403), a regular file
 //     that is there (404; sourceFile);
@@ -18,7 +18,7 @@ import type { SourceLines } from "./wire.ts";
 // serve.ts asks the Host check first, as of every route. A page of another origin may send the
 // request, as any GET, but cannot read the answer: the server sends no CORS header.
 
-/** The map's sources root, resolved, and every path a citation or a `src` of the map names. */
+/** The map's sources root, resolved, and every path a citation of the map names. */
 export type Sources = { readonly root: string; readonly paths: ReadonlySet<string> };
 
 const LINE = /^[1-9]\d{0,8}$/u;
@@ -46,7 +46,7 @@ export function sourceAnswer(sources: Sources | null, query: URLSearchParams): R
   const path = query.get("path") ?? "";
 
   if (!sources.paths.has(path)) {
-    return refused(403, `no citation or src of this map names ${path}`);
+    return refused(403, `no citation of this map names ${path}`);
   }
 
   const [from, to] = [query.get("from") ?? "", query.get("to") ?? ""];
