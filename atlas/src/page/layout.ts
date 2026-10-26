@@ -55,8 +55,12 @@ export type Edge = "first" | "last" | null;
 export const edgeOf = (column: Exclude<Side, "both"> | null): Edge =>
   column === "in" ? "first" : column === "out" ? "last" : null;
 
-/** `rank`: its node's, absent when it has none. */
-export type Leaf = Size & { readonly id: string; readonly edge: Edge; readonly rank?: number };
+/** `rank`: its node's, null when it has none. */
+export type Leaf = Size & {
+  readonly id: string;
+  readonly edge: Edge;
+  readonly rank: number | null;
+};
 
 /** What lays an ELK graph out: the page's ELK, or one a spec builds. */
 export type Layouter = { layout(graph: ElkNode): Promise<ElkNode> };
@@ -88,7 +92,7 @@ const held = (edge: Edge): LayoutOptions =>
  * first layer, then each rank, then the leaves without one, then a ghost held to the last layer.
  */
 function partitionsOf(leaves: readonly Leaf[]): (leaf: Leaf) => LayoutOptions {
-  const ranks = leaves.flatMap((l) => (l.rank === undefined ? [] : [l.rank]));
+  const ranks = leaves.flatMap((l) => (l.rank === null ? [] : [l.rank]));
 
   if (ranks.length === 0) {
     return () => ({});
@@ -134,7 +138,7 @@ export async function elkLayered(
 
   const root: ElkNode = {
     id: "root",
-    layoutOptions: leaves.some((l) => l.rank !== undefined) ? { ...flow, ...RANKED } : flow,
+    layoutOptions: leaves.some((l) => l.rank !== null) ? { ...flow, ...RANKED } : flow,
     children: leaves.map((l) => ({
       id: l.id,
       width: l.w,

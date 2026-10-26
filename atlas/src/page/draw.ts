@@ -28,7 +28,7 @@ import type { Arrow, Chip, ContainerBox, Ghost, LeafBox, View } from "../model/v
 import type { Words } from "../model/words.ts";
 import { routeLinks } from "./avoid.ts";
 import type { Point, Rect, Size } from "./geometry.ts";
-import type { Edge, LayoutEdge, Leaf } from "./layout.ts";
+import type { Edge, LayoutEdge } from "./layout.ts";
 import { ROOT_COORDS, edgeOf, elkLayered } from "./layout.ts";
 import {
   BOX,
@@ -422,12 +422,8 @@ async function layeredView(
     to: ends[i]?.to ?? a.to,
   }));
 
-  const leaves = items.map(({ id, w, h, edge, rank }): Leaf =>
-    rank === null ? { id, w, h, edge } : { id, w, h, edge, rank },
-  );
-
   const aspect = packing.kind === "screen" ? clampRatio(packing.aspect) : packing.ratio;
-  const laid = await elkLayered(leaves, edges, aspect, new ELK(), direction);
+  const laid = await elkLayered(items, edges, aspect, new ELK(), direction);
 
   const placed = framed(
     laid.boxes,

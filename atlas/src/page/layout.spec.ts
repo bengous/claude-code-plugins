@@ -72,6 +72,7 @@ function leavesOf(view: View): Leaf[] {
       w: b.w,
       h: b.h,
       edge: edgeOf(lane),
+      rank: null,
     })),
   );
 }
@@ -121,12 +122,12 @@ describe("elkLayered", () => {
     const elk = await bunLayouter();
 
     const leaves: Leaf[] = [
-      { id: "a", ...CARD, edge: null },
-      { id: "b", ...CARD, edge: null },
-      { id: "c", ...CARD, edge: null },
-      { id: "d", ...CARD, edge: null },
-      { id: "g", ...GHOST, edge: "last" },
-      { id: "h", ...GHOST, edge: "first" },
+      { id: "a", ...CARD, edge: null, rank: null },
+      { id: "b", ...CARD, edge: null, rank: null },
+      { id: "c", ...CARD, edge: null, rank: null },
+      { id: "d", ...CARD, edge: null, rank: null },
+      { id: "g", ...GHOST, edge: "last", rank: null },
+      { id: "h", ...GHOST, edge: "first", rank: null },
     ];
 
     const laid = await elkLayered(
@@ -172,9 +173,7 @@ describe("elkLayered", () => {
 });
 
 function leaf(id: string, rank: number | null, edge: Edge = null): Leaf {
-  const unranked: Leaf = { id, ...(edge === null ? CARD : GHOST), edge };
-
-  return rank === null ? unranked : { ...unranked, rank };
+  return { id, ...(edge === null ? CARD : GHOST), edge, rank };
 }
 
 // Where a leaf belongs along the reading direction: a ghost held to the first layer before every
