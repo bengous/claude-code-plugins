@@ -772,6 +772,13 @@ new ResizeObserver(() => {
 // scrolled; undefined while the drawing shows.
 let cardsShown: Key | undefined;
 
+// The headers and the markers of the cards: the same cards rewritten hold them in the same order,
+// so a render gives the focus back to the one that held it, as it keeps where they were scrolled.
+const cardButtons = (): HTMLElement[] =>
+  [...cardsView.querySelectorAll("[data-select], [data-cite]")].filter(
+    (e) => e instanceof HTMLElement,
+  );
+
 // The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
 // which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
 // kept for the way back and the fit button disabled.
@@ -791,10 +798,13 @@ function renderMode(key: Key): void {
     return;
   }
 
-  const [left, top] = cardsShown === key ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
+  const same = cardsShown === key;
+  const [left, top] = same ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
+  const focused = same ? cardButtons().findIndex((b) => b === document.activeElement) : -1;
   cardsView.innerHTML = cardsHtml(settings, table, place.selected);
   cardsView.scrollLeft = left;
   cardsView.scrollTop = top;
+  cardButtons()[focused]?.focus({ preventScroll: true });
   cardsShown = key;
 }
 
