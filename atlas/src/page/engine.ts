@@ -33,7 +33,7 @@ import {
   placeOfHash,
 } from "../model/navigation.ts";
 import type { Dimmed } from "../model/phases.ts";
-import { arrowDimmed, dimmedBy, labelAt } from "../model/phases.ts";
+import { arrowDimmed, dimmedBy, dimsIn, labelAt } from "../model/phases.ts";
 import type { PaletteRule } from "../model/settings.ts";
 import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
@@ -779,7 +779,8 @@ svg.addEventListener("focusout", () => {
 });
 
 function renderLegend(key: Key): void {
-  const keys = legendKeys(viewOf(tree, key).legend);
+  const view = viewOf(tree, key);
+  const keys = legendKeys({ ...view.legend, later: dimsIn(dimmed, view) });
   legend.innerHTML = legendHtml(keys, settings.legend);
   legend.classList.toggle("empty", keys.length === 0);
 }
@@ -1000,8 +1001,8 @@ function render(): void {
 
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
-  renderLegend(key);
   renderPhase();
+  renderLegend(key);
   renderMode(key);
   pageState = pageStateOf(scope, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.

@@ -61,13 +61,13 @@
     shows its lines in the panel, shown if hidden. Over the cards, Escape
     leaves the drawing's zoom alone. Another container opens on its drawing.
   - A map whose Config lists `phases` gets a stepper in the header: every
-    phase, then each in order. Picking one fades and dashes what a later
+    phase, then each in order. Picking one fades and dots what a later
     phase brings: each node and link whose `phase` comes after it, a
     container by its own phase or, without one, once every node below it
     fades, a link without a phase once one of its ends fades, an arrow once
     every link it stands for fades; an arrow that stays names only the links
-    that do not. A leaf without a phase never fades. The phase stays in the
-    link as the reader moves.
+    that do not. A leaf without a phase never fades. The panel shows a
+    node's phase. The phase stays in the link as the reader moves.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -78,7 +78,8 @@
   - A bare #id in the link opens the page on it: a container's view, or a
     leaf's parent's view with the leaf selected.
   - The legend shows a line for each arrow kind and node mark the view uses,
-    labelled by the Config's `legend` or the dictionary.
+    and for what the phase picked fades in it, labelled by the Config's
+    `legend` or the dictionary.
   - Open points: a node with an `open` entry carries a badge counting the
     open points of its subtree, as does every box and chip that holds it. The
     header button, with their count, lists them all, with the party each
@@ -236,7 +237,7 @@ body {
 .phases button + button { margin-left: -1px; }
 .phases button:first-child { border-radius: 4px 0 0 4px; }
 .phases button:last-child { border-radius: 0 4px 4px 0; }
-.phases button.later { color: var(--ink-3); border-style: dashed; }
+.phases button.later { color: var(--ink-3); border-style: dotted; }
 .phases button[aria-pressed="true"] {
   position: relative; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 }
@@ -325,10 +326,10 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .cards tbody th { font-weight: 400; color: var(--ink-2); white-space: nowrap; border-top: 1px solid var(--line); }
 .cards tbody tr:not(:first-child) td:not(:first-child) { border-top: 1px solid var(--line); }
 .cards tbody tr:last-child td:not(:first-child) { border-bottom: 1px solid var(--line); border-radius: 0 0 6px 6px; }
-/* A leaf the phase picked dims (engine.ts): its column's contents faded and its borders dashed, as the drawing shows it; the backgrounds stay opaque under the sticky header row. */
+/* A leaf the phase picked dims (engine.ts): its column's contents faded and its borders dotted, as the drawing shows it; the backgrounds stay opaque under the sticky header row. */
 .cards .later > * { opacity: 0.4; }
-.cards :is(th, td).later { border-inline-style: dashed; }
-.cards tbody tr:last-child td.later { border-bottom-style: dashed; }
+.cards :is(th, td).later { border-inline-style: dotted; }
+.cards tbody tr:last-child td.later { border-bottom-style: dotted; }
 .cards thead th.later { border-top-color: color-mix(in srgb, var(--zc) 40%, var(--surface)); }
 .cards .lead { font-size: 15px; }
 .cards td p { margin: 0 0 6px; }
@@ -510,12 +511,12 @@ svg text.illegible { visibility: hidden; }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
 
-/* A node or an arrow that comes after the phase picked (phases.ts, engine.ts): faded and dashed over every other state, after them here; kind "off" keeps its own meaning. */
+/* A node or an arrow that comes after the phase picked (phases.ts, engine.ts), and its legend line: faded and dotted over every other state, after them here, a pattern apart from the dashes of kind "off", of outside nodes and of couplings. */
 .box.later, .card.later, .chip.later, .ghost.later { opacity: 0.4; }
-.box.later .box-bg { stroke-dasharray: 7 5; }
-.card.later rect, .chip.later rect, .ghost.later rect { stroke-dasharray: 4 3; }
+.box.later .box-bg, .card.later rect, .chip.later rect, .ghost.later rect, .legend .later-mark { stroke-dasharray: 0 4; stroke-linecap: round; stroke-width: 2; }
+.legend .later-mark { opacity: 0.4; }
 .flow.later > * { opacity: 0.4; }
-.flow.later path { stroke-dasharray: 3 5; }
+.flow.later path { stroke-dasharray: 0 6; stroke-linecap: round; }
 
 @media (max-width: 860px) {
   html, body { height: auto; }

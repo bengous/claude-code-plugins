@@ -85,8 +85,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   phases.ts          what a picked work phase dims: the nodes and links of the phases after it,
                      a container by its own phase or, without one, once all its descendants
                      are, a link without a phase once an end is, an arrow once every link it
-                     stands for is; the label of an arrow that stays, from its lit links
-                     (phases.spec.ts)
+                     stands for is; the label of an arrow that stays, from its lit links;
+                     whether a view draws something dimmed (phases.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
@@ -139,7 +139,8 @@ src/page/            what runs in the browser
                      aspect or its layers partitioned by rank, a ghost held to the first or the last
                      layer (layout.spec.ts, which runs ELK under Bun)
   avoid.ts           runs libavoid (avoid.spec.ts)
-  legend.ts          the legend's lines, one per arrow kind or node mark a view uses
+  legend.ts          the legend's lines, one per arrow kind or node mark a view uses, and one for
+                     what the phase picked dims in it
                      (legend.spec.ts)
   panel.ts           the panel, the breadcrumb and the open points' list; fieldHtml, the one way
                      an HTML field reaches the page, its citations as markers; the viewer of a
@@ -256,20 +257,23 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
   `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
   leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, the column
-  of a leaf the phase picked dims faded and dashed as the drawing shows it, a marker
+  of a leaf the phase picked dims faded and dotted as the drawing shows it, a marker
   opening its lines in the panel, shown if it was hidden; a click elsewhere on the cards does
   nothing. The header row and the keys' column stay in sight as it scrolls, below the controls,
   which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
   Escape leaves alone, the fit and legend buttons disabled; the legend and the hint hide. Another container
   opens on its drawing.
 - With the Config's `phases`, the header shows a stepper: every phase, then each in order,
-  scrolling within its own box when the header is narrower. A
-  phase picked (`phase=`) fades and dashes, in every view, the nodes and links of the phases after
-  it, a container by its own phase or, without one, once all its descendants are, a link without
-  a phase once one of its ends is or a container holding one, an arrow once every link it stands
-  for is (`dimmedBy` in `phases.ts`); a leaf without a phase never fades, and `kind: "off"` keeps
-  its own dash. An arrow that stays names only the links that do not fade (`labelAt`), in the
-  spot its whole label took, shortened as a placed label is when it does not fit. The phase stays as the reader moves. A map without phases has no stepper.
+  scrolling within its own box when the header is narrower. A phase picked (`phase=`) fades and
+  dots, in every view, the nodes and links of the phases after it, a container by its own phase
+  or, without one, once all its descendants are, a link without a phase once one of its ends is
+  or a container holding one, an arrow once every link it stands for is (`dimmedBy` in
+  `phases.ts`); a leaf without a phase never fades. The dots are a pattern of their own, apart
+  from the dashes of `kind: "off"`, of outside nodes and of couplings, and the legend explains
+  them in a view that draws some (`dimsIn`). An arrow that stays names only the links that do not
+  fade (`labelAt`), in the spot its whole label took, shortened as a placed label is when it does
+  not fit. The panel shows a node's phase under its own heading. The phase stays as the reader
+  moves. A map without phases has no stepper.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
@@ -318,8 +322,9 @@ Each module explains its own where it bites.
 - `dressPage` (engine.ts) writes the Config's title, subtitle and words into the page before the
   first layout: the header's height sets the drawing area's aspect, which a "screen" packing aims
   at. Written later, the views pack for another aspect.
-- The legend shows a line only for the arrow kinds and node marks the open view draws
-  (`legendKeys` in `legend.ts`): a kind the view never uses has no line.
+- The legend shows a line only for the arrow kinds and node marks the open view draws, and for
+  what the phase picked dims in it (`legendKeys` in `legend.ts`): a kind the view never uses has
+  no line.
 - ELK's bundle does not start under Bun, where `self` exists: its worker module takes the web
   worker's branch and exports nothing. `layout.spec.ts` builds the layouter it hands `elkLayered`
   from `elk-api.js` and that branch; a script that lays a view out outside a browser (a check, a

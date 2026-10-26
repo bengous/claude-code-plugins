@@ -170,6 +170,7 @@ describe("the panel's headings", () => {
       label: "A",
       sub: "",
       color: "clients",
+      phase: "v1",
       io: [["Receives", "x"]],
       swap: "x",
       couples: ["b"],
@@ -188,9 +189,13 @@ describe("the panel's headings", () => {
     const tree = treeOf({ root: { title: "T", children: [node, other] }, links: [] });
     const keys = Object.keys(WORDS.fr.headings);
     const headings = Object.fromEntries(keys.map((key) => [key, `named ${key}`]));
-    const html = rendered(settingsOf({ ...CONFIG, headings }), tree, { path: [], selected: "a" });
 
-    expect(keys).toHaveLength(12);
+    const html = rendered(settingsOf({ ...CONFIG, headings, phases: ["v1"] }), tree, {
+      path: [],
+      selected: "a",
+    });
+
+    expect(keys).toHaveLength(13);
 
     for (const key of keys) {
       expect(html).toContain(`named ${key}`);
@@ -199,6 +204,31 @@ describe("the panel's headings", () => {
     for (const word of Object.values(WORDS.fr.headings)) {
       expect(html).not.toContain(`>${esc(word)}<`);
     }
+  });
+
+  test("a node's work phase shows under its heading, in both languages, once the Config lists it", () => {
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [
+          { id: "a", label: "A", sub: "", color: "clients", lead: "L", phase: "MVP & co" },
+          { id: "b", label: "B", sub: "", color: "clients" },
+        ],
+      },
+      links: [],
+    });
+
+    const at = (id: string, phases: readonly string[], lang: "fr" | "en" = "fr"): string =>
+      rendered(settingsOf({ ...CONFIG, lang, phases }), tree, { path: [], selected: id });
+
+    expect(at("a", ["MVP & co"])).toContain(
+      '<p class="lead">L</p><h3>Phase</h3><p>MVP &amp; co</p>',
+    );
+    expect(WORDS.fr.headings.phase).toBe("Phase");
+    expect(WORDS.en.headings.phase).toBe("Phase");
+    expect(at("a", ["MVP & co"], "en")).toContain(`<h3>${WORDS.en.headings.phase}</h3>`);
+    expect(at("a", [])).not.toContain("<h3>Phase</h3>");
+    expect(at("b", ["MVP & co"])).not.toContain("<h3>Phase</h3>");
   });
 
   test("a heading holding markup shows as text and runs nothing", async () => {

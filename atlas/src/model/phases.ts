@@ -1,6 +1,6 @@
 import type { Tree } from "./tree.ts";
 import { chainOf, nodeOf } from "./tree.ts";
-import type { Arrow } from "./view.ts";
+import type { Arrow, View } from "./view.ts";
 import { labelOf } from "./view.ts";
 
 /**
@@ -66,6 +66,16 @@ export function dimmedBy(tree: Tree, phases: readonly string[], phase: string | 
 /** Whether an arrow is dimmed: every link it stands for is. */
 export const arrowDimmed = (dimmed: Dimmed, arrow: Arrow): boolean =>
   arrow.links.every((i) => dimmed.links.has(i));
+
+/** Whether a view draws something dimmed: a box, a chip, a ghost or an arrow; its legend's "later". */
+export const dimsIn = (dimmed: Dimmed, view: View): boolean =>
+  view.boxes.some(
+    (b) =>
+      dimmed.nodes.has(b.id) ||
+      (b.kind === "container" && b.chips.some((c) => dimmed.nodes.has(c.id))),
+  ) ||
+  view.ghosts.some((g) => dimmed.nodes.has(g.id)) ||
+  view.arrows.some((a) => arrowDimmed(dimmed, a));
 
 /**
  * An arrow's label at the phase picked: read from the links it stands for that are not dimmed,

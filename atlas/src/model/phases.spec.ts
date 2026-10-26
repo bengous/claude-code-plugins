@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { AtlasMap, Node } from "./atlas.ts";
 import type { Dimmed } from "./phases.ts";
-import { arrowDimmed, dimmedBy, labelAt } from "./phases.ts";
+import { arrowDimmed, dimmedBy, dimsIn, labelAt } from "./phases.ts";
 import { treeOf } from "./tree.ts";
 import type { Arrow } from "./view.ts";
 import { viewOf } from "./view.ts";
@@ -164,6 +164,36 @@ describe("arrowDimmed", () => {
     expect(arrow(null, "A", "C").links).toEqual([7]);
     expect(arrowDimmed(dimmed("v2"), arrow(null, "A", "C"))).toBe(true);
     expect(arrowDimmed(dimmed("v3"), arrow(null, "A", "C"))).toBe(false);
+  });
+});
+
+describe("dimsIn", () => {
+  test("a view draws something dimmed while a box, a ghost, a chip or an arrow of it is", () => {
+    expect(dimsIn(dimmed("v1"), viewOf(tree, null))).toBe(true);
+    expect(dimsIn(dimmed("v2"), viewOf(tree, "A"))).toBe(true);
+
+    const chips = treeOf({
+      root: { title: "T", children: [box("P", [leaf("p1", "v1"), leaf("p2", "v2")]), leaf("q")] },
+      links: [],
+    });
+
+    expect(dimmedBy(chips, PHASES, "v1").nodes.has("P")).toBe(false);
+    expect(dimsIn(dimmedBy(chips, PHASES, "v1"), viewOf(chips, null))).toBe(true);
+    expect(dimsIn(dimmedBy(chips, PHASES, "v2"), viewOf(chips, null))).toBe(false);
+
+    const arrows = treeOf({
+      root: { title: "T", children: [leaf("r"), leaf("s")] },
+      links: [{ from: "r", to: "s", label: "l", phase: "v2" }],
+    });
+
+    expect(dimsIn(dimmedBy(arrows, PHASES, "v1"), viewOf(arrows, null))).toBe(true);
+    expect(dimsIn(dimmedBy(arrows, PHASES, "v2"), viewOf(arrows, null))).toBe(false);
+  });
+
+  test("every phase shown, or the last, no view draws anything dimmed", () => {
+    for (const phase of [null, "v3"]) {
+      expect(dimsIn(dimmed(phase), viewOf(tree, null))).toBe(false);
+    }
   });
 });
 

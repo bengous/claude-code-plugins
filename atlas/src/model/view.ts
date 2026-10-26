@@ -108,9 +108,10 @@ export type View = {
   readonly arrows: readonly Arrow[];
   /**
    * The legend lines the view uses: the kinds its arrows draw, the marks its boxes and ghosts
-   * carry, and "coupled" when selecting one of them outlines another.
+   * carry, and "coupled" when selecting one of them outlines another; "later" is the phase
+   * picked's (`dimsIn` in phases.ts).
    */
-  readonly legend: Readonly<Record<LegendKey, boolean>>;
+  readonly legend: Readonly<Record<Exclude<LegendKey, "later">, boolean>>;
 };
 
 const LABELS_SHOWN = 2;
