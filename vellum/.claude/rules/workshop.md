@@ -6,7 +6,7 @@ paths:
 # The workshop
 
 `src/workshop/` is the pure core the three runtimes read: pure functions over immutable data,
-whose imports `src/boundaries.spec.ts` holds. It names the listeners and the page slots the
+whose imports `src/boundaries.integration.spec.ts` holds. It names the listeners and the page slots the
 runtimes then type, since it may not import their types. A slice's machinery (`plugs.ts`, `rows.ts`, `waits.ts`) is
 `slices.md`'s; how the server applies what is decided here is `server.md`'s.
 

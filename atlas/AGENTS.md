@@ -19,7 +19,7 @@ copy of `atlas.ts` its data imports its types from, and `tsconfig.json`, a copy 
 template's. It needs no `package.json`: its data imports types only. Its data files are its `.ts`
 files but `atlas.d.ts`, in sub-folders too: a large map keeps each branch in `parts/<branch>.ts`,
 which exports its `node` and its `links` with types from `../atlas.d.ts`, and `map.ts` assembles
-them (parts.spec.ts holds check, fmt and the page's bundle to it). Its drafts sit in
+them (parts.integration.spec.ts holds check, fmt and the page's bundle to it). Its drafts sit in
 `drafts/<name>/`, which its check leaves out; each holds a copy of the map's own files, a map folder
 of its own.
 
@@ -33,15 +33,15 @@ of its layer, never at a root, its spec beside it. `model/` imports nothing outs
 ```
 src/cli.ts           the one command line of agents and skills, and of the mod's tools: new, sync,
                      check, fmt, reply, draft, query (one node as JSON, read from tree.ts),
-                     inventory (cli.spec.ts, on copies in temporary folders)
+                     inventory (cli.integration.spec.ts, on copies in temporary folders)
 src/serve.ts         serves one map folder's page, rebuilt and reloaded on save, answers
                      libavoid.wasm, threads.json and the lines a citation names
                      (server/source.ts), takes the panel's replies, prints the page's
                      selections, and with --heartbeat leaves with its parent process or a minute
-                     after the last beat carrying its secret (serve.spec.ts)
-src/standalone.spec.ts  serves the sample from a copy of the plugin outside any repository, as an
+                     after the last beat carrying its secret (serve.integration.spec.ts)
+src/standalone.integration.spec.ts  serves the sample from a copy of the plugin outside any repository, as an
                      install does
-src/parts.spec.ts    a map assembled from parts/*.ts through check, fmt and the page's bundle
+src/parts.integration.spec.ts    a map assembled from parts/*.ts through check, fmt and the page's bundle
 
 src/model/           the map and what is read from it, pure or Node-only, no browser
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, Journey (a
@@ -118,7 +118,7 @@ src/inventory/       what a repository holds, as JSON, model-free, for /atlas:in
                      set aside with its code); directories of the top two levels; the manifests
                      (manifests.ts, their boundary parsers); the imports between those
                      directories and the environment variables read, by pattern (scan.ts)
-                     (inventory.spec.ts, on repositories it writes in temporary folders;
+                     (inventory.integration.spec.ts, on repositories it writes in temporary folders;
                      scan.spec.ts bounds every pattern on crafted files)
 
 src/page/            what runs in the browser
@@ -145,7 +145,7 @@ src/page/            what runs in the browser
   layout.ts          runs ELK's layered layout, flat, in the map's direction, its rows wrapped to an
                      aspect or its layers partitioned by rank, a ghost held to the first or the last
                      layer (layout.spec.ts, which runs ELK under Bun)
-  avoid.ts           runs libavoid (avoid.spec.ts)
+  avoid.ts           runs libavoid (avoid.integration.spec.ts)
   legend.ts          the legend's lines, one per arrow kind or node mark a view uses, and one for
                      what the phase picked dims in it
                      (legend.spec.ts)
@@ -333,7 +333,7 @@ Each module explains its own where it bites.
 - The order of a node's `children` is the order in which its view packs them: reordering them
   moves boxes.
 - `atlas/fixtures/sample` and `atlas/template` each commit an `atlas.d.ts`, a copy of `atlas.ts`:
-  after a change to `atlas.ts`, `bun atlas/src/cli.ts sync` both, or `cli.spec.ts` fails on them.
+  after a change to `atlas.ts`, `bun atlas/src/cli.ts sync` both, or `cli.integration.spec.ts` fails on them.
 - A process that imported a map folder keeps that first evaluation: importing it again answers
   the old data, and a `?query` on the specifier refreshes the file named but not what it imports.
   `serve.ts` therefore loads the folder in a fresh process

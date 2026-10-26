@@ -60,7 +60,7 @@ Dependencies point toward `src/workshop/`, which imports nothing outside itself,
 type. The review imports the workshop and the runtimes, never a part. A part imports the
 workshop, what a runtime's folder offers the halves it fills, the review's contract and another
 slice's `contract.ts` as types, and the review's surface; a runtime reaches a part through its
-`slices.ts` alone, as `src/boundaries.spec.ts` holds. The rules of each zone load with its
+`slices.ts` alone, as `src/boundaries.integration.spec.ts` holds. The rules of each zone load with its
 files, from `.claude/rules/`: `workshop.md`, `engine.md`, `server.md`, `page.md`,
 `extensions.md`, `slices.md`, `tests.md`.
 
@@ -122,4 +122,4 @@ For engine observations, read its linked runtime reference and `plans/2026-09-15
 
 - `types/claude-code.d.ts` and `types/claude-code-tools.d.ts` are Claude Code's own, copied from the `.claude-plugin/types/` it writes, never edited; `vellum/types/**` is ignored by the linters.
 - `package.json` + `bun.lock` carry every runtime dependency; a new one is a decision to propose first, not a convenience.
-- The plugin stands alone: installed, it is a copy of this folder with no repository around it. `tsconfig.json` here names React as the JSX runtime, and without it the installed page answers 500. `src/standalone.spec.ts` serves the page from a copy under the temp directory; what the page needs to build lives in this folder, never in a parent.
+- The plugin stands alone: installed, it is a copy of this folder with no repository around it. `tsconfig.json` here names React as the JSX runtime, and without it the installed page answers 500. `src/standalone.integration.spec.ts` serves the page from a copy under the temp directory; what the page needs to build lives in this folder, never in a parent.

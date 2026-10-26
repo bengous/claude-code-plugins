@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { Comment } from "./review-verdict.ts";
 
-// Stands in for `gh` in land.test.ts: one pull request and the ci.yml runs of
+// Stands in for `gh` in land.integration.test.ts: one pull request and the ci.yml runs of
 // its heads, kept in a JSON file. The pull request's head is the one the bare
 // origin holds for the branch, shown as soon as a push lands unless `lag`
 // holds the one before for that many reads. A head gets its push run the

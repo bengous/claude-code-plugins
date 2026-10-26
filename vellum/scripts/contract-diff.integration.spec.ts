@@ -433,16 +433,16 @@ describe("contractDiff", () => {
       root,
       shas: [base, head],
     } = repository(
-      { "plug/src/boundaries.spec.ts": suite(["one"]) },
-      { "plug/src/boundaries.spec.ts": suite(["one", "two"]) },
-      { "plug/src/boundaries.spec.ts": suite(["one", "two", "three"]) },
+      { "plug/src/boundaries.integration.spec.ts": suite(["one"]) },
+      { "plug/src/boundaries.integration.spec.ts": suite(["one", "two"]) },
+      { "plug/src/boundaries.integration.spec.ts": suite(["one", "two", "three"]) },
     );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"));
     const short = head.slice(0, 7);
 
     expect(report).toContain(
-      `- boundaries (\`src/boundaries.spec.ts\`) at \`${short}\`: green, 2 pass, 0 fail`,
+      `- boundaries (\`src/boundaries.integration.spec.ts\`) at \`${short}\`: green, 2 pass, 0 fail`,
     );
     expect(report).toContain(`- walk: no \`src/workflow.spec.ts\` at \`${short}\``);
   });

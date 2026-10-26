@@ -72,7 +72,7 @@ The service executes the catalog's copy of the script. The live sequence is:
    `plugin-cache-sync status` and `try-plugin`, then observe a real landing.
 
 These live checks remain unmeasured by the disposable-repository tests in
-`scripts/plugin-catalog.test.ts`. In particular, those tests use command
+`scripts/plugin-catalog.integration.test.ts`. In particular, those tests use command
 stubs and do not prove desktop notifications, engine loading, or unit
 activation. The source settings include
 `Read(~/Work/claude-code-plugins.wt/catalog/**)` so reference reads do not ask

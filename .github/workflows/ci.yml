@@ -240,8 +240,10 @@ jobs:
       - name: Install vellum dependencies
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
 
+      # Unit and integration suites in one run, on the integration tier's budget (`testRuns` in
+      # `scripts/affected.ts`): the job is no required check, and runs vellum's suites alone.
       - name: Run vellum's suites
-        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel vellum
+        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout 20000 vellum
 
       - name: Test the vellum hooks module
         run: bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
@@ -298,7 +300,7 @@ jobs:
 
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
-  # `scripts/e2e-windows.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
+  # `scripts/e2e-windows.integration.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
   # reads a running `e2e (<window>)` by that name. `check-lint-config.ts` reads `validate` alone.
   e2e-window:
     name: e2e (${{ matrix.window }})

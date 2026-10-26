@@ -310,8 +310,8 @@ describe("runsTestFile", () => {
 
   test("accepts a test of the plain run, of an extra root, and of a plugin's kit", () => {
     expect(runsTestFile("scripts/a.test.ts", plan)).toBe(true);
-    expect(runsTestFile("agent-hooks/stop.test.ts", plan)).toBe(true);
-    expect(runsTestFile(".claude/hooks/format-on-edit.test.ts", plan)).toBe(true);
+    expect(runsTestFile("agent-hooks/stop.integration.test.ts", plan)).toBe(true);
+    expect(runsTestFile(".claude/hooks/format-on-edit.integration.test.ts", plan)).toBe(true);
     expect(runsTestFile("vellum/src/runtime/hooks/register.test.ts", plan)).toBe(true);
     expect(runsTestFile("vellum/src/page.test.tsx", plan)).toBe(true);
   });

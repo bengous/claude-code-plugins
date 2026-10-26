@@ -886,7 +886,7 @@ describe("ci.yml", () => {
     const runs = (await ci()).win32?.steps.map((step) => step.run);
 
     expect(runs).toContain(
-      "bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel vellum",
+      "bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout 20000 vellum",
     );
     expect(runs).toContain(
       "bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum",

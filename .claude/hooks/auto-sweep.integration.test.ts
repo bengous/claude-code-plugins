@@ -8,9 +8,6 @@ import { dayOf } from "./once-a-day.ts";
 
 const HOOK = join(import.meta.dir, "auto-sweep.ts");
 
-// The sweep a test starts runs detached, past bun's default 5 s on a loaded machine.
-const STARTS_A_SWEEP = { timeout: 20_000 };
-
 // Unset for the hook, so what the sweep reads is what the hook set.
 const PROMPT_VARIABLES = new Set([
   "GIT_TERMINAL_PROMPT",
@@ -118,57 +115,49 @@ afterEach(async () => {
 });
 
 describe("auto-sweep hook", () => {
-  test(
-    "starts the sweep against dev detached from the main checkout, notes the day and appends its output to the log",
-    async () => {
-      // Without --base, the sweep would take this one.
-      git(project, "config", "sweep.base", "main");
+  test("starts the sweep against dev detached from the main checkout, notes the day and appends its output to the log", async () => {
+    // Without --base, the sweep would take this one.
+    git(project, "config", "sweep.base", "main");
 
-      const { exitCode, stdout } = await runHook(project);
+    const { exitCode, stdout } = await runHook(project);
 
-      expect(exitCode).toBe(0);
-      expect(JSON.parse(stdout)).toEqual({
-        systemMessage: `auto-sweep: sweeping local branches and agent worktrees against dev in the background, log: ${paths().log}`,
-      });
-      expect(readFileSync(paths().day, "utf8")).toBe(dayOf(new Date()));
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      systemMessage: `auto-sweep: sweeping local branches and agent worktrees against dev in the background, log: ${paths().log}`,
+    });
+    expect(readFileSync(paths().day, "utf8")).toBe(dayOf(new Date()));
 
-      const swept = await sweptLog();
+    const swept = await sweptLog();
 
-      expect(swept).toContain(`auto-sweep --base dev, in ${project}`);
-      expect(swept).toContain("auto-sweep against dev\n");
-      expect(swept).toContain("feature/landed (ancestry)");
-      expect(branchExists("feature/landed")).toBe(false);
-    },
-    STARTS_A_SWEEP,
-  );
+    expect(swept).toContain(`auto-sweep --base dev, in ${project}`);
+    expect(swept).toContain("auto-sweep against dev\n");
+    expect(swept).toContain("feature/landed (ancestry)");
+    expect(branchExists("feature/landed")).toBe(false);
+  });
 
-  test(
-    "returns before the sweep ends, which runs in a session of its own with every prompt off",
-    async () => {
-      const bin = join(root, "bin");
-      const record = join(root, "sweep-env");
-      mkdirSync(bin);
-      writeFileSync(join(bin, "git"), slowGit(Bun.which("git") ?? "git", record), { mode: 0o755 });
+  test("returns before the sweep ends, which runs in a session of its own with every prompt off", async () => {
+    const bin = join(root, "bin");
+    const record = join(root, "sweep-env");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), slowGit(Bun.which("git") ?? "git", record), { mode: 0o755 });
 
-      const started = performance.now();
+    const started = performance.now();
 
-      const { exitCode, stdout } = await runHook(project, project, {
-        PATH: `${bin}:${env["PATH"] ?? ""}`,
-      });
+    const { exitCode, stdout } = await runHook(project, project, {
+      PATH: `${bin}:${env["PATH"] ?? ""}`,
+    });
 
-      expect(performance.now() - started).toBeLessThan(2_000);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain("auto-sweep: sweeping");
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("auto-sweep: sweeping");
 
-      for (let tries = 0; tries < 50 && !existsSync(record); tries++) await Bun.sleep(100);
-      const [terminal, gh, askpass, session] = readFileSync(record, "utf8").trim().split("|");
+    for (let tries = 0; tries < 50 && !existsSync(record); tries++) await Bun.sleep(100);
+    const [terminal, gh, askpass, session] = readFileSync(record, "utf8").trim().split("|");
 
-      expect([terminal, gh, askpass]).toEqual(["0", "1", "never"]);
-      expect(session?.trim()).not.toBe(sessionOf(process.pid));
-      expect(await sweptLog()).toContain("auto-sweep against dev\n");
-    },
-    STARTS_A_SWEEP,
-  );
+    expect([terminal, gh, askpass]).toEqual(["0", "1", "never"]);
+    expect(session?.trim()).not.toBe(sessionOf(process.pid));
+    expect(await sweptLog()).toContain("auto-sweep against dev\n");
+  });
 
   test("starts nothing on a day it already started one", async () => {
     mkdirSync(paths().dir, { recursive: true });
@@ -182,21 +171,17 @@ describe("auto-sweep hook", () => {
     expect(branchExists("feature/landed")).toBe(true);
   });
 
-  test(
-    "starts again on a later day, appending to the log",
-    async () => {
-      mkdirSync(paths().dir, { recursive: true });
-      writeFileSync(paths().day, "2000-01-01");
-      writeFileSync(paths().log, "an earlier run\n");
+  test("starts again on a later day, appending to the log", async () => {
+    mkdirSync(paths().dir, { recursive: true });
+    writeFileSync(paths().day, "2000-01-01");
+    writeFileSync(paths().log, "an earlier run\n");
 
-      const { stdout } = await runHook(project);
+    const { stdout } = await runHook(project);
 
-      expect(stdout).toContain("auto-sweep: sweeping");
-      expect(readFileSync(paths().day, "utf8")).toBe(dayOf(new Date()));
-      expect(await sweptLog()).toStartWith("an earlier run\n--- ");
-    },
-    STARTS_A_SWEEP,
-  );
+    expect(stdout).toContain("auto-sweep: sweeping");
+    expect(readFileSync(paths().day, "utf8")).toBe(dayOf(new Date()));
+    expect(await sweptLog()).toStartWith("an earlier run\n--- ");
+  });
 
   test("starts nothing from a linked worktree, whatever the project", async () => {
     const linked = join(root, "linked");

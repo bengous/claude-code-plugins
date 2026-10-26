@@ -20,6 +20,7 @@
  */
 
 import { appendFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -180,16 +181,95 @@ export function kitsOf(scope: Scope, modulePlugins: readonly string[]): readonly
     : modulePlugins.filter((plugin) => scope.units.includes(plugin));
 }
 
-/** The `bun` argument lists of the scope's suites; `bun test` alone skips dot directories. */
-export function testRuns(scope: Scope): readonly (readonly string[])[] {
-  if (scope.kind === "all") {
-    return [
-      ["test", "--parallel"],
-      ["test", "--parallel", `./${HOOKS_UNIT}/`],
-    ];
-  }
+/**
+ * A test file that starts processes or a server: on a loaded runner a process's start has a long
+ * tail, so these run apart from the unit tests, fewer files at a time, on a wider budget.
+ */
+export const INTEGRATION_FILE = /\.integration\.(?:test|spec)\.tsx?$/u;
 
-  return [["test", "--parallel", "./scripts/", ...scope.units.map((unit) => `./${unit}/`)]];
+const INTEGRATION_GLOBS = [
+  "**/*.integration.test.ts",
+  "**/*.integration.test.tsx",
+  "**/*.integration.spec.ts",
+  "**/*.integration.spec.tsx",
+];
+
+const INTEGRATION_TIMEOUT_MS = 20_000;
+
+/**
+ * Half the cores, two at least: each integration file's processes keep a core beside its worker.
+ * CI's 4-vCPU runner gets 2.
+ */
+export function integrationWorkers(cores: number): number {
+  return Math.max(2, Math.floor(cores / 2));
+}
+
+/** What the runs are cut from: `bunfig.toml`'s ignored paths, every integration file, its workers. */
+export type Suites = {
+  readonly ignored: readonly string[];
+  readonly integration: readonly string[];
+  readonly workers: number;
+};
+
+/**
+ * The `bun` argument lists of the scope's suites; `bun test` alone skips dot directories. The unit
+ * runs leave the integration files out, which then run by name: a path `--path-ignore-patterns`
+ * matches is skipped even when named, and the flag replaces `bunfig.toml`'s list.
+ */
+export function testRuns(scope: Scope, suites: Suites): readonly (readonly string[])[] {
+  const unitRun = [
+    "test",
+    "--parallel",
+    "--pass-with-no-tests",
+    ...[...suites.ignored, ...INTEGRATION_GLOBS].flatMap((glob) => [
+      "--path-ignore-patterns",
+      glob,
+    ]),
+  ];
+
+  const roots =
+    scope.kind === "all" ? null : ["./scripts/", ...scope.units.map((unit) => `./${unit}/`)];
+
+  const unitRuns =
+    roots === null ? [unitRun, [...unitRun, `./${HOOKS_UNIT}/`]] : [[...unitRun, ...roots]];
+
+  const integration = suites.integration
+    .map((path) => `./${path}`)
+    .filter((path) => roots === null || roots.some((root) => path.startsWith(root)));
+
+  return integration.length === 0
+    ? unitRuns
+    : [
+        ...unitRuns,
+        [
+          "test",
+          `--parallel=${suites.workers}`,
+          "--timeout",
+          `${INTEGRATION_TIMEOUT_MS}`,
+          ...integration,
+        ],
+      ];
+}
+
+/** `bunfig.toml`'s ignored paths, and the integration files, tracked or new, that it leaves in. */
+export async function suitesOf(repoRoot: string): Promise<Suites> {
+  const bunfig: { default: { test?: { pathIgnorePatterns?: string[] } } } = await import(
+    join(repoRoot, "bunfig.toml")
+  );
+
+  const ignored = bunfig.default.test?.pathIgnorePatterns ?? [];
+
+  const listed = await $`git ls-files --cached --others --exclude-standard -z`
+    .cwd(repoRoot)
+    .quiet()
+    .text();
+
+  const integration = nulSeparated(listed).filter(
+    (path) =>
+      INTEGRATION_FILE.test(path) && !ignored.some((glob) => new Bun.Glob(glob).match(path)),
+  );
+
+  return { ignored, integration, workers: integrationWorkers(availableParallelism()) };
 }
 
 export function githubOutput(scope: Scope, kits: readonly string[]): string {
@@ -237,7 +317,7 @@ async function runTests(
   scope: Scope,
   retryJob: string | undefined,
 ): Promise<number> {
-  for (const [at, args] of testRuns(scope).entries()) {
+  for (const [at, args] of testRuns(scope, await suitesOf(repoRoot)).entries()) {
     console.error(`affected: bun ${args.join(" ")}`);
 
     const argv = [process.execPath, ...args];

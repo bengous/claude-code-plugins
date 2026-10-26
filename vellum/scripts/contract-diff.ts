@@ -78,7 +78,7 @@ const CONTEXT_WORDS = 8;
 
 /** The suites whose status closes the report, relative to the plugin's root. */
 const SUITES = [
-  { name: "boundaries", path: "src/boundaries.spec.ts" },
+  { name: "boundaries", path: "src/boundaries.integration.spec.ts" },
   { name: "walk", path: "src/workflow.spec.ts" },
 ];
 

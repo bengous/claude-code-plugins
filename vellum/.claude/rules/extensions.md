@@ -33,7 +33,7 @@ tests load. A hooks half may import the model as types only.
 - To add one: `slices.md`, in its order. Nothing else in `src/runtime/` or `src/workshop/`
   changes; when something must, the core lacks a place to plug into, and that is the change to
   propose first.
-- What an extension may import is `src/boundaries.spec.ts`'s, which names each file it takes of a
+- What an extension may import is `src/boundaries.integration.spec.ts`'s, which names each file it takes of a
   runtime (`SURFACES`) and of the review (`REVIEW_SURFACE`): one more is a decision to take, not a
   convenience. The composer is imported from `composer.tsx`, never through `surface.ts`, since
   the mockup's frame script loads `surface.ts` and must not load the page's store.
@@ -126,5 +126,5 @@ tests load. A hooks half may import the model as types only.
   `userConfig` ignores project entries, so a per-repository config would be a file of Vellum's
   own. The last design: `extension-contract.md` in
   `plans/2026-09-17/extensions-de-vellum-arbre-noms-et-garde-fous/`.
-- `src/boundaries.spec.ts` fails, naming the file, when any of this is broken. An import it
+- `src/boundaries.integration.spec.ts` fails, naming the file, when any of this is broken. An import it
   refuses is in the wrong place, not a rule to loosen.

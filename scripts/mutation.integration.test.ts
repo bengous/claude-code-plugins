@@ -195,7 +195,7 @@ test("CI's output says whether a listed module or its tests changed", () => {
 test("a pass mutates one module whole, against its own tests alone", () => {
   expect(runOptions("agent-hooks/config.ts")).toEqual({
     mutate: ["agent-hooks/config.ts"],
-    commandRunner: { command: "bun test ./agent-hooks/config.test.ts" },
+    commandRunner: { command: "bun test ./agent-hooks/config.integration.test.ts" },
   });
 });
 
@@ -218,8 +218,11 @@ describe("parseArgs", () => {
 });
 
 describe("testFileOf", () => {
-  test("is the .test.ts beside the module", () => {
-    expect(testFileOf("scripts/changelog.ts")).toBe("scripts/changelog.test.ts");
+  test("is the .test.ts beside the module, or its .integration.test.ts when that one exists", () => {
+    expect(testFileOf("scripts/changelog.ts", () => false)).toBe("scripts/changelog.test.ts");
+    expect(
+      testFileOf("scripts/land.ts", (path) => path === "scripts/land.integration.test.ts"),
+    ).toBe("scripts/land.integration.test.ts");
   });
 
   test("refuses a module that is not TypeScript", () => {

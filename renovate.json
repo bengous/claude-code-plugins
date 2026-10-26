@@ -14,12 +14,12 @@
       "addLabels": ["major"]
     },
     {
-      "description": "The package files under scripts/check-e2e-green.ts's e2e paths land through scripts/renovate-agent.ts and land.ts, which runs the e2e suite; scripts/renovate-agent.test.ts holds this list to that predicate.",
+      "description": "The package files under scripts/check-e2e-green.ts's e2e paths land through scripts/renovate-agent.ts and land.ts, which runs the e2e suite; scripts/renovate-agent.integration.test.ts holds this list to that predicate.",
       "matchFileNames": ["vellum/**", "mise.toml", ".github/workflows/ci.yml"],
       "automerge": false
     },
     {
-      "description": "The package files under .claude/agent-hooks.jsonc's profile.review.risky land only with a human review verdict; scripts/renovate-agent.test.ts holds this list to that profile.",
+      "description": "The package files under .claude/agent-hooks.jsonc's profile.review.risky land only with a human review verdict; scripts/renovate-agent.integration.test.ts holds this list to that profile.",
       "matchFileNames": [".github/workflows/**"],
       "automerge": false
     }

@@ -25,7 +25,7 @@ export const REGISTRY: Registry = {
     },
     e720734e: {
       quote: "Agents never bump a version or write a `CHANGELOG.md`",
-      held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.test.ts"],
+      held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.integration.test.ts"],
     },
     f8c3afb9: {
       quote: "For plugin tests, permissions and the catalog lifecycle,",
@@ -97,7 +97,7 @@ export const REGISTRY: Registry = {
     },
     efdba6e9: {
       quote: "Claude Code's built-in \"Commit or push only when the user",
-      held: ["hook agent-hooks/agent-hooks.ts", "test agent-hooks/pre-bash.test.ts"],
+      held: ["hook agent-hooks/agent-hooks.ts", "test agent-hooks/pre-bash.integration.test.ts"],
     },
     b5f9452a: {
       quote: "Two lanes; the agent judges by scope, the user can override:",
@@ -134,7 +134,10 @@ export const REGISTRY: Registry = {
     },
     e9909db4: {
       quote: "The post-edit hook (`format-on-edit.ts`) fixes, formats and",
-      held: ["hook .claude/hooks/format-on-edit.ts", "test .claude/hooks/format-on-edit.test.ts"],
+      held: [
+        "hook .claude/hooks/format-on-edit.ts",
+        "test .claude/hooks/format-on-edit.integration.test.ts",
+      ],
     },
     a361cf40: {
       quote: "`--fix` applies the fixes oxlint rates safe, never",
@@ -142,7 +145,7 @@ export const REGISTRY: Registry = {
     },
     b0298a8f: {
       quote: "The tools run from the checkout of the project's repository",
-      held: ["test .claude/hooks/format-on-edit.test.ts"],
+      held: ["test .claude/hooks/format-on-edit.integration.test.ts"],
     },
     a34837a7: {
       quote: "Per-edit cost, measured on 2026-09-14 with hyperfine on",
@@ -150,14 +153,14 @@ export const REGISTRY: Registry = {
     },
     "29cf4b80": {
       quote: "The Stop and each subagent's SubagentStop are the",
-      held: ["hook scripts/run-gates.ts", "test agent-hooks/stop.test.ts"],
+      held: ["hook scripts/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
     },
     "33ff07c7": {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",
       held: ["gate lint-config"],
     },
-    a8fa1170: {
-      quote: "Tests stay out of Stop: every suite takes about 30 s here",
+    "61ef1d46": {
+      quote: "Tests stay out of Stop: every suite takes about 36 s here in",
       prose: "a trade-off of cost",
     },
     "7ed69bd9": {
@@ -202,6 +205,12 @@ export const REGISTRY: Registry = {
     f46e61f7: {
       quote: "A skill whose effect leaves the machine or rewrites history",
       prose: "whether an effect can be undone is a judgement",
+    },
+  },
+  ".claude/rules/test-tiers.md": {
+    "65a8aa47": {
+      quote: "A test file that starts a process (`git`, `bun`, a CLI, a",
+      prose: "whether a test starts a process is known only by running it",
     },
   },
 };

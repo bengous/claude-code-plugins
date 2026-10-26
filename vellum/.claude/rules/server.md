@@ -27,7 +27,7 @@ write under the project root, `http/routes.ts` bodies, paths and status codes, h
 `http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
 plugin's own version and commit, read once at start from outside the project (`plugin.json`,
 Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared). Direction held by
-`src/boundaries.spec.ts`.
+`src/boundaries.integration.spec.ts`.
 
 - Decide, then apply. Read everything first, in the step (a route's `Reading`), take the
   decision as a pure function of plain values (`next`, and the rows each extension brings), then

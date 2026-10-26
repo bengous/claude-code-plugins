@@ -326,9 +326,6 @@ describe("dependency direction", () => {
 });
 
 describe("the page without a browser", () => {
-  // A `bun` started to import every module of the page, React's included. On windows-latest, `bun
-  // test --parallel vellum`, bun 1.4.3, a job's first pass, 2026-10-17: 10.5 s once in run
-  // 39024451676, 0.7 s at most over 10 passes of run 39027611581.
   test("every module of the page, of the review and of the parts imports with no window: a browser read waits for a call", async () => {
     const modules = [
       ...sources("src/runtime/page"),
@@ -337,7 +334,7 @@ describe("the page without a browser", () => {
     ].filter((file) => !BROWSER_ENTRIES.includes(short(file)));
 
     expect(await failingBareImports(modules)).toEqual([]);
-  }, 20_000);
+  });
 });
 
 describe("parts", () => {

@@ -28,7 +28,7 @@ const AFTER_DOLLAR = new RegExp(
 
 /**
  * The commands a refusal names as its fix, `<placeholder>` and `<NAME>` filled
- * in: each one runs whatever the value holds, which shell.spec.ts holds them to.
+ * in: each one runs whatever the value holds, which shell.integration.spec.ts holds them to.
  */
 export const FIXES = {
   file: "printf '<NAME>=%s\\n' '<placeholder>' >> .env",

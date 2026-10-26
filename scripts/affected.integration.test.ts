@@ -8,6 +8,7 @@ import {
   classify,
   currentScope,
   githubOutput,
+  integrationWorkers,
   kitsOf,
   type PathClass,
   readArgs,
@@ -88,16 +89,58 @@ describe("readArgs", () => {
 });
 
 describe("what the scope runs", () => {
-  test("its units' suites beside scripts/, in one run", () => {
-    expect(testRuns({ kind: "units", units: [".claude/hooks", "todos"] })).toEqual([
-      ["test", "--parallel", "./scripts/", "./.claude/hooks/", "./todos/"],
+  const UNIT_RUN = [
+    "test",
+    "--parallel",
+    "--pass-with-no-tests",
+    "--path-ignore-patterns",
+    "archive/**",
+    ...[
+      "**/*.integration.test.ts",
+      "**/*.integration.test.tsx",
+      "**/*.integration.spec.ts",
+      "**/*.integration.spec.tsx",
+    ].flatMap((glob) => ["--path-ignore-patterns", glob]),
+  ];
+
+  const INTEGRATION_RUN = ["test", "--parallel=3", "--timeout", "20000"];
+
+  const suites = {
+    ignored: ["archive/**"],
+    integration: [
+      "scripts/land.integration.test.ts",
+      ".claude/hooks/auto-sweep.integration.test.ts",
+      "vellum/src/standalone.integration.spec.ts",
+    ],
+    workers: 3,
+  };
+
+  test("the integration run takes half the cores, two at least", () => {
+    expect([1, 2, 4, 5, 16].map((cores) => integrationWorkers(cores))).toEqual([2, 2, 2, 2, 8]);
+  });
+
+  test("its units' suites beside scripts/, then the integration files among them by name", () => {
+    expect(testRuns({ kind: "units", units: [".claude/hooks", "todos"] }, suites)).toEqual([
+      [...UNIT_RUN, "./scripts/", "./.claude/hooks/", "./todos/"],
+      [
+        ...INTEGRATION_RUN,
+        "./scripts/land.integration.test.ts",
+        "./.claude/hooks/auto-sweep.integration.test.ts",
+      ],
     ]);
   });
 
-  test("every suite, the repo's own hooks in a run of their own", () => {
-    expect(testRuns({ kind: "all", reason: "bunfig.toml reaches every suite" })).toEqual([
-      ["test", "--parallel"],
-      ["test", "--parallel", "./.claude/hooks/"],
+  test("no integration run when the scope holds no integration file", () => {
+    expect(testRuns({ kind: "units", units: ["todos"] }, { ...suites, integration: [] })).toEqual([
+      [...UNIT_RUN, "./scripts/", "./todos/"],
+    ]);
+  });
+
+  test("every suite, the repo's own hooks in a run of their own, then every integration file", () => {
+    expect(testRuns({ kind: "all", reason: "bunfig.toml reaches every suite" }, suites)).toEqual([
+      UNIT_RUN,
+      [...UNIT_RUN, "./.claude/hooks/"],
+      [...INTEGRATION_RUN, ...suites.integration.map((path) => `./${path}`)],
     ]);
   });
 

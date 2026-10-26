@@ -579,7 +579,10 @@ export async function controlsOf(repoRoot: string, registry: Registry): Promise<
 
   const plan: TestPlan = {
     ignorePatterns: bunfig.test?.pathIgnorePatterns ?? [],
-    extraRoots: testRuns({ kind: "all", reason: "every suite" })
+    extraRoots: testRuns(
+      { kind: "all", reason: "every suite" },
+      { ignored: bunfig.test?.pathIgnorePatterns ?? [], integration: [], workers: 2 },
+    )
       .flat()
       .filter((argument) => argument.startsWith("./"))
       .map((root) => root.slice("./".length)),

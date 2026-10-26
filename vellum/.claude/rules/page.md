@@ -196,7 +196,7 @@ no build step, so what the page imports costs nothing when `cli.ts serve` starts
   `app.tsx` and `html/frame.ts`. `app.tsx` calls `readWindow` before the first render, never from
   `start`: `Comments` draws `commentsOpen` at that render and `start` runs in an effect after it,
   so under 900px the panel would paint open, then fold through its width transition
-  (`shell.e2e.ts` holds that call, `src/boundaries.spec.ts` the rest).
+  (`shell.e2e.ts` holds that call, `src/boundaries.integration.spec.ts` the rest).
 - `start` is the page's one way in, and its order is the rule: the saved draft into the store,
   then the first load, then the saving effects, then the event stream. A `writeDraft` asked
   while `start` runs, End grill being drawn before the review loads, waits for all of it

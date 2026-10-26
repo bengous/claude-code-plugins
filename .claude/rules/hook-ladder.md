@@ -71,8 +71,9 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   needs the network and an `e2e` run that already happened.
   `checkCommandParity` reads only the pre-commit `run` lines and CI's
   `validate` steps, so those lines need nothing there.
-- Tests stay out of Stop: every suite takes about 30 s here under
-  `--parallel` (16 threads), the gates a few seconds without a kit.
+- Tests stay out of Stop: every suite takes about 36 s here in its two
+  tiers (16 threads, `docs/repo-ops/checks.md`, Test tiers), the gates a few
+  seconds without a kit.
   pre-push and CI run them, pre-push only the suites the change reaches
   (`scripts/affected.ts test`).
 

@@ -9,7 +9,7 @@ paths:
 
 `hooks/hooks.json` is what Claude Code reads, and it names `src/runtime/hooks/register.ts`, which
 alone loads the registry of the engine halves, `./slices.ts`, and the review's tool and turn-end
-gate, `../../review/hooks.ts`. What else the module may load, `src/boundaries.spec.ts` holds: never
+gate, `../../review/hooks.ts`. What else the module may load, `src/boundaries.integration.spec.ts` holds: never
 the server or the page.
 
 ```

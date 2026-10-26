@@ -23,11 +23,6 @@ import { runState } from "../../scripts/lib/headless-run.ts";
 
 const HOOK = join(import.meta.dir, "claude-code-types.ts");
 
-// The run a test starts ends at its regenerate step: the fixture's claude
-// writes no types with stub/types-silent. That takes well past bun's default
-// 5 s on a loaded machine, so the tests that start one say how long they wait.
-const STARTS_A_RUN = { timeout: 20_000 };
-
 // Records whether a call to claude came with the session's CLAUDECODE and with
 // the user's own CLAUDE_CODE_OAUTH_TOKEN, then
 // hands over to the fixture's stub.
@@ -133,35 +128,27 @@ afterEach(async () => {
 });
 
 describe("claude-code-types hook", () => {
-  test(
-    "starts the run detached, under its guard, without the session's identity but with the user's variables, and says so in a systemMessage alone",
-    async () => {
-      const { exitCode, stdout } = await runHook("2.1.294");
+  test("starts the run detached, under its guard, without the session's identity but with the user's variables, and says so in a systemMessage alone", async () => {
+    const { exitCode, stdout } = await runHook("2.1.294");
 
-      expect(exitCode).toBe(0);
-      expect(stdout.trim()).toBe(
-        message(
-          `Claude Code types 2.1.294: checking in the background, log: ${state("2.1.294.log")}`,
-        ),
-      );
-      expect(await runOutcome()).toMatchObject({ kind: "failed", step: "regenerate" });
-      expect(recorded("version-guards")).toBe("unset\n1\n");
-      expect(recorded("sessions")).toBe("1 token\nunset token\nunset unset\n");
-      expect(recorded("notify-calls")).toBe("");
-    },
-    STARTS_A_RUN,
-  );
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe(
+      message(
+        `Claude Code types 2.1.294: checking in the background, log: ${state("2.1.294.log")}`,
+      ),
+    );
+    expect(await runOutcome()).toMatchObject({ kind: "failed", step: "regenerate" });
+    expect(recorded("version-guards")).toBe("unset\n1\n");
+    expect(recorded("sessions")).toBe("1 token\nunset token\nunset unset\n");
+    expect(recorded("notify-calls")).toBe("");
+  });
 
-  test(
-    "leaves to the run the call on a build older than origin/dev's types, which settles it",
-    async () => {
-      await runHook("2.1.290");
+  test("leaves to the run the call on a build older than origin/dev's types, which settles it", async () => {
+    await runHook("2.1.290");
 
-      expect(await runOutcome()).toMatchObject({ kind: "skipped", installed: "2.1.290" });
-      expect(readFileSync(state("settled"), "utf8")).toBe("2.1.290");
-    },
-    STARTS_A_RUN,
-  );
+    expect(await runOutcome()).toMatchObject({ kind: "skipped", installed: "2.1.290" });
+    expect(readFileSync(state("settled"), "utf8")).toBe("2.1.290");
+  });
 
   test("returns at once in a session the run started", async () => {
     const { exitCode, stdout } = await runHook("2.1.294", project, { [RUN_GUARD]: "1" });
@@ -267,48 +254,36 @@ describe("claude-code-types hook", () => {
     });
   });
 
-  test(
-    "keeps its state in the repository around the payload's cwd, from a linked worktree",
-    async () => {
-      const linked = join(root, "linked");
-      git(project, "worktree", "add", "-q", "-b", "feature/x", linked);
-      mkdirSync(join(linked, "sub"));
+  test("keeps its state in the repository around the payload's cwd, from a linked worktree", async () => {
+    const linked = join(root, "linked");
+    git(project, "worktree", "add", "-q", "-b", "feature/x", linked);
+    mkdirSync(join(linked, "sub"));
 
-      const { stdout } = await runHook("2.1.294", join(linked, "sub"));
+    const { stdout } = await runHook("2.1.294", join(linked, "sub"));
 
-      expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
-      expect(await runOutcome()).toMatchObject({ kind: "failed" });
-    },
-    STARTS_A_RUN,
-  );
+    expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
+    expect(await runOutcome()).toMatchObject({ kind: "failed" });
+  });
 
-  test(
-    "climbs out of another repository nested in the checkout",
-    async () => {
-      const nested = join(project, "plans");
-      mkdirSync(join(nested, "sub"), { recursive: true });
-      git(nested, "init", "-q");
+  test("climbs out of another repository nested in the checkout", async () => {
+    const nested = join(project, "plans");
+    mkdirSync(join(nested, "sub"), { recursive: true });
+    git(nested, "init", "-q");
 
-      const { stdout } = await runHook("2.1.294", join(nested, "sub"));
+    const { stdout } = await runHook("2.1.294", join(nested, "sub"));
 
-      expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
-      expect(await runOutcome()).toMatchObject({ kind: "failed" });
-    },
-    STARTS_A_RUN,
-  );
+    expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
+    expect(await runOutcome()).toMatchObject({ kind: "failed" });
+  });
 
-  test(
-    "falls back to the project when the payload's cwd sits in an unrelated repository",
-    async () => {
-      const unrelated = join(root, "dotfiles");
-      mkdirSync(unrelated);
-      git(unrelated, "init", "-q");
+  test("falls back to the project when the payload's cwd sits in an unrelated repository", async () => {
+    const unrelated = join(root, "dotfiles");
+    mkdirSync(unrelated);
+    git(unrelated, "init", "-q");
 
-      const { stdout } = await runHook("2.1.294", unrelated);
+    const { stdout } = await runHook("2.1.294", unrelated);
 
-      expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
-      expect(await runOutcome()).toMatchObject({ kind: "failed" });
-    },
-    STARTS_A_RUN,
-  );
+    expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
+    expect(await runOutcome()).toMatchObject({ kind: "failed" });
+  });
 });

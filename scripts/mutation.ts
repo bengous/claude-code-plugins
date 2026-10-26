@@ -18,6 +18,7 @@
  * reaches a listed module, so CI installs it only then.
  */
 
+import { existsSync } from "node:fs";
 import { appendFile, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -140,10 +141,18 @@ export function modulesOf(hunks: readonly Hunk[], listed: readonly string[]): st
   return [...new Set(reached)];
 }
 
-export function testFileOf(module: string): string {
-  if (!module.endsWith(".ts")) throw new Error(`${module}: a mutated module must be a .ts file`);
+const REPO_ROOT = join(import.meta.dir, "..");
 
-  return `${module.slice(0, -".ts".length)}.test.ts`;
+/** The `.test.ts` beside the module, or its `.integration.test.ts` when the tests start processes. */
+export function testFileOf(
+  module: string,
+  exists: (path: string) => boolean = (path) => existsSync(join(REPO_ROOT, path)),
+): string {
+  if (!module.endsWith(".ts")) throw new Error(`${module}: a mutated module must be a .ts file`);
+  const stem = module.slice(0, -".ts".length);
+  const integration = `${stem}.integration.test.ts`;
+
+  return exists(integration) ? integration : `${stem}.test.ts`;
 }
 
 function oneLine(code: string): string {

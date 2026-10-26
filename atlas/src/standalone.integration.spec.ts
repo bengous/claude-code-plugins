@@ -53,4 +53,4 @@ test("a copy of the folder outside any repository serves the sample's page and l
   expect(await page.text()).toContain("atlas-token");
   expect(wasm.status).toBe(200);
   expect(wasm.headers.get("content-type")).toBe("application/wasm");
-}, 15_000);
+});

@@ -245,21 +245,17 @@ describe("regenerate", () => {
     );
   });
 
-  test(
-    "kills a session that outlives SIGTERM once the types are written",
-    async () => {
-      write(stub("types-deaf"), "");
+  test("kills a session that outlives SIGTERM once the types are written", async () => {
+    write(stub("types-deaf"), "");
 
-      const { code } = await runScriptAsync("regenerate");
+    const { code } = await runScriptAsync("regenerate");
 
-      expect(code).toBe(0);
-      expect(readFileSync(join(project, TYPES_PATH), "utf8")).toBe(
-        "// Written by Claude Code 2.1.294.\n",
-      );
-      expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
-    },
-    { timeout: 10_000 },
-  );
+    expect(code).toBe(0);
+    expect(readFileSync(join(project, TYPES_PATH), "utf8")).toBe(
+      "// Written by Claude Code 2.1.294.\n",
+    );
+    expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
+  });
 });
 
 const OPEN_PR = JSON.stringify([
@@ -661,7 +657,7 @@ describe("run", () => {
 
     expect(outcome()).toMatchObject({ kind: "stopped", step: "regenerate", signal: "SIGTERM" });
     expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
-  }, 15_000);
+  });
 
   test("names the ref whose header is not the generated one", () => {
     landOnDev((clone) => write(join(clone, TYPES_PATH), "// hand-written\n"));
