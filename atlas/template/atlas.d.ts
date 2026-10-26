@@ -112,8 +112,9 @@ export type Node = Panel & {
 /**
  * One step of a journey: a link of the map set directly between `from` and `to`, from its `from`
  * to its `to`, or either way along one with `two` (`atlas check`; an arrow a view lifts from links
- * between nodes below them does not count). The page shows it in the deepest view that draws it
- * with both ends, and lights its arrow.
+ * between nodes below them does not count); an end that names no node is refused wherever the map
+ * is loaded. The page shows it in the deepest view that shows both its ends and draws its arrow,
+ * else in their lowest common container's view, its lifted arrow lit.
  */
 export type Step = {
   readonly from: string;
