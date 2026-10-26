@@ -109,8 +109,8 @@ export const itemIn = (tree: Tree, container: string | null, id: string): string
 /**
  * Indexes a map, and refuses what its views cannot show: an empty id, two nodes with one id, an
  * empty `children`, a `kind` or a side "both" on a container, an outside node below the root or without
- * a side, a side on a node inside, a coupling or a link to an unknown node, and a link whose one
- * end holds the other.
+ * a side, a side on a node inside, a rank that is not an integer from 0, a coupling or a link to
+ * an unknown node, and a link whose one end holds the other.
  */
 export function treeOf(map: AtlasMap): Tree {
   const nodes = new Map<string, Node>();
@@ -121,7 +121,7 @@ export function treeOf(map: AtlasMap): Tree {
   const sides = new Map<string, Side>();
 
   const visit = (node: Node, above: readonly string[]): number => {
-    const { id, children, outside, side } = node;
+    const { id, children, outside, side, rank } = node;
 
     if (id === "") {
       refuse(`node "${node.label}": its id is empty; an id names it in links and URLs`);
@@ -151,6 +151,12 @@ export function treeOf(map: AtlasMap): Tree {
       sides.set(id, side ?? refuse(`node ${id}: an outside node needs a side`));
     } else if (side !== undefined) {
       refuse(`node ${id}: side is for an outside node`);
+    }
+
+    if (rank !== undefined && !(Number.isInteger(rank) && rank >= 0)) {
+      refuse(
+        `node ${id}: rank ${rank} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
+      );
     }
 
     const chain = [...above, id];

@@ -75,10 +75,10 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   threads.ts         open points and threads: who a point waits for (threads.spec.ts)
 
 src/commands/        what cli.ts does to a map folder
-  check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, the
-                     root's tour, see/seams/traps ids on every panel, tags against the Config's,
-                     open points against its step words, and threads, and reports the open points
-                     (check.spec.ts)
+  check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, a
+                     rank on an outside node, the root's tour, see/seams/traps ids on every panel,
+                     tags against the Config's, open points against its step words, and threads,
+                     and reports the open points (check.spec.ts)
   reply.ts           adds an entry to a thread of a map folder (reply.spec.ts)
   drafts.ts          a map folder's data files, and its drafts: made, adopted, dropped
 

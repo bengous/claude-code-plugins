@@ -86,9 +86,9 @@ export type Node = Panel & {
   /** Outside the system (a client, a third-party service): a child of the root, drawn dashed. */
   readonly outside?: true;
   /**
-   * The band it sits in, in its parent's view: an integer from 0 (`atlas check`), the bands
-   * following the Config's `direction` in rank order. Once one of its siblings has a rank, a
-   * sibling without one sits after every rank.
+   * The band it sits in, in its parent's view: an integer from 0, on a node inside (`atlas check`),
+   * the bands following the Config's `direction` in rank order. Once one of its siblings has a
+   * rank, a sibling without one sits after every rank.
    */
   readonly rank?: number;
   readonly open?: readonly OpenPoint[];

@@ -1,5 +1,3 @@
-import { inspect } from "node:util";
-
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { MarkupError } from "../model/markup.ts";
@@ -13,11 +11,11 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 // Validates a map folder's data and threads.json without a browser, for `cli.ts check`, which
 // also lists the open points (openReport).
 // The types (atlas.ts) already hold the shape of every field, and drawableOf (drawable.ts) refuses
-// a tree no view can show, a colour outside the palette and markup a panel would not keep among
-// them; this checks what they cannot,
+// a tree no view can show, a rank no band holds, a colour outside the palette and markup a panel
+// would not keep among them; this checks what they cannot,
 // and fails on what would mislead a reader:
 //   - a `brief` on a leaf;
-//   - a `rank` that is not an integer from 0;
+//   - a `rank` on an outside node, which its side places;
 //   - a root's `tour` that names what is no node with children, or misses one;
 //   - an id in `see`, `seams` or `traps`, on the root or on any node, that no node carries;
 //   - a tag outside the Config's `tags`, and, when they say so, a link between two leaves into an
@@ -34,10 +32,8 @@ function checkNodes(tree: Tree, errors: string[]): void {
       errors.push(`node ${node.id}: brief is for a node with children`);
     }
 
-    if (node.rank !== undefined && !(Number.isInteger(node.rank) && node.rank >= 0)) {
-      errors.push(
-        `node ${node.id}: rank ${inspect(node.rank)} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
-      );
+    if (node.rank !== undefined && tree.sides.has(node.id)) {
+      errors.push(`node ${node.id}: rank is for a node inside; an outside node's side places it`);
     }
   }
 
