@@ -110,7 +110,8 @@ export const itemIn = (tree: Tree, container: string | null, id: string): string
  * Indexes a map, and refuses what its views cannot show: an empty id, two nodes with one id, an
  * empty `children`, a `kind` or a side "both" on a container, an outside node below the root or without
  * a side, a side on a node inside, a rank that is not an integer from 0, a coupling or a link to
- * an unknown node, and a link whose one end holds the other.
+ * an unknown node, a link whose one end holds the other, and a journey's step to or from an
+ * unknown node.
  */
 export function treeOf(map: AtlasMap): Tree {
   const nodes = new Map<string, Node>();
@@ -211,6 +212,16 @@ export function treeOf(map: AtlasMap): Tree {
 
     if (holds(tree, from, to) || holds(tree, to, from)) {
       refuse(`link ${from} → ${to}: one end holds the other; a link joins two nodes side by side`);
+    }
+  }
+
+  for (const { id, steps } of map.root.journeys ?? []) {
+    for (const [i, { from, to }] of steps.entries()) {
+      for (const end of [from, to]) {
+        if (!nodes.has(end)) {
+          refuse(`journey ${id}: step ${i + 1}, ${from} → ${to}: no node ${end}`);
+        }
+      }
     }
   }
 

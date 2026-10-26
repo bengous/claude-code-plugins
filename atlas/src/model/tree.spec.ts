@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Node } from "./atlas.ts";
+import type { AtlasMap, Node, Step } from "./atlas.ts";
 import {
   TreeError,
   chainOf,
@@ -32,6 +32,15 @@ const mapOf = (children: readonly Node[], links: AtlasMap["links"] = []): AtlasM
   root: { title: "T", children },
   links,
 });
+
+const journeyed = (steps: readonly Step[]): AtlasMap => {
+  const map = mapOf(
+    [card("a", { children: [card("b"), card("c")] })],
+    [{ from: "b", to: "c", label: "x" }],
+  );
+
+  return { ...map, root: { ...map.root, journeys: [{ id: "walk", label: "Walk", steps }] } };
+};
 
 const refusal = (map: AtlasMap): string => {
   try {
@@ -169,6 +178,19 @@ describe("treeOf", () => {
       "a link from a node to itself",
       mapOf([card("a", { children: [card("b")] })], [{ from: "b", to: "b", label: "x" }]),
       "link b → b: one end holds the other; a link joins two nodes side by side",
+    ],
+    [
+      "a journey's step from an unknown node",
+      journeyed([{ from: "nowhere", to: "b" }]),
+      "journey walk: step 1, nowhere → b: no node nowhere",
+    ],
+    [
+      "a journey's later step to an unknown node",
+      journeyed([
+        { from: "b", to: "c" },
+        { from: "c", to: "gone" },
+      ]),
+      "journey walk: step 2, c → gone: no node gone",
     ],
   ])("refuses %s", (_, map, message) => {
     expect(refusal(map)).toBe(message);

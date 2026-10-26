@@ -377,6 +377,20 @@ describe("checkMap", () => {
     ).toEqual(["node web: a second node has this id"]);
   });
 
+  test("a journey's step on an unknown node is refused, naming the journey and the step", () => {
+    const broken = {
+      ...MAP,
+      root: {
+        ...MAP.root,
+        journeys: [{ id: "broken", label: "Broken", steps: [{ from: "nowhere", to: "proxy" }] }],
+      },
+    };
+
+    expect(checkMap(broken, CONFIG, THREADS)).toEqual([
+      "journey broken: step 1, nowhere → proxy: no node nowhere",
+    ]);
+  });
+
   test("a language the dictionary does not hold is refused", () => {
     // SAFETY: a language outside Lang, as a map folder's data can hold once it skips its typecheck.
     expect(checkMap(MAP, { ...CONFIG, lang: "de" as Lang }, THREADS)).toEqual([
