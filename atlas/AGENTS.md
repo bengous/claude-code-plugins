@@ -246,15 +246,18 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
   `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
   leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, a marker
-  opening its lines in the panel; the header row and the keys' column stay in sight as it
-  scrolls, below the controls, which wrap within the stage. The drawing stays laid out
-  beneath, inert; the legend and the hint hide. Another container opens on its drawing.
+  opening its lines in the panel, shown if it was hidden; a click elsewhere on the cards does
+  nothing. The header row and the keys' column stay in sight as it scrolls, below the controls,
+  which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
+  Escape leaves alone, the fit button disabled; the legend and the hint hide. Another container
+  opens on its drawing.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
-  bring the fit back before they do anything else, and a move to another view starts at its fit.
+  bring the fit back before they do anything else, but over the cards, and a move to another
+  view starts at its fit.
 - A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
   hides, keeping its spot, unless its arrow is lit by a hover or a keyboard focus or hot from the
   selection, or its own box or card is hovered, focused or selected (`captionShown` in

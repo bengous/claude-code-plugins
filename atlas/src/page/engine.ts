@@ -504,9 +504,12 @@ function look(vb: Rect): void {
   fitButton.disabled = !zoomedIn(vb, imageOf(image.space).vb);
 }
 
+const isZoomed = (): boolean =>
+  cam?.kind === "idle" && zoomedIn(cam.image.vb, imageOf(cam.image.space).vb);
+
 // Whether the view was zoomed into; if so, back to its fit.
 function unzoom(): boolean {
-  if (cam?.kind !== "idle" || !zoomedIn(cam.image.vb, imageOf(cam.image.space).vb)) {
+  if (cam?.kind !== "idle" || !isZoomed()) {
     return false;
   }
 
@@ -770,7 +773,8 @@ new ResizeObserver(() => {
 let cardsShown: Key | undefined;
 
 // The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
-// which stays laid out beneath, out of reach of the pointer and the keyboard (inert).
+// which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
+// kept for the way back and the fit button disabled.
 function renderMode(key: Key): void {
   const cards = cardsOf(tree, key);
   const table = params.mode === "cards" ? cards : null;
@@ -779,6 +783,7 @@ function renderMode(key: Key): void {
   cardsButton.setAttribute("aria-pressed", String(table !== null));
   cardsView.hidden = table === null;
   drawing.inert = table !== null;
+  fitButton.disabled = table !== null || !isZoomed();
 
   if (table === null) {
     cardsShown = undefined;
@@ -1151,7 +1156,8 @@ panel.addEventListener("click", (e) => {
 });
 
 // A column's header selects its leaf, as a click on its card does; a marker in a cell shows its
-// lines in the panel, as one in the panel does.
+// lines in the panel, as one in the panel does, showing the panel if it was hidden; a click
+// elsewhere on the cards does nothing.
 cardsView.addEventListener("click", (e) => {
   if (!(e.target instanceof Element)) {
     return;
@@ -1164,6 +1170,10 @@ cardsView.addEventListener("click", (e) => {
   if (header instanceof HTMLElement) {
     send({ type: "select", id: header.dataset["select"] ?? "" });
   } else if (cited !== null && citation !== null) {
+    if (panel.hidden) {
+      showPanel(true);
+    }
+
     void openCitation(citation, cited);
   }
 });
@@ -1225,24 +1235,34 @@ function store(key: string, value: string): void {
 }
 
 // A button that shows or hides an element, remembered per browser; the element starts shown.
-function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string): void {
+// Answers the way to show or hide it as the button does.
+function bindToggle(
+  button: HTMLButtonElement,
+  target: HTMLElement,
+  key: string,
+): (visible: boolean) => void {
   const show = (visible: boolean): void => {
     target.hidden = !visible;
     button.setAttribute("aria-pressed", String(visible));
   };
 
+  const toggle = (visible: boolean): void => {
+    show(visible);
+    store(key, visible ? "shown" : "hidden");
+  };
+
   show(stored(key) !== "hidden");
 
   button.addEventListener("click", () => {
-    const visible = target.hidden !== false;
-    show(visible);
-    store(key, visible ? "shown" : "hidden");
+    toggle(target.hidden !== false);
   });
+
+  return toggle;
 }
 
 bindToggle(legendButton, legend, "atlas.legend");
 
-bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
+const showPanel = bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
 
 // The citations show as markers until the reader asks for them in full, remembered per browser.
 const SOURCES_KEY = "atlas.sources";
@@ -1262,9 +1282,10 @@ sourcesButton.addEventListener("click", () => {
 });
 
 // Escape and a click on the empty sheet bring the fit back, else close the lines viewer where the
-// reader stands, else deselect, then go up a level.
+// reader stands, else deselect, then go up a level. Over the cards, the drawing's zoom is not
+// theirs to undo.
 function stepBack(): void {
-  if (unzoom()) {
+  if (cardsShown === undefined && unzoom()) {
     return;
   }
 
