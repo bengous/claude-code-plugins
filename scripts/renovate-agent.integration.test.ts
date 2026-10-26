@@ -1105,6 +1105,35 @@ describe("renovate-agent run", () => {
     runScript();
 
     expect(report()[0]).toContain(`${worktree()} holds 1 commits pushed nowhere`);
+    expect(git(worktree(), "log", "-1", "--format=%s")).toBe("wip");
+  });
+
+  test("keeps a kept worktree holding Renovate's earlier head and a commit of its own once Renovate rebases", () => {
+    git(project, "fetch", "-q", "origin");
+    git(
+      project,
+      "worktree",
+      "add",
+      "-q",
+      "-b",
+      "renovate/x-1.x",
+      worktree(),
+      "origin/renovate/x-1.x",
+    );
+    write(join(worktree(), "notes.txt"), "work in progress\n");
+    git(worktree(), "add", "notes.txt");
+    git(worktree(), "commit", "-qm", "wip");
+    write(join(project, "dev.txt"), "dev moved\n");
+    git(project, "add", "dev.txt");
+    git(project, "commit", "-qm", "docs: dev moves on");
+    git(project, "push", "-q", "origin", "dev");
+    renovateRebases();
+    listPr("success", { files: ["vellum/package.json"] });
+
+    runScript();
+
+    expect(report()[0]).toContain(`${worktree()} holds 2 commits pushed nowhere`);
+    expect(git(worktree(), "log", "-1", "--format=%s")).toBe("wip");
   });
 
   test("gives a landing refused on a red CI to the agent, two agent rounds in all, then to the human", () => {

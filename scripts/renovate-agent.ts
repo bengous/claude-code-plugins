@@ -667,7 +667,7 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
   }
 
   if (checkouts.some((tree) => tree.dir === path)) {
-    const work = heldWork(path, fetched);
+    const work = heldWork(path, () => samePatch(path, fetched));
 
     if (work !== null) {
       throw new Error(
@@ -683,6 +683,14 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
   if (existsSync(path)) throw new Error(`${path} exists and is no worktree of this repository`);
   mkdirSync(join(path, ".."), { recursive: true });
   git(run.main, "worktree", "add", "--quiet", "-B", pr.headRefName, path, fetched);
+}
+
+/** Whether the worktree's head changes, since `BASE`, exactly what `head` changes, by `land.ts`'s patch-id. */
+function samePatch(worktree: string, head: string): boolean {
+  const kept = patchIdOf(worktree, BASE, "HEAD");
+  const listed = patchIdOf(worktree, BASE, head);
+
+  return kept.kind === "read" && listed.kind === "read" && kept.id === listed.id;
 }
 
 function verifyAgentLeft(worktree: string, branch: string, pushed: string): void {
