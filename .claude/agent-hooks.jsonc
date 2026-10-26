@@ -38,6 +38,7 @@
       ],
     },
     "worktree": "per-task",
+    "commitMessages": "judged",
   },
   "stop": {
     "lanes": {
