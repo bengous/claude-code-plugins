@@ -246,7 +246,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
   `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
   leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, a marker
-  opening its lines in the panel. The drawing stays laid out
+  opening its lines in the panel; the header row and the keys' column stay in sight as it
+  scrolls, below the controls, which wrap within the stage. The drawing stays laid out
   beneath, inert; the legend and the hint hide. Another container opens on its drawing.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its

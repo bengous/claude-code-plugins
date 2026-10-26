@@ -239,14 +239,16 @@ body {
   display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 14px;
 }
 .stage {
-  position: relative; min-width: 0; min-height: 0;
+  position: relative; min-width: 0; min-height: 0; container: stage / inline-size;
   background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
 }
 .sheet { height: 100%; }
 /* touch-action none: the page keeps a finger's drag and a pinch for its own pan and zoom. */
 #map { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; touch-action: none; }
 
-.controls { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+/* The controls wrap within the stage rather than run past its edge; engine.ts hands the cards their bottom (--controls-bottom). */
+.controls { position: absolute; top: 10px; left: 10px; max-width: calc(100% - 20px); display: flex; flex-wrap: wrap; gap: 6px; }
+.controls button { white-space: nowrap; }
 .controls button, .panel .nav button, .chip {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
@@ -270,13 +272,23 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .controls .mode button:first-child { border-radius: 4px 0 0 4px; }
 .controls .mode button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
 .stage:has(.mode:not([hidden])) .hint { max-width: calc(100% - 560px); }
+/* The hint keeps the stage's right of the controls; where that leaves it under 200 px, it hides rather than cover them. */
+@container stage (width < 640px) { .hint { display: none; } }
+@container stage (width < 760px) { .stage:has(.mode:not([hidden])) .hint { display: none; } }
 
-/* The cards (panel.ts's cardsHtml): a container's leaves side by side, over the drawing, which stays laid out beneath; the legend and the hint, which read the drawing, hide. */
-.cards { position: absolute; inset: 0; overflow: auto; padding: 52px 16px 16px; background: var(--sheet); }
+/* The cards (panel.ts's cardsHtml): a container's leaves side by side, over the drawing, which stays laid out beneath; the legend and the hint, which read the drawing, hide.
+   The top and left borders, outside the scrolled box, keep the controls' band and the margin: the header row sticks below the one, the row keys' column beside the other, its shadow covering the gap after it. */
+.cards {
+  position: absolute; inset: 0; overflow: auto; padding: 0 16px 16px 0; background: var(--sheet);
+  border: 0 solid var(--sheet); border-width: calc(var(--controls-bottom, 40px) + 12px) 0 0 16px;
+}
 .cards[hidden] { display: none; }
 .stage:has(> .cards:not([hidden])) :is(.legend, .hint) { display: none; }
 .cards table { border-collapse: separate; border-spacing: 8px 0; font-size: 14px; line-height: 1.45; }
 .cards th, .cards td { text-align: left; vertical-align: top; padding: 8px 12px; }
+.cards thead > tr > * { position: sticky; top: 0; z-index: 1; }
+.cards tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--sheet); box-shadow: 8px 0 0 var(--sheet); }
+.cards thead > tr > :first-child { z-index: 2; }
 .cards td:not(:first-child) { background: var(--surface); border-inline: 1px solid var(--line); width: 280px; min-width: 220px; }
 .cards thead th { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--zc); border-bottom: 0; border-radius: 6px 6px 0 0; padding-block: 10px 4px; }
 .cards td.selected, .cards th.selected { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-inline-color: var(--accent); }
@@ -499,7 +511,7 @@ svg text.illegible { visibility: hidden; }
       <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group"></svg>
     </div>
     <div class="cards" id="cards" hidden></div>
-    <div class="controls">
+    <div class="controls" id="controls">
       <button type="button" id="btn-home"></button>
       <button type="button" id="btn-fit" disabled></button>
       <button type="button" id="btn-legend" aria-controls="legend" aria-pressed="true"></button>

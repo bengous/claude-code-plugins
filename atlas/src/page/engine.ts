@@ -755,6 +755,16 @@ function renderLegend(key: Key): void {
   legend.classList.toggle("empty", keys.length === 0);
 }
 
+// The cards start below the controls, on as many lines as the stage's width wraps them to.
+const controls = byId("controls", HTMLDivElement);
+
+new ResizeObserver(() => {
+  byId("stage", HTMLElement).style.setProperty(
+    "--controls-bottom",
+    `${controls.offsetTop + controls.offsetHeight}px`,
+  );
+}).observe(controls);
+
 // The container whose cards the stage shows, so a render of the same keeps where they were
 // scrolled; undefined while the drawing shows.
 let cardsShown: Key | undefined;
