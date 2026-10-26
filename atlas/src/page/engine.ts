@@ -17,10 +17,12 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
+import type { Step } from "../model/atlas.ts";
 import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
+import { journeyOf, stepLights } from "../model/journeys.ts";
 import type { Mode, PageState, Params, Place, PlaceEvent, Scope } from "../model/navigation.ts";
 import {
   DEFAULTS,
@@ -31,6 +33,8 @@ import {
   paramsAfter,
   paramsOfHash,
   placeOfHash,
+  shownPlace,
+  stepShown,
 } from "../model/navigation.ts";
 import type { Dimmed } from "../model/phases.ts";
 import { arrowDimmed, dimmedBy, dimsIn, labelAt } from "../model/phases.ts";
@@ -51,8 +55,10 @@ import { fontKey } from "./measure.ts";
 import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
 import {
   cardsHtml,
+  journeysHtml,
   linesAround,
   renderCrumbs,
+  renderJourney,
   renderOpenList,
   renderPanel,
   renderViewer,
@@ -105,6 +111,13 @@ const mapButton = byId("btn-map", HTMLButtonElement);
 const cardsButton = byId("btn-cards", HTMLButtonElement);
 
 const stepper = byId("phases", HTMLDivElement);
+
+const journeysButton = byId("btn-journeys", HTMLButtonElement);
+
+const journeyList = byId("journey-list", HTMLElement);
+
+// The journeys the header's menu plays: each the root declares with a step, the first of an id.
+const journeys = (tree.map.root.journeys ?? []).filter((j) => journeyOf(tree, j.id) === j);
 
 const steps = [null, ...settings.phases].map(
   (phase): readonly [string | null, HTMLButtonElement] => {
@@ -205,6 +218,15 @@ function dressPage(): void {
     stepper.title = words.phasesTitle;
     stepper.append(...steps.map(([, button]) => button));
   }
+
+  if (journeys.length === 0) {
+    journeysButton.remove();
+    journeyList.remove();
+  } else {
+    journeysButton.textContent = words.journeysButton;
+    journeysButton.title = words.journeysTitle;
+    journeyList.setAttribute("aria-label", words.journeysButton);
+  }
 }
 
 dressPage();
@@ -230,6 +252,10 @@ let place: Place = HOME;
 
 // The rest of the reading state the fragment carries (navigation.ts's grammar).
 let params: Params = DEFAULTS;
+
+// The place the page shows: the reader's, or on a journey its step's view, the reader's place
+// then being where the journey started (shownPlace).
+const here = (): Place => shownPlace(scope, place, params);
 
 let cam: Camera | null = null;
 
@@ -691,8 +717,8 @@ function moveTo(key: Key, from: Key): void {
 }
 
 // Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
-// lifted to the view's items.
-function highlight(d: Drawn, p: Place): void {
+// lifted to the view's items; a journey's step, which selects nothing, lights its own arrow.
+function highlight(d: Drawn, p: Place, step: Step | null): void {
   const selected = p.selected;
   const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
 
@@ -704,8 +730,13 @@ function highlight(d: Drawn, p: Place): void {
   }
 
   for (const e of d.arrows) {
-    const hot = selected !== null && lights(tree, e.arrow, selected);
+    const hot =
+      step === null
+        ? selected !== null && lights(tree, e.arrow, selected)
+        : stepLights(tree, e.arrow, step);
+
     e.g.classList.toggle("hot", hot);
+    e.g.classList.toggle("step", hot && step !== null);
     const m = hot ? "url(#arr-hot)" : e.marker;
     e.path.setAttribute("marker-end", m);
 
@@ -714,7 +745,7 @@ function highlight(d: Drawn, p: Place): void {
     }
   }
 
-  d.layer.classList.toggle("selecting", selected !== null);
+  d.layer.classList.toggle("selecting", selected !== null || step !== null);
   showCaptions(d);
 }
 
@@ -722,7 +753,7 @@ function highlight(d: Drawn, p: Place): void {
 // arrows that touch it and fades the others further. The labels of a lit arrow stay readable, and
 // show at any size, as do the item's own tag and sub-title.
 function hover(target: EventTarget | null): void {
-  const d = heldOf(st, openOf(place));
+  const d = heldOf(st, openOf(here()));
 
   if (d === null) {
     return;
@@ -750,7 +781,7 @@ function hover(target: EventTarget | null): void {
 // lighting what it hovers.
 function focusedItem(): Element | null {
   const active = document.activeElement;
-  const layer = heldOf(st, openOf(place))?.layer;
+  const layer = heldOf(st, openOf(here()))?.layer;
 
   return active !== null && layer?.contains(active) === true && active.matches(":focus-visible")
     ? active
@@ -858,12 +889,12 @@ function keepingFocus(root: Element, keys: readonly string[], rewrite: () => voi
 // What the cards' focus is kept by: their headers and their markers.
 const CARD_KEYS = ["data-select", "data-cite"];
 
-// The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
-// which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
-// kept for the way back and the fit and legend buttons disabled. The same cards rewritten keep
-// where they were scrolled and the focus.
+// The switch shows where the open container has cards (cardsOf), but on a journey, whose arrow
+// they cannot show; the cards lie over the drawing, which stays laid out beneath, out of reach of
+// the pointer and the keyboard (inert), its zoom kept for the way back and the fit and legend
+// buttons disabled. The same cards rewritten keep where they were scrolled and the focus.
 function renderMode(key: Key): void {
-  const cards = cardsOf(tree, key);
+  const cards = params.journey === null ? cardsOf(tree, key) : null;
   const table = params.mode === "cards" ? cards : null;
   modeSwitch.hidden = cards === null;
   mapButton.setAttribute("aria-pressed", String(table === null));
@@ -883,7 +914,7 @@ function renderMode(key: Key): void {
   const [left, top] = same ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
 
   const write = (): void => {
-    cardsView.innerHTML = cardsHtml(settings, table, place.selected, dimmed.nodes);
+    cardsView.innerHTML = cardsHtml(settings, table, here().selected, dimmed.nodes);
     cardsView.scrollLeft = left;
     cardsView.scrollTop = top;
   };
@@ -986,23 +1017,32 @@ Object.defineProperty(window, "atlas", {
 });
 
 // The panel, the breadcrumb and the legend follow the place at once; the drawing, once its view
-// is laid out (settle).
+// is laid out (settle). On a journey, the panel shows its step.
 function render(): void {
-  const key = openOf(place);
+  pageState = pageStateOf(scope, place, params);
+  const at = here();
+  const key = openOf(at);
+  const played = journeyOf(tree, pageState.journey);
   panelAvoidError = heldOf(st, key)?.avoidError ?? null;
 
-  if (viewer === null) {
-    renderPanel(settings, tree, panel, place, panelAvoidError, threads);
-  } else {
+  if (viewer !== null) {
     renderViewer(settings, panel, viewer);
+  } else if (played === null) {
+    renderPanel(settings, tree, panel, at, panelAvoidError, threads);
+  } else {
+    renderJourney(settings, tree, panel, played, pageState.step, panelAvoidError);
   }
 
   renderOpenList(settings, tree, openButton, openList, threads);
-  renderCrumbs(settings, tree, crumbs, place);
+
+  if (journeys.length > 0) {
+    journeyList.innerHTML = journeysHtml(settings, journeys, pageState.journey);
+  }
+
+  renderCrumbs(settings, tree, crumbs, at);
   renderPhase();
   renderLegend(key);
   renderMode(key);
-  pageState = pageStateOf(scope, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
 
@@ -1012,7 +1052,7 @@ function render(): void {
     fragment === "" ? location.pathname + location.search : `#${fragment}`,
   );
 
-  tellSelection(place.selected ?? key);
+  tellSelection(at.selected ?? key);
 }
 
 // Renders again, keeping the panel where the reader is and what they were typing.
@@ -1061,7 +1101,7 @@ function prefetch(key: Key): void {
 async function settle(): Promise<void> {
   const seq = ++turn;
   const from = cam === null ? null : shown(cam, performance.now()).space;
-  const key = openOf(place);
+  const key = openOf(here());
   const d = await ready(key, "now");
 
   if (cam !== null && from !== key) {
@@ -1079,7 +1119,7 @@ async function settle(): Promise<void> {
     hover(focusedItem());
   }
 
-  highlight(d, place);
+  highlight(d, here(), stepShown(scope, params));
 
   if (d.avoidError !== panelAvoidError) {
     rerender();
@@ -1089,15 +1129,115 @@ async function settle(): Promise<void> {
 }
 
 // Every input becomes a navigation event: the place changes, the panel follows, the camera heads
-// to the view once it is drawn.
+// to the view once it is drawn. On a journey, the event is read in its step's view, and leaves it.
 function send(ev: PlaceEvent): void {
-  const next = navigate(tree, place, ev);
-  params = paramsAfter(scope, place, next, params);
+  const from = here();
+  const next = navigate(tree, from, ev);
+  params = paramsAfter(scope, from, next, params);
   place = next;
   viewer = null;
   render();
   settle().catch(fail);
 }
+
+// Plays a journey's step, picked from the menu (its first), a panel button or an arrow key; the
+// reader's place and mode stay where the journey started, which leaving returns to. The step shows
+// as a drawing, the cards being unable to show its arrow (renderMode), and a phase picked stays.
+function play(journey: string | null, step: number): void {
+  params = { ...params, journey, step };
+  viewer = null;
+  render();
+  settle().catch(fail);
+}
+
+const leave = (): void => {
+  play(DEFAULTS.journey, DEFAULTS.step);
+};
+
+// Moves the reader, rewriting the panel, and gives the focus it held back (keepingFocus), the
+// panel scrolled to show it, so a reader on the keyboard goes on from where they were.
+function keepingPanelFocus(keys: readonly string[], move: () => void): void {
+  keepingFocus(panel, keys, move);
+  const active = document.activeElement;
+
+  if (active !== null && panel.contains(active)) {
+    active.scrollIntoView({ block: "nearest" });
+  }
+}
+
+// The panel's ← → buttons, the tour's or a journey's: the focus goes to the same side's new copy,
+// or to the other one when that copy is disabled.
+const NAV_KEYS = ["data-nav"];
+
+// Leaving a journey: the focus goes to the first marker or button that moves the reader in the
+// panel of the place it started from, not to its reply fields, where Escape and the arrows type.
+const LEAVE_KEYS = ["data-leave", "data-cite", "data-go"];
+
+// The step before or after the one shown, while there is one.
+function stepBy(delta: number): void {
+  const played = journeyOf(tree, pageState.journey);
+  const next = pageState.step + delta;
+
+  if (played !== null && next >= 1 && next <= played.steps.length) {
+    play(played.id, next);
+  }
+}
+
+// The header's lists, each with the button that opens it under itself (atlas.html).
+const lists = [
+  [openButton, openList],
+  [journeysButton, journeyList],
+] as const;
+
+for (const [button, list] of lists) {
+  list.addEventListener("beforetoggle", (e) => {
+    if (e.newState === "open") {
+      const r = button.getBoundingClientRect();
+      list.style.setProperty("--list-left", `${r.left}px`);
+      list.style.setProperty("--list-top", `${r.bottom + 6}px`);
+    }
+  });
+}
+
+// A press outside an open list closes it (the popover's light dismiss); the click that press ends
+// only closes it: it selects, enters, leaves or opens nothing. A click from the keyboard has no
+// press.
+let dismissing = false;
+
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    const target = e.target instanceof Node ? e.target : null;
+
+    dismissing = lists.some(
+      ([button, list]) =>
+        list.matches(":popover-open") && !list.contains(target) && !button.contains(target),
+    );
+  },
+  true,
+);
+
+document.addEventListener(
+  "click",
+  (e) => {
+    if (dismissing && e.detail > 0) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
+    dismissing = false;
+  },
+  true,
+);
+
+journeyList.addEventListener("click", (e) => {
+  const row = e.target instanceof Element ? e.target.closest("[data-journey]") : null;
+
+  if (row instanceof HTMLElement) {
+    journeyList.hidePopover();
+    play(row.dataset["journey"] ?? "", 1);
+  }
+});
 
 // threads.json is read at start and each time the window regains focus (an agent replies from the
 // terminal); a reply from the page is POSTed to serve.ts with the token it wrote into the page,
@@ -1285,11 +1425,18 @@ panel.addEventListener("click", (e) => {
 
   const cited = e.target.closest(MARKER);
   const citation = citedAt(e.target);
+  const step = e.target.closest("[data-step]");
 
   if (cited !== null && citation !== null) {
     void openCitation(citation, cited);
   } else if (e.target.closest("[data-close-viewer]") !== null) {
     closeCitation();
+  } else if (step instanceof HTMLElement) {
+    keepingPanelFocus(NAV_KEYS, () => {
+      play(pageState.journey, Number(step.dataset["step"]));
+    });
+  } else if (e.target.closest("[data-leave]") !== null) {
+    keepingPanelFocus(LEAVE_KEYS, leave);
   }
 });
 
@@ -1357,7 +1504,10 @@ document.addEventListener("click", (e) => {
   ) {
     openList.hidePopover();
     const id = b.dataset["go"] ?? "";
-    send(id === "" ? { type: "home" } : { type: "jump", id });
+
+    keepingPanelFocus(NAV_KEYS, () => {
+      send(id === "" ? { type: "home" } : { type: "jump", id });
+    });
   }
 });
 
@@ -1430,26 +1580,56 @@ sourcesButton.addEventListener("click", () => {
   store(SOURCES_KEY, sourcesInFull ? "full" : "markers");
 });
 
-// Escape and a click on the empty sheet bring the fit back, else close the lines viewer where the
-// reader stands, else deselect, then go up a level. Over the cards, the drawing's zoom is not
-// theirs to undo.
-function stepBack(): void {
+// Escape and a click on the empty sheet: the fit back first, but over the cards, whose drawing's
+// zoom is not theirs to undo; then the lines viewer closes where the reader stands; then, on a
+// journey, back to the place it started from; else deselect, then up a level.
+function backOut(): void {
   if (cardsShown === undefined && unzoom()) {
     return;
   }
 
   if (viewer !== null) {
     closeCitation();
-  } else if (place !== navigate(tree, place, { type: "escape" })) {
+
+    return;
+  }
+
+  if (pageState.journey !== null) {
+    leave();
+
+    return;
+  }
+
+  const at = here();
+
+  if (at !== navigate(tree, at, { type: "escape" })) {
     send({ type: "escape" });
   }
 }
 
+// On a journey, the arrow keys press the panel's ← → buttons.
+const ARROWS = new Map([
+  ["ArrowLeft", -1],
+  ["ArrowRight", 1],
+]);
+
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;
+  const listing = openList.matches(":popover-open") || journeyList.matches(":popover-open");
+  const delta = ARROWS.get(e.key);
+  const modified = e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
 
-  if (e.key === "Escape" && !typing && !openList.matches(":popover-open")) {
-    stepBack();
+  if (typing || listing) {
+    return;
+  }
+
+  if (e.key === "Escape") {
+    backOut();
+  } else if (delta !== undefined && !modified && pageState.journey !== null) {
+    e.preventDefault();
+    keepingPanelFocus(NAV_KEYS, () => {
+      stepBy(delta);
+    });
   }
 });
 
@@ -1463,7 +1643,35 @@ addEventListener("hashchange", () => {
   settle().catch(fail);
 });
 
-svg.addEventListener("click", stepBack);
+// A label shown takes no pointer events, so a click on it reaches the sheet: it is found by where
+// it lies.
+function onArrow(e: MouseEvent): boolean {
+  if (e.target instanceof Element && e.target.closest(".flow, .flow-hit") !== null) {
+    return true;
+  }
+
+  const labels = heldOf(st, openOf(here()))?.arrows.flatMap(({ label }) => label ?? []) ?? [];
+
+  return labels.some((label) => {
+    const r = label.getBoundingClientRect();
+
+    return (
+      !label.classList.contains("illegible") &&
+      e.clientX >= r.left &&
+      e.clientX <= r.right &&
+      e.clientY >= r.top &&
+      e.clientY <= r.bottom
+    );
+  });
+}
+
+// On a journey, a click on an arrow, its band or its label is no click on the empty sheet: it
+// leaves nothing.
+svg.addEventListener("click", (e) => {
+  if (pageState.journey === null || !onArrow(e)) {
+    backOut();
+  }
+});
 
 // Every view is laid out again when the aspect of the drawing area moves by more than RELAYOUT
 // (a resized window, the panel hidden or shown), once the resizing settles, with the Config's

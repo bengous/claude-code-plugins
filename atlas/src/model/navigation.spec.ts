@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP, randomMap } from "../../fixtures/trees.ts";
-import type { Node } from "./atlas.ts";
+import type { Journey, Node } from "./atlas.ts";
 import type { Params, Place, PlaceEvent, Scope, Shown } from "./navigation.ts";
 import {
   DEFAULTS,
@@ -17,6 +17,8 @@ import {
   paramsAfter,
   paramsOfHash,
   placeOfHash,
+  shownPlace,
+  stepShown,
 } from "./navigation.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, treeOf } from "./tree.ts";
@@ -326,7 +328,7 @@ const V1: Params = { ...DEFAULTS, phase: "v1" };
 
 const V2: Params = { ...DEFAULTS, phase: "v2" };
 
-const CARDS_V2: Params = { mode: "cards", phase: "v2" };
+const CARDS_V2: Params = { ...DEFAULTS, mode: "cards", phase: "v2" };
 
 const withLeaf = (id: string, leaf: string): Node => ({
   id,
@@ -418,7 +420,7 @@ describe("the fragment's parameters", () => {
 
   test("a phase the Config does not list goes back to every phase, written, read or moved to", () => {
     const app = at(["server", "app"]);
-    const v3: Params = { mode: "cards", phase: "v3" };
+    const v3: Params = { ...DEFAULTS, mode: "cards", phase: "v3" };
 
     expect(hashOf(onSample, app, v3)).toBe("app?mode=cards");
     expect(paramsOfHash(onSample, "#app?phase=v3")).toEqual(DEFAULTS);
@@ -482,6 +484,12 @@ describe("the fragment's parameters", () => {
       "PHASE=v1",
       "phase=%E0%A4%A",
       "phase=v3",
+      "journey=",
+      "journey",
+      "JOURNEY=checkout",
+      "journey=checkout",
+      "journey=%E0%A4%A",
+      "step=2",
       "",
       "&&",
     ]) {
@@ -575,11 +583,198 @@ describe("paramsAfter", () => {
   });
 });
 
+const CHECKOUT: Journey = {
+  id: "checkout",
+  label: "Checkout",
+  steps: [
+    { from: "browser", to: "proxy" },
+    { from: "proxy", to: "web" },
+    { from: "web", to: "orders" },
+    { from: "orders", to: "db" },
+  ],
+};
+
+const journeyed = treeOf({
+  ...SAMPLE,
+  root: {
+    ...SAMPLE.root,
+    journeys: [CHECKOUT, { id: "empty", label: "Empty", steps: [] }],
+  },
+});
+
+const onJourneys: Scope = { tree: journeyed, phases: PHASES };
+
+const playing = (step: number, params: Params = DEFAULTS): Params => ({
+  ...params,
+  journey: "checkout",
+  step,
+});
+
+describe("a journey", () => {
+  test("the journey and its step round-trip through the fragment, after the phase", () => {
+    expect(hashOf(onJourneys, HOME, playing(1))).toBe("?journey=checkout");
+    expect(hashOf(onJourneys, at(["server", "app"]), playing(3))).toBe(
+      "app?journey=checkout&step=3",
+    );
+    expect(hashOf(onJourneys, at(["server", "app"], "email"), playing(4, V2))).toBe(
+      "app/email?phase=v2&journey=checkout&step=4",
+    );
+
+    for (const place of [
+      HOME,
+      at([], "email"),
+      at(["server", "app"]),
+      at(["server", "app"], "orders"),
+      at(["server", "app"], "email"),
+      at(["server"], "app"),
+    ]) {
+      for (const params of [playing(1), playing(2), playing(4, V1), playing(3, V2)]) {
+        const hash = `#${hashOf(onJourneys, place, params)}`;
+
+        expect(placeOfHash(journeyed, hash)).toEqual(place);
+        expect(paramsOfHash(onJourneys, hash)).toEqual(params);
+      }
+    }
+  });
+
+  test("a journey's id is percent-encoded, so a separator in it cannot cut the fragment", () => {
+    const odd = "a&b?c=d/e";
+
+    const tree = treeOf({
+      ...SAMPLE,
+      root: { ...SAMPLE.root, journeys: [{ ...CHECKOUT, id: odd }] },
+    });
+
+    const scope: Scope = { tree, phases: PHASES };
+    const params: Params = { ...DEFAULTS, journey: odd, step: 2 };
+    const hash = hashOf(scope, at(["server", "app"], "email"), params);
+
+    expect(hash).toBe("app/email?journey=a%26b%3Fc%3Dd%2Fe&step=2");
+    expect(placeOfHash(tree, hash)).toEqual(at(["server", "app"], "email"));
+    expect(paramsOfHash(scope, hash)).toEqual(params);
+  });
+
+  test("on a journey, the place stays where it started and the view shown is its step's", () => {
+    const start = at(["server", "app"], "orders");
+
+    expect(shownPlace(onJourneys, start, DEFAULTS)).toBe(start);
+    expect(shownPlace(onJourneys, start, playing(1))).toEqual(HOME);
+    expect(shownPlace(onJourneys, start, playing(2))).toEqual(at(["server", "app"]));
+    expect(shownPlace(onJourneys, start, playing(3))).toEqual(at(["server", "app"]));
+    expect(shownPlace(onJourneys, start, playing(4))).toEqual(at(["server"]));
+    expect(shownPlace(onSample, start, playing(2))).toBe(start);
+  });
+
+  test("the step shown, the first for a step past the last; none off a journey", () => {
+    expect(stepShown(onJourneys, playing(2))).toEqual({ from: "proxy", to: "web" });
+    expect(stepShown(onJourneys, playing(9))).toEqual({ from: "browser", to: "proxy" });
+    expect(stepShown(onJourneys, DEFAULTS)).toBeNull();
+    expect(stepShown(onJourneys, { ...DEFAULTS, journey: "empty" })).toBeNull();
+    expect(stepShown(onSample, playing(2))).toBeNull();
+  });
+
+  test("the page's state shows the step's view, the fragment the place it started from", () => {
+    const state = pageStateOf(onJourneys, at(["server", "app"], "orders"), playing(4, V1));
+
+    expect(state).toEqual({
+      mode: "map",
+      phase: "v1",
+      journey: "checkout",
+      step: 4,
+      path: ["server"],
+      selected: null,
+      visible: [
+        "proxy",
+        "app",
+        "web",
+        "catalog",
+        "orders",
+        "data",
+        "db",
+        "backup",
+        "clients",
+        "email",
+      ],
+      fragment: "orders?phase=v1&journey=checkout&step=4",
+    });
+  });
+
+  test("a journey started from the cards keeps them as where it started, which leaving it returns to", () => {
+    const app = at(["server", "app"]);
+    const cards = playing(2, CARDS);
+
+    expect(hashOf(onJourneys, app, cards)).toBe("app?mode=cards&journey=checkout&step=2");
+    expect(paramsOfHash(onJourneys, "#app?mode=cards&journey=checkout&step=2")).toEqual(cards);
+    expect(pageStateOf(onJourneys, app, cards).mode).toBe("cards");
+    expect(hashOf(onJourneys, app, { ...cards, journey: null, step: 1 })).toBe("app?mode=cards");
+    expect(hashOf(onJourneys, at(["server"]), cards)).toBe("server?journey=checkout&step=2");
+  });
+
+  test("a move from the step's view leaves the cards with the journey, even in the view it started from", () => {
+    const app = at(["server", "app"]);
+    const cards = playing(2, CARDS);
+    const from = shownPlace(onJourneys, app, cards);
+
+    expect(from).toEqual(app);
+
+    for (const event of [{ type: "select", id: "catalog" }, { type: "home" }] as const) {
+      expect(paramsAfter(onJourneys, from, navigate(journeyed, from, event), cards)).toEqual(
+        DEFAULTS,
+      );
+    }
+  });
+
+  test("a journey the root does not declare or without a step, and a step past the last or without a journey, go back to their defaults", () => {
+    const app = at(["server", "app"]);
+
+    for (const hash of ["#app?journey=nowhere&step=2", "#app?journey=empty", "#app?step=2"]) {
+      expect(paramsOfHash(onJourneys, hash)).toEqual(DEFAULTS);
+      expect(placeOfHash(journeyed, hash)).toEqual(app);
+    }
+
+    for (const step of ["5", "0", "-1", "1.5", "02", "x", "", "99999999999999999999"]) {
+      expect(paramsOfHash(onJourneys, `#app?journey=checkout&step=${step}`)).toEqual(playing(1));
+    }
+
+    expect(hashOf(onJourneys, app, { ...DEFAULTS, step: 3 })).toBe("app");
+    expect(hashOf(onJourneys, app, playing(9))).toBe("app?journey=checkout");
+    expect(hashOf(onJourneys, app, { ...DEFAULTS, journey: "nowhere" })).toBe("app");
+    expect(hashOf(onSample, app, playing(2))).toBe("app");
+    expect(paramsOfHash(onSample, "#app?journey=checkout&step=2")).toEqual(DEFAULTS);
+  });
+
+  test("a move, made from the step's view, leaves the journey and keeps the phase", () => {
+    const start = at(["server", "app"], "orders");
+    const params = playing(2, V1);
+    const from = shownPlace(onJourneys, start, params);
+
+    for (const event of [
+      { type: "select", id: "catalog" },
+      { type: "select", id: "proxy" },
+      { type: "escape" },
+      { type: "up" },
+      { type: "home" },
+      { type: "jump", id: "db" },
+      { type: "enter", id: "nowhere" },
+    ] as const) {
+      const to = navigate(journeyed, from, event);
+
+      expect(paramsAfter(onJourneys, from, to, params)).toEqual(V1);
+    }
+
+    expect(navigate(journeyed, from, { type: "select", id: "catalog" })).toEqual(
+      at(["server", "app"], "catalog"),
+    );
+  });
+});
+
 describe("pageStateOf", () => {
   test("the root's view: no path, its children as boxes and chips, its outside nodes", () => {
     expect(pageStateOf(onSample, HOME)).toEqual({
       mode: "map",
       phase: null,
+      journey: null,
+      step: 1,
       path: [],
       selected: null,
       visible: ["clients", "browser", "server", "proxy", "app", "data", "email"],
@@ -591,6 +786,8 @@ describe("pageStateOf", () => {
     expect(pageStateOf(onSample, at(["server", "app"], "orders"))).toEqual({
       mode: "map",
       phase: null,
+      journey: null,
+      step: 1,
       path: ["server", "app"],
       selected: "orders",
       visible: ["web", "catalog", "orders", "proxy", "data", "email"],

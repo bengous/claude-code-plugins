@@ -2,6 +2,7 @@ import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
 import { citationText, citedLines, mapBrokenCitations, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { sourcesRootOf } from "../model/folder.ts";
+import { joins } from "../model/journeys.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
 import type { Settings } from "../model/settings.ts";
@@ -28,6 +29,9 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //     arrow between boxes, whose tags are its leaf links';
 //   - a node's or a link's `phase` that the Config's `phases` do not list, or any phase when they
 //     list none;
+//   - a journey whose id is not unique or not kebab-case, that has no step, or with a step that
+//     does not start where the one before ends, or that no link joins directly (joins in
+//     journeys.ts);
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
 //   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
@@ -137,21 +141,47 @@ function checkPanels(tree: Tree, errors: string[]): void {
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
+function checkId(seen: Set<string>, id: string, where: string, again: string): string[] {
+  const errors = seen.has(id) ? [`${where}: ${again}`] : [];
+  seen.add(id);
+
+  return KEBAB.test(id) ? errors : [...errors, `${where}: the id must be kebab-case`];
+}
+
+function checkJourneys(tree: Tree, errors: string[]): void {
+  const ids = new Set<string>();
+
+  for (const { id, steps } of tree.map.root.journeys ?? []) {
+    const where = `journey ${id}`;
+    errors.push(...checkId(ids, id, where, "a second journey has this id"));
+
+    if (steps.length === 0) {
+      errors.push(`${where}: no step; a journey follows one link at least`);
+    }
+
+    for (const [i, step] of steps.entries()) {
+      const at = `${where}: step ${i + 1}, ${step.from} → ${step.to}`;
+      const before = steps[i - 1];
+
+      if (before !== undefined && before.to !== step.from) {
+        errors.push(`${at}: starts at ${step.from}, not at ${before.to}, where step ${i} ends`);
+      }
+
+      if (!tree.map.links.some((link) => joins(link, step))) {
+        errors.push(
+          `${at}: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way`,
+        );
+      }
+    }
+  }
+}
+
 function checkOpen(tree: Tree, s: Settings, threads: Threads, errors: string[]): void {
   const ids = new Set<string>();
 
   for (const item of openItems(tree)) {
     const where = `${item.kind} ${item.owner}: open point ${item.id}`;
-
-    if (ids.has(item.id)) {
-      errors.push(`${where}: duplicate open id`);
-    }
-
-    ids.add(item.id);
-
-    if (!KEBAB.test(item.id)) {
-      errors.push(`${where}: the id must be kebab-case`);
-    }
+    errors.push(...checkId(ids, item.id, where, "duplicate open id"));
 
     const word = s.stepWords
       .map((re) => re.exec(plainText(item.text))?.[0])
@@ -181,6 +211,7 @@ export function validate(tree: Tree, s: Settings, threads: unknown): string[] {
       ({ where, field, text, why }) => `${where}: ${field}: ${text} reads as no citation: ${why}`,
     ),
   );
+  checkJourneys(tree, errors);
   const read = readThreads(threads);
   errors.push(...read.errors);
   checkOpen(tree, s, read.threads, errors);

@@ -1,7 +1,8 @@
-import type { Node, OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Journey, Node, OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
 import type { Cards } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationText, citedLines, withCitations } from "../model/citations.ts";
+import { joins } from "../model/journeys.ts";
 import { keptMarkup } from "../model/markup.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Crumb } from "../model/navigation.ts";
@@ -84,6 +85,8 @@ const openSection = (
     ? ""
     : `<h3>${s.words.openPoints}</h3>${open.map((o) => openPoint(s, o, state)).join("")}`;
 
+const flatLabel = (node: Node): string => esc(node.label.replaceAll("\n", " "));
+
 function chip(tree: Tree, id: string): string {
   const node = tree.nodes.get(id);
 
@@ -91,9 +94,7 @@ function chip(tree: Tree, id: string): string {
     return "";
   }
 
-  const label = esc(node.label.replaceAll("\n", " "));
-
-  return `<button type="button" class="chip" data-go="${esc(id)}" style="--zc: var(${paletteVar(node.color)})"><span class="dot"></span>${label}</button>`;
+  return `<button type="button" class="chip" data-go="${esc(id)}" style="--zc: var(${paletteVar(node.color)})"><span class="dot"></span>${flatLabel(node)}</button>`;
 }
 
 const pointList = (s: Settings, tree: Tree, items: readonly Pair[]): string =>
@@ -186,6 +187,12 @@ function renderInfo(s: Settings, tree: Tree, shown: Shown, state: ThreadState): 
   ].join("");
 }
 
+/**
+ * The side of a panel's ← → button, the tour's or a journey's, disabled ones included: written
+ * anew with the panel, the one that held the focus hands it to its new copy (engine.ts).
+ */
+type Nav = "previous" | "next";
+
 /** The containers in the root's `tour`, or every container depth-first. */
 export const tourOf = (tree: Tree): readonly string[] =>
   tree.map.root.tour ??
@@ -202,7 +209,7 @@ function tourNav(tree: Tree, id: string): string {
   const prev = nodeOf(tree, order[(i + order.length - 1) % order.length] ?? id);
   const next = nodeOf(tree, order[(i + 1) % order.length] ?? id);
 
-  return `<div class="nav"><button type="button" data-go="${esc(prev.id)}">← ${esc(prev.label)}</button><button type="button" data-go="${esc(next.id)}">${esc(next.label)} →</button></div>`;
+  return `<div class="nav"><button type="button" data-nav="previous" data-go="${esc(prev.id)}">← ${esc(prev.label)}</button><button type="button" data-nav="next" data-go="${esc(next.id)}">${esc(next.label)} →</button></div>`;
 }
 
 const upNav = (tree: Tree, id: string): string => {
@@ -273,6 +280,67 @@ export function renderPanel(
   }
 
   panel.scrollTop = 0;
+}
+
+/**
+ * A journey's step, 1 to its count, in place of the panel's fields: the journey's label, the
+ * step's place in it, the label of the link it follows (joins) over its ends' labels, its note,
+ * the buttons to the steps before and after it, disabled past either end, and under them the one
+ * that leaves the journey. The labels and the note are plain text, shown as written.
+ */
+export function renderJourney(
+  s: Settings,
+  tree: Tree,
+  panel: Pick<HTMLElement, "innerHTML" | "scrollTop">,
+  journey: Journey,
+  step: number,
+  avoidError: string | null,
+): void {
+  const shown = journey.steps[step - 1];
+
+  if (shown === undefined) {
+    throw new RangeError(`journey ${journey.id}: no step ${step} of ${journey.steps.length}`);
+  }
+
+  const label = tree.map.links.find((link) => joins(link, shown))?.label;
+
+  const ends = [shown.from, shown.to].map((id) => flatLabel(nodeOf(tree, id))).join(" → ");
+
+  const button = (nav: Nav, to: number, text: string): string =>
+    to >= 1 && to <= journey.steps.length
+      ? `<button type="button" data-nav="${nav}" data-step="${to}">${text}</button>`
+      : `<button type="button" data-nav="${nav}" disabled>${text}</button>`;
+
+  panel.innerHTML = [
+    `<div class="journey" style="--zc: var(--accent)">`,
+    `<p class="kicker">${s.words.journeysButton}</p>`,
+    `<h2><span class="swatch"></span>${esc(journey.label)}</h2>`,
+    `<p class="journey-step">${s.words.stepOf(step, journey.steps.length)}</p>`,
+    `<p class="journey-arrow">`,
+    label === undefined ? "" : `<span class="journey-label">${esc(label)}</span>`,
+    `<span class="journey-ends">${ends}</span></p>`,
+    shown.note === undefined ? "" : `<p class="lead">${esc(shown.note)}</p>`,
+    arrowsMissing(s, avoidError),
+    `<div class="nav">${button("previous", step - 1, s.words.previousStep)}${button("next", step + 1, s.words.nextStep)}</div>`,
+    `<div class="leave"><button type="button" data-leave>${s.words.leaveJourney}</button></div>`,
+    `</div>`,
+  ].join("");
+  panel.scrollTop = 0;
+}
+
+/** The header's menu: a row per journey, its label and its count of steps, the one played current. */
+export function journeysHtml(
+  s: Settings,
+  journeys: readonly Journey[],
+  played: string | null,
+): string {
+  const rows = journeys.map((journey) => {
+    const current = journey.id === played ? ' aria-current="true"' : "";
+
+    return `<li><button type="button" class="journey-row" data-journey="${esc(journey.id)}"${current}><span>${esc(journey.label)}</span><span class="journey-count">${s.words.stepCount(journey.steps.length)}</span></button></li>`;
+  });
+
+  return `<h2>${s.words.journeysButton}</h2><ul>${rows.join("")}</ul>`;
 }
 
 /** Consecutive lines of a file, the first numbered `from`. */
@@ -410,9 +478,8 @@ const classOf = (names: readonly string[]): string =>
 
 function cardHead(node: Node, selected: boolean, names: readonly string[]): string {
   const current = selected ? ' aria-current="true"' : "";
-  const label = esc(node.label.replaceAll("\n", " "));
 
-  return `<th scope="col"${classOf(names)} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
+  return `<th scope="col"${classOf(names)} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${flatLabel(node)}</button></th>`;
 }
 
 const cell = (s: Settings, values: readonly string[], names: readonly string[]): string =>
