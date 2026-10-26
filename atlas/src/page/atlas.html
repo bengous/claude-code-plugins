@@ -202,18 +202,14 @@ body {
 .crumbs .fold { padding: 2px 4px; cursor: help; }
 
 /* Open points: the header button, its list (a native popover), and the badge on the map. */
-.open-btn {
+.open-btn, .sources-btn {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--open);
   border-radius: 4px; padding: 4px 10px; cursor: pointer; align-self: center;
 }
-.open-btn:hover, .sources-btn:hover { border-color: var(--accent); color: var(--accent); }
 /* The toggle that shows each citation of the panel in full (engine.ts); the page drops it for a map without citations. */
-.sources-btn {
-  font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
-  color: var(--ink-3); background: var(--surface); border: 1px solid var(--line);
-  border-radius: 4px; padding: 4px 10px; cursor: pointer; align-self: center;
-}
+.sources-btn { color: var(--ink-3); border-left: 1px solid var(--line); }
+.open-btn:hover, .sources-btn:hover { border-color: var(--accent); color: var(--accent); }
 .sources-btn[aria-pressed="true"] { color: var(--ink); }
 .open-list {
   position: fixed; inset: 60px 16px auto auto; margin: 0; width: min(620px, calc(100vw - 32px)); max-height: 72vh; overflow-y: auto;

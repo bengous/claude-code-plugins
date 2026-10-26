@@ -22,12 +22,8 @@ export const HEARTBEAT_GRACE_MS = 60_000;
 // and serve.ts answers SourceLines (server/source.ts).
 export const SOURCE_PATH = "source";
 
-// Lines `from` to `to` of `path`, the last ones cut at the file's end.
-export type SourceLines = {
-  readonly path: string;
-  readonly from: number;
-  readonly lines: readonly string[];
-};
+// Lines `from` to `to` of the file asked for, the last ones cut at its end.
+export type SourceLines = { readonly lines: readonly string[] };
 
 // What the page posts: the id of the zone or brick selected, `null` for none.
 export type Selected = { readonly id: string | null };

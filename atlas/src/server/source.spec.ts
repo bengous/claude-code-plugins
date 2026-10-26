@@ -69,19 +69,11 @@ describe("the source route answers", () => {
 
     expect(answer.status).toBe(200);
     expect(answer.headers.get("content-type")).toStartWith("application/json");
-    expect(await answer.json()).toEqual({
-      path: "src/a.go",
-      from: 3,
-      lines: ["line 3", "line 4", "line 5"],
-    });
+    expect(await answer.json()).toEqual({ lines: ["line 3", "line 4", "line 5"] });
   });
 
   test("up to the file's last line when `to` runs past it", async () => {
-    expect(await lines("src/a.go", 29, 40).json()).toEqual({
-      path: "src/a.go",
-      from: 29,
-      lines: ["line 29", "line 30"],
-    });
+    expect(await lines("src/a.go", 29, 40).json()).toEqual({ lines: ["line 29", "line 30"] });
   });
 
   test("a text file of exactly the cap", () => {
@@ -89,11 +81,7 @@ describe("the source route answers", () => {
   });
 
   test("bytes that are not UTF-8 as U+FFFD", async () => {
-    expect(await lines("latin1.txt", 1, 1).json()).toEqual({
-      path: "latin1.txt",
-      from: 1,
-      lines: ["caf�"],
-    });
+    expect(await lines("latin1.txt", 1, 1).json()).toEqual({ lines: ["caf�"] });
   });
 });
 

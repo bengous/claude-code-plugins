@@ -927,8 +927,6 @@ describe("the lines of a file a map with sources cites", () => {
 
     expect(answer.status).toBe(200);
     expect(await answer.json()).toEqual({
-      path: "orders/orders.go",
-      from: 53,
       lines: [
         "\t// The mail goes out before the request answers: a slow mail service slows the checkout.",
         "\treturn id, s.Mailer.Confirm(ctx, email, id)",
@@ -956,8 +954,6 @@ describe("the lines of a file a map with sources cites", () => {
       );
 
       expect(await (await linesOf(citing().base, "notes.txt", 1, 1)).json()).toEqual({
-        path: "notes.txt",
-        from: 1,
         lines: ["a note"],
       });
     },
@@ -984,7 +980,7 @@ describe("the lines of a file a map with sources cites", () => {
 
       expect([...seen.keys()].filter((key) => key.includes("TOP SECRET"))).toEqual([]);
       expect([...seen.keys()].filter((key) => key.startsWith("500"))).toEqual([]);
-      expect(seen.get('200 {"path":"swap.txt","from') ?? 0).toBeGreaterThan(0);
+      expect(seen.get('200 {"lines":["swap"]}') ?? 0).toBeGreaterThan(0);
     },
     WAIT_MS,
   );

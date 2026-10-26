@@ -70,7 +70,7 @@ export function sourceAnswer(sources: Sources | null, query: URLSearchParams): R
     return refused(416, `${path} has ${text.lines.length} lines: line ${first} is past its end`);
   }
 
-  const answer: SourceLines = { path, from: first, lines: text.lines.slice(first - 1, Number(to)) };
+  const answer: SourceLines = { lines: text.lines.slice(first - 1, Number(to)) };
 
   return Response.json(answer, { headers: { "cache-control": "no-store" } });
 }

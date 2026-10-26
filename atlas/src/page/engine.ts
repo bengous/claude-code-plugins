@@ -961,10 +961,6 @@ panel.addEventListener("submit", (e) => {
 const isSourceLines = (v: unknown): v is SourceLines =>
   typeof v === "object" &&
   v !== null &&
-  "path" in v &&
-  typeof v.path === "string" &&
-  "from" in v &&
-  typeof v.from === "number" &&
   "lines" in v &&
   Array.isArray(v.lines) &&
   v.lines.every((line) => typeof line === "string");
@@ -986,10 +982,10 @@ async function stretchOf(path: string, { from, to }: LineSpan): Promise<Stretch 
   const answer: unknown = await response.json();
 
   if (!isSourceLines(answer)) {
-    throw new TypeError(`${SOURCE_PATH}: the answer holds no path, from and lines`);
+    throw new TypeError(`${SOURCE_PATH}: the answer holds no lines`);
   }
 
-  return { from: answer.from, lines: answer.lines };
+  return { from, lines: answer.lines };
 }
 
 async function linesOf(citation: Citation): Promise<Viewer> {
