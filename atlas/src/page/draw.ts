@@ -18,7 +18,7 @@
 //    view is drawn without arrows and the panel says why: never block the page.
 // 4. Captions: the arrows' labels, the boxes' tags and the cards' sub-titles, which the engine
 //    hides while they are too small to read on screen (captionShown, zoom.ts), each keeping its
-//    spot; an arrow's path carries its whole label as a tooltip.
+//    spot; an invisible band along each arrow's path carries its whole label as a tooltip.
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
@@ -78,12 +78,12 @@ export type ArrowEl = {
 /**
  * A text the engine hides while it is too small to read on screen (captionShown, zoom.ts): an
  * arrow's label, a box's tag, a line of a card's sub-title. `size`: its font size in world units;
- * `arrow`: the arrow it names, whose lit or hot state shows it.
+ * `owner`: the arrow's group or the item's, whose lit, hot, hovered or selected state shows it.
  */
 export type Caption = {
   readonly text: SVGTextElement;
   readonly size: number;
-  readonly arrow: ArrowEl | null;
+  readonly owner: SVGGElement;
 };
 
 export type Drawn = {
@@ -476,7 +476,6 @@ function drawChip(
   register(items, chip.id, g);
 }
 
-// Returns the box's tag, a caption.
 function drawBox(
   frames: SVGGElement,
   top: SVGGElement,
@@ -486,7 +485,7 @@ function drawBox(
   items: Registry,
   words: Words,
   pick: Pick,
-): SVGTextElement {
+): Caption {
   const cls = `box${box.column === null ? "" : " outside"}`;
   const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, frames);
   el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 10, class: "box-bg" }, g);
@@ -509,17 +508,16 @@ function drawBox(
     drawChip(top, chip, cell, r, items, pick);
   }
 
-  return tag;
+  return { text: tag, size: fontSize(BOX.tag), owner: g };
 }
 
-// Returns the lines of the card's sub-title, captions.
 function drawCard(
   layer: SVGGElement,
   box: LeafBox,
   r: Rect,
   items: Registry,
   pick: Pick,
-): SVGTextElement[] {
+): Caption[] {
   const lines = subLines(box.sub);
   const cls = `card${box.column === null ? "" : " outside"}${box.off ? " off" : ""}`;
   const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, layer);
@@ -529,10 +527,11 @@ function drawCard(
   const top = r.y + r.h / 2 - (CARD.ls + (lines.length > 0 ? 5 + lines.length * CARD.lh : 0)) / 2;
   text(g, { x: cx, y: top + CARD.ls * 0.8, class: CARD.lbl, "text-anchor": "middle" }, box.label);
 
-  const subs = lines.map((line, i) => {
+  const subs = lines.map((line, i): Caption => {
     const y = top + CARD.ls + 5 + i * CARD.lh + CARD.ss * 0.85;
+    const sub = text(g, { x: cx, y, class: CARD.sub, "text-anchor": "middle" }, line);
 
-    return text(g, { x: cx, y, class: CARD.sub, "text-anchor": "middle" }, line);
+    return { text: sub, size: fontSize(CARD.sub), owner: g };
   });
 
   onActivate(g, box.label, () => {
@@ -609,23 +608,26 @@ function drawLabel(
   return t;
 }
 
-// The group takes no pointer events, its path's stroke does: it answers the pointer with the
-// arrow's whole text, as a tooltip, the one way left to read a label the engine hides.
+// The drawn arrow takes no pointer events; its band in `hits`, an invisible wider stroke along the
+// same path, answers the pointer with the arrow's whole text, as a tooltip, the one way left to
+// read a label the engine hides.
 function drawArrow(
   layer: SVGGElement,
+  hits: SVGGElement,
   arrow: Arrow,
   mode: Mode,
   pts: readonly Point[],
   label: Spotted | null,
 ): ArrowEl {
   const g = el("g", { class: `flow ${arrow.kind}`, "pointer-events": "none" }, layer);
-  const path = arrowPath(g, rounded(pts, mode === "packed" ? 9 : 7), arrow.kind, arrow.two);
+  const d = rounded(pts, mode === "packed" ? 9 : 7);
+  const path = arrowPath(g, d, arrow.kind, arrow.two);
   const variants = labelVariants(arrow, mode);
   const [whole] = variants;
 
   if (whole !== undefined) {
-    path.setAttribute("pointer-events", "visibleStroke");
-    el("title", {}, path).textContent = whole;
+    const band = el("path", { d, class: "flow-hit" }, hits);
+    el("title", {}, band).textContent = whole;
   }
 
   return {
@@ -655,14 +657,14 @@ export async function drawView(
       : await layeredView(view, items, ends, packing);
 
   layer.classList.add("view", mode);
-  // Boxes, then arrows, then cards, pills and chips on top: an arrow's end never hides a label.
+  // The arrows' hit bands, then boxes, then arrows, then cards, pills and chips on top: an arrow's
+  // end never hides a label, and a click on a box's edge where an arrow lands enters the box.
+  const hits = el("g", {}, layer);
   const frames = el("g", {}, layer);
   const arrowLayer = el("g", {}, layer);
   const top = el("g", {}, layer);
   const registry: Registry = new Map();
   const captions: Caption[] = [];
-  const tagFont = fontSize(BOX.tag);
-  const subFont = fontSize(CARD.sub);
 
   const rectOf = (id: string): Rect => {
     const r = laid.rects.get(id);
@@ -680,16 +682,12 @@ export async function drawView(
     switch (item.figure.kind) {
       case "box": {
         const { box, cells } = item.figure;
-        const tag = drawBox(frames, top, box, cells, r, registry, words, pick);
-        captions.push({ text: tag, size: tagFont, arrow: null });
+        captions.push(drawBox(frames, top, box, cells, r, registry, words, pick));
         break;
       }
 
       case "card": {
-        for (const sub of drawCard(top, item.figure.box, r, registry, pick)) {
-          captions.push({ text: sub, size: subFont, arrow: null });
-        }
-
+        captions.push(...drawCard(top, item.figure.box, r, registry, pick));
         break;
       }
 
@@ -709,14 +707,14 @@ export async function drawView(
   const arrows = view.arrows.flatMap((a, i): ArrowEl[] => {
     const pts = laid.routes[i] ?? null;
 
-    return pts === null ? [] : [drawArrow(arrowLayer, a, mode, pts, laid.labels[i] ?? null)];
+    return pts === null ? [] : [drawArrow(arrowLayer, hits, a, mode, pts, laid.labels[i] ?? null)];
   });
 
   const labelFont = fontSize(LABEL.cls);
 
   for (const arrow of arrows) {
     if (arrow.label !== null) {
-      captions.push({ text: arrow.label, size: labelFont, arrow });
+      captions.push({ text: arrow.label, size: labelFont, owner: arrow.g });
     }
   }
 

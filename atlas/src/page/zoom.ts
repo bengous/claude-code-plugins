@@ -10,8 +10,9 @@ export const MIN_CAPTION_PX = 10;
 /**
  * Whether a caption (an arrow's label, a box's tag, a line of a card's sub-title) shows: `size`, its
  * font size in world units, times `scale`, the screen pixels a world unit spans, reaches
- * MIN_CAPTION_PX; or its arrow is lit by the hovered item, or hot from the selection. A hidden
- * caption keeps its spot.
+ * MIN_CAPTION_PX; or it is `lit`: its arrow lit by the hovered or focused item, or its own box or
+ * card hovered or focused; or `hot`: its arrow hot from the selection, or its own item selected. A
+ * hidden caption keeps its spot.
  */
 export const captionShown = (size: number, scale: number, lit: boolean, hot: boolean): boolean =>
   lit || hot || size * scale >= MIN_CAPTION_PX;

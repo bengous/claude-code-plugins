@@ -209,8 +209,11 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
   bring the fit back before they do anything else, and a move to another view starts at its fit.
 - A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
-  hides, keeping its spot, unless its arrow is lit by a hover or hot from the selection
-  (`captionShown` in `zoom.ts`); an arrow's path carries its whole label as a tooltip.
+  hides, keeping its spot, unless its arrow is lit by a hover or a keyboard focus or hot from the
+  selection, or its own box or card is hovered, focused or selected (`captionShown` in
+  `zoom.ts`). An invisible band 8 px wide on screen along each arrow carries its whole label as a
+  tooltip; the bands lie under the boxes, so a click on a box's edge where an arrow lands enters
+  the box.
 - The breadcrumb stays on one line: from five crumbs on, the levels between the root and the
   last two fold into `…`, their names in its tooltip (`foldedCrumbs` in `navigation.ts`).
 - A ghost drawn in both columns carries a `›` mark at the edge its arrows cross and a tooltip
