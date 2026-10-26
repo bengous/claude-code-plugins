@@ -22,7 +22,7 @@ import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import { stepLights } from "../model/journeys.ts";
+import { journeyOf, stepLights } from "../model/journeys.ts";
 import type { Mode, PageState, Params, Place, PlaceEvent, Scope } from "../model/navigation.ts";
 import {
   DEFAULTS,
@@ -55,8 +55,10 @@ import { fontKey } from "./measure.ts";
 import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
 import {
   cardsHtml,
+  journeysHtml,
   linesAround,
   renderCrumbs,
+  renderJourney,
   renderOpenList,
   renderPanel,
   renderViewer,
@@ -109,6 +111,13 @@ const mapButton = byId("btn-map", HTMLButtonElement);
 const cardsButton = byId("btn-cards", HTMLButtonElement);
 
 const stepper = byId("phases", HTMLDivElement);
+
+const journeysButton = byId("btn-journeys", HTMLButtonElement);
+
+const journeyList = byId("journey-list", HTMLElement);
+
+// The journeys the header's menu plays: each the root declares with a step, the first of an id.
+const journeys = (tree.map.root.journeys ?? []).filter((j) => journeyOf(tree, j.id) === j);
 
 const steps = [null, ...settings.phases].map(
   (phase): readonly [string | null, HTMLButtonElement] => {
@@ -208,6 +217,15 @@ function dressPage(): void {
     stepper.setAttribute("aria-label", words.phasesLabel);
     stepper.title = words.phasesTitle;
     stepper.append(...steps.map(([, button]) => button));
+  }
+
+  if (journeys.length === 0) {
+    journeysButton.remove();
+    journeyList.remove();
+  } else {
+    journeysButton.textContent = words.journeysButton;
+    journeysButton.title = words.journeysTitle;
+    journeyList.setAttribute("aria-label", words.journeysButton);
   }
 }
 
@@ -998,24 +1016,32 @@ Object.defineProperty(window, "atlas", {
 });
 
 // The panel, the breadcrumb and the legend follow the place at once; the drawing, once its view
-// is laid out (settle).
+// is laid out (settle). On a journey, the panel shows its step.
 function render(): void {
+  pageState = pageStateOf(scope, place, params);
   const at = here();
   const key = openOf(at);
+  const played = journeyOf(tree, pageState.journey);
   panelAvoidError = heldOf(st, key)?.avoidError ?? null;
 
-  if (viewer === null) {
+  if (viewer !== null) {
+    renderViewer(settings, panel, viewer);
+  } else if (played === null) {
     renderPanel(settings, tree, panel, at, panelAvoidError, threads);
   } else {
-    renderViewer(settings, panel, viewer);
+    renderJourney(settings, tree, panel, played, pageState.step, panelAvoidError);
   }
 
   renderOpenList(settings, tree, openButton, openList, threads);
+
+  if (journeys.length > 0) {
+    journeyList.innerHTML = journeysHtml(settings, journeys, pageState.journey);
+  }
+
   renderCrumbs(settings, tree, crumbs, at);
   renderPhase();
   renderLegend(key);
   renderMode(key);
-  pageState = pageStateOf(scope, place, params);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
 
@@ -1112,6 +1138,39 @@ function send(ev: PlaceEvent): void {
   render();
   settle().catch(fail);
 }
+
+// Plays a journey's step, picked from the menu (its first), a panel button or an arrow key; the
+// reader's place stays where the journey started, which leaving returns to. The cards cannot show
+// the step's arrow, and a phase picked stays.
+function play(journey: string | null, step: number): void {
+  params = { ...params, mode: DEFAULTS.mode, journey, step };
+  viewer = null;
+  render();
+  settle().catch(fail);
+}
+
+const leave = (): void => {
+  play(DEFAULTS.journey, DEFAULTS.step);
+};
+
+// The step before or after the one shown, while there is one.
+function stepBy(delta: number): void {
+  const played = journeyOf(tree, pageState.journey);
+  const next = pageState.step + delta;
+
+  if (played !== null && next >= 1 && next <= played.steps.length) {
+    play(played.id, next);
+  }
+}
+
+journeyList.addEventListener("click", (e) => {
+  const row = e.target instanceof Element ? e.target.closest("[data-journey]") : null;
+
+  if (row instanceof HTMLElement) {
+    journeyList.hidePopover();
+    play(row.dataset["journey"] ?? "", 1);
+  }
+});
 
 // threads.json is read at start and each time the window regains focus (an agent replies from the
 // terminal); a reply from the page is POSTed to serve.ts with the token it wrote into the page,
@@ -1299,11 +1358,14 @@ panel.addEventListener("click", (e) => {
 
   const cited = e.target.closest(MARKER);
   const citation = citedAt(e.target);
+  const step = e.target.closest("[data-step]");
 
   if (cited !== null && citation !== null) {
     void openCitation(citation, cited);
   } else if (e.target.closest("[data-close-viewer]") !== null) {
     closeCitation();
+  } else if (step instanceof HTMLElement) {
+    play(pageState.journey, Number(step.dataset["step"]));
   }
 });
 
@@ -1444,16 +1506,22 @@ sourcesButton.addEventListener("click", () => {
   store(SOURCES_KEY, sourcesInFull ? "full" : "markers");
 });
 
-// Escape and a click on the empty sheet bring the fit back, else close the lines viewer where the
-// reader stands, else deselect, then go up a level. Over the cards, the drawing's zoom is not
-// theirs to undo.
-function stepBack(): void {
+// Escape and a click on the empty sheet: the fit back first, but over the cards, whose drawing's
+// zoom is not theirs to undo; then the lines viewer closes where the reader stands; then, on a
+// journey, back to the place it started from; else deselect, then up a level.
+function backOut(): void {
   if (cardsShown === undefined && unzoom()) {
     return;
   }
 
   if (viewer !== null) {
     closeCitation();
+
+    return;
+  }
+
+  if (pageState.journey !== null) {
+    leave();
 
     return;
   }
@@ -1465,11 +1533,27 @@ function stepBack(): void {
   }
 }
 
+// On a journey, the arrow keys press the panel's ← → buttons.
+const ARROWS = new Map([
+  ["ArrowLeft", -1],
+  ["ArrowRight", 1],
+]);
+
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;
+  const listing = openList.matches(":popover-open") || journeyList.matches(":popover-open");
+  const delta = ARROWS.get(e.key);
+  const modified = e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
 
-  if (e.key === "Escape" && !typing && !openList.matches(":popover-open")) {
-    stepBack();
+  if (typing || listing) {
+    return;
+  }
+
+  if (e.key === "Escape") {
+    backOut();
+  } else if (delta !== undefined && !modified && pageState.journey !== null) {
+    e.preventDefault();
+    stepBy(delta);
   }
 });
 
@@ -1483,7 +1567,9 @@ addEventListener("hashchange", () => {
   settle().catch(fail);
 });
 
-svg.addEventListener("click", stepBack);
+svg.addEventListener("click", () => {
+  backOut();
+});
 
 // Every view is laid out again when the aspect of the drawing area moves by more than RELAYOUT
 // (a resized window, the panel hidden or shown), once the resizing settles, with the Config's

@@ -20,6 +20,14 @@ export type Words = {
   readonly phasesLabel: string;
   readonly phasesTitle: string;
   readonly allPhases: string;
+  /** The header's menu of the root's journeys: its name, its tooltip, a journey's count of steps. */
+  readonly journeysButton: string;
+  readonly journeysTitle: string;
+  readonly stepCount: (count: number) => string;
+  /** A journey's step in the panel: its place in the journey, the buttons to the steps around it. */
+  readonly stepOf: (step: number, count: number) => string;
+  readonly previousStep: string;
+  readonly nextStep: string;
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -66,6 +74,12 @@ const fr: Words = {
   phasesLabel: "Phase de travail",
   phasesTitle: "Atténuer, en pointillé, ce qui vient après la phase choisie",
   allPhases: "Tout",
+  journeysButton: "Parcours",
+  journeysTitle: "Suivre une action à travers le plan, étape par étape",
+  stepCount: (count) => (count === 1 ? "1 étape" : `${count} étapes`),
+  stepOf: (step, count) => `Étape ${step} sur ${count}`,
+  previousStep: "← Précédente",
+  nextStep: "Suivante →",
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -134,6 +148,12 @@ const en: Words = {
   phasesLabel: "Work phase",
   phasesTitle: "Dim, dotted, what comes after the phase picked",
   allPhases: "All",
+  journeysButton: "Journeys",
+  journeysTitle: "Follow one action across the map, step by step",
+  stepCount: (count) => (count === 1 ? "1 step" : `${count} steps`),
+  stepOf: (step, count) => `Step ${step} of ${count}`,
+  previousStep: "← Previous",
+  nextStep: "Next →",
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,

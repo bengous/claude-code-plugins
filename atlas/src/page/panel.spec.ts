@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Node } from "../model/atlas.ts";
+import type { AtlasMap, Journey, Node } from "../model/atlas.ts";
 import type { Cards } from "../model/cards.ts";
 import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
@@ -17,8 +17,10 @@ import type { Viewer } from "./panel.ts";
 import {
   cardsHtml,
   fieldHtml,
+  journeysHtml,
   linesAround,
   renderCrumbs,
+  renderJourney,
   renderPanel,
   renderViewer,
 } from "./panel.ts";
@@ -562,6 +564,96 @@ describe("the cards", () => {
 
     expect(await elementsWith(html, "img")).toBe(0);
     expect(html).toContain('<th scope="row">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</th>');
+  });
+});
+
+const CHECKOUT: Journey = {
+  id: "checkout",
+  label: "Checkout",
+  steps: [
+    { from: "browser", to: "proxy", note: "The reader opens the shop." },
+    { from: "proxy", to: "web" },
+    { from: "web", to: "orders", note: "The form posts the cart." },
+    { from: "orders", to: "db" },
+  ],
+};
+
+const journeyPanel = (journey: Journey, step: number, avoidError: string | null = null): string => {
+  const panel = { innerHTML: "", scrollTop: 7 };
+  renderJourney(settingsOf(CONFIG), TREE, panel, journey, step, avoidError);
+
+  expect(panel.scrollTop).toBe(0);
+
+  return panel.innerHTML;
+};
+
+describe("a journey in the panel", () => {
+  test("its label, the step's place in it, the arrow's label and ends, the note, the steps around", () => {
+    const html = journeyPanel(CHECKOUT, 3);
+
+    expect(html).toContain('<h2><span class="swatch"></span>Checkout</h2>');
+    expect(html).toContain('<p class="journey-step">Étape 3 sur 4</p>');
+    expect(html).toContain(
+      '<span class="journey-label">checkout</span><span class="journey-ends">Web routes → Orders</span>',
+    );
+    expect(html).toContain('<p class="lead">The form posts the cart.</p>');
+    expect(html).toContain('<button type="button" data-step="2">← Précédente</button>');
+    expect(html).toContain('<button type="button" data-step="4">Suivante →</button>');
+  });
+
+  test("the first step has no step before it, the last none after it; a step without note shows none", () => {
+    const first = journeyPanel(CHECKOUT, 1);
+    const last = journeyPanel(CHECKOUT, 4, "no wasm");
+
+    expect(first).toContain('<button type="button" disabled>← Précédente</button>');
+    expect(first).toContain('<button type="button" data-step="2">Suivante →</button>');
+    expect(last).toContain('<button type="button" data-step="3">← Précédente</button>');
+    expect(last).toContain('<button type="button" disabled>Suivante →</button>');
+    expect(last).not.toContain('class="lead"');
+    expect(last).toContain("no wasm");
+  });
+
+  test("a step along a two-headed link the other way names that link's label", () => {
+    const map: AtlasMap = {
+      ...MAP,
+      links: [...MAP.links, { from: "orders", to: "catalog", label: "stock", two: true }],
+    };
+
+    const back: Journey = { id: "back", label: "Back", steps: [{ from: "catalog", to: "orders" }] };
+    const panel = { innerHTML: "", scrollTop: 0 };
+    renderJourney(settingsOf(CONFIG), treeOf(map), panel, back, 1, null);
+
+    expect(panel.innerHTML).toContain(
+      '<span class="journey-label">stock</span><span class="journey-ends">Catalog → Orders</span>',
+    );
+  });
+
+  test("a label and a note, plain text, show as written and run nothing", async () => {
+    const hostile = '<img src=x onerror="alert(1)"><code>x</code>';
+
+    const journey: Journey = {
+      id: "hostile",
+      label: hostile,
+      steps: [{ from: "browser", to: "proxy", note: hostile }],
+    };
+
+    const html = journeyPanel(journey, 1);
+
+    expect(await elementsWith(html, "img, code")).toBe(0);
+    expect(html).toContain("&lt;img src=x onerror=");
+    expect(journeysHtml(settingsOf(CONFIG), [journey], null)).toContain("&lt;img src=x");
+  });
+
+  test("the menu lists each journey with its count of steps, the one played current", () => {
+    const walk: Journey = { id: "walk", label: "Walk", steps: [{ from: "web", to: "orders" }] };
+    const html = journeysHtml(settingsOf(CONFIG), [CHECKOUT, walk], "walk");
+
+    expect(html).toBe(
+      "<h2>Parcours</h2><ul>" +
+        '<li><button type="button" class="journey-row" data-journey="checkout"><span>Checkout</span><span class="journey-count">4 étapes</span></button></li>' +
+        '<li><button type="button" class="journey-row" data-journey="walk" aria-current="true"><span>Walk</span><span class="journey-count">1 étape</span></button></li>' +
+        "</ul>",
+    );
   });
 });
 

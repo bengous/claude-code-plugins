@@ -1,7 +1,8 @@
-import type { Node, OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Journey, Node, OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
 import type { Cards } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationText, citedLines, withCitations } from "../model/citations.ts";
+import { joins } from "../model/journeys.ts";
 import { keptMarkup } from "../model/markup.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Crumb } from "../model/navigation.ts";
@@ -273,6 +274,68 @@ export function renderPanel(
   }
 
   panel.scrollTop = 0;
+}
+
+/**
+ * A journey's step, 1 to its count, in place of the panel's fields: the journey's label, the
+ * step's place in it, the label of the link it follows (joins) over its ends' labels, its note,
+ * and the buttons to the steps before and after it, disabled past either end. The labels and the
+ * note are plain text, shown as written.
+ */
+export function renderJourney(
+  s: Settings,
+  tree: Tree,
+  panel: Pick<HTMLElement, "innerHTML" | "scrollTop">,
+  journey: Journey,
+  step: number,
+  avoidError: string | null,
+): void {
+  const shown = journey.steps[step - 1];
+
+  if (shown === undefined) {
+    throw new RangeError(`journey ${journey.id}: no step ${step} of ${journey.steps.length}`);
+  }
+
+  const label = tree.map.links.find((link) => joins(link, shown))?.label;
+
+  const ends = [shown.from, shown.to]
+    .map((id) => esc(nodeOf(tree, id).label.replaceAll("\n", " ")))
+    .join(" → ");
+
+  const button = (to: number, text: string): string =>
+    to >= 1 && to <= journey.steps.length
+      ? `<button type="button" data-step="${to}">${text}</button>`
+      : `<button type="button" disabled>${text}</button>`;
+
+  panel.innerHTML = [
+    `<div class="journey" style="--zc: var(--accent)">`,
+    `<p class="kicker">${s.words.journeysButton}</p>`,
+    `<h2><span class="swatch"></span>${esc(journey.label)}</h2>`,
+    `<p class="journey-step">${s.words.stepOf(step, journey.steps.length)}</p>`,
+    `<p class="journey-arrow">`,
+    label === undefined ? "" : `<span class="journey-label">${esc(label)}</span>`,
+    `<span class="journey-ends">${ends}</span></p>`,
+    shown.note === undefined ? "" : `<p class="lead">${esc(shown.note)}</p>`,
+    arrowsMissing(s, avoidError),
+    `<div class="nav">${button(step - 1, s.words.previousStep)}${button(step + 1, s.words.nextStep)}</div>`,
+    `</div>`,
+  ].join("");
+  panel.scrollTop = 0;
+}
+
+/** The header's menu: a row per journey, its label and its count of steps, the one played current. */
+export function journeysHtml(
+  s: Settings,
+  journeys: readonly Journey[],
+  played: string | null,
+): string {
+  const rows = journeys.map((journey) => {
+    const current = journey.id === played ? ' aria-current="true"' : "";
+
+    return `<li><button type="button" class="journey-row" data-journey="${esc(journey.id)}"${current}><span>${esc(journey.label)}</span><span class="journey-count">${s.words.stepCount(journey.steps.length)}</span></button></li>`;
+  });
+
+  return `<h2>${s.words.journeysButton}</h2><ul>${rows.join("")}</ul>`;
 }
 
 /** Consecutive lines of a file, the first numbered `from`. */

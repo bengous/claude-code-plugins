@@ -126,8 +126,8 @@ src/page/            what runs in the browser
   aliases.d.ts       the types of atlas:map and atlas:config, the page's imports of a map folder
   engine.ts          the page's entry: draws the view of the open container the first time the
                      reader reaches it and keeps it, paints the camera, takes input, dims what
-                     the phase picked dims in every view it keeps, posts the reader's selection
-                     to serve.ts
+                     the phase picked dims in every view it keeps, plays a journey's steps,
+                     posts the reader's selection to serve.ts
   stage.ts           the stage, pure: the views held, the one being laid out, those wanted now or
                      later, and what a relayout keeps or lays out again (stage.spec.ts)
   draw.ts            the renderer of one view: packed (ELK rectpacking or bands by rank, the sides,
@@ -151,7 +151,8 @@ src/page/            what runs in the browser
                      (legend.spec.ts)
   panel.ts           the panel, the breadcrumb and the open points' list; fieldHtml, the one way
                      an HTML field reaches the page, its citations as markers; the viewer of a
-                     citation's lines; the cards' table (panel.spec.ts)
+                     citation's lines; the cards' table; a journey's step and the journeys' menu
+                     (panel.spec.ts)
   measure.ts         sizes text: one scale for every view
   geometry.ts        rects, points and similarities
   svg.ts             SVG building blocks
@@ -177,7 +178,9 @@ fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at 
                      its repo/, its sources root;
                      fixtures/phases/ a shop built in three work phases, its header's stepper,
                      to look at;
-                     the five import the plugin's own types and carry no generated files
+                     fixtures/journeys/ a bookshop with two journeys, its header's menu, to
+                     play;
+                     the six import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
@@ -281,9 +284,17 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   arrow that stays names only the links that do not fade (`labelAt`), in the spot its whole label
   took, shortened as a placed label is when it does not fit. The panel shows a node's phase under
   its own heading. The phase stays as the reader moves. A map without phases has no stepper.
+- With the root's `journeys`, the header shows a menu, a row per journey. Picking one plays it
+  from its first step: each step opens the deepest view that shows both its ends with one a child
+  there, else their lowest common container's (`stepView` in `journeys.ts`), its arrow hot and
+  the others dimmed, nothing selected. The panel shows the journey's label, the step's place in
+  it, the label of the link it follows over its ends, and its note, with ← → buttons, which the
+  arrow keys press too (`renderJourney` in `panel.ts`). The mode switch hides on a journey; a
+  phase picked stays. A map without journeys has no menu.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
-  empty sheet. A box enters its
-  container, a card or a ghost is selected where it stands, a chip jumps to its node.
+  empty sheet. On a journey, both leave it for the place it started from, and any other move
+  leaves it from the step's view. A box enters its container, a card or a ghost is selected where
+  it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
   bring the fit back before they do anything else, but over the cards, and a move to another
