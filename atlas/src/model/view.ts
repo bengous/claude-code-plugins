@@ -49,9 +49,10 @@ export type Box = LeafBox | ContainerBox;
 
 /**
  * A node outside the open container that a link joins to a node inside, drawn at the edge: the
- * view's arrows come from a ghost in the left column ("in"), go to one in the right column ("out"),
- * and a ghost that does both stands in both ("both"), its arrows leaving the left copy and arriving
- * at the right one. A merged arrow counts in its own direction only.
+ * view's arrows come from a ghost on the "in" side (left, or above under DOWN), go to one on the
+ * "out" side (right, or below), and a ghost that does both stands on both ("both"), its arrows
+ * leaving the "in" copy and arriving at the "out" one. A merged arrow counts in its own direction
+ * only.
  */
 export type Ghost = {
   readonly id: string;

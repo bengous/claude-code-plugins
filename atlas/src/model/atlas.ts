@@ -12,8 +12,9 @@ export type Pair = readonly [string, string];
 export type OpenPoint = { readonly id: string; readonly text: string };
 
 /**
- * The column of an outside node in the root's view: "in" (left) or "out" (right). "both", for a
- * leaf only, draws it twice, its links leaving the left copy and arriving at the right one.
+ * The side of an outside node in the root's view: "in" (left, or above under the Config's
+ * direction "DOWN") or "out" (right, or below). "both", for a leaf only, draws it twice, its links
+ * leaving the "in" copy and arriving at the "out" one.
  */
 export type Side = "in" | "out" | "both";
 

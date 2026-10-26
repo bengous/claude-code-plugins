@@ -45,8 +45,8 @@ src/parts.spec.ts    a map assembled from parts/*.ts through check, fmt and the 
 src/model/           the map and what is read from it, pure or Node-only, no browser
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, AtlasMap
                      (the root and every link), Config (title, language, palette, pins, packing
-                     ratio, tags, legend labels, panel headings, step words); the source of a
-                     map's atlas.d.ts
+                     ratio, reading direction, tags, legend labels, panel headings, step words);
+                     the source of a map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
                      may name (labelsOf, folder.spec.ts); run, it prints them, or refuses a folder
                      the engine cannot draw, which serve.ts asks before each build
@@ -99,20 +99,21 @@ src/page/            what runs in the browser
                      reader's selection to serve.ts
   stage.ts           the stage, pure: the views held, the one being laid out, those wanted now or
                      later, and what a relayout keeps or lays out again (stage.spec.ts)
-  draw.ts            the renderer of one view: packed (ELK rectpacking, side columns, libavoid)
-                     when the view has a container child, layered (ELK layered, labels and tags)
-                     when it has leaves alone
-  placement.ts       the pure parts of placing a view: the side columns, the chips wrapped in a
-                     box, the spot of each arrow's label, the copies of an item drawn twice
-                     (placement.spec.ts)
+  draw.ts            the renderer of one view: packed (ELK rectpacking or bands by rank, the sides,
+                     libavoid) when the view has a container child, layered (ELK layered, labels
+                     and tags) when it has leaves alone
+  placement.ts       the pure parts of placing a view: the middle items in bands by rank, the side
+                     columns, or bands under DOWN, the chips wrapped in a box, the spot of each
+                     arrow's label, the copies of an item drawn twice (placement.spec.ts)
   camera.ts          the camera, pure: the view shown and the one it cross-fades with, aligned
                      through the boxes along their path, any number of levels at once
                      (camera.spec.ts)
   zoom.ts            the free look inside a view, pure: the camera's rect zoomed around a point
                      or panned, kept within the rect that fits the view, and the captions a scale
                      leaves readable (zoom.spec.ts)
-  layout.ts          runs ELK's layered layout, flat, its rows wrapped to an aspect, a ghost held
-                     to the first or the last layer (layout.spec.ts, which runs ELK under Bun)
+  layout.ts          runs ELK's layered layout, flat, in the map's direction, its rows wrapped to an
+                     aspect or its layers partitioned by rank, a ghost held to the first or the last
+                     layer (layout.spec.ts, which runs ELK under Bun)
   avoid.ts           runs libavoid (avoid.spec.ts)
   legend.ts          the legend's lines, one per arrow kind or node mark a view uses
                      (legend.spec.ts)
@@ -133,8 +134,9 @@ template/            the map folder `new` copies; its tsconfig.json is the one `
 lint/                the oxlint and oxfmt configs `check` and `fmt` run on a map's data files
 fixtures/sample/     the sample map folder
 fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at in the browser;
-                     fixtures/large/ a seeded random map, wide and deep, to time a view on; both
-                     import the plugin's own types and carry no generated files
+                     fixtures/large/ a seeded random map, wide and deep, to time a view on;
+                     fixtures/bands/ a map read DOWN, its views in bands by rank, to look at;
+                     the three import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
@@ -216,15 +218,15 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   the box.
 - The breadcrumb stays on one line: from five crumbs on, the levels between the root and the
   last two fold into `…`, their names in its tooltip (`foldedCrumbs` in `navigation.ts`).
-- A ghost drawn in both columns carries a `›` mark at the edge its arrows cross and a tooltip
+- A ghost drawn on both sides carries a `›` mark at the edge its arrows cross and a tooltip
   naming the copy; hovering one copy lights both.
 - A move between a view and one of its ancestors cross-fades the two, the deeper one aligned on
   its box; a move between two views neither of which holds the other lands at once.
 - A view is laid out the first time the reader reaches it, then kept; its parent and its
   container children are laid out while the reader looks, a navigated view before any of them.
   Every view is laid out again when the drawing area's aspect moves, with the Config's ratio
-  "screen" (a packed view aims at it, a layered view wraps its rows to it), and when the fonts
-  settle late. `performance.measure("atlas:draw <view>")` times each layout.
+  "screen" (a packed view aims at it and a layered view wraps its rows to it, but for a view in
+  bands by rank), and when the fonts settle late. `performance.measure("atlas:draw <view>")` times each layout.
 
 ## Traps
 

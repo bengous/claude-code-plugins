@@ -2,7 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import type { Point, Rect } from "./geometry.ts";
 import { hits } from "./geometry.ts";
-import { column, copyOf, labelSpots, realId, spotsOf, wrap } from "./placement.ts";
+import type { Packed, Ranked } from "./placement.ts";
+import {
+  band,
+  banded,
+  column,
+  copyOf,
+  flank,
+  labelSpots,
+  realId,
+  spotsOf,
+  wrap,
+} from "./placement.ts";
 
 describe("copies", () => {
   test("an item drawn twice names its right copy, which arrows arrive at", () => {
@@ -76,6 +87,161 @@ describe("column", () => {
 
     expect(twins.get("a")).toEqual({ x: 0, y: 130, w: 10, h: 40 });
     expect(twins.get("b")).toEqual({ x: 0, y: 214, w: 10, h: 40 });
+  });
+});
+
+const ROW = new Map<string, Rect>([
+  ["app", { x: 100, y: 300, w: 100, h: 200 }],
+  ["data", { x: 400, y: 300, w: 100, h: 200 }],
+]);
+
+describe("band", () => {
+  const partners = new Map<string, readonly string[]>([
+    ["near-data", ["data"]],
+    ["near-app", ["app"]],
+    ["alone", []],
+    ["mate", ["near-app"]],
+  ]);
+
+  const blocks = [
+    { id: "near-data", w: 50, h: 80 },
+    { id: "alone", w: 50, h: 60 },
+    { id: "near-app", w: 50, h: 90 },
+    { id: "mate", w: 50, h: 70 },
+  ];
+
+  const above = band(blocks, (id) => partners.get(id) ?? [], ROW, 100, true);
+
+  test("blocks sit by the centre of the boxes they talk to, standing on y in a band above", () => {
+    expect(above.get("near-app")).toEqual({ x: 125, y: 10, w: 50, h: 90 });
+    expect(above.get("near-data")).toEqual({ x: 425, y: 20, w: 50, h: 80 });
+  });
+
+  test("a block talking to none goes after its band-mate, or last, right of the one before", () => {
+    expect(above.get("mate")).toEqual({ x: 125 + 50 + 44, y: 30, w: 50, h: 70 });
+    expect(above.get("alone")).toEqual({ x: 425 + 50 + 44, y: 40, w: 50, h: 60 });
+  });
+
+  test("a band below hangs from y", () => {
+    const below = band(blocks, (id) => partners.get(id) ?? [], ROW, 600, false);
+
+    expect(below.get("near-app")).toEqual({ x: 125, y: 600, w: 50, h: 90 });
+    expect(below.get("alone")).toEqual({ x: 519, y: 600, w: 50, h: 60 });
+  });
+
+  test("a band of blocks talking to nothing placed starts at the left; two wishing one x never overlap", () => {
+    const lonely = band(
+      [
+        { id: "a", w: 20, h: 10 },
+        { id: "b", w: 30, h: 10 },
+      ],
+      () => [],
+      new Map(),
+      0,
+      false,
+    );
+
+    expect(lonely.get("a")).toEqual({ x: 0, y: 0, w: 20, h: 10 });
+    expect(lonely.get("b")).toEqual({ x: 64, y: 0, w: 30, h: 10 });
+
+    const twins = band(
+      [
+        { id: "a", w: 40, h: 10 },
+        { id: "b", w: 40, h: 10 },
+      ],
+      () => ["app"],
+      ROW,
+      0,
+      false,
+    );
+
+    expect(twins.get("a")).toEqual({ x: 130, y: 0, w: 40, h: 10 });
+    expect(twins.get("b")).toEqual({ x: 214, y: 0, w: 40, h: 10 });
+  });
+});
+
+const rectsOf = (p: Packed): Record<string, Rect> => Object.fromEntries(p.rects);
+
+// Two bands by rank, then one of the items without a rank, each item of another size.
+const RANKED: Ranked[] = [
+  { id: "a", rank: 1, w: 100, h: 40 },
+  { id: "b", rank: 0, w: 60, h: 30 },
+  { id: "c", rank: 1, w: 80, h: 60 },
+  { id: "d", rank: null, w: 50, h: 20 },
+  { id: "e", rank: 0, w: 40, h: 30 },
+];
+
+describe("banded", () => {
+  test("DOWN: a row per rank, top to bottom, its items in data order, each row centred on the widest, the unranked last", () => {
+    const placed = banded(RANKED, "DOWN", 10);
+
+    expect(rectsOf(placed)).toEqual({
+      b: { x: 40, y: 0, w: 60, h: 30 },
+      e: { x: 110, y: 0, w: 40, h: 30 },
+      a: { x: 0, y: 50, w: 100, h: 40 },
+      c: { x: 110, y: 40, w: 80, h: 60 },
+      d: { x: 70, y: 110, w: 50, h: 20 },
+    });
+
+    expect(placed.size).toEqual({ w: 190, h: 130 });
+  });
+
+  test("RIGHT: a column per rank, left to right, its items in data order, each column centred on the tallest, the unranked last", () => {
+    const placed = banded(RANKED, "RIGHT", 10);
+
+    expect(rectsOf(placed)).toEqual({
+      b: { x: 0, y: 20, w: 60, h: 30 },
+      e: { x: 10, y: 60, w: 40, h: 30 },
+      a: { x: 70, y: 0, w: 100, h: 40 },
+      c: { x: 80, y: 50, w: 80, h: 60 },
+      d: { x: 180, y: 45, w: 50, h: 20 },
+    });
+
+    expect(placed.size).toEqual({ w: 230, h: 110 });
+  });
+
+  test("a rank no item carries leaves no empty band", () => {
+    const placed = banded(
+      [
+        { id: "far", rank: 7, w: 10, h: 10 },
+        { id: "first", rank: 0, w: 10, h: 10 },
+      ],
+      "DOWN",
+      10,
+    );
+
+    expect(rectsOf(placed)).toEqual({
+      first: { x: 0, y: 0, w: 10, h: 10 },
+      far: { x: 0, y: 20, w: 10, h: 10 },
+    });
+  });
+});
+
+const flanking = (id: string): readonly string[] => (id === "m" ? ["in", "out"] : ["m"]);
+
+describe("flank", () => {
+  const middle: Packed = {
+    rects: new Map([["m", { x: 0, y: 0, w: 200, h: 100 }]]),
+    size: { w: 200, h: 100 },
+  };
+
+  const before = [{ id: "in", w: 80, h: 40 }];
+  const after = [{ id: "out", w: 60, h: 30 }];
+
+  test("RIGHT: the in side is a column on the left of the middle, the out side one on its right", () => {
+    expect(Object.fromEntries(flank(middle, before, after, flanking, "RIGHT", 150))).toEqual({
+      m: { x: 230, y: 0, w: 200, h: 100 },
+      in: { x: 0, y: 30, w: 80, h: 40 },
+      out: { x: 580, y: 35, w: 60, h: 30 },
+    });
+  });
+
+  test("DOWN: the in side is a band above the middle, the out side one below it", () => {
+    expect(Object.fromEntries(flank(middle, before, after, flanking, "DOWN", 150))).toEqual({
+      m: { x: 0, y: 190, w: 200, h: 100 },
+      in: { x: 60, y: 0, w: 80, h: 40 },
+      out: { x: 70, y: 440, w: 60, h: 30 },
+    });
   });
 });
 

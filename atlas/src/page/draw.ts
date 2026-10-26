@@ -1,15 +1,17 @@
 // The renderer of one view (view.ts), on a layer of its own, at its own origin:
 // 1. Items: a container child as a box listing its own children as chips, a leaf child as a card
-//    with its subtitle, a ghost as a pill. An outside child of the root stands in the column of its
-//    side, a ghost in the column its arrows give it; one in both columns is drawn twice
-//    (placement.ts), its arrows leaving the left copy and arriving at the right one.
-// 2. Placement. A view with a container child is packed: ELK's rectpacking packs the middle items
-//    in data order (it keeps the order it is given, so reordering a node's children moves its
-//    boxes), aiming at the aspect of the screen less the room of the two side columns when the
-//    Config's overview ratio is "screen", or at the ratio it gives; libavoid routes one arrow per
-//    pair around every item. A view of leaves alone is layered: ELK's layered layout places the
-//    cards and the pills in the Config's direction, in rows wrapped to that same aspect or, once a
-//    card has a rank, in one line of layers by rank, and routes the arrows.
+//    with its subtitle, a ghost as a pill. An outside child of the root stands on its side, a ghost
+//    on the side its arrows give it; one on both sides is drawn twice (placement.ts), its arrows
+//    leaving the "in" copy and arriving at the "out" one.
+// 2. Placement. A view with a container child is packed, its sides columns on the left ("in") and
+//    the right ("out"), or under the Config's direction DOWN bands above and below. Once a middle
+//    item has a rank, the middle items stand in bands by rank (placement.ts); otherwise ELK's
+//    rectpacking packs them in data order (it keeps the order it is given, so reordering a node's
+//    children moves its boxes), aiming at the aspect of the screen less the room of the two sides
+//    when the Config's overview ratio is "screen", or at the ratio it gives. libavoid routes one
+//    arrow per pair around every item. A view of leaves alone is layered: ELK's layered layout
+//    places the cards and the pills in the Config's direction, in rows wrapped to that same aspect
+//    or, once a card has a rank, in one line of layers by rank, and routes the arrows.
 // 3. Labels take a spot along their arrow where the label hits no item, no other label and no
 //    other arrow, then one that hits no item and no label, the label shortened to its first part,
 //    then to an ellipsis, when the whole does not fit; failing that, the ellipsis takes the spot
@@ -42,8 +44,8 @@ import {
   textWidth,
   titleWidth,
 } from "./measure.ts";
-import type { Block, Cell, Spotted } from "./placement.ts";
-import { OUT, column, copyOf, labelSpots, realId, wrap } from "./placement.ts";
+import type { Block, Cell, Packed, Spotted } from "./placement.ts";
+import { OUT, banded, copyOf, flank, labelSpots, realId, wrap } from "./placement.ts";
 import { arrowPath, el, onActivate, openBadge, rounded, text } from "./svg.ts";
 
 export type Mode = "packed" | "layered";
@@ -190,7 +192,7 @@ function itemsOf(view: View): Item[] {
   return items;
 }
 
-/** The copies the arrows join: an item drawn twice is left by its left copy, reached at its right. */
+/** The copies the arrows join: an item drawn twice is left by its "in" copy, reached at its "out". */
 function endsOf(view: View, items: readonly Item[]): End[] {
   const twice = new Set(items.flatMap((i) => (i.id.endsWith(OUT) ? [realId(i.id)] : [])));
 
@@ -248,8 +250,6 @@ function framed(rects: ReadonlyMap<string, Rect>, boxes: readonly string[]): Pla
   };
 }
 
-type Packed = { readonly rects: ReadonlyMap<string, Rect>; readonly size: Size };
-
 async function pack(middle: readonly Item[], ratio: number): Promise<Packed> {
   if (middle.length === 0) {
     return { rects: new Map(), size: { w: 0, h: 0 } };
@@ -279,23 +279,24 @@ async function pack(middle: readonly Item[], ratio: number): Promise<Packed> {
   return { rects, size: { w: laid.width ?? 0, h: laid.height ?? 0 } };
 }
 
-async function placePacked(
-  items: readonly Item[],
-  ends: readonly End[],
+// The middle items packed by ELK, aiming at the screen's aspect with the room of the two sides
+// added: their width beside the middle under RIGHT, their height above and below it under DOWN.
+async function aimed(
+  middle: readonly Item[],
+  sides: number,
   packing: Packing,
-): Promise<Placed> {
-  const middle = items.filter((i) => i.column === null);
-  const left = items.filter((i) => i.column === "in");
-  const right = items.filter((i) => i.column === "out");
-  const leftW = Math.max(0, ...left.map((i) => i.w));
-  const rightW = Math.max(0, ...right.map((i) => i.w));
-  const sidesW = leftW + rightW + 2 * COL_GAP + 2 * MARGIN;
+  direction: Direction,
+): Promise<Packed> {
   let ratio = packing.kind === "screen" ? clampRatio(packing.aspect) : packing.ratio;
   let packed = await pack(middle, ratio);
 
   if (packing.kind === "screen") {
     for (let pass = 1; pass < RATIO.passes; pass++) {
-      const next = clampRatio(packing.aspect - sidesW / Math.max(1, packed.size.h));
+      const h = Math.max(1, packed.size.h);
+
+      const next = clampRatio(
+        direction === "DOWN" ? packing.aspect * (1 + sides / h) : packing.aspect - sides / h,
+      );
 
       if (Math.abs(next - ratio) < RATIO.settled) {
         break;
@@ -306,25 +307,33 @@ async function placePacked(
     }
   }
 
-  const sx = leftW + COL_GAP;
+  return packed;
+}
 
-  const rects = new Map(
-    [...packed.rects].map(([id, r]): [string, Rect] => [id, { ...r, x: r.x + sx }]),
-  );
+async function placePacked(
+  items: readonly Item[],
+  ends: readonly End[],
+  packing: Packing,
+  direction: Direction,
+): Promise<Placed> {
+  const middle = items.filter((i) => i.column === null);
+  const before = items.filter((i) => i.column === "in");
+  const after = items.filter((i) => i.column === "out");
+
+  const room = (side: readonly Item[]): number =>
+    Math.max(0, ...side.map((i) => (direction === "DOWN" ? i.h : i.w)));
+
+  const sides = room(before) + room(after) + 2 * COL_GAP + 2 * MARGIN;
+
+  const placed = middle.some((i) => i.rank !== null)
+    ? banded(middle, direction, PACK_GAP)
+    : await aimed(middle, sides, packing, direction);
 
   const partners = (id: string): string[] =>
     ends.flatMap((e) => (e.from === id ? [e.to] : e.to === id ? [e.from] : []));
 
-  for (const [id, r] of column(left, partners, rects, leftW, true)) {
-    rects.set(id, r);
-  }
-
-  for (const [id, r] of column(right, partners, rects, sx + packed.size.w + COL_GAP, false)) {
-    rects.set(id, r);
-  }
-
   return framed(
-    rects,
+    flank(placed, before, after, partners, direction, COL_GAP),
     middle.map((i) => i.id),
   );
 }
@@ -438,8 +447,9 @@ async function packedView(
   ends: readonly End[],
   packing: Packing,
   pins: Pins,
+  direction: Direction,
 ): Promise<Laid> {
-  const placed = await placePacked(items, ends, packing);
+  const placed = await placePacked(items, ends, packing, direction);
   const obstacles = [...placed.rects.values()];
 
   try {
@@ -560,12 +570,15 @@ function drawCard(
 }
 
 // A ghost drawn twice carries a mark at the edge its arrows cross, so the two pills read as one
-// node seen as a source and as a target, and a tooltip saying which copy this is.
+// node seen as a source and as a target, and a tooltip saying which copy this is. The mark sits
+// on the right edge of the "in" copy and the left edge of the "out" one; under DOWN, on the
+// bottom edge of the "in" copy and the top edge of the "out" one, turned to point down.
 function drawGhost(
   layer: SVGGElement,
   ghost: Ghost,
   lane: Column,
   r: Rect,
+  direction: Direction,
   items: Registry,
   words: Words,
   pick: Pick,
@@ -581,8 +594,28 @@ function drawGhost(
 
   if (ghost.side === "both" && lane !== null) {
     const source = lane === "in";
-    const x = source ? r.x + r.w - GHOST.mark : r.x + GHOST.mark;
-    text(g, { x, y: r.y + 33, class: "ghost-mark", "text-anchor": "middle" }, "›");
+
+    if (direction === "DOWN") {
+      const x = r.x + r.w / 2;
+      const y = source ? r.y + r.h - GHOST.rim : r.y + GHOST.rim;
+
+      text(
+        g,
+        {
+          x,
+          y,
+          class: "ghost-mark",
+          "text-anchor": "middle",
+          "dominant-baseline": "central",
+          transform: `rotate(90 ${x} ${y})`,
+        },
+        "›",
+      );
+    } else {
+      const x = source ? r.x + r.w - GHOST.mark : r.x + GHOST.mark;
+      text(g, { x, y: r.y + 33, class: "ghost-mark", "text-anchor": "middle" }, "›");
+    }
+
     el("title", {}, g).textContent = (source ? words.copies.source : words.copies.target)(
       ghost.label,
     );
@@ -670,7 +703,7 @@ export async function drawView(
 
   const laid =
     mode === "packed"
-      ? await packedView(view, items, ends, packing, pins)
+      ? await packedView(view, items, ends, packing, pins, direction)
       : await layeredView(view, items, ends, packing, direction);
 
   layer.classList.add("view", mode);
@@ -709,7 +742,7 @@ export async function drawView(
       }
 
       case "ghost": {
-        drawGhost(top, item.figure.ghost, item.column, r, registry, words, pick);
+        drawGhost(top, item.figure.ghost, item.column, r, direction, registry, words, pick);
         break;
       }
 
