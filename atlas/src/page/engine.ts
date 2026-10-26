@@ -225,13 +225,13 @@ let panelAvoidError: string | null = null;
 let sourcesInFull = false;
 
 // The lines of the marker last clicked, shown in place of the panel's fields until the reader
-// closes them or moves; panelTop is where the panel was scrolled when they opened, markerAt the
-// marker's place among the panel's, which takes the focus back when they close.
+// closes them or moves; panelTop is where the panel was scrolled when they opened, openedFrom the
+// marker they opened from, in the panel or the cards, which takes the focus back when they close.
 let viewer: Viewer | null = null;
 
 let panelTop = 0;
 
-let markerAt = 0;
+let openedFrom: Mark | null = null;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -834,7 +834,7 @@ const CARD_KEYS = ["data-select", "data-cite"];
 
 // The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
 // which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
-// kept for the way back and the fit button disabled. The same cards rewritten keep
+// kept for the way back and the fit and legend buttons disabled. The same cards rewritten keep
 // where they were scrolled and the focus.
 function renderMode(key: Key): void {
   const cards = cardsOf(tree, key);
@@ -845,6 +845,7 @@ function renderMode(key: Key): void {
   cardsView.hidden = table === null;
   drawing.inert = table !== null;
   fitButton.disabled = table !== null || !isZoomed();
+  legendButton.disabled = table !== null;
 
   if (table === null) {
     cardsShown = undefined;
@@ -1157,6 +1158,8 @@ async function linesOf(citation: Citation): Promise<Viewer> {
 
 const MARKER = "[data-cite]";
 
+const MARKER_KEYS = ["data-cite"];
+
 const panelFocused = (): boolean => panel.contains(document.activeElement);
 
 function focusViewerClose(): void {
@@ -1172,9 +1175,9 @@ function focusViewerClose(): void {
 async function openCitation(citation: Citation, marker: Element): Promise<void> {
   if (viewer === null) {
     panelTop = panel.scrollTop;
-    markerAt = [...panel.querySelectorAll(MARKER)].indexOf(marker);
   }
 
+  openedFrom = markOf(cardsView.contains(marker) ? cardsView : panel, MARKER_KEYS, marker);
   const opened: Viewer = { kind: "loading", citation };
   viewer = opened;
   render();
@@ -1198,10 +1201,9 @@ function closeCitation(): void {
   viewer = null;
   render();
   panel.scrollTop = panelTop;
-  const marker = panel.querySelectorAll(MARKER)[markerAt];
 
-  if (focused && marker instanceof HTMLElement) {
-    marker.focus({ preventScroll: true });
+  if (focused && openedFrom !== null) {
+    refocus(openedFrom);
   }
 }
 

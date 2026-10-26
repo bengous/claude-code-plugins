@@ -249,7 +249,7 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   opening its lines in the panel, shown if it was hidden; a click elsewhere on the cards does
   nothing. The header row and the keys' column stay in sight as it scrolls, below the controls,
   which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
-  Escape leaves alone, the fit button disabled; the legend and the hint hide. Another container
+  Escape leaves alone, the fit and legend buttons disabled; the legend and the hint hide. Another container
   opens on its drawing.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
