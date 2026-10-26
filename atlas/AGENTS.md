@@ -179,7 +179,7 @@ fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at 
                      fixtures/phases/ a shop built in three work phases, its header's stepper,
                      to look at;
                      fixtures/journeys/ a bookshop with two journeys, its header's menu, to
-                     play, and Data's cards to start one from;
+                     play, Data's cards to start one from, and a step after the phase MVP;
                      the six import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
@@ -292,7 +292,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   arrow keys press too, and under them a button that leaves the journey for the place it started
   from (`renderJourney` in `panel.ts`). The mode switch hides on a journey, which shows each step
   as a drawing; one started from the cards keeps `mode=cards` in the fragment and shows the cards
-  again once left for where it started. A phase picked stays. A map without journeys has no menu.
+  again once left for where it started. A phase picked stays; the step's arrow, when it comes
+  after that phase, keeps its dots but not their fading. A map without journeys has no menu.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. On a journey, both leave it for the place it started from, a click on an arrow or
   its label does nothing, and any other move leaves it from the step's view.

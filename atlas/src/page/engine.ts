@@ -736,6 +736,7 @@ function highlight(d: Drawn, p: Place, step: Step | null): void {
         : stepLights(tree, e.arrow, step);
 
     e.g.classList.toggle("hot", hot);
+    e.g.classList.toggle("step", hot && step !== null);
     const m = hot ? "url(#arr-hot)" : e.marker;
     e.path.setAttribute("marker-end", m);
 

@@ -4,6 +4,7 @@ export default {
   title: "Journeys",
   subtitle: "A bookshop with two journeys; the header's Parcours menu plays one.",
   lang: "fr",
+  phases: ["MVP", "v2"],
   palette: {
     edge: { light: "#5b4b8a", dark: "#a99be0" },
     app: { light: "#1f6aa8", dark: "#6fb0ea" },

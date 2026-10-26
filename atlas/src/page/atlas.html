@@ -545,6 +545,8 @@ svg text.illegible { visibility: hidden; }
 .legend .later-mark { opacity: 0.4; }
 .flow.later > * { opacity: 0.4; }
 .flow.later path { stroke-dasharray: 0 6; stroke-linecap: round; }
+/* The arrow of a journey's step (engine.ts) keeps its dots but not their fading: the step stays easy to see. */
+.flow.later.step > * { opacity: 1; }
 
 @media (max-width: 860px) {
   html, body { height: auto; }

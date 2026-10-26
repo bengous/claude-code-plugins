@@ -3,7 +3,7 @@ import type { AtlasMap } from "../../src/model/atlas.ts";
 export default {
   root: {
     title: "Journeys",
-    lead: "A bookshop whose root declares two journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow. Data's leaves have cards, to start a journey from them.",
+    lead: "A bookshop whose root declares two journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow. Data's leaves have cards, to start a journey from them, and the arrow of Place an order's step 7 comes after the phase MVP.",
     journeys: [
       {
         id: "place-order",
@@ -151,7 +151,7 @@ export default {
     { from: "pricing", to: "payment", label: "total" },
     { from: "payment", to: "bank", label: "charge" },
     { from: "payment", to: "db", label: "write order" },
-    { from: "db", to: "outbox", label: "order placed" },
+    { from: "db", to: "outbox", label: "order placed", phase: "v2" },
     { from: "outbox", to: "mailer", label: "confirmation" },
   ],
 } satisfies AtlasMap;
