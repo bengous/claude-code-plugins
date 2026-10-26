@@ -893,10 +893,16 @@ describe("ci.yml", () => {
     );
   });
 
+  test("validate runs its suites through the retry, reported for validate", async () => {
+    const runs = (await ci()).validate?.steps.map((step) => step.run);
+
+    expect(runs).toContain("bun ./scripts/affected.ts test --retry validate");
+  });
+
   test("each reporting job uploads its report even when red, under a name of its own per attempt", async () => {
     const jobs = await ci();
 
-    const names = ["win32", "e2e-window", "e2e-win32"].map((name) => {
+    const names = ["validate", "win32", "e2e-window", "e2e-win32"].map((name) => {
       const upload = jobs[name]?.steps.find((step) =>
         step.uses?.startsWith("actions/upload-artifact@"),
       );
@@ -908,6 +914,7 @@ describe("ci.yml", () => {
     });
 
     expect(names).toEqual([
+      "flaky-validate-${{ github.run_attempt }}",
       "flaky-win32-${{ github.run_attempt }}",
       "flaky-e2e-${{ matrix.window }}-${{ github.run_attempt }}",
       "flaky-e2e-win32-${{ github.run_attempt }}",
@@ -930,7 +937,7 @@ describe("ci.yml", () => {
   test("the flaky job alone writes issues, from every report of the run, in no concurrency group that could cancel it", async () => {
     const flaky = (await ci()).flaky;
 
-    expect(flaky?.needs).toEqual(["win32", "e2e-window", "e2e-win32"]);
+    expect(flaky?.needs).toEqual(["validate", "win32", "e2e-window", "e2e-win32"]);
     expect(flaky?.permissions).toEqual({ contents: "read", issues: "write" });
     expect(flaky?.concurrency).toBeUndefined();
     expect(flaky?.if).toContain("always()");

@@ -10,6 +10,7 @@ import {
   githubOutput,
   kitsOf,
   type PathClass,
+  readArgs,
   scopeOf,
   testRuns,
 } from "./affected.ts";
@@ -63,6 +64,26 @@ describe("scopeOf", () => {
       kind: "units",
       units: [],
     });
+  });
+});
+
+describe("readArgs", () => {
+  test("a command, its base, and a retry job for test alone", () => {
+    expect(readArgs(["print"])).toEqual({ command: "print", base: undefined, retryJob: undefined });
+    expect(readArgs(["test", "--base", "HEAD~2", "--retry", "validate"])).toEqual({
+      command: "test",
+      base: "HEAD~2",
+      retryJob: "validate",
+    });
+  });
+
+  test("refuses an unknown command or flag, a flag with no value, a retry outside test", () => {
+    expect(readArgs([])).toBeNull();
+    expect(readArgs(["lint"])).toBeNull();
+    expect(readArgs(["test", "--ref", "HEAD"])).toBeNull();
+    expect(readArgs(["test", "--base"])).toBeNull();
+    expect(readArgs(["test", "extra"])).toBeNull();
+    expect(readArgs(["print", "--retry", "validate"])).toBeNull();
   });
 });
 

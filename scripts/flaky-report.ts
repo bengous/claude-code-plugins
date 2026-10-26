@@ -365,6 +365,22 @@ export function playwrightFlakes(playwright: PlaywrightReport): Flake[] {
   return playwright.suites.flatMap((file) => suiteFlakes(file, []));
 }
 
+/**
+ * `retry bun` for a caller that runs several suites in one job: each writes its report under a
+ * `name` of its own. Answers the exit code of the suite's last run.
+ */
+export async function retryBunReported(
+  argv: readonly string[],
+  job: string,
+  name: string,
+): Promise<number> {
+  const runUrl = runUrlOf(process.env);
+  const { code, flakes } = await retryBun(argv, execTeed, REPORTS);
+  await write(REPORTS, name, { job, runUrl, flakes });
+
+  return code;
+}
+
 async function write(dir: string, name: string, written: Report): Promise<void> {
   await mkdir(dir, { recursive: true });
   await Bun.write(join(dir, `${name}.json`), `${JSON.stringify(written, null, 2)}\n`);

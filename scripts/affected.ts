@@ -11,6 +11,9 @@
  *   bun ./scripts/affected.ts github-output   `all`, `units` and `kits`, appended to `$GITHUB_OUTPUT`
  *   bun ./scripts/affected.ts print           the scope, as JSON
  *
+ * `test --retry <job>`, in CI alone, runs each suite through `flaky-report.ts`'s retry: the files
+ * whose tests failed run once more, and each test that passed then is reported for `<job>`.
+ *
  * The base is `--base <ref>`, else, in a pull request's run, the first parent
  * of the merge commit it checks out, else `origin/dev`. Any other Actions
  * event runs everything.
@@ -18,9 +21,11 @@
 
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
+import { retryBunReported } from "./flaky-report.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 /** A top-level directory, or `.claude/hooks`. */
@@ -193,27 +198,54 @@ export function githubOutput(scope: Scope, kits: readonly string[]): string {
   return `all=${scope.kind === "all"}\nunits=${JSON.stringify(units)}\nkits=${JSON.stringify(kits)}\n`;
 }
 
-type Args = { readonly command: Command; readonly base: string | undefined };
+export type Args = {
+  readonly command: Command;
+  readonly base: string | undefined;
+  readonly retryJob: string | undefined;
+};
 
-function parseArgs(args: readonly string[]): Args | null {
-  const [given, flag, base, ...rest] = args;
-  const command = COMMANDS.find((known) => known === given);
-
-  if (command === undefined || rest.length > 0) return null;
-
-  if (flag === undefined) return { command, base: undefined };
-
-  return flag === "--base" && base !== undefined ? { command, base } : null;
+/** `node:util`'s `parseArgs` over the CLI's two options; an unknown flag or a missing value is null. */
+function parsedOrNull(args: readonly string[]) {
+  try {
+    return parseArgs({
+      args: [...args],
+      options: { base: { type: "string" }, retry: { type: "string" } },
+      allowPositionals: true,
+    });
+  } catch {
+    return null;
+  }
 }
 
-async function runTests(repoRoot: string, scope: Scope): Promise<number> {
-  for (const args of testRuns(scope)) {
+export function readArgs(args: readonly string[]): Args | null {
+  const parsed = parsedOrNull(args);
+
+  if (parsed === null) return null;
+
+  const { values, positionals } = parsed;
+  const command = COMMANDS.find((known) => known === positionals[0]);
+
+  if (command === undefined || positionals.length > 1) return null;
+
+  if (values.retry !== undefined && command !== "test") return null;
+
+  return { command, base: values.base, retryJob: values.retry };
+}
+
+async function runTests(
+  repoRoot: string,
+  scope: Scope,
+  retryJob: string | undefined,
+): Promise<number> {
+  for (const [at, args] of testRuns(scope).entries()) {
     console.error(`affected: bun ${args.join(" ")}`);
 
-    const code = await Bun.spawn([process.execPath, ...args], {
-      cwd: repoRoot,
-      stdio: ["inherit", "inherit", "inherit"],
-    }).exited;
+    const argv = [process.execPath, ...args];
+
+    const code =
+      retryJob === undefined
+        ? await Bun.spawn(argv, { cwd: repoRoot, stdio: ["inherit", "inherit", "inherit"] }).exited
+        : await retryBunReported(argv, retryJob, `${retryJob}-${at + 1}`);
 
     if (code !== 0) return code;
   }
@@ -223,10 +255,12 @@ async function runTests(repoRoot: string, scope: Scope): Promise<number> {
 
 if (import.meta.main) {
   const repoRoot = join(import.meta.dir, "..");
-  const args = parseArgs(process.argv.slice(2));
+  const args = readArgs(process.argv.slice(2));
 
   if (args === null) {
-    console.error(`usage: bun ./scripts/affected.ts <${COMMANDS.join("|")}> [--base <ref>]`);
+    console.error(
+      `usage: bun ./scripts/affected.ts <${COMMANDS.join("|")}> [--base <ref>] [--retry <job>, test only]`,
+    );
     process.exit(2);
   }
 
@@ -236,7 +270,7 @@ if (import.meta.main) {
 
   switch (args.command) {
     case "test":
-      process.exit(await runTests(repoRoot, scope));
+      process.exit(await runTests(repoRoot, scope, args.retryJob));
       break;
     case "github-output": {
       const outputPath = process.env.GITHUB_OUTPUT;

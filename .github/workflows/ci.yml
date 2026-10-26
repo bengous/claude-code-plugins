@@ -72,9 +72,10 @@ jobs:
         run: bun ./scripts/affected.ts github-output
 
       # The suites the change reaches, `scripts/` always; on a push or a dispatch every one, the
-      # repo's own hooks in a run of their own, since `bun test` skips dot directories.
+      # repo's own hooks in a run of their own, since `bun test` skips dot directories. Each run
+      # retries the files whose tests failed once (`scripts/flaky-report.ts`), for `flaky`.
       - name: Run test suites
-        run: bun ./scripts/affected.ts test
+        run: bun ./scripts/affected.ts test --retry validate
 
       # The eight gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
@@ -162,6 +163,15 @@ jobs:
             exit 1
           fi
           echo "main is an ancestor of dev: $(git rev-parse origin/main)"
+
+      # A name per attempt: a re-run keeps the first attempt's report beside its own.
+      - name: Upload the flaky report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: flaky-validate-${{ github.run_attempt }}
+          path: flaky-reports/*.json
+          if-no-files-found: ignore
 
   # On a pull request, what the change reaches, for `win32 (scoped)`. `affected.ts` imports
   # nothing `bun install` brings, so the job installs bun alone.
@@ -410,20 +420,18 @@ jobs:
           WIN32: ${{ needs.e2e-win32.result }}
 
   # One issue per flaky test, from the reports the suite jobs uploaded (`scripts/flaky-report.ts`):
-  # the one job that writes issues, so the suites' jobs keep the read-only token. It runs once any
-  # of them ran, red or green, but not on a fork's pull request, whose token cannot write issues.
+  # the one job that writes issues, so the suites' jobs keep the read-only token. It runs after
+  # them, red or green, `validate` running on every event, but not on a fork's pull request, whose
+  # token cannot write issues.
   # Bookkeeping, never a verdict: the download and the report continue on error, on the steps rather
   # than the job, since a job's `continue-on-error` still leaves its own check red, which
   # `gh pr checks` and the pull request show. No concurrency group: GitHub cancels a pending job a
   # third one replaces, and a cancelled check refuses a landing; two jobs racing can at worst open
   # one test's issue twice.
   flaky:
-    needs: [win32, e2e-window, e2e-win32]
+    needs: [validate, win32, e2e-window, e2e-win32]
     if: >-
       always()
-      && (needs.win32.result != 'skipped'
-      || needs.e2e-window.result != 'skipped'
-      || needs.e2e-win32.result != 'skipped')
       && (github.event_name != 'pull_request'
       || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
