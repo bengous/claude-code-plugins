@@ -2,16 +2,26 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap } from "../model/atlas.ts";
+import type { AtlasMap, Node } from "../model/atlas.ts";
+import type { Cards } from "../model/cards.ts";
+import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { loadFolder } from "../model/folder.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Settings } from "../model/settings.ts";
 import { settingsOf } from "../model/settings.ts";
+import type { Tree } from "../model/tree.ts";
 import { treeOf } from "../model/tree.ts";
 import { WORDS } from "../model/words.ts";
 import type { Viewer } from "./panel.ts";
-import { fieldHtml, linesAround, renderCrumbs, renderPanel, renderViewer } from "./panel.ts";
+import {
+  cardsHtml,
+  fieldHtml,
+  linesAround,
+  renderCrumbs,
+  renderPanel,
+  renderViewer,
+} from "./panel.ts";
 import { esc } from "./svg.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
@@ -390,6 +400,125 @@ describe("the viewer of a citation's lines", () => {
 
     expect(failed).toContain(WORDS.fr.viewerFailed("403 &lt;img src=x&gt;"));
     expect(await elementsWith(failed, "img")).toBe(0);
+  });
+});
+
+function cardsIn(tree: Tree, container: string | null): Cards {
+  const cards = cardsOf(tree, container);
+
+  if (cards === null) {
+    throw new Error(`${container ?? "the root"} has no cards`);
+  }
+
+  return cards;
+}
+
+const leaf = (id: string, fields: Partial<Node>): Node => ({
+  id,
+  label: id,
+  sub: "",
+  color: "clients",
+  ...fields,
+});
+
+describe("the cards", () => {
+  const settings = settingsOf(CONFIG);
+  const app = cardsHtml(settings, cardsIn(TREE, "app"), null);
+
+  test("one column per leaf, in data order, its header a button that selects it, in its colour", () => {
+    expect(app).toContain(
+      '<th scope="col" style="--zc: var(--palette-app)"><button type="button" data-select="web">Web routes</button></th>',
+    );
+    expect(app.indexOf('data-select="web"')).toBeLessThan(app.indexOf('data-select="catalog"'));
+    expect(app.indexOf('data-select="catalog"')).toBeLessThan(app.indexOf('data-select="orders"'));
+  });
+
+  test("the leads first, then one row per key, each value through fieldHtml", () => {
+    const lead = app.indexOf("Maps each URL to a page or a form handler");
+    const receives = app.indexOf('<th scope="row">Receives</th>');
+    const produces = app.indexOf('<th scope="row">Produces</th>');
+
+    expect(lead).toBeGreaterThan(-1);
+    expect(receives).toBeGreaterThan(lead);
+    expect(produces).toBeGreaterThan(receives);
+    expect(app).toContain("<td><p>HTTP requests</p></td>");
+  });
+
+  test("the selected leaf's header is current and its column's cells marked, and no other's", () => {
+    const html = cardsHtml(settings, cardsIn(TREE, "app"), "catalog");
+
+    expect(html).toContain(
+      '<th scope="col" class="selected" style="--zc: var(--palette-app)"><button type="button" data-select="catalog" aria-current="true">Catalog</button></th>',
+    );
+    expect(html).toContain('<td class="lead selected"><p>Lists, searches and shows the books.</p>');
+    expect(html.match(/aria-current/gu)).toHaveLength(1);
+    expect(html.match(/selected"/gu)).toHaveLength(4);
+    expect(app).not.toContain("selected");
+  });
+
+  test("a cell with a citation shows its marker; pairs sharing a key share a cell; a missing key leaves it empty", () => {
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [
+          leaf("a", {
+            io: [
+              ["Receives", "a cart <cite>src/web.ts:4</cite>"],
+              ["Receives", "<code>kept</code>"],
+            ],
+          }),
+          leaf("b", { lead: "B", io: [["Produces", "x"]] }),
+        ],
+      },
+      links: [],
+    });
+
+    const html = cardsHtml(settings, cardsIn(tree, null), null);
+
+    expect(html).toContain(
+      '<td><p>a cart <cite class="cite" title="src/web.ts:4"><span class="cite-path">src/web.ts:</span>4</cite></p><p><code>kept</code></p></td><td></td></tr>',
+    );
+    expect(html).toContain('<td class="lead"></td><td class="lead"><p>B</p></td>');
+
+    const sourced = cardsHtml(
+      settingsOf({ ...CONFIG, sources: { root: "repo" } }),
+      cardsIn(tree, null),
+      null,
+    );
+
+    expect(sourced).toContain('data-cite="src/web.ts:4"');
+  });
+
+  test("no row of leads when no leaf has one: the keys follow the headers", () => {
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [leaf("a", { io: [["Receives", "x"]] }), leaf("b", { io: [["Receives", "y"]] })],
+      },
+      links: [],
+    });
+
+    const html = cardsHtml(settings, cardsIn(tree, null), null);
+
+    expect(html).not.toContain("lead");
+    expect(html).toContain('</thead><tbody><tr><th scope="row">Receives</th>');
+  });
+
+  test("a label, a key and a value holding markup a panel does not keep show as text", async () => {
+    const hostile = '<img src=x onerror="alert(1)">';
+
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [leaf("a", { label: hostile, io: [[hostile, hostile]] }), leaf("b", {})],
+      },
+      links: [],
+    });
+
+    const html = cardsHtml(settings, cardsIn(tree, null), null);
+
+    expect(await elementsWith(html, "img")).toBe(0);
+    expect(html).toContain('<th scope="row">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</th>');
   });
 });
 

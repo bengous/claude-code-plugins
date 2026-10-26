@@ -79,9 +79,13 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      neighbours as ghosts in side columns; the couplings a selection outlines and
                      the arrows it lights; the legend lines it uses (view.spec.ts; scale.spec.ts
                      bounds the time of the index and a view on a map of 5,000 nodes)
+  cards.ts           a container's leaf children side by side: a column per leaf, a row for the
+                     leads unless none has one, then one per first element of their `io` pairs;
+                     none for fewer than two leaves, or when no leaf has `io` (cards.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
-                     fragment that carries both, and the page's state window.atlas shows agents
+                     fragment that carries both and the parameters of the reading state (its
+                     grammar on `Params`), and the page's state window.atlas shows agents
                      (navigation.spec.ts)
   threads.ts         open points and threads: who a point waits for (threads.spec.ts)
 
@@ -132,7 +136,7 @@ src/page/            what runs in the browser
                      (legend.spec.ts)
   panel.ts           the panel, the breadcrumb and the open points' list; fieldHtml, the one way
                      an HTML field reaches the page, its citations as markers; the viewer of a
-                     citation's lines (panel.spec.ts)
+                     citation's lines; the cards' table (panel.spec.ts)
   measure.ts         sizes text: one scale for every view
   geometry.ts        rects, points and similarities
   svg.ts             SVG building blocks
@@ -219,13 +223,15 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
 
 - The URL's fragment is the place (`hashOf` in `navigation.ts`): a bare `#id` opens a container's
   view, or a leaf's parent's view with the leaf selected; `#<open>/<selected>` carries a selection
-  no bare id lands on, a ghost or a container among them. A fragment typed into the address bar is
-  followed.
+  no bare id lands on, a ghost or a container among them. After a `?` come the parameters of the
+  reading state, `key=value` joined by `&`, each written only away from its default, such as
+  `#app?mode=cards`; their grammar, the rules every new one follows and what survives a move are
+  on `Params`. A fragment typed into the address bar is followed.
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
-  ghosts) and the fragment, frozen and replaced at each move, with the view's `zoom`, 1 at its
-  fit (`zoomOf` in `engine.ts`), `sourcesInFull`, and the `citation` whose lines the panel
-  shows, or null; a getter, so a page script cannot assign it.
+  ghosts), each parameter of the fragment (`mode`) and the fragment, frozen and replaced at each
+  move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`, and the
+  `citation` whose lines the panel shows, or null; a getter, so a page script cannot assign it.
 - A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
   marker of its lines, the whole citation as its tooltip; a `<cite>` of other text, a `kicker`,
   and a `label`, plain text even as the heading of a node without `title`, show as written. The header's Sources toggle, shown when the map has a citation, shows every
@@ -235,12 +241,23 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   serve.ts, under the path and a close button, until the close button, Escape or a move; a file
   over the route's cap shows as too large to show. serve.ts knows the paths the map cites only
   from folder.ts's line.
+- A view whose container has two leaf children or more, one of them with `io` (`cardsOf` in
+  `cards.ts`), the root's included, gets a Map | Cards switch in the stage's controls. Cards
+  (`mode=cards`) lays the container's leaves over the drawing as a table (`cardsHtml` in
+  `panel.ts`): a column per leaf, in data order, its header in its colour selecting it; a row of
+  leads, unless no leaf has one, then one per `io` key, each cell through `fieldHtml`, a marker
+  opening its lines in the panel, shown if it was hidden; a click elsewhere on the cards does
+  nothing. The header row and the keys' column stay in sight as it scrolls, below the controls,
+  which wrap within the stage. The drawing stays laid out beneath, inert, keeping its zoom, which
+  Escape leaves alone, the fit and legend buttons disabled; the legend and the hint hide. Another container
+  opens on its drawing.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
   the rect that fits the view (`zoom.ts`); the fit button, Escape and a click on the empty sheet
-  bring the fit back before they do anything else, and a move to another view starts at its fit.
+  bring the fit back before they do anything else, but over the cards, and a move to another
+  view starts at its fit.
 - A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
   hides, keeping its spot, unless its arrow is lit by a hover or a keyboard focus or hot from the
   selection, or its own box or card is hovered, focused or selected (`captionShown` in

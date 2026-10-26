@@ -1,4 +1,5 @@
-import type { OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Node, OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Cards } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationText, citedLines, withCitations } from "../model/citations.ts";
 import { keptMarkup } from "../model/markup.ts";
@@ -397,6 +398,45 @@ export function renderOpenList(
       : `<p class="open-sum">${s.words.openSum(count("human"), count("agent"), humanName)}</p>`;
 
   menu.innerHTML = `<h2>${s.words.openPoints}</h2>${sum}<ul>${rows.join("")}</ul>`;
+}
+
+const classOf = (names: readonly string[]): string =>
+  names.length === 0 ? "" : ` class="${names.join(" ")}"`;
+
+function cardHead(node: Node, selected: boolean): string {
+  const current = selected ? ' aria-current="true"' : "";
+  const label = esc(node.label.replaceAll("\n", " "));
+
+  return `<th scope="col"${classOf(selected ? ["selected"] : [])} style="--zc: var(${paletteVar(node.color)})"><button type="button" data-select="${esc(node.id)}"${current}>${label}</button></th>`;
+}
+
+const cell = (s: Settings, values: readonly string[], names: readonly string[]): string =>
+  `<td${classOf(names)}>${values.map((value) => `<p>${fieldHtml(s, value)}</p>`).join("")}</td>`;
+
+/**
+ * A container's leaf children side by side (cardsOf), as a table: a column per leaf, its header
+ * its label in its colour, a button that selects it, the selected one's cells marked; the first
+ * row their leads, unless none has one, then a row per `io` key, its key as the panel shows it, its values through
+ * fieldHtml, the panel's markup and markers kept.
+ */
+export function cardsHtml(s: Settings, cards: Cards, selected: string | null): string {
+  const marked = cards.columns.map((node) => node.id === selected);
+  const mark = (i: number): string[] => (marked[i] === true ? ["selected"] : []);
+  const head = cards.columns.map((node, i) => cardHead(node, marked[i] === true)).join("");
+
+  const lead =
+    cards.lead === null
+      ? []
+      : [
+          `<tr><td></td>${cards.lead.map((text, i) => cell(s, text === null ? [] : [text], ["lead", ...mark(i)])).join("")}</tr>`,
+        ];
+
+  const rows = cards.rows.map(
+    (row) =>
+      `<tr><th scope="row">${esc(row.key)}</th>${row.cells.map((values, i) => cell(s, values, mark(i))).join("")}</tr>`,
+  );
+
+  return `<table><thead><tr><td></td>${head}</tr></thead><tbody>${[...lead, ...rows].join("")}</tbody></table>`;
 }
 
 // On one line: the levels folded (foldedCrumbs) name themselves in the fold's tooltip.

@@ -17,11 +17,21 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
+import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import type { PageState, Place, PlaceEvent } from "../model/navigation.ts";
-import { HOME, navigate, openOf, pageStateOf, placeOfHash } from "../model/navigation.ts";
+import type { Mode, PageState, Params, Place, PlaceEvent } from "../model/navigation.ts";
+import {
+  DEFAULTS,
+  HOME,
+  navigate,
+  openOf,
+  pageStateOf,
+  paramsAfter,
+  paramsOfHash,
+  placeOfHash,
+} from "../model/navigation.ts";
 import type { PaletteRule } from "../model/settings.ts";
 import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
@@ -37,7 +47,14 @@ import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
 import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
-import { linesAround, renderCrumbs, renderOpenList, renderPanel, renderViewer } from "./panel.ts";
+import {
+  cardsHtml,
+  linesAround,
+  renderCrumbs,
+  renderOpenList,
+  renderPanel,
+  renderViewer,
+} from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
@@ -72,6 +89,16 @@ const legendButton = byId("btn-legend", HTMLButtonElement);
 const legend = byId("legend", HTMLDivElement);
 
 const sourcesButton = byId("btn-sources", HTMLButtonElement);
+
+const drawing = byId("sheet", HTMLDivElement);
+
+const cardsView = byId("cards", HTMLDivElement);
+
+const modeSwitch = byId("mode", HTMLSpanElement);
+
+const mapButton = byId("btn-map", HTMLButtonElement);
+
+const cardsButton = byId("btn-cards", HTMLButtonElement);
 
 function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   const text =
@@ -143,6 +170,8 @@ function dressPage(): void {
   byId("btn-fit", HTMLButtonElement).textContent = words.fitButton;
   legendButton.textContent = words.legendButton;
   byId("btn-panel", HTMLButtonElement).textContent = words.panelButton;
+  mapButton.textContent = words.mapButton;
+  cardsButton.textContent = words.cardsButton;
   byId("hint", HTMLElement).textContent = words.hint;
   legend.setAttribute("aria-label", words.legendButton);
 
@@ -175,6 +204,9 @@ let st: Stage<Drawn> = EMPTY;
 
 let place: Place = HOME;
 
+// The rest of the reading state the fragment carries (navigation.ts's grammar).
+let params: Params = DEFAULTS;
+
 let cam: Camera | null = null;
 
 let raf = 0;
@@ -193,13 +225,13 @@ let panelAvoidError: string | null = null;
 let sourcesInFull = false;
 
 // The lines of the marker last clicked, shown in place of the panel's fields until the reader
-// closes them or moves; panelTop is where the panel was scrolled when they opened, markerAt the
-// marker's place among the panel's, which takes the focus back when they close.
+// closes them or moves; panelTop is where the panel was scrolled when they opened, openedFrom the
+// marker they opened from, in the panel or the cards, which takes the focus back when they close.
 let viewer: Viewer | null = null;
 
 let panelTop = 0;
 
-let markerAt = 0;
+let openedFrom: Mark | null = null;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -472,9 +504,12 @@ function look(vb: Rect): void {
   fitButton.disabled = !zoomedIn(vb, imageOf(image.space).vb);
 }
 
+const isZoomed = (): boolean =>
+  cam?.kind === "idle" && zoomedIn(cam.image.vb, imageOf(cam.image.space).vb);
+
 // Whether the view was zoomed into; if so, back to its fit.
 function unzoom(): boolean {
-  if (cam?.kind !== "idle" || !zoomedIn(cam.image.vb, imageOf(cam.image.space).vb)) {
+  if (cam?.kind !== "idle" || !isZoomed()) {
     return false;
   }
 
@@ -723,6 +758,119 @@ function renderLegend(key: Key): void {
   legend.classList.toggle("empty", keys.length === 0);
 }
 
+// The cards start below the controls, on as many lines as the stage's width wraps them to.
+const controls = byId("controls", HTMLDivElement);
+
+new ResizeObserver(() => {
+  byId("stage", HTMLElement).style.setProperty(
+    "--controls-bottom",
+    `${controls.offsetTop + controls.offsetHeight}px`,
+  );
+}).observe(controls);
+
+// The container whose cards the stage shows, so a render of the same keeps where they were
+// scrolled; undefined while the drawing shows.
+let cardsShown: Key | undefined;
+
+// An element of a root whose markup is rewritten, found again in the new markup by the value of
+// the first of the keys (attributes) it bears, and its rank among the root's elements bearing that
+// value.
+interface Mark {
+  readonly root: Element;
+  readonly keys: readonly string[];
+  readonly key: string;
+  readonly value: string;
+  readonly rank: number;
+}
+
+const bearing = (root: Element, key: string, value: string): Element[] =>
+  [...root.querySelectorAll(`[${key}]`)].filter((e) => e.getAttribute(key) === value);
+
+function markOf(root: Element, keys: readonly string[], element: Element | null): Mark | null {
+  if (element === null || !root.contains(element)) {
+    return null;
+  }
+
+  const key = keys.find((k) => element.hasAttribute(k));
+
+  if (key === undefined) {
+    return null;
+  }
+
+  const value = element.getAttribute(key) ?? "";
+
+  return { root, keys, key, value, rank: bearing(root, key, value).indexOf(element) };
+}
+
+const focusable = (e: Element | undefined): e is HTMLElement =>
+  e instanceof HTMLElement && !e.matches(":disabled");
+
+// The marked element takes the focus; gone or disabled, the root's first enabled element bearing
+// one of the keys does.
+function refocus(mark: Mark): void {
+  const same = bearing(mark.root, mark.key, mark.value)[mark.rank];
+
+  const target = focusable(same)
+    ? same
+    : [...mark.root.querySelectorAll(mark.keys.map((k) => `[${k}]`).join(", "))].find((e) =>
+        focusable(e),
+      );
+
+  target?.focus({ preventScroll: true });
+}
+
+// Rewrites a root's markup, and gives the focus back to what held it there.
+function keepingFocus(root: Element, keys: readonly string[], rewrite: () => void): void {
+  const mark = markOf(root, keys, document.activeElement);
+  rewrite();
+
+  if (mark !== null) {
+    refocus(mark);
+  }
+}
+
+// What the cards' focus is kept by: their headers and their markers.
+const CARD_KEYS = ["data-select", "data-cite"];
+
+// The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
+// which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
+// kept for the way back and the fit and legend buttons disabled. The same cards rewritten keep
+// where they were scrolled and the focus.
+function renderMode(key: Key): void {
+  const cards = cardsOf(tree, key);
+  const table = params.mode === "cards" ? cards : null;
+  modeSwitch.hidden = cards === null;
+  mapButton.setAttribute("aria-pressed", String(table === null));
+  cardsButton.setAttribute("aria-pressed", String(table !== null));
+  cardsView.hidden = table === null;
+  drawing.inert = table !== null;
+  fitButton.disabled = table !== null || !isZoomed();
+  legendButton.disabled = table !== null;
+
+  if (table === null) {
+    cardsShown = undefined;
+
+    return;
+  }
+
+  const same = cardsShown === key;
+  const [left, top] = same ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
+
+  const write = (): void => {
+    cardsView.innerHTML = cardsHtml(settings, table, place.selected);
+    cardsView.scrollLeft = left;
+    cardsView.scrollTop = top;
+  };
+
+  if (same) {
+    keepingFocus(cardsView, CARD_KEYS, write);
+  } else {
+    write();
+  }
+
+  cardsShown = key;
+}
+
 // serve.ts prints each selection, with the map's own label, for the agent's session (wire.ts); a
 // page reloaded on a #id posts it again, so a revived server's session hears it too.
 let toldSelection: string | null = null;
@@ -752,10 +900,11 @@ function tellSelection(id: string | null): void {
 }
 
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
-// so a page script cannot assign it, answering the frozen state of the last render, the zoom of
-// the view shown, 1 at its fit, 2 when half its width fills the stage, whether the panel shows its
-// citations in full, and the citation whose lines it shows, if any.
-let pageState: PageState = pageStateOf(tree, place);
+// so a page script cannot assign it, answering the frozen state of the last render, the fragment's
+// parameters among it, the zoom of the view shown, 1 at its fit, 2 when half its width fills the
+// stage, whether the panel shows its citations in full, and the citation whose lines it shows, if
+// any.
+let pageState: PageState = pageStateOf(tree, place, params);
 
 const zoomOf = (): number =>
   cam?.kind === "idle"
@@ -788,8 +937,9 @@ function render(): void {
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
-  pageState = pageStateOf(tree, place);
-  // Keeps the place in the URL's fragment so a link reopens the same view.
+  renderMode(key);
+  pageState = pageStateOf(tree, place, params);
+  // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
 
   history.replaceState(
@@ -877,7 +1027,9 @@ async function settle(): Promise<void> {
 // Every input becomes a navigation event: the place changes, the panel follows, the camera heads
 // to the view once it is drawn.
 function send(ev: PlaceEvent): void {
-  place = navigate(tree, place, ev);
+  const next = navigate(tree, place, ev);
+  params = paramsAfter(tree, place, next, params);
+  place = next;
   viewer = null;
   render();
   settle().catch(fail);
@@ -1006,6 +1158,8 @@ async function linesOf(citation: Citation): Promise<Viewer> {
 
 const MARKER = "[data-cite]";
 
+const MARKER_KEYS = ["data-cite"];
+
 const panelFocused = (): boolean => panel.contains(document.activeElement);
 
 function focusViewerClose(): void {
@@ -1021,9 +1175,9 @@ function focusViewerClose(): void {
 async function openCitation(citation: Citation, marker: Element): Promise<void> {
   if (viewer === null) {
     panelTop = panel.scrollTop;
-    markerAt = [...panel.querySelectorAll(MARKER)].indexOf(marker);
   }
 
+  openedFrom = markOf(cardsView.contains(marker) ? cardsView : panel, MARKER_KEYS, marker);
   const opened: Viewer = { kind: "loading", citation };
   viewer = opened;
   render();
@@ -1047,11 +1201,17 @@ function closeCitation(): void {
   viewer = null;
   render();
   panel.scrollTop = panelTop;
-  const marker = panel.querySelectorAll(MARKER)[markerAt];
 
-  if (focused && marker instanceof HTMLElement) {
-    marker.focus({ preventScroll: true });
+  if (focused && openedFrom !== null) {
+    refocus(openedFrom);
   }
+}
+
+// The citation of the marker a click lands on, in the panel or the cards.
+function citedAt(target: Element): Citation | null {
+  const cited = target.closest("[data-cite]");
+
+  return cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
 }
 
 panel.addEventListener("click", (e) => {
@@ -1060,13 +1220,49 @@ panel.addEventListener("click", (e) => {
   }
 
   const cited = e.target.closest(MARKER);
-  const citation = cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
+  const citation = citedAt(e.target);
 
   if (cited !== null && citation !== null) {
     void openCitation(citation, cited);
   } else if (e.target.closest("[data-close-viewer]") !== null) {
     closeCitation();
   }
+});
+
+// A column's header selects its leaf, as a click on its card does; a marker in a cell shows its
+// lines in the panel, as one in the panel does, showing the panel if it was hidden; a click
+// elsewhere on the cards does nothing.
+cardsView.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) {
+    return;
+  }
+
+  const header = e.target.closest("[data-select]");
+  const cited = e.target.closest(MARKER);
+  const citation = citedAt(e.target);
+
+  if (header instanceof HTMLElement) {
+    send({ type: "select", id: header.dataset["select"] ?? "" });
+  } else if (cited !== null && citation !== null) {
+    if (panel.hidden) {
+      showPanel(true);
+    }
+
+    void openCitation(citation, cited);
+  }
+});
+
+function showMode(mode: Mode): void {
+  params = { ...params, mode };
+  rerender();
+}
+
+mapButton.addEventListener("click", () => {
+  showMode("map");
+});
+
+cardsButton.addEventListener("click", () => {
+  showMode("cards");
 });
 
 addEventListener("focus", () => {
@@ -1113,24 +1309,34 @@ function store(key: string, value: string): void {
 }
 
 // A button that shows or hides an element, remembered per browser; the element starts shown.
-function bindToggle(button: HTMLButtonElement, target: HTMLElement, key: string): void {
+// Answers the way to show or hide it as the button does.
+function bindToggle(
+  button: HTMLButtonElement,
+  target: HTMLElement,
+  key: string,
+): (visible: boolean) => void {
   const show = (visible: boolean): void => {
     target.hidden = !visible;
     button.setAttribute("aria-pressed", String(visible));
   };
 
+  const toggle = (visible: boolean): void => {
+    show(visible);
+    store(key, visible ? "shown" : "hidden");
+  };
+
   show(stored(key) !== "hidden");
 
   button.addEventListener("click", () => {
-    const visible = target.hidden !== false;
-    show(visible);
-    store(key, visible ? "shown" : "hidden");
+    toggle(target.hidden !== false);
   });
+
+  return toggle;
 }
 
 bindToggle(legendButton, legend, "atlas.legend");
 
-bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
+const showPanel = bindToggle(byId("btn-panel", HTMLButtonElement), panel, "atlas.panel");
 
 // The citations show as markers until the reader asks for them in full, remembered per browser.
 const SOURCES_KEY = "atlas.sources";
@@ -1138,6 +1344,7 @@ const SOURCES_KEY = "atlas.sources";
 function showSources(full: boolean): void {
   sourcesInFull = full;
   panel.classList.toggle("full-sources", full);
+  cardsView.classList.toggle("full-sources", full);
   sourcesButton.setAttribute("aria-pressed", String(full));
 }
 
@@ -1149,9 +1356,10 @@ sourcesButton.addEventListener("click", () => {
 });
 
 // Escape and a click on the empty sheet bring the fit back, else close the lines viewer where the
-// reader stands, else deselect, then go up a level.
+// reader stands, else deselect, then go up a level. Over the cards, the drawing's zoom is not
+// theirs to undo.
 function stepBack(): void {
-  if (unzoom()) {
+  if (cardsShown === undefined && unzoom()) {
     return;
   }
 
@@ -1174,6 +1382,7 @@ document.addEventListener("keydown", (e) => {
 // typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
+  params = paramsOfHash(tree, location.hash);
   viewer = null;
   render();
   settle().catch(fail);
@@ -1252,6 +1461,7 @@ async function start(): Promise<void> {
   builtAspect = aspect();
   threads = await loadThreads();
   place = placeOfHash(tree, location.hash);
+  params = paramsOfHash(tree, location.hash);
   render();
   await settle();
   document.fonts.addEventListener("loadingdone", () => {
