@@ -361,7 +361,7 @@ svg text { text-rendering: geometricPrecision; }
 .ghost.selected rect { stroke: var(--accent); stroke-width: 2.6; stroke-dasharray: none; }
 .ghost.coupled rect { stroke: var(--accent); stroke-dasharray: 4 3; fill: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
 .ghost-t { font-family: var(--f-display); font-weight: 600; font-size: 20px; fill: var(--ink-2); }
-/* The mark of a ghost drawn twice: at the edge its arrows leave (left copy) or reach (right copy). */
+/* The mark of a ghost drawn twice: at the edge its arrows leave ("in" copy) or reach ("out" copy). */
 .ghost-mark { font-family: var(--f-display); font-weight: 700; font-size: 22px; fill: var(--ink-3); pointer-events: none; }
 .ghost:hover .ghost-mark, .ghost.peer .ghost-mark { fill: var(--ink); }
 

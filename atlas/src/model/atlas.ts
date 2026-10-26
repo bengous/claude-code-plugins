@@ -12,8 +12,9 @@ export type Pair = readonly [string, string];
 export type OpenPoint = { readonly id: string; readonly text: string };
 
 /**
- * The column of an outside node in the root's view: "in" (left) or "out" (right). "both", for a
- * leaf only, draws it twice, its links leaving the left copy and arriving at the right one.
+ * The side of an outside node in the root's view: "in" (left, or above under the Config's
+ * direction "DOWN") or "out" (right, or below). "both", for a leaf only, draws it twice, its links
+ * leaving the "in" copy and arriving at the "out" one.
  */
 export type Side = "in" | "out" | "both";
 
@@ -84,6 +85,12 @@ export type Node = Panel & {
   readonly side?: Side;
   /** Outside the system (a client, a third-party service): a child of the root, drawn dashed. */
   readonly outside?: true;
+  /**
+   * The band it sits in, in its parent's view: an integer from 0, on a node inside (`atlas check`),
+   * the bands following the Config's `direction` in rank order. Once one of its siblings has a
+   * rank, a sibling without one sits after every rank.
+   */
+  readonly rank?: number;
   readonly open?: readonly OpenPoint[];
   /** Drawn inside this node, packed in this order. */
   readonly children?: readonly Node[];
@@ -169,6 +176,9 @@ export type PanelHeading =
  */
 export type Pins = "shared" | "exclusive";
 
+/** The way a view reads, its layers or its ranked bands one after the other: "RIGHT" or "DOWN". */
+export type Direction = "RIGHT" | "DOWN";
+
 /** The closed list of tags a link may carry. */
 export type Tags = {
   readonly names: readonly string[];
@@ -209,6 +219,8 @@ export type Config = {
    * absent.
    */
   readonly overview?: { readonly ratio: "screen" | number };
+  /** The reading direction of every view, "RIGHT" when absent. */
+  readonly direction?: Direction;
   /** The tags links may carry; none, and none required, when absent. */
   readonly tags?: Tags;
   /** The legend's labels, the dictionary's when absent. The legend shows the lines a view uses. */

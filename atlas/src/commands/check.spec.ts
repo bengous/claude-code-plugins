@@ -64,6 +64,19 @@ describe("validate", () => {
     ]);
   });
 
+  test("a rank on an outside node is rejected: its side places it", () => {
+    expect(errorsOf(withNode(MAP, "clients", (n) => ({ ...n, rank: 0 })))).toEqual([
+      "node clients: rank is for a node inside; an outside node's side places it",
+    ]);
+  });
+
+  test("a rank from 0, on a container or a leaf, passes", () => {
+    const server = withNode(MAP, "server", (n) => ({ ...n, rank: 0 }));
+    const ranked = withNode(server, "browser", (n) => ({ ...n, rank: 3 }));
+
+    expect(errorsOf(ranked)).toEqual([]);
+  });
+
   test("a tour that misses a node with children, or names a leaf, is rejected", () => {
     const tour = ["clients", "server", "app", "db"];
 
@@ -249,6 +262,18 @@ describe("checkMap", () => {
     ]);
   });
 
+  test("a rank that is not an integer from 0 is refused, as drawableOf refuses it", () => {
+    expect(
+      checkMap(
+        withNode(MAP, "browser", (n) => ({ ...n, rank: -1 })),
+        CONFIG,
+        THREADS,
+      ),
+    ).toEqual([
+      "node browser: rank -1 is not an integer from 0; give 0 to the first band, 1 to the next, or no rank",
+    ]);
+  });
+
   test("a container in both side columns is refused: only a leaf is drawn twice", () => {
     const both = withNode(MAP, "clients", (n) => ({ ...n, side: "both" }));
 
@@ -294,6 +319,20 @@ describe("drawableOf", () => {
 
     expect(() => drawableOf(hostile, CONFIG)).toThrow(
       "node orders: how: <script> is not markup a panel keeps",
+    );
+  });
+
+  test.each([
+    [-1, "-1"],
+    [1.5, "1.5"],
+    [Number.NaN, "NaN"],
+    ["1", '"1"'],
+  ])("refuses a rank that is not an integer from 0, which no band holds: %p", (rank, shown) => {
+    // SAFETY: a rank outside number, as a map folder's data can hold once it skips its typecheck.
+    const ranked = withNode(MAP, "browser", (n) => ({ ...n, rank: rank as number }));
+
+    expect(() => drawableOf(ranked, CONFIG)).toThrow(
+      `node browser: rank ${shown} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
     );
   });
 });

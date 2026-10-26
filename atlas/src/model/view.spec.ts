@@ -73,6 +73,7 @@ describe("the sample's views", () => {
           color: "clients",
           open: 0,
           column: "in",
+          rank: null,
           chips: [{ id: "browser", label: "Browser", color: "clients", off: false, open: 0 }],
         },
         {
@@ -83,6 +84,7 @@ describe("the sample's views", () => {
           color: "server",
           open: 1,
           column: null,
+          rank: null,
           chips: [
             { id: "proxy", label: "Reverse proxy", color: "server", off: false, open: 0 },
             { id: "app", label: "Application", color: "app", off: false, open: 0 },
@@ -97,6 +99,7 @@ describe("the sample's views", () => {
           color: "external",
           open: 0,
           column: "out",
+          rank: null,
           off: false,
         },
       ],
@@ -299,6 +302,29 @@ describe("the deep map's views", () => {
     ]);
 
     expect(view.ghosts).toEqual([]);
+  });
+
+  test("a box carries its node's rank in its parent's view, null without one", () => {
+    const ranked = treeOf({
+      root: {
+        title: "T",
+        children: [
+          card("A", { rank: 1, children: [card("a1", { rank: 0 }), card("a2")] }),
+          card("B", { children: [card("b1")] }),
+        ],
+      },
+      links: [],
+    });
+
+    expect(viewOf(ranked, null).boxes.map((b) => [b.id, b.rank])).toEqual([
+      ["A", 1],
+      ["B", null],
+    ]);
+
+    expect(viewOf(ranked, "A").boxes.map((b) => [b.id, b.rank])).toEqual([
+      ["a1", 0],
+      ["a2", null],
+    ]);
   });
 
   test("one level down, the far side of the root's merged pair splits into its two directions", () => {

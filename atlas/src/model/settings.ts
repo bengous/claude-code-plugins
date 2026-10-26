@@ -1,4 +1,13 @@
-import type { Config, Lang, LegendKey, PanelHeading, Pins, Swatch, Tags } from "./atlas.ts";
+import type {
+  Config,
+  Direction,
+  Lang,
+  LegendKey,
+  PanelHeading,
+  Pins,
+  Swatch,
+  Tags,
+} from "./atlas.ts";
 import type { Words } from "./words.ts";
 import { WORDS } from "./words.ts";
 
@@ -19,6 +28,7 @@ export type Settings = {
   readonly openColor: Swatch;
   readonly pins: Pins;
   readonly ratio: "screen" | number;
+  readonly direction: Direction;
   readonly tags: Tags;
   readonly legend: Readonly<Record<LegendKey, string>>;
   /** The map's text, not the page's words: the panel escapes each where it inserts it. */
@@ -109,6 +119,12 @@ export function settingsOf(config: Config): Settings {
     throw new ConfigError(`overview ratio ${ratio}: "screen", or a width / height above 0`);
   }
 
+  const direction = config.direction ?? "RIGHT";
+
+  if (direction !== "RIGHT" && direction !== "DOWN") {
+    throw new ConfigError(`direction "${String(direction)}": "RIGHT" or "DOWN"`);
+  }
+
   const words = WORDS[lang];
 
   return {
@@ -125,6 +141,7 @@ export function settingsOf(config: Config): Settings {
     openColor,
     pins: config.pins ?? "shared",
     ratio,
+    direction,
     tags: config.tags ?? { names: [], outside: "optional" },
     legend: { ...words.legend, ...config.legend },
     headings: { ...words.headings, ...config.headings },
