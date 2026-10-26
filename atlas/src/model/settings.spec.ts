@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import type { Config, Lang } from "./atlas.ts";
+import type { Config, Direction, Lang } from "./atlas.ts";
 import { loadFolder } from "./folder.ts";
 import { ConfigError, paletteRules, paletteVar, settingsOf } from "./settings.ts";
 import { treeOf } from "./tree.ts";
@@ -22,6 +22,7 @@ describe("settingsOf", () => {
       openColor: { light: "#c2410c", dark: "#fb923c" },
       pins: "shared",
       ratio: "screen",
+      direction: "RIGHT",
       tags: { names: [], outside: "optional" },
       legend: WORDS.en.legend,
       headings: WORDS.en.headings,
@@ -49,6 +50,7 @@ describe("settingsOf", () => {
       palette: {},
       pins: "exclusive",
       overview: { ratio: 0.8 },
+      direction: "DOWN",
       tags: { names: ["order"], outside: "required" },
       legend: { outside: "hors du serveur" },
     });
@@ -61,8 +63,17 @@ describe("settingsOf", () => {
       stepWords: steps,
       pins: "exclusive",
       ratio: 0.8,
+      direction: "DOWN",
       tags: { names: ["order"], outside: "required" },
     });
+  });
+
+  test.each(["LEFT", "UP", "down"])("refuses the direction %s", (direction) => {
+    // SAFETY: a direction outside Direction, as a map folder's data can hold once it skips its typecheck.
+    const config = { title: "T", palette: {}, direction: direction as Direction };
+
+    expect(() => settingsOf(config)).toThrow(ConfigError);
+    expect(() => settingsOf(config)).toThrow(`direction "${direction}": "RIGHT" or "DOWN"`);
   });
 
   test.each(["constructor", "toString", "hasOwnProperty", "__proto__", "de"])(

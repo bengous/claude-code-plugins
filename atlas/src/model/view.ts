@@ -32,6 +32,8 @@ type BoxBase = {
   readonly open: number;
   /** An outside child of the root stands in the column(s) of its side; null: packed in the middle. */
   readonly column: Side | null;
+  /** Its node's rank, the band it sits in; null when it has none. */
+  readonly rank: number | null;
 };
 
 /** A leaf child: a card with its label and subtitle. */
@@ -258,6 +260,7 @@ function boxOf(tree: Tree, node: Node): Box {
     color: node.color,
     open: openIn(tree, node.id),
     column: tree.sides.get(node.id) ?? null,
+    rank: node.rank ?? null,
   };
 
   return node.children === undefined

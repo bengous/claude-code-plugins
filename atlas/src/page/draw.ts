@@ -8,8 +8,8 @@
 //    boxes), aiming at the aspect of the screen less the room of the two side columns when the
 //    Config's overview ratio is "screen", or at the ratio it gives; libavoid routes one arrow per
 //    pair around every item. A view of leaves alone is layered: ELK's layered layout places the
-//    cards and the pills left to right, in rows wrapped to that same aspect, and routes the
-//    arrows.
+//    cards and the pills in the Config's direction, in rows wrapped to that same aspect or, once a
+//    card has a rank, in one line of layers by rank, and routes the arrows.
 // 3. Labels take a spot along their arrow where the label hits no item, no other label and no
 //    other arrow, then one that hits no item and no label, the label shortened to its first part,
 //    then to an ellipsis, when the whole does not fit; failing that, the ellipsis takes the spot
@@ -19,14 +19,14 @@
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
-import type { Pins, Side } from "../model/atlas.ts";
+import type { Direction, Pins, Side } from "../model/atlas.ts";
 import type { PlaceEvent } from "../model/navigation.ts";
 import { paletteVar } from "../model/settings.ts";
 import type { Arrow, Chip, ContainerBox, Ghost, LeafBox, View } from "../model/view.ts";
 import type { Words } from "../model/words.ts";
 import { routeLinks } from "./avoid.ts";
 import type { Point, Rect, Size } from "./geometry.ts";
-import type { Edge, LayoutEdge } from "./layout.ts";
+import type { Edge, LayoutEdge, Leaf } from "./layout.ts";
 import { ROOT_COORDS, edgeOf, elkLayered } from "./layout.ts";
 import {
   BOX,
@@ -106,8 +106,16 @@ type Figure =
   | { readonly kind: "card"; readonly box: LeafBox }
   | { readonly kind: "ghost"; readonly ghost: Ghost };
 
-/** `edge`: the layer a layered view holds the item to, by the column its arrows give it. */
-type Item = Block & { readonly figure: Figure; readonly column: Column; readonly edge: Edge };
+/**
+ * `edge`: the layer a layered view holds the item to, by the column its arrows give it; `rank`:
+ * its box's in the middle, null in a side column, where its column places it.
+ */
+type Item = Block & {
+  readonly figure: Figure;
+  readonly column: Column;
+  readonly edge: Edge;
+  readonly rank: number | null;
+};
 
 type End = { readonly from: string; readonly to: string };
 
@@ -122,7 +130,7 @@ const RATIO = { min: 0.6, max: 4, passes: 3, settled: 0.05 };
 
 const clampRatio = (r: number): number => Math.min(RATIO.max, Math.max(RATIO.min, r));
 
-type Sized = Omit<Item, "column" | "edge">;
+type Sized = Omit<Item, "column" | "edge" | "rank">;
 
 function boxItem(box: ContainerBox): Sized {
   const widths = box.chips.map((c) => Math.ceil(textWidth(c.label, CHIP.cls)) + 2 * CHIP.pad);
@@ -156,21 +164,27 @@ const ghostItem = (ghost: Ghost): Sized => ({
 function itemsOf(view: View): Item[] {
   const items: Item[] = [];
 
-  const add = (item: Sized, side: Side | null): void => {
+  const add = (item: Sized, side: Side | null, rank: number | null): void => {
     const lanes: Column[] = side === "both" ? ["in", "out"] : [side];
 
     for (const lane of lanes) {
       const id = side === "both" && lane === "out" ? item.id + OUT : item.id;
-      items.push({ ...item, id, column: lane, edge: edgeOf(lane) });
+      items.push({
+        ...item,
+        id,
+        column: lane,
+        edge: edgeOf(lane),
+        rank: lane === null ? rank : null,
+      });
     }
   };
 
   for (const box of view.boxes) {
-    add(box.kind === "container" ? boxItem(box) : cardItem(box), box.column);
+    add(box.kind === "container" ? boxItem(box) : cardItem(box), box.column, box.rank);
   }
 
   for (const ghost of view.ghosts) {
-    add(ghostItem(ghost), ghost.side);
+    add(ghostItem(ghost), ghost.side, null);
   }
 
   return items;
@@ -392,14 +406,19 @@ async function layeredView(
   items: readonly Item[],
   ends: readonly End[],
   packing: Packing,
+  direction: Direction,
 ): Promise<Laid> {
   const edges = view.arrows.map((a, i): LayoutEdge => ({
     from: ends[i]?.from ?? a.from,
     to: ends[i]?.to ?? a.to,
   }));
 
+  const leaves = items.map(({ id, w, h, edge, rank }): Leaf =>
+    rank === null ? { id, w, h, edge } : { id, w, h, edge, rank },
+  );
+
   const aspect = packing.kind === "screen" ? clampRatio(packing.aspect) : packing.ratio;
-  const laid = await elkLayered(items, edges, aspect);
+  const laid = await elkLayered(leaves, edges, aspect, new ELK(), direction);
 
   const placed = framed(
     laid.boxes,
@@ -641,6 +660,7 @@ export async function drawView(
   layer: SVGGElement,
   packing: Packing,
   pins: Pins,
+  direction: Direction,
   words: Words,
   pick: Pick,
 ): Promise<Drawn> {
@@ -651,7 +671,7 @@ export async function drawView(
   const laid =
     mode === "packed"
       ? await packedView(view, items, ends, packing, pins)
-      : await layeredView(view, items, ends, packing);
+      : await layeredView(view, items, ends, packing, direction);
 
   layer.classList.add("view", mode);
   // The arrows' hit bands, then boxes, then arrows, then cards, pills and chips on top: an arrow's

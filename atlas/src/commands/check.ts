@@ -1,3 +1,5 @@
+import { inspect } from "node:util";
+
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { MarkupError } from "../model/markup.ts";
@@ -15,6 +17,7 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 // them; this checks what they cannot,
 // and fails on what would mislead a reader:
 //   - a `brief` on a leaf;
+//   - a `rank` that is not an integer from 0;
 //   - a root's `tour` that names what is no node with children, or misses one;
 //   - an id in `see`, `seams` or `traps`, on the root or on any node, that no node carries;
 //   - a tag outside the Config's `tags`, and, when they say so, a link between two leaves into an
@@ -29,6 +32,12 @@ function checkNodes(tree: Tree, errors: string[]): void {
   for (const node of tree.nodes.values()) {
     if (node.children === undefined && node.brief !== undefined) {
       errors.push(`node ${node.id}: brief is for a node with children`);
+    }
+
+    if (node.rank !== undefined && !(Number.isInteger(node.rank) && node.rank >= 0)) {
+      errors.push(
+        `node ${node.id}: rank ${inspect(node.rank)} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
+      );
     }
   }
 

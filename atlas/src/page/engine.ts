@@ -284,7 +284,15 @@ function pump(): void {
   const layer = el("g", { style: "visibility: hidden" }, svg);
   performance.mark(`atlas:draw ${name}:start`);
 
-  drawView(viewOf(tree, key), layer, packing(), settings.pins, words, send).then(
+  drawView(
+    viewOf(tree, key),
+    layer,
+    packing(),
+    settings.pins,
+    settings.direction,
+    words,
+    send,
+  ).then(
     (d) => {
       performance.measure(`atlas:draw ${name}`, `atlas:draw ${name}:start`);
       const previous = heldOf(st, key);

@@ -64,6 +64,27 @@ describe("validate", () => {
     ]);
   });
 
+  test.each([
+    [-1, "-1"],
+    [1.5, "1.5"],
+    [Number.NaN, "NaN"],
+    ["1", "'1'"],
+  ])("a rank that is not an integer from 0 is rejected: %p", (rank, shown) => {
+    // SAFETY: a rank outside the integers from 0, or no number, as a map folder's data can hold once it skips its typecheck.
+    const ranked = withNode(MAP, "browser", (n) => ({ ...n, rank: rank as number }));
+
+    expect(errorsOf(ranked)).toEqual([
+      `node browser: rank ${shown} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
+    ]);
+  });
+
+  test("a rank from 0, on a container or a leaf, passes", () => {
+    const server = withNode(MAP, "server", (n) => ({ ...n, rank: 0 }));
+    const ranked = withNode(server, "browser", (n) => ({ ...n, rank: 3 }));
+
+    expect(errorsOf(ranked)).toEqual([]);
+  });
+
   test("a tour that misses a node with children, or names a leaf, is rejected", () => {
     const tour = ["clients", "server", "app", "db"];
 
