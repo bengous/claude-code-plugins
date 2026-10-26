@@ -1,4 +1,6 @@
+import type { Journey, Step } from "./atlas.ts";
 import { cardsOf } from "./cards.ts";
+import { journeyOf, stepView } from "./journeys.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, nodeOf } from "./tree.ts";
 import { showsIn, viewOf } from "./view.ts";
@@ -86,8 +88,9 @@ export type Mode = "map" | "cards";
  *     place     = "" | id | [ id ] "/" id
  *     parameter = key "=" value
  *
- * such as `app?mode=cards`, `app/email?mode=cards&phase=MVP` or `?phase=MVP` on the root's
- * view; the place is hashOf's. Every id and every value is percent-encoded (encodeURIComponent), which
+ * such as `app?mode=cards`, `app/email?mode=cards&phase=MVP`, `?phase=MVP` on the root's
+ * view, or `app/email?phase=MVP&journey=place-order&step=3`; the place is hashOf's. Every id and
+ * every value is percent-encoded (encodeURIComponent), which
  * escapes "/", "?", "&" and "=": no id holds a raw separator, so a reader cuts the parameters off
  * at the first "?" before it reads the place at its first "/".
  *
@@ -99,11 +102,17 @@ export type Mode = "map" | "cards";
  *   codec refuses, is dropped, keeping the place and every other parameter, as a selection the
  *   view does not show is dropped; of a key given twice, the first value read counts.
  * - A value the place or the map cannot show goes back to its default, written, read and moved
- *   alike (shownAt): the cards, where the open container has none (cardsOf); a phase the
- *   Config does not list (Scope).
+ *   alike (shownAt): the cards, where the open container has none (cardsOf), or on a journey,
+ *   whose arrow they cannot show; a phase the Config does not list (Scope); a journey the root
+ *   does not declare, or without a step; a step past its journey's last, or without a journey.
  * - What survives a move (paramsAfter): the mode goes back to "map" when the open container
  *   changes; a phase stays across moves; a journey is a place of its own, which a move outside
  *   the journey leaves.
+ * - A journey and its step, `journey=<id>&step=<n>` with n from 1, show the view of that step
+ *   (shownPlace, stepView in journeys.ts), nothing selected; the place written before them is
+ *   where the journey started, which leaving it returns to. Every move is made from the step's
+ *   view and leaves the journey; another step, or another journey, is no move and keeps that
+ *   place. A phase picked stays on a journey.
  * - `window.atlas` shows each field (pageStateOf).
  *
  * A new parameter is a field here, its default in DEFAULTS, its codec in PARAMS, its rule in
@@ -113,9 +122,13 @@ export type Params = {
   readonly mode: Mode;
   /** The work phase picked, one of the Config's: what comes after it dims. Null: every phase. */
   readonly phase: string | null;
+  /** The journey played, by its id, one the root declares. Null: none. */
+  readonly journey: string | null;
+  /** The step of the journey shown, from 1. */
+  readonly step: number;
 };
 
-export const DEFAULTS: Params = { mode: "map", phase: null };
+export const DEFAULTS: Params = { mode: "map", phase: null, journey: null, step: 1 };
 
 /**
  * What the fragment's parameters are read and written against: the map's tree, and its Config's
@@ -134,6 +147,8 @@ type Codecs = { readonly [K in keyof Params]: Codec<Params[K]> };
 
 const MODES: readonly Mode[] = ["map", "cards"];
 
+const STEP = /^[1-9][0-9]*$/u;
+
 const PARAMS: Codecs = {
   mode: {
     read: (text) => MODES.find((mode) => mode === text) ?? null,
@@ -142,6 +157,14 @@ const PARAMS: Codecs = {
   phase: {
     read: (text) => (text === "" ? null : text),
     write: (phase) => phase,
+  },
+  journey: {
+    read: (text) => (text === "" ? null : text),
+    write: (journey) => journey,
+  },
+  step: {
+    read: (text) => (STEP.test(text) && Number.isSafeInteger(Number(text)) ? Number(text) : null),
+    write: (step) => (step === DEFAULTS.step ? null : String(step)),
   },
 };
 
@@ -155,29 +178,68 @@ const PARAMS_JOIN = "&";
 
 const VALUE_START = "=";
 
+/** The journey the parameters play and the step they show of it, or null off a journey. */
+function playedOf(tree: Tree, params: Params): { journey: Journey; step: number } | null {
+  const journey = journeyOf(tree, params.journey);
+
+  if (journey === null) {
+    return null;
+  }
+
+  const { step } = params;
+  const fits = Number.isInteger(step) && step >= 1 && step <= journey.steps.length;
+
+  return { journey, step: fits ? step : DEFAULTS.step };
+}
+
 /** The parameters as a place, normalised, and the map can show them (Params gives the rules). */
 function shownAt({ tree, phases }: Scope, place: Place, params: Params): Params {
-  const cards = params.mode === "map" || cardsOf(tree, openOf(place)) !== null;
-  const phase = params.phase === null || phases.includes(params.phase);
+  const played = playedOf(tree, params);
+  const cards = params.mode === "cards" && played === null && cardsOf(tree, openOf(place)) !== null;
+  const phase = params.phase !== null && phases.includes(params.phase);
 
-  return cards && phase
-    ? params
-    : {
-        ...params,
-        mode: cards ? params.mode : DEFAULTS.mode,
-        phase: phase ? params.phase : DEFAULTS.phase,
-      };
+  return {
+    mode: cards ? params.mode : DEFAULTS.mode,
+    phase: phase ? params.phase : DEFAULTS.phase,
+    journey: played?.journey.id ?? DEFAULTS.journey,
+    step: played?.step ?? DEFAULTS.step,
+  };
+}
+
+/** The step of a journey the parameters show, as the map can show them; null off a journey. */
+export function stepShown(scope: Scope, params: Params): Step | null {
+  const played = playedOf(scope.tree, params);
+
+  return played?.journey.steps[played.step - 1] ?? null;
+}
+
+/**
+ * The place the page shows: `given`, as the tree can show it (normalised), or on a journey the
+ * view of its step (stepView), nothing selected; `given` is then where the journey started.
+ */
+export function shownPlace(scope: Scope, given: Place, params: Params): Place {
+  const place = normalised(scope.tree, given);
+  const step = stepShown(scope, params);
+
+  if (step === null) {
+    return place;
+  }
+
+  const open = stepView(scope.tree, step);
+
+  return { path: open === null ? [] : chainOf(scope.tree, open), selected: null };
 }
 
 /**
  * The parameters after a move from one place to another, as the second can show them (Params
- * says what survives a move).
+ * says what survives a move); on a journey, `from` is the step's view (shownPlace).
  */
 export function paramsAfter(scope: Scope, from: Place, to: Place, params: Params): Params {
   const place = normalised(scope.tree, to);
   const moved = openOf(normalised(scope.tree, from)) !== openOf(place);
+  const left = { ...params, journey: DEFAULTS.journey, step: DEFAULTS.step };
 
-  return shownAt(scope, place, moved ? { ...params, mode: DEFAULTS.mode } : params);
+  return shownAt(scope, place, moved ? { ...left, mode: DEFAULTS.mode } : left);
 }
 
 function placeHash(tree: Tree, place: Place): string {
@@ -226,20 +288,27 @@ export function hashOf(scope: Scope, given: Place, params: Params = DEFAULTS): s
  * at each move of the reader; each parameter of the fragment as its own field.
  */
 export type PageState = Params & {
-  /** The containers from a child of the root down to the open one; empty on the root's view. */
+  /**
+   * The containers from a child of the root down to the open one, the step's on a journey
+   * (shownPlace); empty on the root's view.
+   */
   readonly path: readonly string[];
   readonly selected: string | null;
   /** The nodes the open view draws, each once: its boxes, the chips in them, its ghosts. */
   readonly visible: readonly string[];
-  /** The URL's fragment, without its "#" (hashOf). */
+  /** The URL's fragment, without its "#" (hashOf): on a journey, the place it started from. */
   readonly fragment: string;
 };
 
-/** The page's state at a place and its parameters, as the map can show them (normalised, shownAt). */
+/**
+ * The page's state at a place and its parameters, as the map can show them (normalised, shownAt,
+ * shownPlace).
+ */
 export function pageStateOf(scope: Scope, given: Place, params: Params = DEFAULTS): PageState {
   const { tree } = scope;
   const place = normalised(tree, given);
-  const view = viewOf(tree, openOf(place));
+  const shown = shownPlace(scope, place, params);
+  const view = viewOf(tree, openOf(shown));
 
   const visible = new Set([
     ...view.boxes.flatMap((box) => [
@@ -251,8 +320,8 @@ export function pageStateOf(scope: Scope, given: Place, params: Params = DEFAULT
 
   return Object.freeze({
     ...shownAt(scope, place, params),
-    path: Object.freeze([...place.path]),
-    selected: place.selected,
+    path: Object.freeze([...shown.path]),
+    selected: shown.selected,
     visible: Object.freeze([...visible]),
     fragment: hashOf(scope, place, params),
   });

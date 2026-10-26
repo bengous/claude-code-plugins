@@ -88,12 +88,16 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      are, a link without a phase once an end is, an arrow once every link it
                      stands for is; the label of an arrow that stays, from its lit links;
                      whether a view draws something dimmed (phases.spec.ts)
-  journeys.ts        a journey's steps: the link a step follows (joins)
+  journeys.ts        a journey's steps: the link a step follows (joins), the view it opens, the
+                     deepest that shows both its ends with one a child there, else their lowest
+                     common container's (stepView), and the arrow it lights there, lifted or not
+                     (stepLights) (journeys.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
                      grammar on `Params`, read against the tree and the Config's phases,
-                     `Scope`), and the page's state window.atlas shows agents
+                     `Scope`), the view a journey's step shows in place of the place
+                     (shownPlace), and the page's state window.atlas shows agents
                      (navigation.spec.ts)
   threads.ts         open points and threads: who a point waits for (threads.spec.ts)
 
@@ -239,10 +243,13 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   no bare id lands on, a ghost or a container among them. After a `?` come the parameters of the
   reading state, `key=value` joined by `&`, each written only away from its default, such as
   `#app?mode=cards&phase=MVP`; their grammar, the rules every new one follows and what survives a
-  move are on `Params`. A fragment typed into the address bar is followed.
+  move are on `Params`. With `journey=<id>&step=<n>`, the page shows that step's view, and the
+  place written is where the journey started (`shownPlace`). A fragment typed into the address
+  bar is followed.
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
-  `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
-  ghosts), each parameter of the fragment (`mode`, `phase`) and the fragment, frozen and replaced
+  `navigation.ts`): the open path, the step's on a journey, the selected id, the ids the open view
+  draws (boxes, chips, ghosts), each parameter of the fragment (`mode`, `phase`, `journey`,
+  `step`) and the fragment, frozen and replaced
   at each move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`,
   and the `citation` whose lines the panel shows, or null; a getter, so a page script cannot
   assign it.

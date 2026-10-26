@@ -17,10 +17,12 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
+import type { Step } from "../model/atlas.ts";
 import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
+import { stepLights } from "../model/journeys.ts";
 import type { Mode, PageState, Params, Place, PlaceEvent, Scope } from "../model/navigation.ts";
 import {
   DEFAULTS,
@@ -31,6 +33,8 @@ import {
   paramsAfter,
   paramsOfHash,
   placeOfHash,
+  shownPlace,
+  stepShown,
 } from "../model/navigation.ts";
 import type { Dimmed } from "../model/phases.ts";
 import { arrowDimmed, dimmedBy, dimsIn, labelAt } from "../model/phases.ts";
@@ -230,6 +234,10 @@ let place: Place = HOME;
 
 // The rest of the reading state the fragment carries (navigation.ts's grammar).
 let params: Params = DEFAULTS;
+
+// The place the page shows: the reader's, or on a journey its step's view, the reader's place
+// then being where the journey started (shownPlace).
+const here = (): Place => shownPlace(scope, place, params);
 
 let cam: Camera | null = null;
 
@@ -691,8 +699,8 @@ function moveTo(key: Key, from: Key): void {
 }
 
 // Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
-// lifted to the view's items.
-function highlight(d: Drawn, p: Place): void {
+// lifted to the view's items; a journey's step, which selects nothing, lights its own arrow.
+function highlight(d: Drawn, p: Place, step: Step | null): void {
   const selected = p.selected;
   const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
 
@@ -704,7 +712,11 @@ function highlight(d: Drawn, p: Place): void {
   }
 
   for (const e of d.arrows) {
-    const hot = selected !== null && lights(tree, e.arrow, selected);
+    const hot =
+      step === null
+        ? selected !== null && lights(tree, e.arrow, selected)
+        : stepLights(tree, e.arrow, step);
+
     e.g.classList.toggle("hot", hot);
     const m = hot ? "url(#arr-hot)" : e.marker;
     e.path.setAttribute("marker-end", m);
@@ -714,7 +726,7 @@ function highlight(d: Drawn, p: Place): void {
     }
   }
 
-  d.layer.classList.toggle("selecting", selected !== null);
+  d.layer.classList.toggle("selecting", selected !== null || step !== null);
   showCaptions(d);
 }
 
@@ -722,7 +734,7 @@ function highlight(d: Drawn, p: Place): void {
 // arrows that touch it and fades the others further. The labels of a lit arrow stay readable, and
 // show at any size, as do the item's own tag and sub-title.
 function hover(target: EventTarget | null): void {
-  const d = heldOf(st, openOf(place));
+  const d = heldOf(st, openOf(here()));
 
   if (d === null) {
     return;
@@ -858,12 +870,12 @@ function keepingFocus(root: Element, keys: readonly string[], rewrite: () => voi
 // What the cards' focus is kept by: their headers and their markers.
 const CARD_KEYS = ["data-select", "data-cite"];
 
-// The switch shows where the open container has cards (cardsOf); the cards lie over the drawing,
-// which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
-// kept for the way back and the fit and legend buttons disabled. The same cards rewritten keep
-// where they were scrolled and the focus.
+// The switch shows where the open container has cards (cardsOf), but on a journey, whose arrow
+// they cannot show; the cards lie over the drawing, which stays laid out beneath, out of reach of
+// the pointer and the keyboard (inert), its zoom kept for the way back and the fit and legend
+// buttons disabled. The same cards rewritten keep where they were scrolled and the focus.
 function renderMode(key: Key): void {
-  const cards = cardsOf(tree, key);
+  const cards = params.journey === null ? cardsOf(tree, key) : null;
   const table = params.mode === "cards" ? cards : null;
   modeSwitch.hidden = cards === null;
   mapButton.setAttribute("aria-pressed", String(table === null));
@@ -883,7 +895,7 @@ function renderMode(key: Key): void {
   const [left, top] = same ? [cardsView.scrollLeft, cardsView.scrollTop] : [0, 0];
 
   const write = (): void => {
-    cardsView.innerHTML = cardsHtml(settings, table, place.selected, dimmed.nodes);
+    cardsView.innerHTML = cardsHtml(settings, table, here().selected, dimmed.nodes);
     cardsView.scrollLeft = left;
     cardsView.scrollTop = top;
   };
@@ -988,17 +1000,18 @@ Object.defineProperty(window, "atlas", {
 // The panel, the breadcrumb and the legend follow the place at once; the drawing, once its view
 // is laid out (settle).
 function render(): void {
-  const key = openOf(place);
+  const at = here();
+  const key = openOf(at);
   panelAvoidError = heldOf(st, key)?.avoidError ?? null;
 
   if (viewer === null) {
-    renderPanel(settings, tree, panel, place, panelAvoidError, threads);
+    renderPanel(settings, tree, panel, at, panelAvoidError, threads);
   } else {
     renderViewer(settings, panel, viewer);
   }
 
   renderOpenList(settings, tree, openButton, openList, threads);
-  renderCrumbs(settings, tree, crumbs, place);
+  renderCrumbs(settings, tree, crumbs, at);
   renderPhase();
   renderLegend(key);
   renderMode(key);
@@ -1012,7 +1025,7 @@ function render(): void {
     fragment === "" ? location.pathname + location.search : `#${fragment}`,
   );
 
-  tellSelection(place.selected ?? key);
+  tellSelection(at.selected ?? key);
 }
 
 // Renders again, keeping the panel where the reader is and what they were typing.
@@ -1061,7 +1074,7 @@ function prefetch(key: Key): void {
 async function settle(): Promise<void> {
   const seq = ++turn;
   const from = cam === null ? null : shown(cam, performance.now()).space;
-  const key = openOf(place);
+  const key = openOf(here());
   const d = await ready(key, "now");
 
   if (cam !== null && from !== key) {
@@ -1079,7 +1092,7 @@ async function settle(): Promise<void> {
     hover(focusedItem());
   }
 
-  highlight(d, place);
+  highlight(d, here(), stepShown(scope, params));
 
   if (d.avoidError !== panelAvoidError) {
     rerender();
@@ -1089,10 +1102,11 @@ async function settle(): Promise<void> {
 }
 
 // Every input becomes a navigation event: the place changes, the panel follows, the camera heads
-// to the view once it is drawn.
+// to the view once it is drawn. On a journey, the event is read in its step's view, and leaves it.
 function send(ev: PlaceEvent): void {
-  const next = navigate(tree, place, ev);
-  params = paramsAfter(scope, place, next, params);
+  const from = here();
+  const next = navigate(tree, from, ev);
+  params = paramsAfter(scope, from, next, params);
   place = next;
   viewer = null;
   render();
@@ -1440,7 +1454,13 @@ function stepBack(): void {
 
   if (viewer !== null) {
     closeCitation();
-  } else if (place !== navigate(tree, place, { type: "escape" })) {
+
+    return;
+  }
+
+  const at = here();
+
+  if (at !== navigate(tree, at, { type: "escape" })) {
     send({ type: "escape" });
   }
 }
