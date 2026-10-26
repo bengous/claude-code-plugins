@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { checkMap, openReport } from "./commands/check.ts";
+import { checkCitations, checkMap, openReport } from "./commands/check.ts";
 import {
   DRAFTS,
   DraftError,
@@ -153,7 +153,11 @@ type Step = { readonly name: string; readonly ok: boolean; readonly report: stri
 async function mapStep(dir: string): Promise<Step> {
   try {
     const { map, config } = await loading(() => loadFolder(dir), "");
-    const errors = checkMap(map, config, await readJson(join(dir, THREADS_FILE)));
+
+    const errors = [
+      ...checkMap(map, config, await readJson(join(dir, THREADS_FILE))),
+      ...checkCitations(map, config, dir),
+    ];
 
     if (errors.length > 0) {
       return { name: "map", ok: false, report: errors.join("\n") };

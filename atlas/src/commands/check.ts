@@ -1,8 +1,13 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
+import { citedLines, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
 import type { Settings } from "../model/settings.ts";
+import { sourceFile, textLines } from "../model/sources.ts";
 import type { Threads } from "../model/threads.ts";
 import { firstLine, openItems, plainText, readThreads, waitsFor } from "../model/threads.ts";
 import type { Tree } from "../model/tree.ts";
@@ -23,7 +28,9 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //     arrow between boxes, whose tags are its leaf links';
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
-//   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration.
+//   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
+//   - with the Config's `sources`, a citation whose path names no file under its root, or whose
+//     lines run past the file's end (checkCitations, which reads the files).
 // Layout is not checked here: ELK and libavoid lay each view out in the browser, and nothing
 // overlaps by construction. Look at the rendered page (serve.ts) for the rest.
 function checkNodes(tree: Tree, errors: string[]): void {
@@ -171,6 +178,38 @@ export function checkMap(map: AtlasMap, config: Config, threads: unknown): strin
 
     throw error;
   }
+}
+
+/**
+ * Each citation of the map whose file is not under the Config's sources root, relative to the map
+ * folder `dir`, or whose lines run past that file's end, as "<root | node id>: <field>:
+ * <citation>: <why>". None without `sources`.
+ */
+export function checkCitations(map: AtlasMap, config: Config, dir: string): string[] {
+  if (config.sources === undefined) {
+    return [];
+  }
+
+  const root = resolve(dir, config.sources.root);
+
+  return mapCitations(map).flatMap(({ where, field, citation }) => {
+    const cited = `${where}: ${field}: ${citation.path}:${citedLines(citation)}`;
+    const source = sourceFile(root, citation.path);
+
+    if (source.kind === "refused") {
+      return [`${cited}: ${source.reason}`];
+    }
+
+    const count = textLines(readFileSync(source.file, "utf8")).length;
+
+    return citation.lines.flatMap((lines) =>
+      lines.last <= count
+        ? []
+        : [
+            `${cited}: ${citedLines({ ...citation, lines: [lines] })} ends past line ${count}, the last of ${citation.path}`,
+          ],
+    );
+  });
 }
 
 export function openReport(tree: Tree, threads: Threads): string {

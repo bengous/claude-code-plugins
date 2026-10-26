@@ -8,4 +8,5 @@ export default {
     data: { light: "#3a5688", dark: "#8fa9de" },
     outside: { light: "#5c697b", dark: "#9aa7b8" },
   },
+  sources: { root: "repo" },
 } satisfies Config;

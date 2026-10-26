@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Lang, Link, Node } from "../model/atlas.ts";
+import type { AtlasMap, Config, Lang, Link, Node } from "../model/atlas.ts";
+import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { THREADS_FILE, loadFolder } from "../model/folder.ts";
 import { settingsOf } from "../model/settings.ts";
 import { treeOf } from "../model/tree.ts";
-import { checkMap, validate } from "./check.ts";
+import { checkCitations, checkMap, validate } from "./check.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
 
@@ -303,6 +304,72 @@ describe("checkMap", () => {
     expect(checkMap({ ...MAP, links }, CONFIG, THREADS)).toEqual([
       "link orders → email: tag parcel is not in the config's tags",
     ]);
+  });
+});
+
+const CITATIONS = join(import.meta.dir, "..", "..", "fixtures", "citations");
+
+const { map: CITED, config: CITED_CONFIG } = await loadFolder(CITATIONS);
+
+const ROOT = join(CITATIONS, "repo");
+
+const citing = (change: (n: Node) => Node): AtlasMap => withNode(CITED, "orders", change);
+
+const checked = (map: AtlasMap, config: Config = CITED_CONFIG): string[] =>
+  checkCitations(map, config, CITATIONS);
+
+describe("checkCitations, with the Config's sources", () => {
+  test("passes the fixture, whose every citation names lines of a file under its root", () => {
+    expect(mapCitations(CITED).length).toBeGreaterThan(20);
+    expect(checked(CITED)).toEqual([]);
+  });
+
+  test("fails a citation of a missing file, naming its node, its field and itself", () => {
+    const gone = citing((n) => ({ ...n, lead: "Gone <cite>orders/gone.go:1</cite>." }));
+
+    expect(checked(gone)).toEqual([
+      `node orders: lead: orders/gone.go:1: no file orders/gone.go under the sources root ${ROOT}`,
+    ]);
+  });
+
+  test("fails a line past the file's end", () => {
+    const past = citing((n) => ({ ...n, lead: "Far <cite>orders/orders.go:9999</cite>." }));
+
+    expect(checked(past)).toEqual([
+      "node orders: lead: orders/orders.go:9999: 9999 ends past line 55, the last of orders/orders.go",
+    ]);
+  });
+
+  test("fails a range ending past the file's end, alone in its list, in any field", () => {
+    const io = [["Receives", "a cart <cite>orders/orders.go:3,50-56</cite>"]] as const;
+
+    expect(checked(citing((n) => ({ ...n, io })))).toEqual([
+      "node orders: io: orders/orders.go:3,50-56: 50-56 ends past line 55, the last of orders/orders.go",
+    ]);
+  });
+
+  test("fails every citation under a root that does not exist", () => {
+    const errors = checked(CITED, { ...CITED_CONFIG, sources: { root: "nowhere" } });
+    const reason = `the sources root ${join(CITATIONS, "nowhere")} is not a folder`;
+
+    expect(errors).toHaveLength(mapCitations(CITED).length);
+    expect(errors[0]).toBe(`root: lead: cmd/shop/main.go:15-24: ${reason}`);
+    expect(errors.every((error) => error.endsWith(`: ${reason}`))).toBe(true);
+  });
+
+  test("fails a citation that leads out of the root", () => {
+    const out = citing((n) => ({ ...n, swap: "The map <cite>../map.ts:1</cite>." }));
+
+    expect(checked(out)).toEqual([
+      "node orders: swap: ../map.ts:1: ../map.ts is no path from the sources root down",
+    ]);
+  });
+
+  test("verifies no citation without sources", () => {
+    const { sources: _, ...unsourced } = CITED_CONFIG;
+    const gone = citing((n) => ({ ...n, lead: "Gone <cite>orders/gone.go:9999</cite>." }));
+
+    expect(checked(gone, unsourced)).toEqual([]);
   });
 });
 

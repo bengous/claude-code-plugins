@@ -116,7 +116,8 @@
   Check, from the repository root:
   1. bun install --cwd atlas --frozen-lockfile, once.
   2. bun atlas/src/cli.ts check <map folder>: the map (ids, couplings, nesting,
-     tags, open points, threads.json), then tsgo, oxlint and oxfmt on its
+     tags, open points, threads.json, and each citation's file and lines under
+     the Config's `sources` root), then tsgo, oxlint and oxfmt on its
      data files, then its atlas.d.ts and tsconfig.json against the plugin's
      (stale or edited: bun atlas/src/cli.ts sync <map folder>). It exits 1 on
      any failure; bun atlas/src/cli.ts fmt <map folder> fixes what oxfmt
