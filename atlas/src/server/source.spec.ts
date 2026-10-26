@@ -87,6 +87,14 @@ describe("the source route answers", () => {
   test("a text file of exactly the cap", () => {
     expect(status(lines("exact.txt", 1, 1))).toBe(200);
   });
+
+  test("bytes that are not UTF-8 as U+FFFD", async () => {
+    expect(await lines("latin1.txt", 1, 1).json()).toEqual({
+      path: "latin1.txt",
+      from: 1,
+      lines: ["caf�"],
+    });
+  });
 });
 
 describe("the source route refuses", () => {
@@ -151,9 +159,11 @@ describe("the source route refuses", () => {
     expect(await answer.text()).toBe(`big.txt is over ${SOURCE_CAP_BYTES} bytes`);
   });
 
-  test("a binary file: a NUL byte, or bytes that are not UTF-8", () => {
-    expect(status(lines("nul.bin", 1, 1))).toBe(415);
-    expect(status(lines("latin1.txt", 1, 1))).toBe(415);
+  test("a binary file: a NUL byte", async () => {
+    const answer = lines("nul.bin", 1, 1);
+
+    expect(answer.status).toBe(415);
+    expect(await answer.text()).toBe("nul.bin is a binary file: it holds a NUL byte");
   });
 
   test.each([

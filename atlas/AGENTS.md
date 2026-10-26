@@ -66,9 +66,9 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      none (citations.spec.ts)
   sources.ts         the file a citation's path names under the Config's sources root, Node-only:
                      no absolute path, no `..`, no link out of the root; and its lines, for a
-                     text file under SOURCE_CAP_BYTES, read through one descriptor opened without
-                     following a link or waiting on a FIFO, every filesystem error a refusal
-                     (sources.spec.ts)
+                     file with no NUL byte under a cap (SOURCE_CAP_BYTES for the page), bytes not
+                     UTF-8 read as U+FFFD, read through one descriptor opened without following a
+                     link or waiting on a FIFO, every filesystem error a refusal (sources.spec.ts)
   words.ts           the page's own words in each language a Config picks: the dictionary
   tree.ts            the tree indexed for views at any depth: each node's chain from the root,
                      open points counted down each subtree, couplings both ways, and what stands
@@ -89,8 +89,9 @@ src/commands/        what cli.ts does to a map folder
   check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, a
                      rank on an outside node, the root's tour, see/seams/traps ids on every panel,
                      a <cite> that reads as no citation, tags against the Config's, open points against its step words, and threads,
-                     and reports the open points; with the Config's sources, each citation's file,
-                     read as serve.ts reads it, and its lines (check.spec.ts)
+                     and reports the open points; with the Config's sources, each cited file,
+                     read once as serve.ts reads it but for the size cap, and its lines, or the
+                     missing root in one line (check.spec.ts)
   reply.ts           adds an entry to a thread of a map folder (reply.spec.ts)
   drafts.ts          a map folder's data files, and its drafts: made, adopted, dropped
 

@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { sourceFile, sourceText, sourceTextAt, textLines } from "./sources.ts";
+import { SOURCE_CAP_BYTES, sourceFile, sourceText, sourceTextAt, textLines } from "./sources.ts";
 
 // A sources root beside a folder outside it, as a map folder's repository and the rest of the disk.
 const top = realpathSync(mkdtempSync(join(tmpdir(), "atlas-sources-")));
@@ -174,6 +174,34 @@ describe("sourceTextAt, once sourceFile found the file", () => {
       chmodSync(file, 0o600);
     },
   );
+});
+
+describe("sourceText", () => {
+  test("reads bytes that are not UTF-8 as U+FFFD, and refuses a NUL byte", () => {
+    writeFileSync(join(ROOT, "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x78]));
+    writeFileSync(join(ROOT, "nul.bin"), Buffer.from([0x61, 0x00, 0x0a]));
+
+    expect(sourceText(ROOT, "latin1.txt")).toEqual({ kind: "text", lines: ["caf�", "x"] });
+    expect(sourceText(ROOT, "nul.bin")).toEqual({
+      kind: "refused",
+      why: "binary",
+      reason: "nul.bin is a binary file: it holds a NUL byte",
+    });
+  });
+
+  test("refuses a file over the cap it takes, SOURCE_CAP_BYTES unless told, and reads it under a larger one", () => {
+    writeFileSync(join(ROOT, "big.txt"), `${"a".repeat(SOURCE_CAP_BYTES)}\nlast\n`);
+
+    expect(sourceText(ROOT, "big.txt")).toEqual({
+      kind: "refused",
+      why: "large",
+      reason: `big.txt is over ${SOURCE_CAP_BYTES} bytes`,
+    });
+
+    const read = sourceText(ROOT, "big.txt", Number.POSITIVE_INFINITY);
+
+    expect(read.kind === "text" ? read.lines.length : read.reason).toBe(2);
+  });
 });
 
 test("textLines counts a last line with or without its newline, and none in an empty text", () => {

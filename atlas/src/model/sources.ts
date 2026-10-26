@@ -19,7 +19,7 @@ import { isAbsolute, join, sep } from "node:path";
 /**
  * Why a path gives no text: root, the folder is missing; outside, the path leads out of it, or
  * named another file once the file was open; missing, no regular file there; unreadable, the
- * filesystem refused it; large, over SOURCE_CAP_BYTES; binary, a NUL byte or not UTF-8.
+ * filesystem refused it; large, over the bytes the reader takes; binary, a NUL byte.
  */
 export type Unread = "root" | "outside" | "missing" | "unreadable" | "large" | "binary";
 
@@ -84,19 +84,8 @@ export const SOURCE_CAP_BYTES = 1024 * 1024;
 
 export type SourceText = { readonly kind: "text"; readonly lines: readonly string[] } | Refused;
 
-const UTF8 = new TextDecoder("utf-8", { fatal: true });
-
-function textOf(bytes: Uint8Array): string | null {
-  if (bytes.includes(0)) {
-    return null;
-  }
-
-  try {
-    return UTF8.decode(bytes);
-  } catch {
-    return null;
-  }
-}
+// Bytes that are not UTF-8 read as U+FFFD: a file in another encoding still has its lines.
+const UTF8 = new TextDecoder("utf-8");
 
 // A link as the last part of the path fails the open, a FIFO or a device opens without waiting
 // for a writer, and the descriptor is the one file read from then on: nothing reopens the path.
@@ -120,7 +109,7 @@ function head(fd: number, size: number): Uint8Array {
   return buffer.subarray(0, length);
 }
 
-function textOfOpen(root: string, path: string, fd: number): SourceText {
+function textOfOpen(root: string, path: string, fd: number, cap: number): SourceText {
   const opened = fstatSync(fd);
 
   if (!opened.isFile()) {
@@ -128,7 +117,9 @@ function textOfOpen(root: string, path: string, fd: number): SourceText {
   }
 
   // The path resolved again names the file opened: a swap of the file, or of a folder on its way,
-  // between the check and the open is refused.
+  // between the check and the open is refused. A folder flipped to a link out and back between
+  // the open, the realpath and the lstat would pass: accepted, as a writer inside the user's
+  // repository already runs code through map.ts or its git hooks.
   const again = sourceFile(root, path);
 
   if (again.kind === "refused") {
@@ -141,23 +132,21 @@ function textOfOpen(root: string, path: string, fd: number): SourceText {
     return refused("outside", `${path} named another file while it was opened`);
   }
 
-  const large = refused("large", `${path} is over ${SOURCE_CAP_BYTES} bytes`);
+  const large = refused("large", `${path} is over ${cap} bytes`);
 
-  if (opened.size > SOURCE_CAP_BYTES) {
+  if (opened.size > cap) {
     return large;
   }
 
-  const bytes = head(fd, SOURCE_CAP_BYTES + 1);
+  const bytes = head(fd, Math.min(cap, opened.size) + 1);
 
-  if (bytes.length > SOURCE_CAP_BYTES) {
+  if (bytes.length > cap) {
     return large;
   }
 
-  const text = textOf(bytes);
-
-  return text === null
-    ? refused("binary", `${path} is not a text file in UTF-8`)
-    : { kind: "text", lines: textLines(text) };
+  return bytes.includes(0)
+    ? refused("binary", `${path} is a binary file: it holds a NUL byte`)
+    : { kind: "text", lines: textLines(UTF8.decode(bytes)) };
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- it reads what a catch clause caught, which TypeScript types unknown: a filesystem call can throw anything.
@@ -169,9 +158,15 @@ const unreadable = (path: string, error: unknown): Refused =>
 
 /**
  * The lines of `file`, the real path sourceFile found for `path` under `root`, read through one
- * descriptor: a text file of at most SOURCE_CAP_BYTES that `path` still names, or why not.
+ * descriptor: a file with no NUL byte, of at most `cap` bytes, that `path` still names, or why
+ * not.
  */
-export function sourceTextAt(root: string, path: string, file: string): SourceText {
+export function sourceTextAt(
+  root: string,
+  path: string,
+  file: string,
+  cap = SOURCE_CAP_BYTES,
+): SourceText {
   let fd: number;
 
   try {
@@ -181,7 +176,7 @@ export function sourceTextAt(root: string, path: string, file: string): SourceTe
   }
 
   try {
-    return textOfOpen(root, path, fd);
+    return textOfOpen(root, path, fd, cap);
   } catch (error: unknown) {
     return unreadable(path, error);
   } finally {
@@ -189,9 +184,9 @@ export function sourceTextAt(root: string, path: string, file: string): SourceTe
   }
 }
 
-/** The lines of the text file `path` names under `root`, at most SOURCE_CAP_BYTES, or why not. */
-export function sourceText(root: string, path: string): SourceText {
+/** The lines of the file `path` names under `root`, of at most `cap` bytes, or why not. */
+export function sourceText(root: string, path: string, cap = SOURCE_CAP_BYTES): SourceText {
   const found = sourceFile(root, path);
 
-  return found.kind === "refused" ? found : sourceTextAt(root, path, found.file);
+  return found.kind === "refused" ? found : sourceTextAt(root, path, found.file, cap);
 }

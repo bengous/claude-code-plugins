@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -364,13 +365,12 @@ describe("checkCitations, with the Config's sources", () => {
     ]);
   });
 
-  test("fails every citation under a root that does not exist", () => {
-    const errors = checked(CITED, { ...CITED_CONFIG, sources: { root: "nowhere" } });
-    const reason = `the sources root ${join(CITATIONS, "nowhere")} is not a folder`;
+  test("fails a root that does not exist in one line, naming it and the citations left unchecked", () => {
+    const count = mapCitations(CITED).length;
 
-    expect(errors).toHaveLength(mapCitations(CITED).length);
-    expect(errors[0]).toBe(`root: lead: cmd/shop/main.go:15-24: ${reason}`);
-    expect(errors.every((error) => error.endsWith(`: ${reason}`))).toBe(true);
+    expect(checked(CITED, { ...CITED_CONFIG, sources: { root: "nowhere" } })).toEqual([
+      `sources: the sources root ${join(CITATIONS, "nowhere")} is not a folder; ${count} citations left unchecked`,
+    ]);
   });
 
   test("fails a citation that leads out of the root", () => {
@@ -381,16 +381,22 @@ describe("checkCitations, with the Config's sources", () => {
     ]);
   });
 
-  test("fails, as the viewer refuses it, a cited file over the cap, binary, or that cannot be read", () => {
+  test("passes the lines of a cited file over the cap or not in UTF-8, and fails one binary or that cannot be read", () => {
     const folder = mkdtempSync(join(tmpdir(), "atlas-check-sources-"));
     const repo = join(folder, "repo");
 
     try {
       mkdirSync(repo);
-      writeFileSync(join(repo, "big.txt"), "a".repeat(SOURCE_CAP_BYTES + 1));
+      writeFileSync(join(repo, "big.txt"), `${"a".repeat(SOURCE_CAP_BYTES)}\nlast\n`);
+      writeFileSync(join(repo, "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
       writeFileSync(join(repo, "nul.bin"), Buffer.from([0x61, 0x00, 0x0a]));
       writeFileSync(join(repo, "locked.txt"), "locked\n", { mode: 0o000 });
-      const lead = "<cite>big.txt:1</cite> <cite>nul.bin:1</cite> <cite>locked.txt:1</cite>";
+
+      const lead = [
+        "<cite>big.txt:1-2</cite> <cite>big.txt:3</cite>",
+        "<cite>latin1.txt:1</cite> <cite>latin1.txt:2</cite>",
+        "<cite>nul.bin:1</cite> <cite>locked.txt:1</cite>",
+      ].join(" ");
 
       const errors = checkCitations(
         citing((n) => ({ ...n, lead })),
@@ -399,8 +405,9 @@ describe("checkCitations, with the Config's sources", () => {
       );
 
       expect(errors.filter((error) => error.startsWith("node orders: lead: "))).toEqual([
-        `node orders: lead: big.txt:1: big.txt is over ${SOURCE_CAP_BYTES} bytes`,
-        "node orders: lead: nul.bin:1: nul.bin is not a text file in UTF-8",
+        "node orders: lead: big.txt:3: 3 ends past line 2, the last of big.txt",
+        "node orders: lead: latin1.txt:2: 2 ends past line 1, the last of latin1.txt",
+        "node orders: lead: nul.bin:1: nul.bin is a binary file: it holds a NUL byte",
         ...(process.getuid?.() === 0
           ? []
           : [
@@ -411,6 +418,20 @@ describe("checkCitations, with the Config's sources", () => {
       ]);
     } finally {
       rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  test("reads each cited file once, however many citations name it", () => {
+    const opened = spyOn(fs, "openSync");
+
+    try {
+      checked(CITED);
+      const paths = new Set(mapCitations(CITED).map(({ citation }) => citation.path));
+
+      expect(mapCitations(CITED).length).toBeGreaterThan(paths.size);
+      expect(opened).toHaveBeenCalledTimes(paths.size);
+    } finally {
+      opened.mockRestore();
     }
   });
 

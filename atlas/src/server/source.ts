@@ -12,7 +12,8 @@ import type { SourceLines } from "./wire.ts";
 //     that is there (404; sourceFile);
 //   - opened once, without following a link or waiting on a FIFO, and still the file the path
 //     names (403), that the filesystem lets it read (403; sourceTextAt);
-//   - a text file of at most SOURCE_CAP_BYTES (413), with no NUL byte, in UTF-8 (415);
+//   - a file of at most SOURCE_CAP_BYTES (413), with no NUL byte (415), bytes that are not UTF-8
+//     answered as U+FFFD;
 //   - a `from` within the file (416), the answer cut at its last line.
 // serve.ts asks the Host check first, as of every route. A page of another origin may send the
 // request, as any GET, but cannot read the answer: the server sends no CORS header.
