@@ -24,6 +24,6 @@
     "useUnknownInCatchVariables": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../vellum/types/*.d.ts"],
   "exclude": ["node_modules"]
 }
