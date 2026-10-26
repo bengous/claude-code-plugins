@@ -20,8 +20,17 @@ import map from "atlas:map";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import type { PageState, Place, PlaceEvent } from "../model/navigation.ts";
-import { HOME, navigate, openOf, pageStateOf, placeOfHash } from "../model/navigation.ts";
+import type { PageState, Params, Place, PlaceEvent } from "../model/navigation.ts";
+import {
+  DEFAULTS,
+  HOME,
+  navigate,
+  openOf,
+  pageStateOf,
+  paramsAfter,
+  paramsOfHash,
+  placeOfHash,
+} from "../model/navigation.ts";
 import type { PaletteRule } from "../model/settings.ts";
 import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
@@ -174,6 +183,9 @@ const grid = el("rect", { fill: "url(#grid)" }, svg);
 let st: Stage<Drawn> = EMPTY;
 
 let place: Place = HOME;
+
+// The rest of the reading state the fragment carries (navigation.ts's grammar).
+let params: Params = DEFAULTS;
 
 let cam: Camera | null = null;
 
@@ -752,10 +764,11 @@ function tellSelection(id: string | null): void {
 }
 
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
-// so a page script cannot assign it, answering the frozen state of the last render, the zoom of
-// the view shown, 1 at its fit, 2 when half its width fills the stage, whether the panel shows its
-// citations in full, and the citation whose lines it shows, if any.
-let pageState: PageState = pageStateOf(tree, place);
+// so a page script cannot assign it, answering the frozen state of the last render, the fragment's
+// parameters among it, the zoom of the view shown, 1 at its fit, 2 when half its width fills the
+// stage, whether the panel shows its citations in full, and the citation whose lines it shows, if
+// any.
+let pageState: PageState = pageStateOf(tree, place, params);
 
 const zoomOf = (): number =>
   cam?.kind === "idle"
@@ -788,8 +801,8 @@ function render(): void {
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
-  pageState = pageStateOf(tree, place);
-  // Keeps the place in the URL's fragment so a link reopens the same view.
+  pageState = pageStateOf(tree, place, params);
+  // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
 
   history.replaceState(
@@ -877,7 +890,9 @@ async function settle(): Promise<void> {
 // Every input becomes a navigation event: the place changes, the panel follows, the camera heads
 // to the view once it is drawn.
 function send(ev: PlaceEvent): void {
-  place = navigate(tree, place, ev);
+  const next = navigate(tree, place, ev);
+  params = paramsAfter(tree, place, next, params);
+  place = next;
   viewer = null;
   render();
   settle().catch(fail);
@@ -1174,6 +1189,7 @@ document.addEventListener("keydown", (e) => {
 // typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
+  params = paramsOfHash(location.hash);
   viewer = null;
   render();
   settle().catch(fail);
@@ -1252,6 +1268,7 @@ async function start(): Promise<void> {
   builtAspect = aspect();
   threads = await loadThreads();
   place = placeOfHash(tree, location.hash);
+  params = paramsOfHash(location.hash);
   render();
   await settle();
   document.fonts.addEventListener("loadingdone", () => {

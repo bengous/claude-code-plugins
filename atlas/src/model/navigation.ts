@@ -71,17 +71,82 @@ const samePlace = (a: Place, b: Place): boolean =>
   a.path.length === b.path.length &&
   a.path.every((id, i) => b.path[i] === id);
 
-const SEPARATOR = "/";
+/**
+ * How the open container's view shows: "map", its drawing, or "cards", its leaf children side by
+ * side.
+ */
+export type Mode = "map" | "cards";
 
 /**
- * The URL fragment of a place, without its "#": the bare id a jump would land on the place with
- * ("" for the root's view), or, when no jump lands there (a selected ghost or container, a
- * selection on the root's view other than an outside leaf), the open container and the selection
- * as `<open>/<selected>`, the root's view written as nothing before the slash. Each id is
- * percent-encoded. A place is written as the tree can show it (normalised).
+ * Where the reader stands beyond the place, one field per parameter of the URL fragment. The
+ * fragment's grammar, without its "#":
+ *
+ *     fragment  = place [ "?" parameter *( "&" parameter ) ]
+ *     place     = "" | id | [ id ] "/" id
+ *     parameter = key "=" value
+ *
+ * such as `app?mode=cards`, `app/email?mode=cards` or `?mode=cards` on the root's view; the
+ * place is hashOf's. Every id and every value is percent-encoded (encodeURIComponent), which
+ * escapes "/", "?", "&" and "=": no id holds a raw separator, so a reader cuts the parameters off
+ * at the first "?" before it reads the place at its first "/".
+ *
+ * Every parameter follows these rules:
+ * - A key is a field of Params, written as its name, and a value its codec's text (PARAMS).
+ * - A parameter at its default is not written, and the others follow the order PARAMS lists
+ *   them: a reading at every default writes the place alone.
+ * - A key PARAMS does not name, a part without "=", a value that does not decode or that its
+ *   codec refuses, is dropped, keeping the place and every other parameter, as a selection the
+ *   view does not show is dropped; of a key given twice, the first value read counts.
+ * - What survives a move (paramsAfter): the mode goes back to "map" when the open container
+ *   changes; a phase stays across moves; a journey is a place of its own, which a move outside
+ *   the journey leaves.
+ * - `window.atlas` shows each field (pageStateOf).
+ *
+ * A new parameter is a field here, its default in DEFAULTS, its codec in PARAMS, and its rule in
+ * paramsAfter.
  */
-export function hashOf(tree: Tree, given: Place): string {
-  const place = normalised(tree, given);
+export type Params = { readonly mode: Mode };
+
+export const DEFAULTS: Params = { mode: "map" };
+
+/** A parameter's value as the fragment writes it: null, at its default, leaves it out. */
+type Codec<V> = {
+  readonly read: (text: string) => V | null;
+  readonly write: (value: V) => string | null;
+};
+
+/** One codec per parameter: its key is the field's name. */
+type Codecs = { readonly [K in keyof Params]: Codec<Params[K]> };
+
+const MODES: readonly Mode[] = ["map", "cards"];
+
+const PARAMS: Codecs = {
+  mode: {
+    read: (text) => MODES.find((mode) => mode === text) ?? null,
+    write: (mode) => (mode === DEFAULTS.mode ? null : mode),
+  },
+};
+
+const isParam = (key: string): key is keyof Params => Object.hasOwn(PARAMS, key);
+
+const SEPARATOR = "/";
+
+const PARAMS_START = "?";
+
+const PARAMS_JOIN = "&";
+
+const VALUE_START = "=";
+
+/**
+ * The parameters after a move from one place to another (Params says what survives a move).
+ */
+export function paramsAfter(tree: Tree, from: Place, to: Place, params: Params): Params {
+  const moved = openOf(normalised(tree, from)) !== openOf(normalised(tree, to));
+
+  return moved ? { ...params, mode: DEFAULTS.mode } : params;
+}
+
+function placeHash(tree: Tree, place: Place): string {
   const open = openOf(place);
   const bare = place.selected ?? open;
 
@@ -96,11 +161,35 @@ export function hashOf(tree: Tree, given: Place): string {
   return [open ?? "", place.selected ?? ""].map((id) => encodeURIComponent(id)).join(SEPARATOR);
 }
 
+function written<K extends keyof Params>(key: K, params: Params): string[] {
+  const text = PARAMS[key].write(params[key]);
+
+  return text === null ? [] : [`${key}${VALUE_START}${encodeURIComponent(text)}`];
+}
+
+/**
+ * The URL fragment of a place and its parameters, without its "#" (Params gives the grammar).
+ * The place is the bare id a jump would land on it with ("" for the root's view), or, when no
+ * jump lands there (a selected ghost or container, a selection on the root's view other than an
+ * outside leaf), the open container and the selection as `<open>/<selected>`, the root's view
+ * written as nothing before the slash. Each id is percent-encoded. A place is written as the tree
+ * can show it (normalised).
+ */
+export function hashOf(tree: Tree, given: Place, params: Params = DEFAULTS): string {
+  const place = normalised(tree, given);
+
+  const parts = Object.keys(PARAMS).flatMap((key) => (isParam(key) ? written(key, params) : []));
+
+  return (
+    placeHash(tree, place) + (parts.length === 0 ? "" : PARAMS_START + parts.join(PARAMS_JOIN))
+  );
+}
+
 /**
  * What an agent reads of the page in `window.atlas`, without a screenshot: frozen, and replaced
- * at each move of the reader.
+ * at each move of the reader; each parameter of the fragment as its own field.
  */
-export type PageState = {
+export type PageState = Params & {
   /** The containers from a child of the root down to the open one; empty on the root's view. */
   readonly path: readonly string[];
   readonly selected: string | null;
@@ -110,8 +199,8 @@ export type PageState = {
   readonly fragment: string;
 };
 
-/** The page's state at a place, as the tree can show it (normalised). */
-export function pageStateOf(tree: Tree, given: Place): PageState {
+/** The page's state at a place, as the tree can show it (normalised), with its parameters. */
+export function pageStateOf(tree: Tree, given: Place, params: Params = DEFAULTS): PageState {
   const place = normalised(tree, given);
   const view = viewOf(tree, openOf(place));
 
@@ -124,10 +213,11 @@ export function pageStateOf(tree: Tree, given: Place): PageState {
   ]);
 
   return Object.freeze({
+    ...params,
     path: Object.freeze([...place.path]),
     selected: place.selected,
     visible: Object.freeze([...visible]),
-    fragment: hashOf(tree, place),
+    fragment: hashOf(tree, place, params),
   });
 }
 
@@ -139,14 +229,65 @@ const decoded = (text: string): string | null => {
   }
 };
 
+const fragmentOf = (hash: string): string => (hash.startsWith("#") ? hash.slice(1) : hash);
+
+/** A fragment cut where its parameters start: the place's part, then the parameters' part. */
+function cut(hash: string): readonly [string, string] {
+  const fragment = fragmentOf(hash);
+  const start = fragment.indexOf(PARAMS_START);
+
+  return start === -1 ? [fragment, ""] : [fragment.slice(0, start), fragment.slice(start + 1)];
+}
+
+// The parameters with the one a key names set from its text, or null when its codec refuses it.
+function withParam<K extends keyof Params>(params: Params, key: K, text: string): Params | null {
+  const value = PARAMS[key].read(text);
+
+  return value === null ? null : { ...params, [key]: value };
+}
+
+/** A part of the parameters as a key and its decoded text, or nothing when it has neither. */
+function entryOf(part: string): [string, string][] {
+  const start = part.indexOf(VALUE_START);
+  const text = start === -1 ? null : decoded(part.slice(start + 1));
+
+  return text === null ? [] : [[part.slice(0, start), text]];
+}
+
 /**
- * The place a URL fragment names, with or without its "#": a bare id as a jump reads it, and
- * `<open>/<selected>` as the open container's view with that box or ghost selected. A fragment
- * that does not decode or names no container opens the root's view; a selection the view does
- * not show is dropped.
+ * The parameters a URL fragment carries, with or without its "#", each at its default where the
+ * fragment gives none it can read (Params gives the grammar and its rules).
+ */
+export function paramsOfHash(hash: string): Params {
+  const entries = cut(hash)[1]
+    .split(PARAMS_JOIN)
+    .flatMap((part) => entryOf(part));
+
+  const read = new Set<keyof Params>();
+  let params = DEFAULTS;
+
+  for (const [key, text] of entries) {
+    if (isParam(key) && !read.has(key)) {
+      const next = withParam(params, key, text);
+
+      if (next !== null) {
+        read.add(key);
+        params = next;
+      }
+    }
+  }
+
+  return params;
+}
+
+/**
+ * The place a URL fragment names, with or without its "#", its parameters cut off: a bare id as
+ * a jump reads it, and `<open>/<selected>` as the open container's view with that box or ghost
+ * selected. A fragment that does not decode or names no container opens the root's view; a
+ * selection the view does not show is dropped.
  */
 export function placeOfHash(tree: Tree, hash: string): Place {
-  const fragment = hash.startsWith("#") ? hash.slice(1) : hash;
+  const [fragment] = cut(hash);
   const slash = fragment.indexOf(SEPARATOR);
 
   if (slash === -1) {
