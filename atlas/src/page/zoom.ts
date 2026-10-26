@@ -1,7 +1,6 @@
 // A free look inside one view, pure: the camera's rect zoomed around a point or panned, kept
 // within the rect that fits the view: never wider than the fit, never narrower than MAX_ZOOM
-// allows, never off the drawing. The fit and the rect share the drawing area's aspect. At the
-// scale either paints at, a caption too small to read hides (captionShown).
+// allows, never off the drawing. The fit and the rect share the drawing area's aspect.
 import type { Point, Rect } from "./geometry.ts";
 
 /** The smallest font size, in screen pixels, a caption shows at on its own. */

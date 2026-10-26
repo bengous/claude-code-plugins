@@ -16,9 +16,6 @@
 //    that overlaps the least (placement.ts). The drawing's extent covers the labels and the
 //    routes, so the camera frames them. On libavoid's failure (libavoid.wasm unreachable) the
 //    view is drawn without arrows and the panel says why: never block the page.
-// 4. Captions: the arrows' labels, the boxes' tags and the cards' sub-titles, which the engine
-//    hides while they are too small to read on screen (captionShown, zoom.ts), each keeping its
-//    spot; an invisible band along each arrow's path carries its whole label as a tooltip.
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
