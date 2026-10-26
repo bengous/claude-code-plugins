@@ -88,6 +88,12 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     difference: null,
   },
   {
+    gate: "typecheck-coverage",
+    lefthook: "bun ./scripts/check-typecheck-coverage.ts",
+    ci: "bun ./scripts/check-typecheck-coverage.ts",
+    difference: null,
+  },
+  {
     gate: "lint-ts",
     lefthook: "bun x oxlint",
     ci: "bun x oxlint",

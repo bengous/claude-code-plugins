@@ -76,13 +76,16 @@ jobs:
       - name: Run test suites
         run: bun ./scripts/affected.ts test
 
-      # The seven gates below are the same commands the pre-commit jobs run, so a
+      # The eight gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
       - name: Check lint configuration
         run: bun ./scripts/check-lint-config.ts
 
       - name: Typecheck (tsgo)
         run: bun x tsgo --noEmit
+
+      - name: Check that the typecheck covers every tracked TypeScript file
+        run: bun ./scripts/check-typecheck-coverage.ts
 
       - name: Lint TypeScript (oxlint)
         run: bun x oxlint

@@ -34,7 +34,7 @@ pre-commit:
         - ".claude/rules/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
-    # The seven gates below run over the whole repo, not the staged subset: each
+    # The eight gates below run over the whole repo, not the staged subset: each
     # takes well under a second, and CI then replays the exact same commands.
     - name: lint-config
       glob:
@@ -53,6 +53,12 @@ pre-commit:
         - "*.tsx"
         - "tsconfig.json"
       run: bun x tsgo --noEmit
+    - name: typecheck-coverage
+      glob:
+        - "*.ts"
+        - "*.tsx"
+        - "tsconfig.json"
+      run: bun ./scripts/check-typecheck-coverage.ts
     - name: lint-ts
       glob:
         - "*.ts"

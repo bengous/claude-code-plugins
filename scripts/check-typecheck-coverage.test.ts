@@ -3,28 +3,22 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
+import { uncovered } from "./check-typecheck-coverage.ts";
+
 const ROOT = join(import.meta.dir, "..");
 
-/** What `tsconfig.json` leaves out on purpose; anything else tracked must be type-checked. */
-const LEFT_OUT = /^(?:archive|tools\/oxlint\/anti-slop)\//u;
+test("a tracked file the config's files leave out is uncovered, a dot directory's included", () => {
+  const tracked = ["scripts/a.ts", ".claude/hooks/b.ts", ".lefthook/c.ts", ""];
 
-/**
- * `tsgo --showConfig`: the files `include` and `exclude` select, read from directory listings.
- * Not `--listFilesOnly`: it reads every source and type the program loads, which a loaded
- * runner cannot always do within bun's per-test limit.
- */
-type ShownConfig = { readonly files: readonly string[] };
+  expect(uncovered("/repo", tracked, ["scripts/a.ts", "./.claude/hooks/b.ts"])).toEqual([
+    ".lefthook/c.ts",
+  ]);
+});
 
-test("every tracked TypeScript file is in the typecheck, dot directories included", async () => {
-  const tracked = (await $`git ls-files '*.ts' '*.tsx'`.cwd(ROOT).text())
-    .split("\n")
-    .filter((path) => path !== "" && !LEFT_OUT.test(path));
+test("archive and the vendored anti-slop plugin are left out on purpose", () => {
+  const tracked = ["archive/old/x.ts", "tools/oxlint/anti-slop/rule.ts", "tools/oxlint/local/y.ts"];
 
-  // SAFETY: tsgo prints the resolved tsconfig.json as JSON, `files` listing paths relative to it.
-  const { files } = (await $`bun x tsgo --showConfig`.cwd(ROOT).json()) as ShownConfig;
-  const covered = new Set(files.map((path) => join(ROOT, path)));
-
-  expect(tracked.filter((path) => !covered.has(join(ROOT, path)))).toEqual([]);
+  expect(uncovered("/repo", tracked, [])).toEqual(["tools/oxlint/local/y.ts"]);
 });
 
 type TsConfig = {
