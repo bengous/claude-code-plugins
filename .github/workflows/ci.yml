@@ -45,8 +45,12 @@ jobs:
           echo "MISE_CLAUDE_VERSION=$version" >> "$GITHUB_ENV"
           echo "Claude Code $version"
 
+      # The default key ignores the pinned version: a hit would restore another build, and an
+      # exact hit is never saved again.
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
         uses: jdx/mise-action@v5.2.2
+        with:
+          cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -233,6 +237,7 @@ jobs:
         uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun claude
+          cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
