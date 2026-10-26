@@ -796,8 +796,10 @@ function prefetch(key: Key): void {
 }
 
 // The navigated view is laid out first; the views along the path to the one shown follow, which a
-// cross-fade aligns on; a later navigation drops this one. The panel, rendered before the view
-// was laid out, is rendered again when the view says what it could not: that libavoid failed.
+// cross-fade aligns on; a later navigation drops this one. A view shown anew lights only what the
+// keyboard focuses in it: a hover left on it when the reader went elsewhere ended unseen. The
+// panel, rendered before the view was laid out, is rendered again when the view says what it could
+// not: that libavoid failed.
 async function settle(): Promise<void> {
   const seq = ++turn;
   const from = cam === null ? null : shown(cam, performance.now()).space;
@@ -816,6 +818,7 @@ async function settle(): Promise<void> {
 
   if (key !== from || cam === null) {
     moveTo(key, from);
+    hover(focusedItem());
   }
 
   highlight(d, place);
