@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, and the JSON of threads.json, which readThreads parses: there is no earlier place to narrow them. */
+/* oxlint-disable anti-slop/no-unknown-parameters -- the values typed `unknown` here are what a `catch` or a rejected promise hands over, the JSON of threads.json, which readThreads parses, and the lines serve.ts answers, which isSourceLines parses: there is no earlier place to narrow them. */
 // The page's entry (atlas.html loads it; serve.ts bundles it). It draws the map it is given,
 // atlas:map and atlas:config, which serve.ts resolves to the files of a map folder; it holds no
 // content: a new node, link or text belongs in the map's data.
@@ -17,7 +17,8 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
-import { mapCitations } from "../model/citations.ts";
+import type { Citation } from "../model/citations.ts";
+import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import type { PageState, Place, PlaceEvent } from "../model/navigation.ts";
 import { HOME, navigate, openOf, pageStateOf, placeOfHash } from "../model/navigation.ts";
@@ -26,8 +27,8 @@ import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
 import { chainOf, holds } from "../model/tree.ts";
 import { coupledIn, lights, viewOf } from "../model/view.ts";
-import type { Selected } from "../server/wire.ts";
-import { SELECTION_PATH } from "../server/wire.ts";
+import type { Selected, SourceLines } from "../server/wire.ts";
+import { SELECTION_PATH, SOURCE_PATH } from "../server/wire.ts";
 import type { Camera, Image, Key } from "./camera.ts";
 import { betweenOf, camera, shown } from "./camera.ts";
 import type { Drawn, Packing } from "./draw.ts";
@@ -35,8 +36,8 @@ import { drawView } from "./draw.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
 import { fontKey } from "./measure.ts";
-import type { ThreadState } from "./panel.ts";
-import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
+import type { ThreadState, Viewer } from "./panel.ts";
+import { linesAround, renderCrumbs, renderOpenList, renderPanel, renderViewer } from "./panel.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
@@ -190,6 +191,12 @@ let panelAvoidError: string | null = null;
 
 // The panel shows each citation as a marker of its lines, or in full once the reader asks.
 let sourcesInFull = false;
+
+// The lines of the marker last clicked, shown in place of the panel's fields until the reader
+// closes them or moves; panelTop is where the panel was scrolled when they opened.
+let viewer: Viewer | null = null;
+
+let panelTop = 0;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -743,8 +750,8 @@ function tellSelection(id: string | null): void {
 
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
 // so a page script cannot assign it, answering the frozen state of the last render, the zoom of
-// the view shown, 1 at its fit, 2 when half its width fills the stage, and whether the panel
-// shows its citations in full.
+// the view shown, 1 at its fit, 2 when half its width fills the stage, whether the panel shows its
+// citations in full, and the citation whose lines it shows, if any.
 let pageState: PageState = pageStateOf(tree, place);
 
 const zoomOf = (): number =>
@@ -753,7 +760,13 @@ const zoomOf = (): number =>
     : 1;
 
 Object.defineProperty(window, "atlas", {
-  get: () => Object.freeze({ ...pageState, zoom: zoomOf(), sourcesInFull }),
+  get: () =>
+    Object.freeze({
+      ...pageState,
+      zoom: zoomOf(),
+      sourcesInFull,
+      citation: viewer === null ? null : citationText(viewer.citation),
+    }),
   enumerable: true,
 });
 
@@ -762,7 +775,13 @@ Object.defineProperty(window, "atlas", {
 function render(): void {
   const key = openOf(place);
   panelAvoidError = heldOf(st, key)?.avoidError ?? null;
-  renderPanel(settings, tree, panel, place, panelAvoidError, threads);
+
+  if (viewer === null) {
+    renderPanel(settings, tree, panel, place, panelAvoidError, threads);
+  } else {
+    renderViewer(settings, panel, viewer);
+  }
+
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
@@ -856,6 +875,7 @@ async function settle(): Promise<void> {
 // to the view once it is drawn.
 function send(ev: PlaceEvent): void {
   place = navigate(tree, place, ev);
+  viewer = null;
   render();
   settle().catch(fail);
 }
@@ -929,6 +949,82 @@ panel.addEventListener("submit", (e) => {
   if (e.target instanceof HTMLFormElement && e.target.classList.contains("reply")) {
     e.preventDefault();
     void sendReply(e.target);
+  }
+});
+
+// A marker is a button only with the Config's sources root (panel.ts): a click asks serve.ts for
+// the lines around the cited ones, and shows them in the panel until the reader closes them.
+/* oxlint-disable anti-slop/no-runtime-typeof -- isSourceLines IS the boundary parser of what serve.ts answers the page: there is no earlier place to narrow it. */
+const isSourceLines = (v: unknown): v is SourceLines =>
+  typeof v === "object" &&
+  v !== null &&
+  "path" in v &&
+  typeof v.path === "string" &&
+  "from" in v &&
+  typeof v.from === "number" &&
+  "lines" in v &&
+  Array.isArray(v.lines) &&
+  v.lines.every((line) => typeof line === "string");
+/* oxlint-enable anti-slop/no-runtime-typeof */
+
+async function linesOf(citation: Citation): Promise<Viewer> {
+  const { from, to } = linesAround(citation);
+  const query = new URLSearchParams({ path: citation.path, from: String(from), to: String(to) });
+
+  try {
+    const response = await fetch(`${SOURCE_PATH}?${query}`, { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error(`${response.status} ${await response.text()}`);
+    }
+
+    const answer: unknown = await response.json();
+
+    if (!isSourceLines(answer)) {
+      throw new TypeError(`${SOURCE_PATH}: the answer holds no path, from and lines`);
+    }
+
+    return { kind: "lines", citation, from: answer.from, lines: answer.lines };
+  } catch (error: unknown) {
+    return { kind: "failed", citation, message: failure(error) };
+  }
+}
+
+// A later click or move drops the lines a slower answer brings.
+async function openCitation(citation: Citation): Promise<void> {
+  if (viewer === null) {
+    panelTop = panel.scrollTop;
+  }
+
+  const opened: Viewer = { kind: "loading", citation };
+  viewer = opened;
+  render();
+  const read = await linesOf(citation);
+
+  if (viewer === opened) {
+    viewer = read;
+    render();
+  }
+}
+
+function closeCitation(): void {
+  viewer = null;
+  render();
+  panel.scrollTop = panelTop;
+}
+
+panel.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) {
+    return;
+  }
+
+  const cited = e.target.closest("[data-cite]");
+  const citation = cited instanceof HTMLElement ? citationOf(cited.dataset["cite"] ?? "") : null;
+
+  if (citation !== null) {
+    void openCitation(citation);
+  } else if (e.target.closest("[data-close-viewer]") !== null) {
+    closeCitation();
   }
 });
 
@@ -1027,6 +1123,7 @@ document.addEventListener("keydown", (e) => {
 // typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
+  viewer = null;
   render();
   settle().catch(fail);
 });

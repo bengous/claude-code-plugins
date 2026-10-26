@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
-import { citedLines, mapCitations } from "../model/citations.ts";
+import { citationText, citedLines, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
@@ -193,7 +193,7 @@ export function checkCitations(map: AtlasMap, config: Config, dir: string): stri
   const root = resolve(dir, config.sources.root);
 
   return mapCitations(map).flatMap(({ where, field, citation }) => {
-    const cited = `${where}: ${field}: ${citation.path}:${citedLines(citation)}`;
+    const cited = `${where}: ${field}: ${citationText(citation)}`;
     const source = sourceFile(root, citation.path);
 
     if (source.kind === "refused") {

@@ -35,7 +35,8 @@ src/cli.ts           the one command line of agents and skills, and of the mod's
                      check, fmt, reply, draft, query (one node as JSON, read from tree.ts),
                      inventory (cli.spec.ts, on copies in temporary folders)
 src/serve.ts         serves one map folder's page, rebuilt and reloaded on save, answers
-                     libavoid.wasm and threads.json, takes the panel's replies, prints the page's
+                     libavoid.wasm, threads.json and the lines a citation names
+                     (server/source.ts), takes the panel's replies, prints the page's
                      selections, and with --heartbeat leaves with its parent process or a minute
                      after the last beat carrying its secret (serve.spec.ts)
 src/standalone.spec.ts  serves the sample from a copy of the plugin outside any repository, as an
@@ -48,8 +49,9 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      ratio, reading direction, tags, legend labels, panel headings, step words,
                      sources root); the source of a map's atlas.d.ts
   folder.ts          the map folder's files (loadFolder), and its labels by id, the ids a selection
-                     may name (labelsOf, folder.spec.ts); run, it prints them, or refuses a folder
-                     the engine cannot draw, which serve.ts asks before each build
+                     may name (labelsOf, folder.spec.ts); run, it prints them with the sources
+                     root and the paths the map cites (FolderLine), or refuses a folder the
+                     engine cannot draw, which serve.ts asks before each build
   settings.ts        the Config with its defaults filled in, refusing what the engine cannot use,
                      and the palette as the page's CSS custom properties (settings.spec.ts)
   drawable.ts        the tree and the settings a map folder makes, or why no view can show it:
@@ -61,7 +63,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
   citations.ts       a <cite>path:lines</cite> read as a citation, pure, and every citation of a
                      map by node and field (citations.spec.ts)
   sources.ts         the file a citation's path names under the Config's sources root, Node-only:
-                     no absolute path, no `..`, no link out of the root (sources.spec.ts)
+                     no absolute path, no `..`, no link out of the root; and its lines, for a
+                     text file under SOURCE_CAP_BYTES (sources.spec.ts)
   words.ts           the page's own words in each language a Config picks: the dictionary
   tree.ts            the tree indexed for views at any depth: each node's chain from the root,
                      open points counted down each subtree, couplings both ways, and what stands
@@ -123,14 +126,18 @@ src/page/            what runs in the browser
   legend.ts          the legend's lines, one per arrow kind or node mark a view uses
                      (legend.spec.ts)
   panel.ts           the panel, the breadcrumb and the open points' list; fieldHtml, the one way
-                     an HTML field reaches the page, its citations as markers (panel.spec.ts)
+                     an HTML field reaches the page, its citations as markers; the viewer of a
+                     citation's lines (panel.spec.ts)
   measure.ts         sizes text: one scale for every view
   geometry.ts        rects, points and similarities
   svg.ts             SVG building blocks
 
 src/server/          what crosses processes
   wire.ts            what crosses between the page, serve.ts and the mod: routes, a selection,
-                     the server's JSON line; bunFlags, which every bun atlas starts takes
+                     the lines a citation names, the server's JSON line; bunFlags, which every
+                     bun atlas starts takes
+  source.ts          the route of a citation's lines and its refusals, the plugin's one route
+                     that reads a file of the user's (source.spec.ts)
   coalesce.ts        one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.spec.ts)
   open.ts            hands an address to the desktop's browser, detached, for the mod (open.spec.ts)
@@ -212,11 +219,15 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
   ghosts) and the fragment, frozen and replaced at each move, with the view's `zoom`, 1 at its
-  fit (`zoomOf` in `engine.ts`), and `sourcesInFull`; a getter, so a page script cannot assign it.
+  fit (`zoomOf` in `engine.ts`), `sourcesInFull`, and the `citation` whose lines the panel
+  shows, or null; a getter, so a page script cannot assign it.
 - A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
   marker of its lines, the whole citation as its tooltip; a `<cite>` of other text and a `kicker`
   show as written. The header's Sources toggle, shown when the map has a citation, shows every
   citation in full, remembered per browser under `atlas.sources` (`sourcesInFull`).
+- With the Config's `sources`, a marker is a button: a click shows the cited lines and eight
+  around them in the panel, read from serve.ts, under the path and a close button, until the
+  close button or a move. serve.ts knows the paths the map cites only from folder.ts's line.
 - Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within

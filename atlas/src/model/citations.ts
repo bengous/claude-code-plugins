@@ -42,6 +42,10 @@ export const citedLines = (citation: Citation): string =>
     .map(({ first, last }) => (first === last ? String(first) : `${first}-${last}`))
     .join(",");
 
+/** The whole citation, `path:lines`, as its tooltip shows it. */
+export const citationText = (citation: Citation): string =>
+  `${citation.path}:${citedLines(citation)}`;
+
 // A <cite> as keptMarkup writes it, its text with no tag inside.
 const CITE = /<cite>([^<]*)<\/cite>/gu;
 

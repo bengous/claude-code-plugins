@@ -9,7 +9,8 @@ import type { Settings } from "../model/settings.ts";
 import { settingsOf } from "../model/settings.ts";
 import { treeOf } from "../model/tree.ts";
 import { WORDS } from "../model/words.ts";
-import { fieldHtml, renderCrumbs, renderPanel } from "./panel.ts";
+import type { Viewer } from "./panel.ts";
+import { fieldHtml, linesAround, renderCrumbs, renderPanel, renderViewer } from "./panel.ts";
 import { esc } from "./svg.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
@@ -243,9 +244,81 @@ describe("the panel's citations", () => {
   });
 
   test("fieldHtml, which every HTML field goes through, keeps the panel's markup and its markers", () => {
-    expect(fieldHtml('<b>x</b> <cite>a.ts:1</cite> <img src="y">')).toBe(
+    expect(fieldHtml(settingsOf(CONFIG), '<b>x</b> <cite>a.ts:1</cite> <img src="y">')).toBe(
       '<b>x</b> <cite class="cite" title="a.ts:1"><span class="cite-path">a.ts:</span>1</cite> &lt;img src="y">',
     );
+  });
+
+  test("without a sources root, no marker is a button", () => {
+    expect(panel.innerHTML).not.toContain("data-cite");
+    expect(panel.innerHTML).not.toContain('<button type="button" class="cite-open"');
+  });
+
+  test("with a sources root, each marker is a button that names its citation", () => {
+    const sourced = { innerHTML: "", scrollTop: 0 };
+    const settings = settingsOf({ ...CONFIG, sources: { root: "repo" } });
+
+    renderPanel(settings, tree, sourced, { path: [], selected: "a" }, null, {
+      kind: "ok",
+      threads: {},
+    });
+
+    expect(sourced.innerHTML).toContain(
+      '<cite class="cite" title="src/a.ts:12-30"><button type="button" class="cite-open" data-cite="src/a.ts:12-30"><span class="cite-path">src/a.ts:</span>12-30</button></cite>',
+    );
+    expect(sourced.innerHTML).toContain('data-cite="src/b.ts:4,8-9"');
+    expect(sourced.innerHTML).toContain("as <cite>the docs</cite> say");
+    expect(sourced.innerHTML).toContain('<p class="kicker">src/a.ts:1-9 &lt;cite&gt;');
+  });
+});
+
+describe("the viewer of a citation's lines", () => {
+  const citation = { path: "src/a.go", lines: [{ first: 12, last: 13 }] } as const;
+  const settings = settingsOf(CONFIG);
+
+  const viewed = (viewer: Viewer): string => {
+    const panel = { innerHTML: "", scrollTop: 40 };
+    renderViewer(settings, panel, viewer);
+
+    expect(panel.scrollTop).toBe(0);
+
+    return panel.innerHTML;
+  };
+
+  test("asks for the cited lines and eight around them, from line 1 at least", () => {
+    expect(linesAround(citation)).toEqual({ from: 4, to: 21 });
+    expect(
+      linesAround({
+        path: "a",
+        lines: [
+          { first: 30, last: 30 },
+          { first: 3, last: 5 },
+        ],
+      }),
+    ).toEqual({ from: 1, to: 38 });
+  });
+
+  test("shows the path and a close button above the lines, numbered, the cited ones marked", () => {
+    const html = viewed({ kind: "lines", citation, from: 11, lines: ["a", "<b>", "c", "d"] });
+
+    expect(html).toContain(
+      `<div class="viewer-head"><code class="viewer-path">src/a.go:12-13</code><button type="button" class="viewer-close" data-close-viewer>${WORDS.fr.viewerClose}</button></div>`,
+    );
+    expect(html).toContain(
+      '<div class="viewer-lines"><div class="line"><span class="n">11</span><code>a</code></div>' +
+        '<div class="line cited"><span class="n">12</span><code>&lt;b&gt;</code></div>' +
+        '<div class="line cited"><span class="n">13</span><code>c</code></div>' +
+        '<div class="line"><span class="n">14</span><code>d</code></div></div>',
+    );
+  });
+
+  test("says it reads the lines, then why it could not, escaped", async () => {
+    expect(viewed({ kind: "loading", citation })).toContain(WORDS.fr.viewerLoading);
+
+    const failed = viewed({ kind: "failed", citation, message: "403 <img src=x>" });
+
+    expect(failed).toContain(WORDS.fr.viewerFailed("403 &lt;img src=x&gt;"));
+    expect(await elementsWith(failed, "img")).toBe(0);
   });
 });
 

@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-runtime-typeof -- isReply, isSelected and labelsIn ARE the boundary parsers of what the page posts and folder.ts prints: there is no earlier place to narrow them. */
+/* oxlint-disable anti-slop/no-runtime-typeof -- isReply and isSelected ARE the boundary parsers of what the page posts: there is no earlier place to narrow them. */
 import type { FSWatcher } from "node:fs";
 import { statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -6,9 +6,11 @@ import { parseArgs } from "node:util";
 
 import type { BuildArtifact, BunPlugin, Server } from "bun";
 
-import { CONFIG_FILE, LABELS_LINE, MAP_FILE, THREADS_FILE } from "./model/folder.ts";
+import { CONFIG_FILE, MAP_FILE, THREADS_FILE, readFolderLine } from "./model/folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./model/threads.ts";
 import { coalesced } from "./server/coalesce.ts";
+import type { Sources } from "./server/source.ts";
+import { sourceAnswer } from "./server/source.ts";
 import type { Beat, Selected, ServerLine } from "./server/wire.ts";
 import {
   HEARTBEAT_ENV,
@@ -16,6 +18,7 @@ import {
   HEARTBEAT_HEADER,
   HEARTBEAT_PATH,
   SELECTION_PATH,
+  SOURCE_PATH,
   bunFlags,
 } from "./server/wire.ts";
 
@@ -30,7 +33,8 @@ import {
 // and, when the page changed, reloads every open tab through a server-sent event. A failed build,
 // or data the engine cannot draw, answers an error page instead, which reloads on the next save.
 // It answers requests to 127.0.0.1, localhost or [::1] only, on any port. Each selection the page
-// posts is printed as one JSON line (wire.ts), which the hooks module reads.
+// posts is printed as one JSON line (wire.ts), which the hooks module reads. It answers the lines
+// of a file a citation names, under the Config's sources root (server/source.ts).
 const DIR = import.meta.dir;
 
 const PLUGIN = dirname(DIR);
@@ -55,9 +59,9 @@ type Built = {
   readonly files: ReadonlyMap<string, BuildArtifact>;
 };
 
-type Bundle =
-  | (Built & { readonly labels: ReadonlyMap<string, string> })
-  | { readonly kind: "error"; readonly message: string };
+type Known = { readonly labels: ReadonlyMap<string, string>; readonly sources: Sources | null };
+
+type Bundle = (Built & Known) | { readonly kind: "error"; readonly message: string };
 
 const same = (a: Bundle, b: Bundle): boolean =>
   a.kind === "ok"
@@ -160,39 +164,12 @@ async function bundle(): Promise<Built | { readonly kind: "error"; readonly mess
 }
 
 type Drawable =
-  | { readonly kind: "drawn"; readonly labels: ReadonlyMap<string, string> }
+  | ({ readonly kind: "drawn" } & Known)
   | { readonly kind: "refused"; readonly message: string };
 
-// The map's labels by id, from the last line folder.ts marks; anything else reads as no map.
-function labelsIn(stdout: string): ReadonlyMap<string, string> | null {
-  const line = stdout.split("\n").findLast((printed) => printed.startsWith(LABELS_LINE));
-
-  if (line === undefined) {
-    return null;
-  }
-
-  let value: unknown;
-
-  try {
-    value = JSON.parse(line.slice(LABELS_LINE.length));
-  } catch {
-    return null;
-  }
-
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-
-  const entries = Object.entries(value);
-
-  return entries.every(([, label]) => typeof label === "string")
-    ? new Map(entries.map(([id, label]) => [id, String(label)]))
-    : null;
-}
-
 // The page throws on data drawableOf refuses, so the folder is loaded here first, in a fresh process:
-// this one keeps the first evaluation of every module it imports. Its labels are the ids a
-// selection may name.
+// this one keeps the first evaluation of every module it imports. Its line (FolderLine) names the
+// ids a selection may name and the paths the page may ask the lines of.
 async function drawable(): Promise<Drawable> {
   const run = Bun.spawn(
     [process.execPath, ...bunFlags(PLUGIN), join(DIR, "model", "folder.ts"), folder],
@@ -208,12 +185,20 @@ async function drawable(): Promise<Drawable> {
     new Response(run.stderr).text(),
   ]);
 
-  const labels = code === 0 ? labelsIn(out) : null;
+  const line = code === 0 ? readFolderLine(out) : null;
   const printed = [error.trim(), out.trim()].filter((text) => text !== "").join("\n");
 
-  return labels === null
-    ? { kind: "refused", message: `the map in ${folder} cannot be drawn: ${printed}` }
-    : { kind: "drawn", labels };
+  if (line === null) {
+    return { kind: "refused", message: `the map in ${folder} cannot be drawn: ${printed}` };
+  }
+
+  const { labels, sources } = line;
+
+  return {
+    kind: "drawn",
+    labels: new Map(Object.entries(labels)),
+    sources: sources === null ? null : { root: sources.root, paths: new Set(sources.paths) },
+  };
 }
 
 async function compile(): Promise<Bundle> {
@@ -225,7 +210,7 @@ async function compile(): Promise<Bundle> {
 
   return drawn.kind === "refused"
     ? { kind: "error", message: drawn.message }
-    : { ...bundled, labels: drawn.labels };
+    : { ...bundled, labels: drawn.labels, sources: drawn.sources };
 }
 
 let current = await compile();
@@ -537,7 +522,7 @@ async function threads(): Promise<Response> {
 }
 
 function route(request: Request, server: Server<undefined>): Response | Promise<Response> {
-  const { pathname } = new URL(request.url);
+  const { pathname, searchParams } = new URL(request.url);
   const get = request.method === "GET";
 
   if (request.method === "POST") {
@@ -566,6 +551,8 @@ function route(request: Request, server: Server<undefined>): Response | Promise<
       return new Response(Bun.file(WASM_FILE), { headers: { "cache-control": "no-store" } });
     case `/${THREADS_FILE}`:
       return threads();
+    case `/${SOURCE_PATH}`:
+      return sourceAnswer(current.kind === "ok" ? current.sources : null, searchParams);
     default: {
       const file = current.kind === "ok" ? current.files.get(pathname) : undefined;
 

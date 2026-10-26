@@ -235,8 +235,9 @@ export type Config = {
   /**
    * The folder the map's citations name their paths from, `root` relative to the map folder, such
    * as `".."` for the repository a map folder sits in. With it, `atlas check` verifies each
-   * `<cite>path:lines</cite>`: a file at that path under the folder, every line cited within it.
-   * Citations are not verified when absent.
+   * `<cite>path:lines</cite>`: a file at that path under the folder, every line cited within it;
+   * and a click on a citation's marker shows its lines in the panel. Citations are neither
+   * verified nor opened when absent.
    */
   readonly sources?: { readonly root: string };
 };

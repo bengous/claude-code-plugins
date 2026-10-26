@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AtlasMap } from "./atlas.ts";
-import { citationOf, citedLines, mapCitations, withCitations } from "./citations.ts";
+import { citationOf, citationText, citedLines, mapCitations, withCitations } from "./citations.ts";
 
 describe("citationOf", () => {
   test.each([
@@ -58,10 +58,11 @@ describe("citationOf", () => {
   });
 });
 
-test("citedLines writes the lines alone, as a marker shows them", () => {
+test("citedLines writes the lines alone, as a marker shows them, and citationText the whole", () => {
   const cited = citationOf("a.ts:30,044-46");
 
   expect(cited === null ? null : citedLines(cited)).toBe("30,44-46");
+  expect(cited === null ? null : citationText(cited)).toBe("a.ts:30,44-46");
 });
 
 const marked = (html: string): string => withCitations(html, (c) => `[${c.path} ${citedLines(c)}]`);

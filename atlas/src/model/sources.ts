@@ -1,9 +1,10 @@
-import { realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
 
 // The files a map's citations name, under the folder the Config's `sources` names: check counts
-// their lines. Node only. A citation names a file as the repository lists it, from that folder
-// down: no absolute path, no `..`, and no link that leads out of the folder.
+// their lines, and serve.ts answers them to the page (server/source.ts). Node only. A citation
+// names a file as the repository lists it, from that folder down: no absolute path, no `..`, and
+// no link that leads out of the folder.
 
 export type SourceFile =
   | { readonly kind: "file"; readonly file: string }
@@ -66,4 +67,49 @@ export function textLines(text: string): string[] {
   const lines = text.split(/\r?\n/u);
 
   return lines.at(-1) === "" ? lines.slice(0, -1) : lines;
+}
+
+/** The largest file the page is answered, in bytes. */
+export const SOURCE_CAP_BYTES = 1024 * 1024;
+
+export type SourceText =
+  | { readonly kind: "text"; readonly lines: readonly string[] }
+  | {
+      readonly kind: "refused";
+      /** sourceFile's, then large: over SOURCE_CAP_BYTES; binary: a NUL byte, or not UTF-8. */
+      readonly why: "root" | "outside" | "missing" | "large" | "binary";
+      readonly reason: string;
+    };
+
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+function textOf(bytes: Uint8Array): string | null {
+  if (bytes.includes(0)) {
+    return null;
+  }
+
+  try {
+    return UTF8.decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/** The lines of the text file `path` names under `root`, at most SOURCE_CAP_BYTES, or why not. */
+export function sourceText(root: string, path: string): SourceText {
+  const source = sourceFile(root, path);
+
+  if (source.kind === "refused") {
+    return source;
+  }
+
+  if (statSync(source.file).size > SOURCE_CAP_BYTES) {
+    return { kind: "refused", why: "large", reason: `${path} is over ${SOURCE_CAP_BYTES} bytes` };
+  }
+
+  const text = textOf(readFileSync(source.file));
+
+  return text === null
+    ? { kind: "refused", why: "binary", reason: `${path} is not a text file in UTF-8` }
+    : { kind: "text", lines: textLines(text) };
 }

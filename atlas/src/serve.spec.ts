@@ -22,10 +22,13 @@ import {
   HEARTBEAT_HEADER,
   HEARTBEAT_PATH,
   SELECTION_PATH,
+  SOURCE_PATH,
   bunFlags,
 } from "./server/wire.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "fixtures", "sample");
+
+const CITATIONS = join(import.meta.dir, "..", "fixtures", "citations");
 
 const WAIT_MS = 10_000;
 
@@ -439,7 +442,14 @@ describe("a request that names another host", () => {
   test("is refused on every route: a name rebound to this machine reads nothing", async () => {
     const { base, port } = served();
 
-    for (const path of ["/atlas.html", "/events", `/${THREADS_FILE}`, "/libavoid.wasm", "/"]) {
+    for (const path of [
+      "/atlas.html",
+      "/events",
+      `/${THREADS_FILE}`,
+      "/libavoid.wasm",
+      "/",
+      `/${SOURCE_PATH}?path=map.ts&from=1&to=1`,
+    ]) {
       const response = await fetch(`${base}${path}`, {
         headers: { host: `rebound.example:${port}` },
       });
@@ -809,6 +819,73 @@ describe("the hooks module's routes, named by another host", () => {
 
     expect([selected.status, beaten.status]).toEqual([403, 403]);
   });
+});
+
+const linesOf = async (base: string, path: string, from: number, to: number): Promise<Response> =>
+  await fetch(
+    `${base}/${SOURCE_PATH}?${new URLSearchParams({ path, from: String(from), to: String(to) })}`,
+  );
+
+describe("the lines of a cited file", () => {
+  test("are refused for every path, the map's own files among them, when its Config names no sources", async () => {
+    const { base } = served();
+
+    for (const path of [MAP_FILE, "deploy/Caddyfile", "src/orders.ts"]) {
+      const response = await linesOf(base, path, 1, 1);
+
+      expect(`${path} ${response.status}`).toBe(`${path} 404`);
+    }
+  });
+
+  test(
+    "are answered for a path the map cites, as its last build's folder line names them, and refused for any other",
+    async () => {
+      const copy = mkdtempSync(join(tmpdir(), "atlas-cited-"));
+      cpSync(CITATIONS, copy, { recursive: true });
+      const cited = await serve(copy);
+
+      try {
+        const answer = await linesOf(cited.base, "orders/orders.go", 53, 54);
+
+        expect(answer.status).toBe(200);
+        expect(await answer.json()).toEqual({
+          path: "orders/orders.go",
+          from: 53,
+          lines: [
+            "\t// The mail goes out before the request answers: a slow mail service slows the checkout.",
+            "\treturn id, s.Mailer.Confirm(ctx, email, id)",
+          ],
+        });
+
+        writeFileSync(join(copy, "repo", "notes.txt"), "a note\n");
+
+        expect((await linesOf(cited.base, "notes.txt", 1, 1)).status).toBe(403);
+
+        const map = join(copy, MAP_FILE);
+        const text = await Bun.file(map).text();
+        cited.log.skip();
+        saveAtomically(
+          map,
+          text.replace("its handler <cite>", "its handler <cite>notes.txt:1</cite> <cite>"),
+        );
+        await within(
+          cited.log.next((line) => /^atlas: built .*reload sent/u.test(line)),
+          "build",
+        );
+
+        expect(await (await linesOf(cited.base, "notes.txt", 1, 1)).json()).toEqual({
+          path: "notes.txt",
+          from: 1,
+          lines: ["a note"],
+        });
+      } finally {
+        cited.child.kill();
+        await cited.child.exited;
+        rmSync(copy, { recursive: true, force: true });
+      }
+    },
+    WAIT_MS * 3,
+  );
 });
 
 // The first line a process prints: a server's address.

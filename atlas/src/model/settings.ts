@@ -33,6 +33,8 @@ export type Settings = {
   readonly legend: Readonly<Record<LegendKey, string>>;
   /** The map's text, not the page's words: the panel escapes each where it inserts it. */
   readonly headings: Readonly<Record<PanelHeading, string>>;
+  /** The folder the citations name their paths from, relative to the map folder; null: none. */
+  readonly sources: { readonly root: string } | null;
 };
 
 export const OPEN_COLOR: Swatch = { light: "#c2410c", dark: "#fb923c" };
@@ -145,6 +147,7 @@ export function settingsOf(config: Config): Settings {
     tags: config.tags ?? { names: [], outside: "optional" },
     legend: { ...words.legend, ...config.legend },
     headings: { ...words.headings, ...config.headings },
+    sources: config.sources ?? null,
   };
 }
 

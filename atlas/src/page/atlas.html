@@ -58,7 +58,9 @@
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
     lines, the whole citation as its tooltip; the header's Sources toggle,
-    remembered per browser, shows every citation in full.
+    remembered per browser, shows every citation in full. With the Config's
+    `sources` root, a click on a marker shows the cited lines in the panel,
+    read from serve.ts, until its close button or a move.
   - A bare #id in the link opens the page on it: a container's view, or a
     leaf's parent's view with the leaf selected.
   - The legend shows a line for each arrow kind and node mark the view uses,
@@ -299,6 +301,27 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 }
 .panel .cite-path { display: none; }
 .panel.full-sources .cite-path { display: inline; white-space: normal; overflow-wrap: anywhere; }
+/* With the Config's sources root, a marker is a button that opens its lines in the panel. */
+.panel .cite-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.panel cite.cite:has(.cite-open:hover) { border-color: var(--accent); color: var(--accent); }
+/* The lines a marker cites, in place of the panel's fields: the path and the close button above, the cited lines marked. */
+.panel .viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
+.panel .viewer-path { font-size: 12.5px; background: none; padding: 0; overflow-wrap: anywhere; }
+.panel .viewer-close {
+  flex: none; font-family: var(--f-display); font-weight: 600; font-size: 14px; letter-spacing: 0.04em; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer;
+}
+.panel .viewer-close:hover { border-color: var(--accent); color: var(--accent); }
+.panel .viewer-note { color: var(--ink-3); font-size: 13px; }
+.panel .viewer-lines {
+  font-family: var(--f-mono); font-size: 12px; line-height: 1.6; overflow-x: auto;
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 4px; padding: 6px 0;
+}
+.panel .viewer-lines .line { display: flex; width: max-content; min-width: 100%; min-height: 1.6em; }
+.panel .viewer-lines .n { flex: none; width: 5ch; padding-right: 10px; text-align: right; color: var(--ink-3); user-select: none; }
+.panel .viewer-lines code { font-size: inherit; white-space: pre; tab-size: 4; background: none; padding: 0 12px 0 0; border-radius: 0; }
+.panel .viewer-lines .cited { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.panel .viewer-lines .cited .n { color: var(--accent); }
 .panel .warn {
   border-left: 3px solid var(--open); padding: 6px 10px; background: var(--sheet); border-radius: 0 4px 4px 0; font-size: 14px;
 }
