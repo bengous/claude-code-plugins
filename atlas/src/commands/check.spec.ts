@@ -326,8 +326,10 @@ describe("drawableOf", () => {
     [-1, "-1"],
     [1.5, "1.5"],
     [Number.NaN, "NaN"],
+    ["1", '"1"'],
   ])("refuses a rank that is not an integer from 0, which no band holds: %p", (rank, shown) => {
-    const ranked = withNode(MAP, "browser", (n) => ({ ...n, rank }));
+    // SAFETY: a rank outside number, as a map folder's data can hold once it skips its typecheck.
+    const ranked = withNode(MAP, "browser", (n) => ({ ...n, rank: rank as number }));
 
     expect(() => drawableOf(ranked, CONFIG)).toThrow(
       `node browser: rank ${shown} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,

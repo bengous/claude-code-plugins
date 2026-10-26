@@ -154,8 +154,9 @@ export function treeOf(map: AtlasMap): Tree {
     }
 
     if (rank !== undefined && !(Number.isInteger(rank) && rank >= 0)) {
+      const shown = Object.is(Number(rank), rank) ? String(rank) : JSON.stringify(rank);
       refuse(
-        `node ${id}: rank ${rank} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
+        `node ${id}: rank ${shown} is not an integer from 0; give 0 to the first band, 1 to the next, or no rank`,
       );
     }
 
