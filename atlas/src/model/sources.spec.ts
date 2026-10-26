@@ -42,6 +42,15 @@ describe("sourceFile", () => {
     });
   });
 
+  test("finds a file at the root named from ./, as a citation of a file with no dot names it", () => {
+    writeFileSync(join(ROOT, "Dockerfile"), "FROM scratch\n");
+
+    expect(sourceFile(ROOT, "./Dockerfile")).toEqual({
+      kind: "file",
+      file: join(ROOT, "Dockerfile"),
+    });
+  });
+
   test.each([
     ["a .. segment", "../elsewhere/secret.txt"],
     ["a .. segment that comes back in", "src/../src/a.ts"],

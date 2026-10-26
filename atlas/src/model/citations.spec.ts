@@ -47,6 +47,7 @@ describe("citationOf", () => {
     "../shared/a.b.config.ts:1",
     "app/(shop)/[id]/page.tsx:3",
     "deploy/Caddyfile:9",
+    "./Dockerfile:3",
     "@scope/pkg-name_2/index.d.ts:40-41",
   ])("reads a path with dots, slashes and the marks a repository's names carry: %s", (text) => {
     expect(citationOf(text)?.path).toBe(text.slice(0, text.lastIndexOf(":")));

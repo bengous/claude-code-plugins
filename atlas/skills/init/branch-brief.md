@@ -69,8 +69,9 @@ export const links = [
   grows (`extend`), its traps (`pitfalls`). A container carries `brief` and `lead`. Leave a field
   out rather than guess it.
 - Every claim ends with `<cite>path:line</cite>` or `<cite>path:first-last</cite>`, the path from
-  the repository root, naming the lines that show it. One claim, one sentence, one citation at
-  least. `src` names where the node lives, without lines.
+  the repository root, naming the lines that show it; a file at the root with no dot in its name
+  is cited from `./` (`<cite>./Dockerfile:3</cite>`), or it reads as no citation. One claim, one
+  sentence, one citation at least. `src` names where the node lives, without lines.
 - A link joins two nodes neither of which holds the other: inside the branch, or from this branch
   to another branch's id or an outside id. Its label says what moves along it in a few words. The
   line above each link, a comment, cites where the code makes that call.
