@@ -469,6 +469,22 @@ describe("land", () => {
       why: "no checkout holds fix/nowhere: check it out, then land",
     });
   });
+
+  test("refuses the types branch held where the types run recreates its worktree", async () => {
+    git(
+      work,
+      "worktree",
+      "add",
+      "--quiet",
+      "-b",
+      "chore/claude-code-types",
+      `${work}.wt/claude-code-types`,
+    );
+
+    expect(why(await landing("chore/claude-code-types"))).toEndWith(
+      "is where the types run recreates its worktree, under a landing: check chore/claude-code-types out elsewhere, then land",
+    );
+  });
 });
 
 describe("land, a branch that touches the e2e paths", () => {

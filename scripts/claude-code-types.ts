@@ -412,7 +412,8 @@ export async function regenerate(
   }
 }
 
-async function worktreePath(cwd: string): Promise<string> {
+/** Where `run` recreates its worktree, removing a clean one it finds there. */
+export async function worktreePath(cwd: string): Promise<string> {
   return `${(await worktreesOf(cwd)).main}.wt/claude-code-types`;
 }
 

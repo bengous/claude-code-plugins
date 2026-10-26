@@ -13,7 +13,8 @@
  * the landing lands under the rule already on `dev`.
  *
  * Refused before any push: a branch outside `feature/`, `fix/`, `renovate/`
- * and `chore/claude-code-types`, no checkout holding it, tracked changes
+ * and `chore/claude-code-types`, no checkout holding it, the types branch held
+ * where the types run recreates its worktree, tracked changes
  * there, a pull request not open against `dev`, or whose head is not the
  * local head within a minute. Then it waits, an hour at most in all, until
  * every `ci.yml` run of that head is green (`scripts/ci-wait.ts`), a run red
@@ -64,7 +65,7 @@ import {
   SYSTEM_CLOCK,
   waitFor,
 } from "./ci-wait.ts";
-import { ROLLING_BRANCH } from "./claude-code-types.ts";
+import { ROLLING_BRANCH, worktreePath } from "./claude-code-types.ts";
 import { run } from "./lib/run.ts";
 import {
   BASE,
@@ -607,6 +608,12 @@ export async function land(
   const checkout = checkoutOf(worktrees.out, branch);
 
   if (checkout === null) return refused(`no checkout holds ${branch}: check it out, then land`);
+
+  if (branch === ROLLING_BRANCH && checkout === (await worktreePath(cwd))) {
+    return refused(
+      `${checkout} is where the types run recreates its worktree, under a landing: check ${branch} out elsewhere, then land`,
+    );
+  }
 
   const dirty = dirtyOf(checkout);
 
