@@ -13,8 +13,9 @@ import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { cachePath } from "./guard/github.ts";
+import { encode, runHook } from "./hook.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import { encodeGuard, runPreBash } from "./pre-bash.ts";
+import { runPreBash } from "./pre-bash.ts";
 import { beatPath } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
@@ -1218,7 +1219,9 @@ esac
         tool_input: { command: "git push origin main" },
       };
 
-      expect(await runPreBash(payload)).toBe(
+      expect(
+        await runHook({ hook: "pre-bash", handler: runPreBash, harness: "claude", payload }),
+      ).toBe(
         JSON.stringify({
           systemMessage: "agent-hooks: pre-bash crashed (EACCES): the command went unchecked",
         }),
@@ -1244,7 +1247,15 @@ esac
         tool_input: { command: "git push origin main" },
       };
 
-      expect(await runPreBash(payload, { deadlineMs: 300 })).toBe(
+      expect(
+        await runHook({
+          hook: "pre-bash",
+          handler: runPreBash,
+          harness: "claude",
+          payload,
+          deadlineMs: 300,
+        }),
+      ).toBe(
         JSON.stringify({
           systemMessage:
             "agent-hooks: pre-bash ran past its 300 ms deadline: the command went unchecked",
@@ -1548,13 +1559,15 @@ describe("pre-bash has Haiku judge an agent's commit message", () => {
   });
 });
 
-describe("encodeGuard", () => {
+describe("encode under pre-bash", () => {
   const text = 'say "hi"\nnext';
 
   test("an allow prints nothing, a note its systemMessage, a refusal the deny shape", () => {
-    expect(encodeGuard({ kind: "allow" })).toBeNull();
-    expect(encodeGuard({ kind: "note", text })).toBe(`{"systemMessage":${JSON.stringify(text)}}`);
-    expect(encodeGuard({ kind: "deny", reason: text })).toBe(
+    expect(encode({ kind: "allow" }, "claude", "pre-bash")).toBeNull();
+    expect(encode({ kind: "note", text }, "claude", "pre-bash")).toBe(
+      `{"systemMessage":${JSON.stringify(text)}}`,
+    );
+    expect(encode({ kind: "deny", reason: text }, "claude", "pre-bash")).toBe(
       `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":${JSON.stringify(text)}}}`,
     );
   });

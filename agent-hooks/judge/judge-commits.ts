@@ -5,16 +5,17 @@ import { configPath } from "../config.ts";
 import { messageOf } from "../errors.ts";
 import type { Deadline, Runner } from "../exec.ts";
 import { isAbsoluteLocation } from "../guard/doors.ts";
-import type { GuardVerdict } from "../guard/judge-doors.ts";
-import { ALLOW, note, refusal } from "../guard/judge-doors.ts";
+import type { PreBashVerdict } from "../guard/judge-doors.ts";
+import { note, refusal } from "../guard/judge-doors.ts";
 import { git, rootOf } from "../guard/repo.ts";
 import { sha256 } from "../hash.ts";
-import type { Input } from "../hook.ts";
 import { stateKey } from "../hook.ts";
+import type { Input } from "../payload.ts";
 import type { CommitMessagesMode, KeyRead } from "../profile.ts";
 import { loadProfile } from "../profile.ts";
 import { loadRefused, saveRefused } from "../state.ts";
 import { escapeRegExp } from "../text.ts";
+import { ALLOW } from "../verdict.ts";
 import type { Fault, Judgment } from "./commit-judge.ts";
 import { commitMessageOf, judge, judgeRefusal, withTrailers } from "./commit-judge.ts";
 import type { CommitInvocation } from "./commits.ts";
@@ -31,7 +32,7 @@ type Judged = {
  * Records the judge's refusals and gives its verdict. Called only once the landing guard let the line through: a
  * refusal the agent never saw must not let the same message pass unjudged later.
  */
-export type Settle = () => GuardVerdict;
+export type Settle = () => PreBashVerdict;
 
 /** What `git diff` lists for the commits of one line in one checkout: read once, before the line runs. */
 function filesOf(dir: string, location: readonly string[], takes: "staged" | "worktree"): string[] {
@@ -148,7 +149,7 @@ function settled(
   refusedBefore: readonly string[],
   refused: readonly { message: string; hash: string; faults: readonly Fault[] }[],
   notes: ReadonlySet<string>,
-): GuardVerdict {
+): PreBashVerdict {
   const noted = [...notes];
 
   if (refused.length === 0) {

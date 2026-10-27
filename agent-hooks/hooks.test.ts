@@ -4,12 +4,11 @@ import path from "node:path";
 
 import { DEADLINES_MS } from "./hook.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import { PRE_BASH_DEADLINE_MS } from "./pre-bash.ts";
 
 const DEADLINES: ReadonlyMap<string, number> = new Map([
   ["session-start", DEADLINES_MS["session-start"]],
   ["pre-edit", DEADLINES_MS["pre-edit"]],
-  ["pre-bash", PRE_BASH_DEADLINE_MS],
+  ["pre-bash", DEADLINES_MS["pre-bash"]],
   ["stop", DEADLINES_MS.stop],
 ]);
 

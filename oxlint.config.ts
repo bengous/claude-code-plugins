@@ -145,11 +145,8 @@ export default defineConfig({
       rules: { "max-lines": "off" },
     },
     {
-      // Over the size on purpose, each one reader of one input:
-      // - config.ts: the reader of .claude/agent-hooks.jsonc and its presets, each key checked
-      //   beside the others of its table.
-      // - guard/shell.ts: the Bash parser, one scanner whose closures share its state.
-      files: ["agent-hooks/config.ts", "agent-hooks/guard/shell.ts"],
+      // Over the size on purpose: the Bash parser, one scanner whose closures share its state.
+      files: ["agent-hooks/guard/shell.ts"],
       rules: { "max-lines": "off" },
     },
   ],

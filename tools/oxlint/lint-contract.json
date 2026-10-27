@@ -104,7 +104,6 @@
     },
     {
       "files": [
-        "agent-hooks/config.ts",
         "agent-hooks/guard/shell.ts"
       ],
       "rules": {

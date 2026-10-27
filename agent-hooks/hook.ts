@@ -1,8 +1,5 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns -- this module is the hook payload's boundary: the harness's JSON arrives on stdin, `parseInput` turns it into `Input`, and only `tool_input`, the harness's per-tool shape, travels on as a record to be handed back as `updatedInput`. */
 import { existsSync } from "node:fs";
 import path from "node:path";
-
-import type { BackgroundTaskSummary } from "@anthropic-ai/claude-agent-sdk";
 
 import type { Config } from "./config.ts";
 import { DEFAULT_CAP, loadConfig } from "./config.ts";
@@ -12,6 +9,8 @@ import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
+import type { Input } from "./payload.ts";
+import { parseInput } from "./payload.ts";
 import { ConfigError } from "./reader.ts";
 import { checkoutOf, findRoot, realPathOf } from "./scope.ts";
 import type { SessionState } from "./state.ts";
@@ -23,18 +22,22 @@ export const HARNESSES = ["claude", "codex"] as const;
 
 export type Harness = (typeof HARNESSES)[number];
 
-export const HOOK_KINDS = ["session-start", "pre-edit", "post-edit", "stop"] as const;
+export const HOOK_KINDS = ["session-start", "pre-edit", "post-edit", "stop", "pre-bash"] as const;
 
 export type HookKind = (typeof HOOK_KINDS)[number];
 
-/** The hooks that run at one root, the one around their file or cwd; the Stop runs over every checkout instead. */
-export type RootHookKind = Exclude<HookKind, "stop">;
+/**
+ * The hooks that run at one root, the one around their file or cwd; the Stop runs over every checkout instead, and
+ * pre-bash in any repository, with no config or state.
+ */
+export type RootHookKind = Exclude<HookKind, "stop" | "pre-bash">;
 
 export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   "session-start": 4000,
   "pre-edit": 25_000,
   "post-edit": 50_000,
   stop: 200_000,
+  "pre-bash": 25_000,
 };
 
 /** The event name a hook's `hookSpecificOutput` carries, under Claude Code and Codex alike. */
@@ -43,29 +46,11 @@ const HOOK_EVENTS: Readonly<Record<HookKind, string>> = {
   "pre-edit": "PreToolUse",
   "post-edit": "PostToolUse",
   stop: "Stop",
+  "pre-bash": "PreToolUse",
 };
 
 /** A killed command's output grace, then the time to blame, record and encode the run. */
 const SETTLE_MS = OUTPUT_GRACE_MS + 500;
-
-/** The fields of a hook payload the kit reads, checked by hand: `tool_input` is `unknown` in the SDK. */
-export type Input = {
-  readonly sessionId: string;
-  /** Set only when the hook fires inside a subagent, its tool calls and its SubagentStop alike. */
-  readonly agentId: string | undefined;
-  /** The payload's cwd with its symlinks resolved: the path git would name. */
-  readonly cwd: string | undefined;
-  /** `prompt_id` under Claude Code, `turn_id` under Codex. */
-  readonly promptId: string | undefined;
-  /** How a session started, at SessionStart: `startup`, `resume`, `clear`, `compact` or `fork`. */
-  readonly source: string | undefined;
-  readonly permissionMode: string | undefined;
-  readonly backgroundTasks: readonly BackgroundTaskSummary[];
-  readonly toolName: string | undefined;
-  readonly toolInput: Record<string, unknown>;
-  /** The main session's transcript, a subagent's tool calls included. */
-  readonly transcriptPath: string | undefined;
-};
 
 /** What a root hook runs with: its root's config and the agent's state in the checkout around its file or cwd. */
 export type HookContext = {
@@ -92,13 +77,30 @@ export type StopContext = {
   readonly runner: Runner;
 };
 
+/** What pre-bash runs with: the Bash command, and an input only when the payload names its session. */
+export type PreBashContext = {
+  readonly harness: Harness;
+  readonly input: Input | null;
+  readonly command: string;
+  /** The payload's cwd as written, else the process's. */
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly now: number;
+  readonly deadline: Deadline;
+  readonly deadlineMs: number;
+  readonly runner: Runner;
+};
+
 export type Handler = (context: HookContext) => Promise<Verdict>;
 
 export type StopHandler = (context: StopContext) => Promise<Verdict>;
 
-/** A hook with its handler: the Stop's reads every checkout, a root hook's reads one root. */
+export type PreBashHandler = (context: PreBashContext) => Promise<Verdict>;
+
+/** A hook with its handler: the Stop's reads every checkout, pre-bash's one command, a root hook's one root. */
 export type HookRun =
   | { readonly hook: "stop"; readonly handler: StopHandler }
+  | { readonly hook: "pre-bash"; readonly handler: PreBashHandler }
   | { readonly hook: RootHookKind; readonly handler: Handler };
 
 export type RunHookOptions = HookRun & {
@@ -116,56 +118,6 @@ export function isHarness(value: string | undefined): value is Harness {
 
 export function isHookKind(value: string | undefined): value is HookKind {
   return HOOK_KINDS.some((hook) => hook === value);
-}
-
-export async function readPayload(): Promise<unknown> {
-  const text = await Bun.stdin.text();
-
-  if (text.trim() === "") {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(text);
-
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-export function parseInput(payload: Record<string, unknown>): Input | null {
-  const sessionId = stringField(payload, "session_id");
-
-  if (sessionId === undefined || sessionId === "") {
-    return null;
-  }
-
-  const tasks = payload["background_tasks"];
-  const cwd = stringField(payload, "cwd");
-
-  return {
-    sessionId,
-    agentId: stringField(payload, "agent_id"),
-    cwd: cwd === undefined ? undefined : realPathOf(cwd),
-    promptId: stringField(payload, "prompt_id") ?? stringField(payload, "turn_id"),
-    source: stringField(payload, "source"),
-    permissionMode: stringField(payload, "permission_mode"),
-    backgroundTasks: Array.isArray(tasks) ? tasks.filter((task) => isBackgroundTask(task)) : [],
-    toolName: stringField(payload, "tool_name"),
-    toolInput: recordField(payload, "tool_input") ?? {},
-    transcriptPath: stringField(payload, "transcript_path"),
-  };
-}
-
-function isBackgroundTask(value: unknown): value is BackgroundTaskSummary {
-  return (
-    isRecord(value) &&
-    typeof value["id"] === "string" &&
-    typeof value["type"] === "string" &&
-    typeof value["status"] === "string" &&
-    typeof value["description"] === "string"
-  );
 }
 
 /**
@@ -205,6 +157,12 @@ function editedPaths(input: Input): string[] {
  */
 export async function runHook(options: RunHookOptions): Promise<string | null> {
   const { harness, payload } = options;
+
+  if (options.hook === "pre-bash") {
+    const verdict = await runPreBashHook(options, options.now ?? Date.now());
+
+    return verdict === null ? null : encode(verdict, harness, options.hook);
+  }
 
   if (!isRecord(payload)) {
     console.error("agent-hooks: empty or invalid payload on stdin");
@@ -260,6 +218,54 @@ export function heartbeat(input: Input): void {
 type StopRun = RunHookOptions & { readonly hook: "stop" };
 
 type RootRun = RunHookOptions & { readonly hook: RootHookKind };
+
+type PreBashRun = RunHookOptions & { readonly hook: "pre-bash" };
+
+/**
+ * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat and no
+ * commit judge. A crash lets the command through with a note.
+ */
+async function runPreBashHook(options: PreBashRun, now: number): Promise<Verdict | null> {
+  const { payload } = options;
+  const deadlineMs = options.deadlineMs ?? DEADLINES_MS["pre-bash"];
+
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  try {
+    const input = parseInput(payload);
+
+    if (input !== null) {
+      heartbeat(input);
+    }
+
+    const command = stringField(recordField(payload, "tool_input") ?? {}, "command");
+
+    if (command === undefined) {
+      return null;
+    }
+
+    return await options.handler({
+      harness: options.harness,
+      input,
+      command,
+      cwd: stringField(payload, "cwd") ?? process.cwd(),
+      sessionId: stringField(payload, "session_id") ?? "",
+      now,
+      deadline: deadlineIn(deadlineMs, now),
+      deadlineMs,
+      runner: options.runner ?? run,
+    });
+  } catch (error) {
+    const message = messageOf(error);
+
+    return {
+      kind: "note",
+      text: `agent-hooks: pre-bash crashed (${message}): the command went unchecked`,
+    };
+  }
+}
 
 /** A Stop: every checkout's state read once, the handler over all of them, every state saved. */
 async function runStopHook(options: StopRun, input: Input, now: number): Promise<Verdict | null> {
@@ -517,6 +523,16 @@ export function encode(verdict: Verdict, harness: Harness, hook: HookKind): stri
 
     case "block": {
       return JSON.stringify({ decision: "block", reason: verdict.reason });
+    }
+
+    case "deny": {
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: verdict.reason,
+        },
+      });
     }
 
     case "rewrite": {

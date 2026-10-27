@@ -6,8 +6,9 @@ import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
 import { initConfig, runDoctor } from "./doctor.ts";
 import type { HookKind, HookRun } from "./hook.ts";
-import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
+import { isHarness, isHookKind, runHook } from "./hook.ts";
 import { formatNoise, measureNoise } from "./noise.ts";
+import { readPayload } from "./payload.ts";
 import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { ConfigError } from "./reader.ts";
@@ -45,6 +46,10 @@ function hookRun(hook: HookKind): HookRun {
 
     case "stop": {
       return { hook, handler: runStop };
+    }
+
+    case "pre-bash": {
+      return { hook, handler: runPreBash };
     }
 
     default: {
@@ -90,16 +95,6 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   switch (command) {
-    case "pre-bash": {
-      const output = await runPreBash(await readPayload());
-
-      if (output !== null) {
-        await Bun.write(Bun.stdout, `${output}\n`);
-      }
-
-      return 0;
-    }
-
     case "session-end": {
       runSessionEnd(await readPayload());
 

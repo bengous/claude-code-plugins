@@ -2,8 +2,9 @@ import { rmSync } from "node:fs";
 import path from "node:path";
 
 import type { HookContext } from "./hook.ts";
-import { DEADLINES_MS, parseInput } from "./hook.ts";
+import { DEADLINES_MS } from "./hook.ts";
 import { isRecord } from "./json.ts";
+import { parseInput } from "./payload.ts";
 import { staleScratchDirs, takePhoto } from "./scope.ts";
 import { endBeats, liveOthers, pruneStates } from "./state.ts";
 import type { Verdict } from "./verdict.ts";

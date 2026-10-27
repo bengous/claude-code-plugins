@@ -4,9 +4,11 @@ import path from "node:path";
 import { configPath } from "../config.ts";
 import { messageOf } from "../errors.ts";
 import type { Deadline } from "../exec.ts";
-import type { Input } from "../hook.ts";
+import type { Input } from "../payload.ts";
 import type { Approval } from "../profile.ts";
 import { loadProfile } from "../profile.ts";
+import type { Verdict } from "../verdict.ts";
+import { ALLOW } from "../verdict.ts";
 import type { GhCommand, GitCommand, PushTarget, ReleaseScript } from "./argv.ts";
 import { isReleaseCreate, pushOf, resolveTargets } from "./argv.ts";
 import { assess } from "./doors.ts";
@@ -34,13 +36,8 @@ import { DEFAULT, defaultRemote, git, profileOf, pushBranch, remoteUrl, rootOf }
 import { readHuman } from "./transcript.ts";
 import { manifestOf, scriptCommands, vocabularyOf } from "./vocabulary.ts";
 
-export type GuardVerdict =
-  | { readonly kind: "allow" }
-  /** Passes; `systemMessage`, shown to the user. */
-  | { readonly kind: "note"; readonly text: string }
-  | { readonly kind: "deny"; readonly reason: string };
-
-export const ALLOW: GuardVerdict = { kind: "allow" };
+/** The verdicts the landing guard and the commit judge give. */
+export type PreBashVerdict = Extract<Verdict, { kind: "allow" | "note" | "deny" }>;
 
 /** How deep a package script that runs another one is read: past it, a loop of scripts stops being followed. */
 const MAX_SCRIPT_DEPTH = 4;
@@ -55,11 +52,11 @@ export type GuardContext = {
   readonly human: () => HumanMessage;
 };
 
-export function refusal(reason: string | null): GuardVerdict {
+export function refusal(reason: string | null): PreBashVerdict {
   return reason === null ? ALLOW : { kind: "deny", reason };
 }
 
-export function note(text: string): GuardVerdict {
+export function note(text: string): PreBashVerdict {
   return { kind: "note", text };
 }
 
@@ -67,7 +64,7 @@ async function judgePush(
   cwd: string,
   command: GitCommand,
   context: GuardContext,
-): Promise<GuardVerdict> {
+): Promise<PreBashVerdict> {
   const push = pushOf(command.args);
   const root = push === null ? null : rootOf(cwd, command.location);
 
@@ -130,7 +127,7 @@ async function judgeGh(
   cwd: string,
   command: GhCommand,
   context: GuardContext,
-): Promise<GuardVerdict> {
+): Promise<PreBashVerdict> {
   const root = rootOf(cwd, []);
   const own = command.repo === null || isOriginOf(cwd, command.repo);
   const profile = root === null || !own ? DEFAULT : profileOf(root);
@@ -178,7 +175,7 @@ async function judgeApiRef(
   targets: readonly PushTarget[],
   repo: string | null,
   context: GuardContext,
-): Promise<GuardVerdict> {
+): Promise<PreBashVerdict> {
   const root = rootOf(cwd, []);
   const own = repo === null || isOriginOf(cwd, repo);
   const profile = root === null || !own ? DEFAULT : profileOf(root);
@@ -237,7 +234,7 @@ function workflowOf(
 function judgeGated(
   door: Door & { readonly kind: "dispatch" | "label" },
   context: GuardContext,
-): GuardVerdict {
+): PreBashVerdict {
   const { repo } = door;
 
   const dir = (repo === null ? [door.cwd] : [door.cwd, context.cwd]).find(
@@ -300,7 +297,7 @@ export function humanOf(input: Input | null): HumanMessage {
   }
 }
 
-function judgeReleaseScript(release: ReleaseScript): GuardVerdict {
+function judgeReleaseScript(release: ReleaseScript): PreBashVerdict {
   const root = rootOf(path.dirname(release.path), []);
   const profile = root === null ? DEFAULT : profileOf(root);
 
@@ -324,7 +321,7 @@ function judgeReleaseScript(release: ReleaseScript): GuardVerdict {
   }
 }
 
-function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<GuardVerdict> {
+function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<PreBashVerdict> {
   switch (door.kind) {
     case "push": {
       return judgePush(door.cwd, door.git, context);
@@ -378,7 +375,7 @@ export async function judgeLine(
   cwd: string,
   context: GuardContext,
   depth: number,
-): Promise<GuardVerdict> {
+): Promise<PreBashVerdict> {
   const { doors, unresolved } = assess(command, cwd, vocabularyOf(command, cwd));
   const first = unresolved[0];
 
@@ -390,7 +387,7 @@ export async function judgeLine(
 }
 
 /** The first refusal among the verdicts, else their notes joined, else an allow. */
-export function combine(verdicts: readonly GuardVerdict[]): GuardVerdict {
+export function combine(verdicts: readonly PreBashVerdict[]): PreBashVerdict {
   const denied = verdicts.find((verdict) => verdict.kind === "deny");
 
   if (denied !== undefined) {
