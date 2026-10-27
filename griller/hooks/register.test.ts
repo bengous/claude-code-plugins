@@ -61,6 +61,8 @@ const STATE = "/work/.claude/griller/session-1.json";
 
 const TRANSCRIPT = "/work/.claude/griller/session-1.md";
 
+const JOURNAL = "/work/.claude/griller/session-1.jsonl";
+
 function message(role: SessionMessage["role"], text: string): SessionMessage {
   return { role, text, toolUses: [] };
 }
@@ -89,6 +91,7 @@ async function started(
   });
   on("ui.close", () => ({ value: undefined }));
   on("ui.toast", () => ({ value: undefined }));
+  on("clock.now", () => ({ value: Date.UTC(2026, 0, 1) }));
   on("ui.render", (engine, e) => {
     drawn.push(e.props);
     const { Box } = engine.ui.resolve(e);
@@ -224,10 +227,9 @@ function waiting(): Map<string, string> {
     answer,
     draft: "",
     isShown: false,
-    log: answer === "" ? [] : [{ kind: "answer", text: answer }],
   }));
 
-  return new Map([[STATE, JSON.stringify({ last: 3, questions })]]);
+  return new Map([[STATE, JSON.stringify({ last: 3, sent: [], open: questions })]]);
 }
 
 test("a reload brings back the round nobody answered, with the answers recorded", async ($, on) => {
@@ -242,7 +244,7 @@ test("a reload brings back the round nobody answered, with the answers recorded"
 });
 
 test("a round already sent is not brought back by a reload", async ($, on) => {
-  const files = new Map([[STATE, JSON.stringify({ last: 3, questions: null })]]);
+  const files = new Map([[STATE, JSON.stringify({ last: 3, sent: [], open: null })]]);
 
   // The answers wait in the queue for Claude's turn: the conversation does not hold them yet.
   const world = await started(
@@ -330,13 +332,36 @@ test("a picked choice records the answer and keeps the recommendation hidden", a
   await ui.unmount();
 });
 
-test("Send returns the final answers alone, and the transcript keeps how they were reached", async ($, on) => {
+/** A line of the journal, as the mod writes it. */
+type Logged = {
+  readonly at: string;
+  readonly kind: string;
+  readonly q?: number;
+  readonly text?: string;
+  readonly questions?: readonly number[];
+};
+
+/** The journal's lines, without their timestamps. */
+function eventsIn(world: World): Omit<Logged, "at">[] {
+  return (world.files.get(JOURNAL) ?? "")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      // SAFETY: the mod writes one JSON object per line.
+      const { at: _at, ...event } = JSON.parse(line) as Logged;
+
+      return event;
+    });
+}
+
+test("Send returns the final answers alone, and the journal keeps every gesture", async ($, on) => {
   const world = await started($, on);
 
   await ended($, ROUND);
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   // Q1: answered blind, then peeked and taken. Q2: peeked first, then taken. Q3: (a), then a text.
+  await ui.input({ key: "answer-1", text: "MySQL", kind: "change" });
   await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
   await ui.press({ key: "toggle-1" });
   await ui.press({ key: "take-1" });
@@ -357,17 +382,73 @@ test("Send returns the final answers alone, and the transcript keeps how they we
     ].join("\n"),
   ]);
 
-  expect(JSON.parse(world.files.get(STATE) ?? "{}")).toEqual({ last: 3, questions: null });
-  const transcript = world.files.get(TRANSCRIPT) ?? "";
-
-  expect(transcript).toContain("**Claude:** Postgres");
-  expect(transcript).toContain("- answered: MySQL\n- peeked at Claude's\n- took Claude's");
-  expect(transcript).toContain("- answered: (a)\n- answered: Not before the audit");
+  expect(eventsIn(world)).toEqual([
+    { kind: "open", questions: [1, 2, 3] },
+    { kind: "draft", q: 1, text: "MySQL" },
+    { kind: "answer", q: 1, text: "MySQL" },
+    { kind: "peek", q: 1 },
+    { kind: "take", q: 1 },
+    { kind: "peek", q: 2 },
+    { kind: "take", q: 2 },
+    { kind: "choice", q: 3, text: "(a)" },
+    { kind: "answer", q: 3, text: "Not before the audit" },
+    { kind: "send", questions: [1, 2, 3] },
+  ]);
+  expect(world.files.get(JOURNAL)).toContain('"at":"2026-01-01T00:00:00.000Z"');
 
   const after = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   expect(await after.find({ key: "question-1" })).toBeUndefined();
   await after.unmount();
+});
+
+test("the transcript holds each question, Claude's answer and the final one, and nothing else", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
+  await ui.press({ key: "toggle-1" });
+  await ui.input({ key: "answer-1", text: "SQLite", kind: "submit" });
+
+  // While the round waits, the file beside the pane gives no recommendation away.
+  const pending = world.files.get(TRANSCRIPT) ?? "";
+
+  expect(pending).toContain("**Answer:** SQLite");
+  expect(pending).not.toMatch(RECOMMENDATIONS);
+
+  await ui.press({ key: "choice-3-b" });
+  await ui.input({ key: "answer-2", text: "Ops", kind: "submit" });
+  await ui.press({ key: "send" });
+  await ui.unmount();
+
+  expect(world.files.get(TRANSCRIPT)).toBe(
+    [
+      "# Grill",
+      "",
+      "---",
+      "",
+      "**Q1** - **Database**: Which database?",
+      "",
+      "**Claude:** Postgres",
+      "",
+      "**Answer:** SQLite",
+      "",
+      "**Q2** - **Owner**: Who owns the migration?",
+      "",
+      "**Claude:** The platform team,\nwith the DBA on call.",
+      "",
+      "**Answer:** Ops",
+      "",
+      "**Q3** - **Date**: When does it ship: **(a)** this sprint, or **(b)** the one after?",
+      "",
+      "**Claude:** Next sprint",
+      "",
+      "**Answer:** (b)",
+      "",
+    ].join("\n"),
+  );
 });
 
 test("questions keep the numbers Claude gave them, and an unnumbered one follows the last", async ($, on) => {

@@ -23,11 +23,6 @@ const HINT = "Answer first: Claude's answer stays hidden until you peek at it.";
 
 type Asked = { readonly question: string; readonly recommendation: string };
 
-/** What the person did on a question, in order, for the transcript; Claude never reads it. */
-type Entry =
-  | { readonly kind: "answer"; readonly text: string }
-  | { readonly kind: "peek" | "take" };
-
 type Question = Asked & {
   readonly n: number;
   /** The answer recorded (Record, a choice, Use Claude's); typing alone records nothing. */
@@ -35,18 +30,32 @@ type Question = Asked & {
   /** What the answer field holds. */
   draft: string;
   isShown: boolean;
-  readonly log: Entry[];
 };
 
 type Round = { readonly questions: readonly Question[]; isInBand: boolean };
 
-/** What the scribe keeps for the session: the last question number, and the round waiting, if any. */
-type Saved = { readonly last: number; readonly questions: readonly Question[] | null };
+/** One line of the journal, the person's every gesture; Claude never reads it. */
+type Event =
+  | { readonly kind: "open" | "reopen" | "send" | "close"; readonly questions: readonly number[] }
+  | { readonly kind: "draft" | "answer" | "choice"; readonly q: number; readonly text: string }
+  | { readonly kind: "peek" | "hide" | "take"; readonly q: number };
+
+/** The mod's state for the session: the last question number, the rounds sent, and the round waiting. */
+type Saved = {
+  readonly last: number;
+  readonly sent: readonly (readonly Question[])[];
+  readonly open: readonly Question[] | null;
+};
 
 let round: Round | null = null;
 
 /** The number of the last question asked in this session; the next round continues after it. */
 let last = 0;
+
+let sent: (readonly Question[])[] = [];
+
+/** The journal's lines; null when the file on disk could not be read, so it is never overwritten. */
+let journal: string | null = "";
 
 /** The questions of a reply written in the round format, each with its recommendation; none when it holds no round. */
 function parseRound(text: string): Asked[] {
@@ -114,11 +123,15 @@ function numbered(asked: readonly Asked[], after: number): Question[] {
 
     previous = n;
 
-    return { ...a, n, answer: "", draft: "", isShown: false, log: [] };
+    return { ...a, n, answer: "", draft: "", isShown: false };
   });
 }
 
-/** The message the round's answers reach Claude as: the final answers alone, the transcript keeps the rest. */
+function numbersOf(questions: readonly Question[]): number[] {
+  return questions.map((q) => q.n);
+}
+
+/** The message the round's answers reach Claude as: the final answers alone, the journal keeps the rest. */
 function answersOf(r: Round): string {
   const lines = r.questions.map((q) => {
     const final = q.answer.trim();
@@ -129,67 +142,112 @@ function answersOf(r: Round): string {
   return ["Grill answers:", ...lines].join("\n");
 }
 
-function entryOf(entry: Entry): string {
-  if (entry.kind === "answer") return `- answered: ${entry.text.trim()}`;
-
-  return entry.kind === "peek" ? "- peeked at Claude's" : "- took Claude's";
-}
-
-/** The round as the transcript records it once sent: each question, Claude's answer, the person's and how they got there. */
-function recordOf(r: Round): string {
-  const blocks = r.questions.map((q) =>
+/**
+ * The grill as the person reads it: each question, Claude's answer and theirs. The round waiting
+ * shows no recommendation, which the file beside the pane would otherwise give away.
+ */
+function transcriptOf(
+  rounds: readonly (readonly Question[])[],
+  open: readonly Question[] | null,
+): string {
+  const block = (q: Question, isSent: boolean) =>
     [
-      `### Q${q.n}`,
-      "",
       q.question,
       "",
-      `**Claude:** ${q.recommendation}`,
-      "",
-      `**Answer:** ${q.answer.trim()}`,
-      "",
-      ...q.log.map(entryOf),
-    ].join("\n"),
-  );
+      ...(isSent ? [`**Claude:** ${q.recommendation}`, ""] : []),
+      `**Answer:** ${q.answer.trim() === "" ? "_not answered yet_" : q.answer.trim()}`,
+    ].join("\n");
 
-  return `${blocks.join("\n\n")}\n\n---\n\n`;
+  const sections = [
+    ...rounds.map((questions) => questions.map((q) => block(q, true)).join("\n\n")),
+    ...(open === null ? [] : [open.map((q) => block(q, false)).join("\n\n")]),
+  ];
+
+  return `${["# Grill", ...sections].join("\n\n---\n\n")}\n`;
 }
 
 async function pathsOf($: EngineInterface) {
   const folder = `${await $.session.root()}/${FOLDER}`;
   const id = await $.session.id();
 
-  return { folder, state: `${folder}/${id}.json`, transcript: `${folder}/${id}.md` };
+  return {
+    folder,
+    state: `${folder}/${id}.json`,
+    transcript: `${folder}/${id}.md`,
+    journal: `${folder}/${id}.jsonl`,
+  };
 }
 
-async function save($: EngineInterface): Promise<void> {
-  const { folder, state } = await pathsOf($);
-  const saved: Saved = { last, questions: round?.questions ?? null };
+async function writeAll($: EngineInterface): Promise<void> {
+  const paths = await pathsOf($);
+  const open = round?.questions ?? null;
+  const saved: Saved = { last, sent, open };
 
-  if (!(await $.fs.exists(`${folder}/.gitignore`))) await $.fs.write(`${folder}/.gitignore`, "*\n");
-  await $.fs.write(state, `${JSON.stringify(saved, null, 2)}\n`);
+  if (!(await $.fs.exists(`${paths.folder}/.gitignore`))) {
+    await $.fs.write(`${paths.folder}/.gitignore`, "*\n");
+  }
+
+  await $.fs.write(paths.state, `${JSON.stringify(saved, null, 2)}\n`);
+
+  if (sent.length > 0 || open !== null) {
+    await $.fs.write(paths.transcript, transcriptOf(sent, open));
+  }
+
+  if (journal !== null) await $.fs.write(paths.journal, journal);
 }
 
-/** A save a press starts: the pane does not wait on it, and a failed one says so. */
-function keep($: EngineInterface): void {
-  save($).catch((cause: unknown) =>
-    $.ui.toast(`${PLUGIN}: the grill was not saved: ${String(cause)}`),
-  );
+let writing: Promise<void> | null = null;
+
+let isDirty = false;
+
+/** One write at a time, each of the whole state as it stands then: a burst of keystrokes costs a few. */
+function flush($: EngineInterface): Promise<void> {
+  isDirty = true;
+
+  if (writing !== null) return writing;
+
+  writing = (async () => {
+    while (isDirty) {
+      isDirty = false;
+      await writeAll($);
+    }
+  })().finally(() => {
+    writing = null;
+  });
+
+  return writing;
+}
+
+async function note($: EngineInterface, event: Event): Promise<void> {
+  const at = new Date(await $.clock.now()).toISOString();
+
+  if (journal !== null) journal += `${JSON.stringify({ at, ...event })}\n`;
+}
+
+/** A gesture a press or a keystroke makes: journaled and saved without the pane waiting, a failure said. */
+function keep($: EngineInterface, event: Event): void {
+  note($, event)
+    .then(() => flush($))
+    .catch((cause: unknown) => $.ui.toast(`${PLUGIN}: the grill was not saved: ${String(cause)}`));
 }
 
 async function load($: EngineInterface): Promise<Saved> {
-  const { state } = await pathsOf($);
+  const paths = await pathsOf($);
 
-  if (!(await $.fs.exists(state))) return { last: 0, questions: null };
+  journal = (await $.fs.exists(paths.journal))
+    ? await $.fs.read(paths.journal).catch((cause: unknown) => {
+        $.ui.toast(
+          `${PLUGIN}: the journal could not be read, so it is left as is: ${String(cause)}`,
+        );
+
+        return null;
+      })
+    : "";
+
+  if (!(await $.fs.exists(paths.state))) return { last: 0, sent: [], open: null };
 
   // SAFETY: only this module writes the file, from a `Saved`.
-  return JSON.parse(await $.fs.read(state)) as Saved;
-}
-
-async function record($: EngineInterface, r: Round): Promise<void> {
-  const { transcript } = await pathsOf($);
-  const before = (await $.fs.exists(transcript)) ? await $.fs.read(transcript) : "# Grill\n\n";
-
-  await $.fs.write(transcript, before + recordOf(r));
+  return JSON.parse(await $.fs.read(paths.state)) as Saved;
 }
 
 /**
@@ -199,22 +257,25 @@ async function record($: EngineInterface, r: Round): Promise<void> {
 async function send($: EngineInterface, r: Round): Promise<void> {
   if (round !== r) return;
   round = null;
+  sent.push(r.questions);
   await $.ui.close({ id: PANE });
   $.ui.invalidate("ui.render");
-  await save($);
-  const sent = await $.prompt.submit({ text: answersOf(r), asUser: true });
+  await flush($);
+  const submitted = await $.prompt.submit({ text: answersOf(r), asUser: true });
 
-  if (sent.drop === undefined) {
-    await record($, r);
+  if (submitted.drop === undefined) {
+    await note($, { kind: "send", questions: numbersOf(r.questions) });
+    await flush($);
 
     return;
   }
 
+  sent = sent.filter((questions) => questions !== r.questions);
   round = r;
-  await save($);
+  await flush($);
   await $.ui.open({ id: PANE, title: "Grill", focus: true });
   $.ui.invalidate("ui.render");
-  $.ui.toast(`${PLUGIN}: the answers were not sent: ${sent.drop}`);
+  $.ui.toast(`${PLUGIN}: the answers were not sent: ${submitted.drop}`);
 }
 
 /**
@@ -264,22 +325,39 @@ function choicesOf(question: string): string[] {
   return [...new Set([...question.matchAll(CHOICE)].map((m) => m[1] ?? ""))];
 }
 
+function isComplete(r: Round): boolean {
+  return r.questions.every((q) => q.answer.trim() !== "");
+}
+
 function drawRound($: EngineInterface, e: Typed, r: Round) {
   const { Box, Text, Button, Input, Markdown } = $.ui.resolve(e);
 
-  const changed = () => {
+  const changed = (event: Event) => {
     $.ui.invalidate("ui.render");
-    keep($);
+    keep($, event);
+  };
+
+  /** The answer that completes the round brings Send into view: a long round puts it below the fold. */
+  const answered = async (event: Event) => {
+    changed(event);
+
+    if (!isComplete(r) || r.isInBand) return;
+
+    await $.ui
+      .scroll({ in: PANE, to: "end" })
+      .catch((cause: unknown) =>
+        $.ui.toast(`${PLUGIN}: Send could not be scrolled to: ${String(cause)}`),
+      );
   };
 
   const blocks = r.questions.map((q, at) => {
     const n = at + 1;
-    const answered = q.answer.trim();
-    const isAnswered = answered !== "";
-    const isTaken = isAnswered && answered === q.recommendation;
+    const recorded = q.answer.trim();
+    const isAnswered = recorded !== "";
+    const isTaken = isAnswered && recorded === q.recommendation;
 
     const letters = choicesOf(q.question);
-    const isChosen = letters.some((letter) => answered === `(${letter})`);
+    const isChosen = letters.some((letter) => recorded === `(${letter})`);
 
     const choices = letters.map((letter) => {
       const choice: ButtonProps = {
@@ -287,12 +365,12 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
         label: `(${letter})`,
         onPress: () => {
           q.answer = `(${letter})`;
-          q.log.push({ kind: "answer", text: q.answer });
-          changed();
+
+          return answered({ kind: "choice", q: q.n, text: q.answer });
         },
       };
 
-      if (answered === choice.label) choice.variant = "primary";
+      if (recorded === choice.label) choice.variant = "primary";
       else if (isChosen) choice.dimColor = true;
 
       return Button(choice);
@@ -306,16 +384,14 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       submitLabel: isAnswered ? "Update" : "Record",
       onInput: (text) => {
         q.draft = text;
+        keep($, { kind: "draft", q: q.n, text });
       },
       onSubmit: (text) => {
         q.draft = text;
 
-        if (text.trim() !== "") {
-          q.answer = text;
-          q.log.push({ kind: "answer", text });
-        }
-
-        changed();
+        if (text.trim() === "") return;
+        q.answer = text;
+        void answered({ kind: "answer", q: q.n, text });
       },
     };
 
@@ -328,9 +404,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
         dimColor: true,
         onPress: () => {
           q.isShown = !q.isShown;
-
-          if (q.isShown) q.log.push({ kind: "peek" });
-          changed();
+          changed({ kind: q.isShown ? "peek" : "hide", q: q.n });
         },
       });
 
@@ -340,8 +414,8 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       onPress: () => {
         q.answer = q.recommendation;
         q.draft = q.recommendation;
-        q.log.push({ kind: "take" });
-        changed();
+
+        return answered({ kind: "take", q: q.n });
       },
     });
 
@@ -387,18 +461,17 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     children: `${done} of ${r.questions.length} answered · ${used} used Claude's`,
   });
 
-  const footer =
-    done === r.questions.length
-      ? [
-          progress,
-          Button({
-            key: "send",
-            label: "Send answers",
-            variant: "primary",
-            onPress: () => send($, r),
-          }),
-        ]
-      : [progress];
+  const footer = isComplete(r)
+    ? [
+        progress,
+        Button({
+          key: "send",
+          label: "Send answers",
+          variant: "primary",
+          onPress: () => send($, r),
+        }),
+      ]
+    : [progress];
 
   return Box({
     flexDirection: "column",
@@ -418,15 +491,20 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
 }
 
 export const register: Register = (on) => {
-  // The module's variables go with a reload or a restart: the scribe's state gives them back.
+  // The module's variables go with a reload or a restart: the saved state gives them back.
   on("session.start", async ($, e, next) => {
     const started = await next(e);
     const saved = await load($);
 
     last = saved.last;
+    sent = [...saved.sent];
     round = null;
 
-    if (saved.questions !== null) await openRound($, saved.questions);
+    if (saved.open !== null) {
+      await openRound($, saved.open);
+      await note($, { kind: "reopen", questions: numbersOf(saved.open) });
+      await flush($);
+    }
 
     return started;
   });
@@ -443,7 +521,8 @@ export const register: Register = (on) => {
 
     last = questions.at(-1)?.n ?? last;
     await openRound($, questions);
-    await save($);
+    await note($, { kind: "open", questions: numbersOf(questions) });
+    await flush($);
 
     return done;
   });
@@ -451,8 +530,10 @@ export const register: Register = (on) => {
   on("ui.close", ($, e, next) => {
     // The person's close drops the round unsent; the close after Send finds it gone already.
     if (e.id === PANE && round !== null && !round.isInBand) {
+      const questions = numbersOf(round.questions);
+
       round = null;
-      keep($);
+      keep($, { kind: "close", questions });
     }
 
     return next(e);
