@@ -343,6 +343,24 @@ describe("a plan on disk", () => {
     expect(change?.changelog).toBe("# Changelog\n\n## 0.1.0 - 2026-09-26\n\nFirst.\n");
   });
 
+  test("a change lists a commit to the file the manifest names under types, Claude Code's other API types left out", () => {
+    write(
+      "vellum/.claude-plugin/plugin.json",
+      JSON.stringify({ name: "vellum", version: "0.1.0", types: "./types/claude-code.d.ts" }),
+    );
+    const shipped = commit("first");
+
+    write("vellum/types/claude-code.d.ts", "declare const state: string;\n");
+    commit("feat(vellum): declare the state");
+    write("vellum/types/claude-code-tools.d.ts", "declare const tools: string;\n");
+    commit("chore(vellum): the tools' types");
+
+    const [change, ...others] = changesOf(repo, shipped, commitAt(repo, "HEAD"));
+
+    expect(others).toEqual([]);
+    expect(change?.commits).toEqual([{ subject: "feat(vellum): declare the state", body: "" }]);
+  });
+
   test("is found by the digest it was sealed with, and by no other", () => {
     const head = commit("first");
     const plan: ReleasePlan = { shipped: head, target: head, bumps: [] };

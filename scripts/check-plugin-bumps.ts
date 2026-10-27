@@ -14,6 +14,8 @@
  * outside `EXPECTED_COMMANDS`: `.claude/rules/hook-ladder.md` says why.
  */
 
+import { posix } from "node:path";
+
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 
 const CATALOG = ".claude-plugin/marketplace.json";
@@ -24,10 +26,9 @@ const MANIFEST = ".claude-plugin/plugin.json";
  * Paths under a plugin's directory that a change to needs no bump: read by
  * people, agents and the typecheck in this repository, never by the installed
  * plugin, so an installed copy that misses them loses nothing. Claude Code's
- * own plugin API types are among them; a manifest's `types` file is not, since
- * Claude Code reads it.
+ * own plugin API types, which the types pipeline copies, are among them.
  */
-const DOCS_ONLY = [
+const UNREAD_WHEN_INSTALLED = [
   "README.md",
   "CHANGELOG.md",
   "AGENTS.md",
@@ -38,9 +39,13 @@ const DOCS_ONLY = [
   "types/claude-code-tools.d.ts",
 ].map((pattern) => new Bun.Glob(pattern));
 
-/** True when `path`, relative to a plugin's directory, never reaches the installed plugin. */
-export function isDocsOnly(path: string): boolean {
-  return DOCS_ONLY.some((glob) => glob.match(path));
+/**
+ * True when `path`, relative to a plugin's directory, never reaches the
+ * installed plugin. `manifestTypes`, the file the plugin's manifest names under
+ * `types` (`typesAt`), always does: Claude Code reads it, whatever its name.
+ */
+export function isUnreadWhenInstalled(path: string, manifestTypes: string | null): boolean {
+  return path !== manifestTypes && UNREAD_WHEN_INSTALLED.some((glob) => glob.match(path));
 }
 
 // The local ref is the source as typed, `HEAD@{1 day ago}` included: only the
@@ -83,6 +88,7 @@ interface CatalogFile {
 
 interface ManifestFile {
   readonly version?: string;
+  readonly types?: string;
 }
 
 export interface CatalogEntry {
@@ -236,9 +242,21 @@ export function versionAt(repo: PluginDir, commit: CommitId, source: SourceDir):
 }
 
 /**
+ * The file `source`'s `plugin.json` at `commit` names under `types`, relative
+ * to `source`; null when it names none.
+ */
+export function typesAt(repo: PluginDir, commit: CommitId, source: SourceDir): string | null {
+  const { types } = jsonAt<ManifestFile>(repo, commit, `${source}/${MANIFEST}`);
+
+  return types === undefined ? null : posix.normalize(types);
+}
+
+/**
  * Each plugin both catalogs list whose directory changed between `base` and
- * `head`, documentation aside (`isDocsOnly`), while its `plugin.json` version did not. A plugin is matched by its
- * entry's name, so a directory that moved is compared with where it was.
+ * `head`, paths the installed plugin never reads aside (`isUnreadWhenInstalled`,
+ * with `head`'s manifest), while its `plugin.json` version did not. A plugin is
+ * matched by its entry's name, so a directory that moved is compared with where
+ * it was.
  */
 export function unbumped(repo: PluginDir, base: CommitId, head: CommitId): readonly Unbumped[] {
   const changed = git(repo, ["diff", "--name-only", "--no-renames", "-z", base, head])
@@ -254,11 +272,15 @@ export function unbumped(repo: PluginDir, base: CommitId, head: CommitId): reado
 
     const dirs = [`${source}/`, `${releasedSource}/`];
 
-    const shipped = changed.some((path) =>
-      dirs.some((dir) => path.startsWith(dir) && !isDocsOnly(path.slice(dir.length))),
+    const touched = changed.flatMap((path) =>
+      dirs.flatMap((dir) => (path.startsWith(dir) ? [path.slice(dir.length)] : [])),
     );
 
-    if (!shipped) return [];
+    if (touched.length === 0) return [];
+
+    const manifestTypes = typesAt(repo, head, source);
+
+    if (touched.every((path) => isUnreadWhenInstalled(path, manifestTypes))) return [];
 
     const version = versionAt(repo, head, source);
 

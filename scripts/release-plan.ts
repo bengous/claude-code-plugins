@@ -24,9 +24,10 @@ import {
 } from "./changelog.ts";
 import {
   type CommitId,
-  isDocsOnly,
+  isUnreadWhenInstalled,
   type MarketplaceName,
   type SourceDir,
+  typesAt,
   unbumped,
 } from "./check-plugin-bumps.ts";
 import type { PluginDir } from "./lib/plugin-sources.ts";
@@ -75,7 +76,7 @@ export interface PluginChange {
   readonly name: MarketplaceName;
   readonly source: SourceDir;
   readonly version: Semver;
-  /** Newest first, a commit that changes the plugin's documentation alone left out. */
+  /** Newest first, a commit that changes only paths the installed plugin never reads left out. */
   readonly commits: readonly PluginCommit[];
   readonly diffstat: string;
   /** The plugin's changelog at the target, null when it keeps none. */
@@ -180,11 +181,20 @@ export function bumped(version: Semver, level: Level): Semver {
   return semver;
 }
 
-/** Whether `commit` changes a path under `source` that is not documentation alone. */
-function shipsCode(repo: PluginDir, commit: string, source: SourceDir): boolean {
+/** Whether `commit` changes a path under `source` that the installed plugin reads. */
+function shipsCode(
+  repo: PluginDir,
+  commit: string,
+  source: SourceDir,
+  manifestTypes: string | null,
+): boolean {
   return git(repo, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit])
     .split("\0")
-    .some((path) => path.startsWith(`${source}/`) && !isDocsOnly(path.slice(source.length + 1)));
+    .some(
+      (path) =>
+        path.startsWith(`${source}/`) &&
+        !isUnreadWhenInstalled(path.slice(source.length + 1), manifestTypes),
+    );
 }
 
 function commitOf(repo: PluginDir, commit: string): PluginCommit {
@@ -206,10 +216,14 @@ export function changesOf(
 
     if (semver === null) throw new Error(`${name}: version ${version} is not x.y.z`);
 
+    const manifestTypes = typesAt(repo, target, source);
+
     const commits = git(repo, ["log", "--format=%H", `${shipped}..${target}`, "--", source])
       .split("\n")
       .flatMap((commit) =>
-        commit !== "" && shipsCode(repo, commit, source) ? [commitOf(repo, commit)] : [],
+        commit !== "" && shipsCode(repo, commit, source, manifestTypes)
+          ? [commitOf(repo, commit)]
+          : [],
       );
 
     return {

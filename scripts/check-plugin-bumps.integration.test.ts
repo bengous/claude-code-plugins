@@ -52,8 +52,8 @@ function catalog(entries: Entry[]) {
   );
 }
 
-function manifest(dir: string, version: string) {
-  write(`${dir}/.claude-plugin/plugin.json`, JSON.stringify({ name: dir, version }));
+function manifest(dir: string, version: string, types?: string) {
+  write(`${dir}/.claude-plugin/plugin.json`, JSON.stringify({ name: dir, version, types }));
 }
 
 function commit(message: string): CommitId {
@@ -157,7 +157,19 @@ describe("unbumped", () => {
   });
 
   test("names a plugin whose own types, which its manifest names, changed", () => {
+    manifest("example", "1.0.0", "./types/index.d.ts");
+    base = commit("Name example's types");
     write("example/types/index.d.ts", "declare module 'claude-code' {}\n");
+
+    expect(found(commit("Declare example's state"))).toEqual([
+      { name: "example", source: "example", version: "1.0.0" },
+    ]);
+  });
+
+  test("names a plugin whose manifest names one of Claude Code's API type files under types", () => {
+    manifest("example", "1.0.0", "./types/claude-code.d.ts");
+    base = commit("Name example's types");
+    write("example/types/claude-code.d.ts", "declare module 'claude-code' {}\n");
 
     expect(found(commit("Declare example's state"))).toEqual([
       { name: "example", source: "example", version: "1.0.0" },
