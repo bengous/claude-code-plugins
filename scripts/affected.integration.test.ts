@@ -15,7 +15,6 @@ import {
   scopeOf,
   testRuns,
 } from "./affected.ts";
-import { TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 
 const SCRIPT = join(import.meta.dir, "affected.ts");
 
@@ -39,7 +38,8 @@ describe("classify", () => {
     ["todos/hooks/scan.ts", { kind: "unit", unit: "todos" }],
     ["session-archive/session-archive.ts", { kind: "unit", unit: "session-archive" }],
     ["vellum/README.md", { kind: "unit", unit: "vellum" }],
-    [TYPES_PATH, { kind: "all" }],
+    ["vellum/types/claude-code.d.ts", { kind: "all" }],
+    ["vellum/types/claude-code-tools.d.ts", { kind: "all" }],
   ];
 
   test.each(rows)("%s", (path, expected) => {
