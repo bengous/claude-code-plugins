@@ -53,13 +53,24 @@ type World = {
   readonly drawn: unknown[];
   /** The conversation the session holds, as `$.session.messages()` answers it. */
   readonly messages: SessionMessage[];
+  /** The files the mod wrote, by path. */
+  readonly files: Map<string, string>;
 };
+
+const STATE = "/work/.claude/griller/session-1.json";
+
+const TRANSCRIPT = "/work/.claude/griller/session-1.md";
 
 function message(role: SessionMessage["role"], text: string): SessionMessage {
   return { role, text, toolUses: [] };
 }
 
-async function started($: Engine, on: On, held: readonly SessionMessage[] = []): Promise<World> {
+async function started(
+  $: Engine,
+  on: On,
+  held: readonly SessionMessage[] = [],
+  files = new Map<string, string>(),
+): Promise<World> {
   const messages = [...held];
   const prompts: string[] = [];
   const drawn: unknown[] = [];
@@ -85,11 +96,20 @@ async function started($: Engine, on: On, held: readonly SessionMessage[] = []):
     return Box({ key: "engine" });
   });
   on("session.messages", () => ({ value: messages }));
+  on("session.root", () => ({ value: "/work" }));
+  on("session.id", () => ({ value: "session-1" }));
+  on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
+  on("fs.read", (_$, e) => ({ value: files.get(e.path) ?? "" }));
+  on("fs.write", (_$, e) => {
+    files.set(e.path, e.text);
+
+    return { value: undefined };
+  });
   on("turn.complete", (_$, e) => ({ text: e.answer }));
   on("session.start", () => ({ cwd: "/work" }));
   await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
 
-  return { prompts, opens: () => opens, drawn, messages };
+  return { prompts, opens: () => opens, drawn, messages, files };
 }
 
 /** Claude's turn ends on this reply. */
@@ -174,34 +194,80 @@ test("a round followed by a tool call in the same turn still opens", async ($, o
   expect(world.opens()).toBe(1);
 });
 
-test("a reload brings back the round nobody answered, and only that one", async ($, on) => {
-  const waiting = await started($, on, [
-    message("user", "/griller:grill the migration"),
-    message("assistant", ROUND),
-  ]);
+/** The round after `ROUND`, its questions numbered by Claude after the first round's. */
+const NEXT = ["❓ **Q4** - **Backups**: Who restores a backup?", "", "➡️ The DBA", "", "---"].join(
+  "\n",
+);
 
-  expect(waiting.opens()).toBe(1);
+/** Every question of the round answered with the recommendation hidden, then sent. */
+async function answeredAndSent($: Engine, count: number) {
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  for (let n = 1; n <= count; n += 1) {
+    await ui.input({ key: `answer-${n}`, text: `answer ${n}`, kind: "submit" });
+  }
+
+  await ui.press({ key: "send" });
+  await ui.unmount();
+}
+
+/** The scribe's state for a session whose first round waits, its third question answered (a). */
+function waiting(): Map<string, string> {
+  const questions = [
+    ["Which database?", "Postgres", ""],
+    ["Who owns the migration?", "The platform team", ""],
+    ["When does it ship: **(a)** this sprint, or **(b)** the one after?", "Next sprint", "(a)"],
+  ].map(([question, recommendation, answer], at) => ({
+    question: `**Q${at + 1}** - ${question}`,
+    recommendation,
+    n: at + 1,
+    answer,
+    draft: "",
+    isShown: false,
+    log: answer === "" ? [] : [{ kind: "answer", text: answer }],
+  }));
+
+  return new Map([[STATE, JSON.stringify({ last: 3, questions })]]);
+}
+
+test("a reload brings back the round nobody answered, with the answers recorded", async ($, on) => {
+  const world = await started($, on, [], waiting());
+
+  expect(world.opens()).toBe(1);
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   expect((await ui.find({ key: "question-2" }))?.text).toContain("Who owns the migration?");
+  expect((await ui.find({ key: "choice-3-a" }))?.props.variant).toBe("primary");
   await ui.unmount();
 });
 
-test("a round the user already answered is not brought back", async ($, on) => {
-  const answered = await started($, on, [
-    message("user", "/griller:grill the migration"),
-    message("assistant", ROUND),
-    message("user", "Grill answers:\nQ1: MySQL (recommendation not seen)"),
-  ]);
+test("a round already sent is not brought back by a reload", async ($, on) => {
+  const files = new Map([[STATE, JSON.stringify({ last: 3, questions: null })]]);
 
-  expect(answered.opens()).toBe(0);
+  // The answers wait in the queue for Claude's turn: the conversation does not hold them yet.
+  const world = await started(
+    $,
+    on,
+    [message("user", "/griller:grill"), message("assistant", ROUND)],
+    files,
+  );
+
+  expect(world.opens()).toBe(0);
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   expect((await ui.find({ type: "Text" }))?.text).toBe("No round is waiting for your answers.");
   await ui.unmount();
 });
 
-test("a press on Show reveals that one recommendation, and Hide hides it", async ($, on) => {
+test("the scribe's folder keeps itself out of git", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  expect(world.files.get("/work/.claude/griller/.gitignore")).toBe("*\n");
+  expect(world.files.has(STATE)).toBe(true);
+});
+
+test("a press on Peek reveals that one recommendation, and Hide hides it", async ($, on) => {
   await started($, on);
   await ended($, ROUND);
 
@@ -221,26 +287,25 @@ test("a press on Show reveals that one recommendation, and Hide hides it", async
   }
 });
 
-test("an answer sent with Enter reveals its recommendation; typing alone does not", async ($, on) => {
+test("an answer recorded with Enter keeps the recommendation hidden; typing alone records nothing", async ($, on) => {
   await started($, on);
   await ended($, ROUND);
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   await ui.input({ key: "answer-1", text: "MySQL", kind: "change" });
-  expect(await ui.find({ text: /Postgres/u })).toBeUndefined();
   expect((await ui.find({ type: "Text", text: /answered/u }))?.text).toBe(
     "0 of 3 answered · 0 used Claude's",
   );
 
   await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
-  expect((await ui.find({ key: "recommendation-1" }))?.text).toBe("Postgres");
   expect((await ui.find({ key: "answer-1" }))?.props.submitLabel).toBe("Update");
-  expect(await ui.find({ key: "take-1" })).toBeDefined();
-  expect(await ui.find({ text: /platform team|Next sprint/u })).toBeUndefined();
+  expect(await ui.find({ text: RECOMMENDATIONS })).toBeUndefined();
+  expect(await ui.find({ key: "take-1" })).toBeUndefined();
+  expect((await ui.find({ key: "toggle-1" }))?.text).toBe("Peek at Claude's");
   await ui.unmount();
 });
 
-test("a picked choice records the answer and reveals its recommendation", async ($, on) => {
+test("a picked choice records the answer and keeps the recommendation hidden", async ($, on) => {
   await started($, on);
   await ended($, ROUND);
 
@@ -257,7 +322,7 @@ test("a picked choice records the answer and reveals its recommendation", async 
 
   await ui.press({ key: "choice-3-b" });
   expect((await ui.find({ key: "choice-3-b" }))?.props.variant).toBe("primary");
-  expect((await ui.find({ key: "recommendation-3" }))?.text).toBe("Next sprint");
+  expect(await ui.find({ text: RECOMMENDATIONS })).toBeUndefined();
   expect((await ui.find({ type: "Text", text: /answered/u }))?.text).toBe(
     "1 of 3 answered · 0 used Claude's",
   );
@@ -265,17 +330,19 @@ test("a picked choice records the answer and reveals its recommendation", async 
   await ui.unmount();
 });
 
-test("Send returns the answers to Claude as the user's next message", async ($, on) => {
+test("Send returns the final answers alone, and the transcript keeps how they were reached", async ($, on) => {
   const world = await started($, on);
 
   await ended($, ROUND);
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
 
-  // Q1: answered blind, then the recommendation taken. Q2: peeked first, then taken. Q3: answered blind.
+  // Q1: answered blind, then peeked and taken. Q2: peeked first, then taken. Q3: (a), then a text.
   await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
+  await ui.press({ key: "toggle-1" });
   await ui.press({ key: "take-1" });
   await ui.press({ key: "toggle-2" });
   await ui.press({ key: "take-2" });
+  await ui.press({ key: "choice-3-a" });
   await ui.input({ key: "answer-3", text: "Not before the audit", kind: "submit" });
   await ui.press({ key: "send" });
   expect(await ui.find({ key: "send" })).toBeUndefined();
@@ -284,14 +351,39 @@ test("Send returns the answers to Claude as the user's next message", async ($, 
   expect(world.prompts).toEqual([
     [
       "Grill answers:",
-      "Q1: your recommendation (recommendation seen after answering; first answer: MySQL)",
-      "Q2: your recommendation (recommendation seen before answering)",
-      "Q3: Not before the audit (recommendation seen after answering)",
+      "Q1: your recommendation",
+      "Q2: your recommendation",
+      "Q3: Not before the audit",
     ].join("\n"),
   ]);
+
+  expect(JSON.parse(world.files.get(STATE) ?? "{}")).toEqual({ last: 3, questions: null });
+  const transcript = world.files.get(TRANSCRIPT) ?? "";
+
+  expect(transcript).toContain("**Claude:** Postgres");
+  expect(transcript).toContain("- answered: MySQL\n- peeked at Claude's\n- took Claude's");
+  expect(transcript).toContain("- answered: (a)\n- answered: Not before the audit");
 
   const after = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   expect(await after.find({ key: "question-1" })).toBeUndefined();
   await after.unmount();
+});
+
+test("questions keep the numbers Claude gave them, and an unnumbered one follows the last", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  await answeredAndSent($, 3);
+  world.messages.push(message("user", world.prompts[0] ?? ""));
+  await ended($, NEXT);
+  await answeredAndSent($, 1);
+  world.messages.push(message("user", world.prompts[1] ?? ""));
+  await ended($, "❓ **Rollback**: Who decides a rollback?\n\n➡️ The on-call lead\n\n---");
+  await answeredAndSent($, 1);
+
+  expect(world.prompts.slice(1)).toEqual([
+    "Grill answers:\nQ4: answer 1",
+    "Grill answers:\nQ5: answer 1",
+  ]);
 });
