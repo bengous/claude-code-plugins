@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { Deadline, RunResult, Runner } from "./exec.ts";
-import { isRecord, stringField } from "./json.ts";
+import type { Deadline, RunResult, Runner } from "../exec.ts";
+import { isRecord, stringField } from "../json.ts";
 
 /**
  * What a `git commit` does with its message: `new`, a commit with a message of its own; `amend`, an amend that writes

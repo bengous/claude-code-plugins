@@ -2,11 +2,29 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { Deadline } from "./exec.ts";
-import { outputOf, run, succeeded } from "./exec.ts";
-import { isRecord, recordField, stringField } from "./json.ts";
-import type { Check, PullRequestFacts, RepoFacts } from "./landing.ts";
-import { stateDir, writeAtomically } from "./state.ts";
+import type { Deadline } from "../exec.ts";
+import { outputOf, run, succeeded } from "../exec.ts";
+import { isRecord, recordField, stringField } from "../json.ts";
+import { stateDir, writeAtomically } from "../state.ts";
+
+export type RepoFacts = { readonly visibility: string; readonly defaultBranch: string };
+
+/** One check as `gh pr checks --json` prints it: a commit status has no workflow and no event. */
+export type Check = {
+  readonly name: string;
+  readonly state: string;
+  readonly startedAt: string;
+  readonly workflow: string;
+  readonly event: string;
+};
+
+export type PullRequestFacts = {
+  readonly number: number;
+  readonly url: string;
+  readonly baseRefName: string;
+  readonly mergeable: string;
+  readonly checks: readonly Check[];
+};
 
 export type Lookup<T> =
   | { readonly kind: "found"; readonly value: T }

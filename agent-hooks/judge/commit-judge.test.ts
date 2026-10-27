@@ -3,10 +3,10 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { Argv, RunOptions, RunResult, Runner } from "../exec.ts";
+import { deadlineIn } from "../exec.ts";
 import type { CommitExpansion, Fault } from "./commit-judge.ts";
 import { JUDGE_PROMPT, commitMessageOf, judge, judgeInput, judgeRefusal } from "./commit-judge.ts";
-import type { Argv, RunOptions, RunResult, Runner } from "./exec.ts";
-import { deadlineIn } from "./exec.ts";
 
 const LITERAL: CommitExpansion = { argsExpand: [], heredocExpands: false };
 

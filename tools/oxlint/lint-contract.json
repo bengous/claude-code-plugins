@@ -80,6 +80,36 @@
       "rules": {
         "max-lines": "off"
       }
+    },
+    {
+      "files": [
+        "agent-hooks/**/*.ts"
+      ],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 600
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "agent-hooks/**/*.test.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    },
+    {
+      "files": [
+        "agent-hooks/config.ts",
+        "agent-hooks/guard/shell.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
     }
   ],
   "rules": {

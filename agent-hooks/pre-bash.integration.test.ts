@@ -12,7 +12,7 @@ import {
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
-import { cachePath } from "./github.ts";
+import { cachePath } from "./guard/github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { encodeGuard, runPreBash } from "./pre-bash.ts";
 import { beatPath } from "./state.ts";

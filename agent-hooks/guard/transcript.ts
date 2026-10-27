@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- this module reads Claude Code's transcript, JSON lines whose shape the harness does not publish: each record is narrowed here by hand, and a record of another shape is skipped. */
 import { readFileSync } from "node:fs";
 
-import { isRecord, recordField, stringField } from "./json.ts";
+import { isRecord, recordField, stringField } from "../json.ts";
 
 export type HumanRead = {
   /** The latest message the human typed, one sent while the agent worked included; null when there is none. */

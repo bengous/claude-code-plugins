@@ -134,5 +134,23 @@ export default defineConfig({
       ],
       rules: { "max-lines": "off" },
     },
+    {
+      // A file of agent-hooks holds one notion; past this size it holds two.
+      files: ["agent-hooks/**/*.ts"],
+      rules: { "max-lines": ["error", { max: 600 }] },
+    },
+    {
+      // A suite grows with the behaviours it holds, one per test: its size says nothing of its notions.
+      files: ["agent-hooks/**/*.test.ts"],
+      rules: { "max-lines": "off" },
+    },
+    {
+      // Over the size on purpose, each one reader of one input:
+      // - config.ts: the reader of .claude/agent-hooks.jsonc and its presets, each key checked
+      //   beside the others of its table.
+      // - guard/shell.ts: the Bash parser, one scanner whose closures share its state.
+      files: ["agent-hooks/config.ts", "agent-hooks/guard/shell.ts"],
+      rules: { "max-lines": "off" },
+    },
   ],
 });

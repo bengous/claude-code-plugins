@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 
 import { parse, stringify } from "yaml";
 
-import { releaseScriptOf } from "../agent-hooks/landing.ts";
+import { releaseScriptOf } from "../agent-hooks/guard/argv.ts";
 import { type Semver, semverOf } from "./changelog.ts";
 import {
   type CommitId,

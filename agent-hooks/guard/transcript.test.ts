@@ -4,7 +4,7 @@ import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { transcriptRecord as record, writeTranscript } from "./test-support.ts";
+import { transcriptRecord as record, writeTranscript } from "../test-support.ts";
 import type { HumanRead } from "./transcript.ts";
 import { readHuman } from "./transcript.ts";
 

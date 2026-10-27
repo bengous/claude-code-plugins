@@ -137,7 +137,7 @@ pull request.
   refuses when one is `process` (the change explained by what produced it: a review and its findings, a
   session, a lead's decision, a plan label) or `check-event` (a check reported as an event: a test seen
   red, before and after numbers, a run id, a statistic given to justify a choice), and its quote is in the
-  message, whitespace aside. A bare `#N` passes. `JUDGE_PROMPT` in `commit-judge.ts` is the prompt measured: a change to it is measured
+  message, whitespace aside. A bare `#N` passes. `JUDGE_PROMPT` in `judge/commit-judge.ts` is the prompt measured: a change to it is measured
   again before it lands.
 - A refusal is a PreToolUse deny whose reason starts with `agent-hooks:`, quotes each passage, and gives
   both ways out on the same footing: rewrite these passages, or rerun exactly the same command when the
@@ -270,7 +270,7 @@ What the model bounds and the kit does not try to cross:
   #12` holds `ok #{pr}`. The message is the latest one the human typed in the session's transcript, a
   message queued while the agent worked included, read from the main transcript in a subagent too; a
   task notification, a tool result, a peer session's or a teammate's message and an approved plan are
-  not typed (`readHuman` in `transcript.ts`). A transcript that cannot
+  not typed (`readHuman` in `guard/transcript.ts`). A transcript that cannot
   be read, or does not yet hold the turn's prompt, refuses. A workflow named by its numeric id is
   refused, since the guard cannot match it to a file. A door whose `--repo` or endpoint names the
   repository of the hook's cwd is judged by its profile wherever the line `cd`s; one that names
