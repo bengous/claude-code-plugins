@@ -428,8 +428,6 @@ test("the transcript holds each question, Claude's answer and the final one, and
     [
       "# Grill",
       "",
-      "---",
-      "",
       "**Q1** - **Database**: Which database?",
       "",
       "**Claude:** Postgres",
@@ -468,4 +466,7 @@ test("questions keep the numbers Claude gave them, and an unnumbered one follows
     "Grill answers:\nQ4: answer 1",
     "Grill answers:\nQ5: answer 1",
   ]);
+
+  // One rule between two rounds, none under the title.
+  expect(world.files.get(TRANSCRIPT)?.split("\n---\n")).toHaveLength(3);
 });

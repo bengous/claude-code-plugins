@@ -171,7 +171,7 @@ function transcriptOf(
     ...(open === null ? [] : [open.map((q) => block(q, false)).join("\n\n")]),
   ];
 
-  return `${["# Grill", ...sections].join("\n\n---\n\n")}\n`;
+  return `# Grill\n\n${sections.join("\n\n---\n\n")}\n`;
 }
 
 async function pathsOf($: EngineInterface) {
