@@ -18,7 +18,7 @@ Write each round in this format, and end it with the `---` line. Number the ques
 ```
 ❓ **Q<n>** - **<title>**: <the question, standing alone, with its choices when there are some, each written **(a)** …, **(b)** …>
 
-➡️ <your recommended answer>
+➡️ <your recommended answer: one I could take as is, a choice or a decision, never one that depends on my answer>
 
 ---
 ```
