@@ -234,7 +234,7 @@ bun test atlas                                  # the engine's suites, *.spec.ts
 bun atlas/src/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
 claude plugin validate atlas                    # what the mod hooks and calls
 claude plugin test atlas                    # the mod's kit tests, hooks/*.test.ts
-claude --plugin-dir atlas                   # a live session with the mod from source; it writes .claude-plugin/types/, which atlas's own tsconfig.json types hooks/ with
+claude --plugin-dir atlas                   # a live session with the mod from source; it writes .claude-plugin/types/, whose claude-code/ and claude-code-tools/ atlas's own tsconfig.json types hooks/ with, not claude-code-mcp/, the developer's own servers
 ```
 
 The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes five levels down.

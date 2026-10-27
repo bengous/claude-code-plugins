@@ -24,6 +24,10 @@
     "useUnknownInCatchVariables": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["**/*.ts", ".claude-plugin/types/**/*.d.ts"],
+  "include": [
+    "**/*.ts",
+    ".claude-plugin/types/claude-code/*.d.ts",
+    ".claude-plugin/types/claude-code-tools/*.d.ts"
+  ],
   "exclude": ["node_modules"]
 }
