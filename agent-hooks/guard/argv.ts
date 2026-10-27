@@ -272,7 +272,7 @@ export type ScriptRun =
 
 const RELEASE_SCRIPT = /\/scripts\/release(?:\.[A-Za-z]+)?$/u;
 
-function splitOption(word: string): readonly [string, string | undefined] {
+export function splitOption(word: string): readonly [string, string | undefined] {
   const equals = word.indexOf("=");
 
   return equals === -1 ? [word, undefined] : [word.slice(0, equals), word.slice(equals + 1)];

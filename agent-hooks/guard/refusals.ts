@@ -1,4 +1,5 @@
-import type { Approval, LandingProfile } from "../config.ts";
+import type { Approval, LandingProfile } from "../profile.ts";
+import { escapeRegExp } from "../text.ts";
 import type { PushTarget } from "./argv.ts";
 import { EVERY_BRANCH } from "./argv.ts";
 import type { Check, PullRequestFacts, RepoFacts } from "./github.ts";
@@ -232,7 +233,7 @@ export function approvingPhrase(
         .replaceAll("{pr}", String(pr))
         .trim()
         .split(/\s+/u)
-        .map((word) => word.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+        .map((word) => escapeRegExp(word));
 
       return new RegExp(
         `(?<!${LETTER_OR_DIGIT})${words.join("\\s+")}(?!${LETTER_OR_DIGIT})`,

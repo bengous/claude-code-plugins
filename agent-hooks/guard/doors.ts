@@ -13,6 +13,7 @@ import {
   packageScriptOf,
   pushOf,
   releaseScriptOf,
+  splitOption,
 } from "./argv.ts";
 import { gatedDoorOf } from "./gated.ts";
 import { apiDoor } from "./gh-api.ts";
@@ -51,7 +52,7 @@ function ghDecisive(argv: readonly Word[], repoOnly: boolean): Word[] {
   for (let index = 1; index < argv.length; index += 1) {
     const word = argv[index];
     const text = word?.text ?? "";
-    const [name = "", attached] = text.split(/=(.*)/su);
+    const [name, attached] = splitOption(text);
 
     if (word === undefined) {
       continue;

@@ -1,3 +1,4 @@
+import { messageOf } from "./errors.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { deadlineIn, run } from "./exec.ts";
 import type { GuardContext, GuardVerdict } from "./guard/judge-doors.ts";
@@ -113,7 +114,7 @@ export async function runPreBash(
         : combine([verdict, judged]),
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
 
     return encodeGuard(
       note(`agent-hooks: pre-bash crashed (${message}): the command went unchecked`),
@@ -139,11 +140,11 @@ async function judgeCommitsOf(
       try {
         return settle();
       } catch (error) {
-        return judgeCrashed(error instanceof Error ? error.message : String(error));
+        return judgeCrashed(messageOf(error));
       }
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
 
     return () => judgeCrashed(message);
   }

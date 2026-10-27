@@ -13,8 +13,8 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { sha256 } from "./hash.ts";
 import { isRecord } from "./json.ts";
-import { sha256 } from "./scope.ts";
 
 export const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

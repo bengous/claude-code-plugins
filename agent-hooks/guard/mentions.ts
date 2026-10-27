@@ -1,3 +1,4 @@
+import { escapeRegExp } from "../text.ts";
 import type { GhCommand, GitCommand, PackageScript, PushTarget, ReleaseScript } from "./argv.ts";
 import type { DoorKind } from "./refusals.ts";
 
@@ -325,10 +326,7 @@ export function startsProcesses(program: string, code: string): boolean {
 }
 
 function wordPattern(word: string): RegExp {
-  return new RegExp(
-    `(?<![\\w.:-])${word.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?![\\w.:-])`,
-    "gu",
-  );
+  return new RegExp(`(?<![\\w.:-])${escapeRegExp(word)}(?![\\w.:-])`, "gu");
 }
 
 function segmentBefore(script: string, at: number): string {

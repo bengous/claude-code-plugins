@@ -1,14 +1,15 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { expandCommand, isExcluded, matchesFilter, pkgOf } from "./command.ts";
 import type { Fixer, Lane, LaneVerdict } from "./config.ts";
-import { expandCommand, isExcluded, matchesFilter, pkgOf } from "./config.ts";
 import type { Argv, Deadline, RunOptions, RunResult, Runner } from "./exec.ts";
 import { formatFailure, outputOf, resolveProgram, succeeded, tail } from "./exec.ts";
+import { sha256 } from "./hash.ts";
 import type { Diagnostics, Failing } from "./loop-guard.ts";
 import { diagnosticKey } from "./loop-guard.ts";
-import { sha256 } from "./scope.ts";
 import type { LaneRun, LastRun } from "./state.ts";
+import { escapeRegExp } from "./text.ts";
 
 // One `--fix` pass drops the fixes that overlap; the next pass applies them.
 export const MAX_FIX_PASSES = 5;
@@ -405,9 +406,7 @@ function commandFiles(lane: Lane, group: LaneGroup, root: string): string[] {
 
 /** Matches a path spelled whole in a line: `a.ts` must not match `src/ba.ts`. */
 function pathPattern(spellings: readonly string[]): RegExp {
-  const escaped = [...new Set(spellings)].map((spelling) =>
-    spelling.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`),
-  );
+  const escaped = [...new Set(spellings)].map((spelling) => escapeRegExp(spelling));
 
   return new RegExp(String.raw`(?<![\w./-])(?:${escaped.join("|")})(?![\w-])`, "u");
 }

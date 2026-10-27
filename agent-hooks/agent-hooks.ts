@@ -3,13 +3,14 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import { ConfigError, loadConfig } from "./config.ts";
+import { loadConfig } from "./config.ts";
 import { initConfig, runDoctor } from "./doctor.ts";
 import type { HookKind, HookRun } from "./hook.ts";
 import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
 import { formatNoise, measureNoise } from "./noise.ts";
 import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
+import { ConfigError } from "./reader.ts";
 import { findRoot, realPathOf } from "./scope.ts";
 import { runSessionEnd, runSessionStart } from "./session-start.ts";
 import { runStop } from "./stop.ts";

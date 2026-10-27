@@ -1,15 +1,16 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { isExcluded } from "./config.ts";
-import type { HookContext, Verdict } from "./hook.ts";
-import { ALLOW } from "./hook.ts";
+import { isExcluded } from "./command.ts";
+import type { HookContext } from "./hook.ts";
 import { stringField } from "./json.ts";
 import type { FixTarget } from "./lanes.ts";
 import { runFixers, sequential } from "./lanes.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
 import { SCRATCH_PREFIX, nearestDirectory, realPathOf, takePhoto, underRoot } from "./scope.ts";
 import type { Photo } from "./state.ts";
+import type { Verdict } from "./verdict.ts";
+import { ALLOW } from "./verdict.ts";
 
 type PendingWrite =
   | { readonly kind: "write"; readonly content: string }

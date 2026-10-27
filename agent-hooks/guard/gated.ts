@@ -1,4 +1,5 @@
 import type { GhCommand } from "./argv.ts";
+import { splitOption } from "./argv.ts";
 import type { Word } from "./shell.ts";
 import type { Classification, View } from "./walk.ts";
 import { blocker, unresolved } from "./walk.ts";
@@ -74,7 +75,7 @@ export function gatedDoorOf(view: View, gh: GhCommand, cwd: string): Classificat
   for (let index = start; index < words.length; index += 1) {
     const word = words[index];
     const text = word?.text ?? "";
-    const [name = "", attached] = text.split(/=(.*)/su);
+    const [name, attached] = splitOption(text);
 
     if (word === undefined) {
       continue;

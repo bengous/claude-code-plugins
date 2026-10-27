@@ -1,13 +1,11 @@
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
+import { DELETED, hashFile, sha256 } from "./hash.ts";
 import type { Photo } from "./state.ts";
 
 export const WORKTREES_PREFIX = ".claude/worktrees/";
-
-export const DELETED = "deleted";
 
 /** The directory pre-edit writes its scratch copy into, beside the real file, for the time its fixers run. */
 export const SCRATCH_PREFIX = ".agent-hooks-";
@@ -201,18 +199,6 @@ export function parseGitStatus(output: string): StatusEntry[] | null {
   }
 
   return parsed;
-}
-
-export function hashFile(absolutePath: string): string {
-  try {
-    return createHash("sha256").update(readFileSync(absolutePath)).digest("hex");
-  } catch {
-    return DELETED;
-  }
-}
-
-export function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 /** The dirty paths of a checkout, each to the hash of its content: one `git status` and one read of each file. */

@@ -2,10 +2,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import type { Config, Fixer, Lane, ReviewProfile } from "./config.ts";
-import { ConfigError, configPath, expandCommand, loadConfig } from "./config.ts";
+import { expandCommand } from "./command.ts";
+import type { Config, Fixer, Lane } from "./config.ts";
+import { configPath, loadConfig } from "./config.ts";
 import { resolveProgram } from "./exec.ts";
 import { isRecord, parseJsonc, recordField, stringField } from "./json.ts";
+import type { ReviewProfile } from "./profile.ts";
+import { ConfigError } from "./reader.ts";
 import { checkoutOf, findRoot, git, takePhoto } from "./scope.ts";
 import { latestStateForCheckout, rootRecord } from "./state.ts";
 import { runVerify } from "./verify.ts";

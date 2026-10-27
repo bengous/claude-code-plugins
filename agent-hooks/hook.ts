@@ -5,15 +5,19 @@ import path from "node:path";
 import type { BackgroundTaskSummary } from "@anthropic-ai/claude-agent-sdk";
 
 import type { Config } from "./config.ts";
-import { ConfigError, DEFAULT_CAP, loadConfig } from "./config.ts";
+import { DEFAULT_CAP, loadConfig } from "./config.ts";
+import { messageOf } from "./errors.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
+import { ConfigError } from "./reader.ts";
 import { checkoutOf, findRoot, realPathOf } from "./scope.ts";
 import type { SessionState } from "./state.ts";
 import { AGENT_SEPARATOR, beat, freshState, loadState, saveState, statesOf } from "./state.ts";
+import type { Verdict } from "./verdict.ts";
+import { ALLOW } from "./verdict.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
 
@@ -43,21 +47,6 @@ const HOOK_EVENTS: Readonly<Record<HookKind, string>> = {
 
 /** A killed command's output grace, then the time to blame, record and encode the run. */
 const SETTLE_MS = OUTPUT_GRACE_MS + 500;
-
-export type Verdict =
-  | { readonly kind: "allow" }
-  /** Passes; `systemMessage`, shown to the user. */
-  | { readonly kind: "note"; readonly text: string }
-  /** Passes; `additionalContext`, read by the agent. */
-  | { readonly kind: "context"; readonly text: string }
-  | { readonly kind: "block"; readonly reason: string }
-  | {
-      readonly kind: "rewrite";
-      readonly updatedInput: Record<string, unknown>;
-      readonly text: string;
-    };
-
-export const ALLOW: Verdict = { kind: "allow" };
 
 /** The fields of a hook payload the kit reads, checked by hand: `tool_input` is `unknown` in the SDK. */
 export type Input = {
@@ -264,9 +253,7 @@ export function heartbeat(input: Input): void {
       beat(stateKey(input), checkout);
     }
   } catch (error) {
-    console.error(
-      `agent-hooks: heartbeat not saved: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`agent-hooks: heartbeat not saved: ${messageOf(error)}`);
   }
 }
 
@@ -297,7 +284,7 @@ async function runStopHook(options: StopRun, input: Input, now: number): Promise
     );
   } catch (error) {
     // A kit failure blocks under the brake of the checkout around the cwd, so a crash never ends the turn silently.
-    const message = `agent-hooks crashed: ${error instanceof Error ? error.message : String(error)}`;
+    const message = `agent-hooks crashed: ${messageOf(error)}`;
     const braked = checkouts.find((state) => state.checkout === cwdCheckout(input)) ?? checkouts[0];
 
     verdict =
@@ -434,9 +421,7 @@ function persist(state: SessionState, now: number): void {
   try {
     saveState(state, now);
   } catch (error) {
-    console.error(
-      `agent-hooks: state not saved: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`agent-hooks: state not saved: ${messageOf(error)}`);
   }
 }
 
@@ -478,7 +463,7 @@ async function rootVerdict(
       }),
     );
   } catch (error) {
-    console.error(`agent-hooks crashed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`agent-hooks crashed: ${messageOf(error)}`);
 
     return ALLOW;
   }

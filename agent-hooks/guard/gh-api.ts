@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { GhCommand, PushTarget } from "./argv.ts";
+import { splitOption } from "./argv.ts";
 import { GRAPHQL_MERGE, GRAPHQL_REF } from "./mentions.ts";
 import type { Word } from "./shell.ts";
 import type { Classification, View } from "./walk.ts";
@@ -51,7 +52,7 @@ function apiCallOf(argv: readonly Word[]): ApiCall {
   for (let index = api + 1; index < argv.length; index += 1) {
     const word = argv[index];
     const text = word?.text ?? "";
-    const [name = "", attached] = text.split(/=(.*)/su);
+    const [name, attached] = splitOption(text);
     const value = attached === undefined ? argv[index + 1] : word;
 
     if (word === undefined) {

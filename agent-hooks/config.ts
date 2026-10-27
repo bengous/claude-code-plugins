@@ -1,9 +1,24 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- this module IS the parser of `.claude/agent-hooks.jsonc` and the presets: each typeof check validates one key and names its key path in the error, and nothing past `loadConfig` sees the document untyped. */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { Argv } from "./exec.ts";
-import { isRecord, isStringArray, parseJsonc } from "./json.ts";
+import { isRecord } from "./json.ts";
+import type { Profile } from "./profile.ts";
+import { readProfile } from "./profile.ts";
+import type { Reader } from "./reader.ts";
+import {
+  ConfigError,
+  boolean,
+  child,
+  keyPathOf,
+  oneOf,
+  parseRecord,
+  readText,
+  rejectUnknownKeys,
+  seconds,
+  string,
+  stringArray,
+} from "./reader.ts";
 
 export const CONFIG_RELATIVE_PATH = path.join(".claude", "agent-hooks.jsonc");
 
@@ -44,45 +59,6 @@ export type Fixer = {
   readonly disabled: boolean;
 };
 
-/** Who moves the trunk: the agents' own pushes, or a server-side action that fast-forwards it to a green pull request. */
-export type LandedBy = "agent" | "action";
-
-/** The branches a repository lands on: `trunk`, moved as `by` says, and `release`, moved by the human. */
-export type LandingProfile = {
-  readonly trunk: string;
-  readonly release: string;
-  readonly by: LandedBy;
-};
-
-/** A door that passes only when the human's latest typed message holds one of its phrases. */
-export type Approval = { readonly name: string; readonly phrases: readonly string[] };
-
-/**
- * The doors that wait for the human's words: dispatching each workflow, named by its file, and adding each label to a
- * pull request, whose phrases name it by `{pr}`.
- */
-export type ApprovalsProfile = {
-  readonly workflows: readonly Approval[];
-  readonly labels: readonly Approval[];
-};
-
-/** The paths a change lands through only with a clean review verdict for exactly that change. */
-export type ReviewProfile = { readonly risky: readonly string[] };
-
-/** Whether the agents of a repository share its checkout, or each task takes a worktree of its own. */
-export type WorktreeMode = "per-task" | "shared";
-
-/** Whether pre-bash has Haiku judge an agent's commit message before the commit runs. */
-export type CommitMessagesMode = "judged";
-
-export type Profile = {
-  readonly landing: LandingProfile | null;
-  readonly approvals: ApprovalsProfile | null;
-  readonly review: ReviewProfile | null;
-  readonly worktree: WorktreeMode;
-  readonly commitMessages: CommitMessagesMode | null;
-};
-
 export type Config = {
   readonly profile: Profile;
   readonly preEdit: { readonly exclude: readonly string[]; readonly fixers: readonly Fixer[] };
@@ -92,27 +68,6 @@ export type Config = {
     readonly lanes: readonly Lane[];
   };
 };
-
-export type Placeholders = {
-  readonly root: string;
-  readonly pkg: string;
-  readonly file?: string;
-  readonly path?: string;
-  readonly files?: readonly string[];
-};
-
-export type PathFilter = { readonly on: string; readonly exclude: readonly string[] };
-
-export class ConfigError extends Error {
-  constructor(file: string, keyPath: string, message: string) {
-    super(
-      keyPath === ""
-        ? `agent-hooks: ${file}: ${message}`
-        : `agent-hooks: ${file}: ${keyPath}: ${message}`,
-    );
-    this.name = "ConfigError";
-  }
-}
 
 type RawFixer = {
   on?: string;
@@ -146,27 +101,9 @@ type RawDocument = {
 
 type DocumentKind = "repo" | "preset";
 
-type Reader = {
-  readonly file: string;
-  readonly record: Record<string, unknown>;
-  readonly keyPath: string;
-};
-
 const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "stop"]);
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
-
-const PROFILE_KEYS = new Set(["landing", "approvals", "review", "worktree", "commitMessages"]);
-
-const LANDING_KEYS = new Set(["trunk", "release", "by"]);
-
-const APPROVALS_KEYS = new Set(["workflows", "labels"]);
-
-const PR_PLACEHOLDER = "{pr}";
-
-const WORKFLOW_FILE = /^[\w.-]+\.ya?ml$/u;
-
-const REVIEW_KEYS = new Set(["risky"]);
 
 const PRE_EDIT_KEYS = new Set(["exclude", "fixers"]);
 
@@ -210,43 +147,6 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
   documents.push(repo);
 
   return finalize(mergeDocuments(documents, repo), repo.file);
-}
-
-/**
- * `profile.landing` of the repo file alone: an error elsewhere in the file, another profile key included, leaves it
- * readable. Throws a ConfigError naming the key when the file does not parse or its landing is invalid.
- */
-export function loadLanding(root: string, configFile = configPath(root)): LandingProfile | null {
-  return readLanding(profileIn(configFile, readText(configFile)));
-}
-
-/** `profile.approvals` of the repo file alone, read as `loadLanding` reads `profile.landing`. */
-export function loadApprovals(
-  root: string,
-  configFile = configPath(root),
-): ApprovalsProfile | null {
-  return readApprovals(profileIn(configFile, readText(configFile)));
-}
-
-/** `profile.commitMessages` of the repo file alone, read as `loadLanding` reads `profile.landing`. */
-export function loadCommitMessages(
-  root: string,
-  configFile = configPath(root),
-): CommitMessagesMode | null {
-  return readCommitMessages(profileIn(configFile, readText(configFile)));
-}
-
-/**
- * The whole profile in `text`, the repo file as `file` names it (a path, or a commit's `<rev>:<path>`), an unknown
- * key included: for a reader that runs the same revision's kit, where an unknown key can only be a typo. Throws a
- * ConfigError naming the key when the text does not parse or its profile is invalid.
- */
-export function parseProfile(file: string, text: string): Profile {
-  return readProfile(profileIn(file, text));
-}
-
-function profileIn(file: string, text: string): Reader {
-  return child({ file, record: parseRecord(file, text), keyPath: "" }, "profile");
 }
 
 function collectPreset(
@@ -306,264 +206,6 @@ function readDocument(file: string, kind: DocumentKind): RawDocument {
 
 function parseDocument(file: string): Record<string, unknown> {
   return parseRecord(file, readText(file));
-}
-
-function readText(file: string): string {
-  try {
-    return readFileSync(file, "utf8");
-  } catch (error) {
-    throw new ConfigError(
-      file,
-      "",
-      `cannot read: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function parseRecord(file: string, text: string): Record<string, unknown> {
-  let parsed: unknown;
-
-  try {
-    parsed = parseJsonc(text);
-  } catch (error) {
-    throw new ConfigError(
-      file,
-      "",
-      `invalid JSONC: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  if (!isRecord(parsed)) {
-    throw new ConfigError(file, "", "expected an object");
-  }
-
-  return parsed;
-}
-
-function keyPathOf(reader: Reader, key: string): string {
-  return reader.keyPath === "" ? key : `${reader.keyPath}.${key}`;
-}
-
-/** The object under `key`, or an empty one when the key is absent. */
-function child(reader: Reader, key: string): Reader {
-  const value = reader.record[key];
-  const keyPath = keyPathOf(reader, key);
-
-  if (value === undefined) {
-    return { file: reader.file, record: {}, keyPath };
-  }
-
-  if (!isRecord(value)) {
-    throw new ConfigError(reader.file, keyPath, "expected an object");
-  }
-
-  return { file: reader.file, record: value, keyPath };
-}
-
-function rejectUnknownKeys(reader: Reader, known: ReadonlySet<string>): void {
-  for (const key of Object.keys(reader.record)) {
-    if (!known.has(key)) {
-      throw new ConfigError(reader.file, keyPathOf(reader, key), "unknown key");
-    }
-  }
-}
-
-function stringArray(reader: Reader, key: string): string[] | undefined {
-  const value = reader.record[key];
-
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (!isStringArray(value)) {
-    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected an array of strings");
-  }
-
-  return value;
-}
-
-function string(reader: Reader, key: string): string | undefined {
-  const value = reader.record[key];
-
-  if (value !== undefined && typeof value !== "string") {
-    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected a string");
-  }
-
-  return value;
-}
-
-function boolean(reader: Reader, key: string): boolean | undefined {
-  const value = reader.record[key];
-
-  if (value !== undefined && typeof value !== "boolean") {
-    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected a boolean");
-  }
-
-  return value;
-}
-
-function seconds(reader: Reader, key: string): number | undefined {
-  const value = reader.record[key];
-
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected a number of seconds");
-  }
-
-  return value;
-}
-
-function oneOf<T extends string>(reader: Reader, key: string, values: readonly T[]): T | undefined {
-  const value = reader.record[key];
-
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const found = values.find((candidate) => candidate === value);
-
-  if (found === undefined) {
-    throw new ConfigError(reader.file, keyPathOf(reader, key), `expected ${values.join("|")}`);
-  }
-
-  return found;
-}
-
-function readProfile(reader: Reader): Profile {
-  rejectUnknownKeys(reader, PROFILE_KEYS);
-
-  return {
-    landing: readLanding(reader),
-    approvals: readApprovals(reader),
-    review: readReview(reader),
-    worktree: oneOf(reader, "worktree", ["per-task", "shared"]) ?? "shared",
-    commitMessages: readCommitMessages(reader),
-  };
-}
-
-function readCommitMessages(profile: Reader): CommitMessagesMode | null {
-  return oneOf<CommitMessagesMode>(profile, "commitMessages", ["judged"]) ?? null;
-}
-
-function readLanding(profile: Reader): LandingProfile | null {
-  if (profile.record["landing"] === undefined) {
-    return null;
-  }
-
-  const landing = child(profile, "landing");
-  rejectUnknownKeys(landing, LANDING_KEYS);
-  const trunk = branch(landing, "trunk");
-  const release = branch(landing, "release");
-
-  if (trunk === release) {
-    throw new ConfigError(profile.file, landing.keyPath, "trunk and release name one branch");
-  }
-
-  return { trunk, release, by: oneOf<LandedBy>(landing, "by", ["agent", "action"]) ?? "agent" };
-}
-
-function readApprovals(profile: Reader): ApprovalsProfile | null {
-  if (profile.record["approvals"] === undefined) {
-    return null;
-  }
-
-  const approvals = child(profile, "approvals");
-  rejectUnknownKeys(approvals, APPROVALS_KEYS);
-  const workflows = readApprovalTable(child(approvals, "workflows"), "workflow");
-  const labels = readApprovalTable(child(approvals, "labels"), "label");
-
-  if (workflows.length === 0 && labels.length === 0) {
-    throw new ConfigError(profile.file, approvals.keyPath, "expected workflows or labels");
-  }
-
-  return { workflows, labels };
-}
-
-/** A table of names to phrases: a workflow is its file name, and only a label's phrases name the pull request. */
-function readApprovalTable(reader: Reader, kind: "workflow" | "label"): Approval[] {
-  return Object.keys(reader.record).map((name) => {
-    const keyPath = keyPathOf(reader, name);
-    const phrases = reader.record[name];
-
-    if (kind === "workflow" && !WORKFLOW_FILE.test(name)) {
-      throw new ConfigError(reader.file, keyPath, "expected a workflow file name, as release.yml");
-    }
-
-    if (name.trim() === "") {
-      throw new ConfigError(reader.file, keyPath, "expected a label name");
-    }
-
-    if (
-      !isStringArray(phrases) ||
-      phrases.length === 0 ||
-      phrases.some((phrase) => phrase.trim() === "")
-    ) {
-      throw new ConfigError(reader.file, keyPath, "expected a list of phrases");
-    }
-
-    for (const phrase of phrases) {
-      if (kind === "label" && !phrase.includes(PR_PLACEHOLDER)) {
-        throw new ConfigError(
-          reader.file,
-          keyPath,
-          `"${phrase}" names no pull request: write ${PR_PLACEHOLDER} where its number goes`,
-        );
-      }
-
-      if (kind === "workflow" && phrase.includes(PR_PLACEHOLDER)) {
-        throw new ConfigError(
-          reader.file,
-          keyPath,
-          `"${phrase}": ${PR_PLACEHOLDER} names a pull request, which a workflow has none of`,
-        );
-      }
-    }
-
-    return { name, phrases };
-  });
-}
-
-function readReview(profile: Reader): ReviewProfile | null {
-  if (profile.record["review"] === undefined) {
-    return null;
-  }
-
-  const review = child(profile, "review");
-  rejectUnknownKeys(review, REVIEW_KEYS);
-  const risky = stringArray(review, "risky");
-
-  const keyPath = keyPathOf(review, "risky");
-
-  if (risky === undefined || risky.length === 0) {
-    throw new ConfigError(review.file, keyPath, "expected a list of globs");
-  }
-
-  for (const glob of risky) {
-    const anchor = ["./", "/"].find((prefix) => glob.startsWith(prefix));
-
-    if (anchor !== undefined) {
-      throw new ConfigError(
-        review.file,
-        keyPath,
-        `"${glob}" starts with ${anchor}; a glob is relative to the repository root`,
-      );
-    }
-  }
-
-  return { risky };
-}
-
-function branch(reader: Reader, key: string): string {
-  const value = string(reader, key);
-
-  if (value === undefined || !/^[^\s:~^?*[\\]+$/u.test(value)) {
-    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected a branch name");
-  }
-
-  return value;
 }
 
 function readPreEdit(reader: Reader): RawDocument["preEdit"] {
@@ -877,85 +519,4 @@ function checkPlaceholders(
       throw new ConfigError(file, keyPath, `unknown placeholder ${match[0]}`);
     }
   }
-}
-
-/** Splits on whitespace outside single or double quotes; no shell runs, so no escapes or expansions. */
-export function splitCommand(command: string): string[] {
-  const words: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | null = null;
-  let inWord = false;
-
-  for (const char of command) {
-    if (quote === null && (char === "'" || char === '"')) {
-      quote = char;
-      inWord = true;
-    } else if (char === quote) {
-      quote = null;
-    } else if (quote === null && /\s/u.test(char)) {
-      if (inWord) {
-        words.push(current);
-        current = "";
-        inWord = false;
-      }
-    } else {
-      current += char;
-      inWord = true;
-    }
-  }
-
-  if (inWord) {
-    words.push(current);
-  }
-
-  return words;
-}
-
-/** The argv of a command with its placeholders filled; `{files}` yields one argument per file. */
-export function expandCommand(command: string, vars: Placeholders): Argv | null {
-  const words = splitCommand(command).flatMap((word): readonly string[] => {
-    if (word === "{files}") {
-      return vars.files ?? [];
-    }
-
-    return [
-      word
-        .replaceAll("{root}", vars.root)
-        .replaceAll("{pkg}", vars.pkg)
-        .replaceAll("{file}", vars.file ?? "")
-        .replaceAll("{path}", vars.path ?? ""),
-    ];
-  });
-
-  const [program, ...args] = words;
-
-  return program === undefined ? null : [program, ...args];
-}
-
-/** The nearest ancestor of `relativePath` under `root` that holds a package.json or a Cargo.toml, else the root. */
-export function pkgOf(root: string, relativePath: string): string {
-  let dir = path.dirname(path.resolve(root, relativePath));
-  const stop = path.resolve(root);
-
-  while (dir.startsWith(stop)) {
-    if (existsSync(path.join(dir, "package.json")) || existsSync(path.join(dir, "Cargo.toml"))) {
-      return dir;
-    }
-
-    if (dir === stop) {
-      break;
-    }
-
-    dir = path.dirname(dir);
-  }
-
-  return stop;
-}
-
-export function matchesFilter(filter: PathFilter, relativePath: string): boolean {
-  return new Bun.Glob(filter.on).match(relativePath) && !isExcluded(filter.exclude, relativePath);
-}
-
-export function isExcluded(exclude: readonly string[], relativePath: string): boolean {
-  return exclude.some((pattern) => new Bun.Glob(pattern).match(relativePath));
 }

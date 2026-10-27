@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import { existsSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { sha256 } from "./scope.ts";
+import { sha256 } from "./hash.ts";
 import type { SessionState } from "./state.ts";
 import {
   STATE_TTL_MS,

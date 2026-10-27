@@ -1,33 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { Config, Fixer, Lane } from "./config.ts";
-import {
-  ConfigError,
-  DEFAULT_CAP,
-  PRESETS_DIR,
-  configPath,
-  expandCommand,
-  isExcluded,
-  loadApprovals,
-  loadConfig,
-  loadLanding,
-  loadCommitMessages,
-  matchesFilter,
-  parseProfile,
-  pkgOf,
-  splitCommand,
-} from "./config.ts";
+import { DEFAULT_CAP, PRESETS_DIR, configPath, loadConfig } from "./config.ts";
 import { parseJsonc } from "./json.ts";
+import { ConfigError } from "./reader.ts";
 import type { TempRepo } from "./test-support.ts";
-import {
-  createTempRepo,
-  removeTempRepo,
-  scrubGitEnv,
-  writeConfig,
-  writeRepoFile,
-} from "./test-support.ts";
+import { createTempRepo, removeTempRepo, scrubGitEnv, writeConfig } from "./test-support.ts";
 
 let temp: TempRepo;
 
@@ -532,29 +512,6 @@ describe("loadConfig profile", () => {
   });
 });
 
-describe("loadCommitMessages", () => {
-  test("reads profile.commitMessages alone: the rest of the file may be invalid", () => {
-    writeConfig(
-      temp.repo,
-      `{ "presets": ["no-such-preset"], "profile": { "commitMessages": "judged", "worktree": "each" } }`,
-    );
-
-    expect(loadCommitMessages(temp.repo)).toBe("judged");
-  });
-
-  test("no commitMessages reads as null, an invalid one names its key", () => {
-    writeConfig(temp.repo, "{}");
-
-    expect(loadCommitMessages(temp.repo)).toBeNull();
-
-    writeConfig(temp.repo, `{ "profile": { "commitMessages": true } }`);
-
-    expect(() => loadCommitMessages(temp.repo)).toThrow(
-      `agent-hooks: ${configPath(temp.repo)}: profile.commitMessages: expected judged`,
-    );
-  });
-});
-
 describe("profile.landing.by and profile.approvals", () => {
   const APPROVALS = `"approvals": {
     "workflows": { "release.yml": ["on publie", "release"] },
@@ -635,207 +592,6 @@ describe("profile.landing.by and profile.approvals", () => {
       `{ "profile": { "approvals": { "workflows": { "release.yml": ["ok #{pr}"] } } } }`,
       "profile.approvals.workflows.release.yml",
     );
-  });
-
-  test("loadApprovals reads profile.approvals alone, null without it", () => {
-    writeConfig(
-      temp.repo,
-      `{ "presets": ["no-such-preset"], "profile": { "worktree": "each", ${APPROVALS} } }`,
-    );
-
-    expect(loadApprovals(temp.repo)?.labels.map((label) => label.name)).toEqual(["ok-humain"]);
-
-    writeConfig(temp.repo, `{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`);
-
-    expect(loadApprovals(temp.repo)).toBeNull();
-  });
-});
-
-describe("loadLanding", () => {
-  test("reads profile.landing alone: the rest of the file, the other profile keys included, may be invalid", () => {
-    writeConfig(
-      temp.repo,
-      `{ "presets": ["no-such-preset"], "profile": { "landing": { "trunk": "dev", "release": "main" }, "worktree": "each", "review": {}, "later": 1 } }`,
-    );
-
-    expect(loadLanding(temp.repo)).toEqual({ trunk: "dev", release: "main", by: "agent" });
-  });
-
-  test("no landing reads as null", () => {
-    writeConfig(temp.repo, `{ "profile": { "worktree": "per-task" } }`);
-
-    expect(loadLanding(temp.repo)).toBeNull();
-
-    writeConfig(temp.repo, "{}");
-
-    expect(loadLanding(temp.repo)).toBeNull();
-  });
-
-  test("reports an invalid landing, naming its key", () => {
-    writeConfig(temp.repo, `{ "profile": { "landing": { "trunk": "dev" } } }`);
-
-    expect(() => loadLanding(temp.repo)).toThrow(
-      `agent-hooks: ${configPath(temp.repo)}: profile.landing.release: expected a branch name`,
-    );
-
-    writeConfig(temp.repo, `{ "profile": 1 }`);
-
-    expect(() => loadLanding(temp.repo)).toThrow(
-      `agent-hooks: ${configPath(temp.repo)}: profile: expected an object`,
-    );
-  });
-});
-
-describe("parseProfile", () => {
-  test("reads the profile of a text as a commit holds the file, the rest of the file unread", () => {
-    expect(
-      parseProfile(
-        "dev:agent-hooks.jsonc",
-        `{ "stop": 1, "profile": { "review": { "risky": ["a"] }, "worktree": "per-task" } }`,
-      ),
-    ).toEqual({
-      landing: null,
-      approvals: null,
-      review: { risky: ["a"] },
-      worktree: "per-task",
-      commitMessages: null,
-    });
-  });
-
-  test("names the file and the key in an error, an unknown profile key included", () => {
-    expect(() => parseProfile("dev:agent-hooks.jsonc", "{")).toThrow(
-      "agent-hooks: dev:agent-hooks.jsonc: invalid JSONC: ",
-    );
-    expect(() => parseProfile("dev:agent-hooks.jsonc", `{ "profile": { "review": {} } }`)).toThrow(
-      "agent-hooks: dev:agent-hooks.jsonc: profile.review.risky: expected a list of globs",
-    );
-    expect(() =>
-      parseProfile("dev:agent-hooks.jsonc", `{ "profile": { "reveiw": { "risky": ["a"] } } }`),
-    ).toThrow("agent-hooks: dev:agent-hooks.jsonc: profile.reveiw: unknown key");
-    expect(() =>
-      parseProfile("dev:agent-hooks.jsonc", `{ "profile": { "worktree": "each" } }`),
-    ).toThrow("agent-hooks: dev:agent-hooks.jsonc: profile.worktree: expected per-task|shared");
-  });
-});
-
-describe("splitCommand", () => {
-  test("splits on spaces", () => {
-    expect(splitCommand("  a  b\tc ")).toEqual(["a", "b", "c"]);
-  });
-
-  test("keeps single and double quoted arguments with their spaces", () => {
-    expect(splitCommand(`tool 'a b' "c d" e`)).toEqual(["tool", "a b", "c d", "e"]);
-  });
-
-  test("joins a quoted part to its word", () => {
-    expect(splitCommand(`--name="a b" x`)).toEqual(["--name=a b", "x"]);
-  });
-
-  test("keeps an empty quoted argument", () => {
-    expect(splitCommand(`tool ""`)).toEqual(["tool", ""]);
-  });
-
-  test("an empty string has no words", () => {
-    expect(splitCommand("")).toEqual([]);
-  });
-});
-
-describe("expandCommand", () => {
-  const vars = { root: "/r", pkg: "/r/p", file: "/r/p/a.ts", path: "p/a.ts" };
-
-  test("fills {root}, {pkg}, {file} and {path}", () => {
-    expect(expandCommand("tool -c {root}/x.ts --pkg={pkg} {file} {path}", vars)).toEqual([
-      "tool",
-      "-c",
-      "/r/x.ts",
-      "--pkg=/r/p",
-      "/r/p/a.ts",
-      "p/a.ts",
-    ]);
-  });
-
-  test("{files} expands to one argument per file, a space in a name included", () => {
-    expect(
-      expandCommand("tool --x {files} --y", { root: "/r", pkg: "/r", files: ["a b.ts", "c.ts"] }),
-    ).toEqual(["tool", "--x", "a b.ts", "c.ts", "--y"]);
-  });
-
-  test("a command that is only {files} with no files is null", () => {
-    expect(expandCommand("{files}", { root: "/r", pkg: "/r", files: [] })).toBeNull();
-    expect(expandCommand("{files}", { root: "/r", pkg: "/r" })).toBeNull();
-  });
-
-  test("a command that is only {files} runs the first file as the program", () => {
-    expect(expandCommand("{files}", { root: "/r", pkg: "/r", files: ["a.sh", "b"] })).toEqual([
-      "a.sh",
-      "b",
-    ]);
-  });
-
-  test("an empty command is null", () => {
-    expect(expandCommand("", vars)).toBeNull();
-  });
-});
-
-describe("pkgOf", () => {
-  test("the nearest ancestor with a package.json", () => {
-    writeRepoFile(temp.repo, "apps/web/package.json", "{}");
-    writeRepoFile(temp.repo, "package.json", "{}");
-
-    expect(pkgOf(temp.repo, "apps/web/src/deep/a.ts")).toBe(path.join(temp.repo, "apps/web"));
-  });
-
-  test("the nearest ancestor with a Cargo.toml", () => {
-    writeRepoFile(temp.repo, "crates/tool/Cargo.toml", "");
-
-    expect(pkgOf(temp.repo, "crates/tool/src/main.rs")).toBe(path.join(temp.repo, "crates/tool"));
-  });
-
-  test("the root when no ancestor holds a manifest", () => {
-    mkdirSync(path.join(temp.repo, "src"));
-
-    expect(pkgOf(temp.repo, "src/a.ts")).toBe(temp.repo);
-  });
-
-  test("the root itself when it holds a manifest", () => {
-    writeRepoFile(temp.repo, "package.json", "{}");
-
-    expect(pkgOf(temp.repo, "src/a.ts")).toBe(temp.repo);
-    expect(pkgOf(temp.repo, "a.ts")).toBe(temp.repo);
-  });
-});
-
-describe("matchesFilter and isExcluded", () => {
-  test("brace globs", () => {
-    const filter = { on: "**/*.{ts,tsx}", exclude: [] };
-
-    expect(matchesFilter(filter, "src/a.ts")).toBe(true);
-    expect(matchesFilter(filter, "src/a.tsx")).toBe(true);
-    expect(matchesFilter(filter, "src/a.js")).toBe(false);
-  });
-
-  test("** matches the root and nested directories", () => {
-    const filter = { on: "**/*.ts", exclude: [] };
-
-    expect(matchesFilter(filter, "a.ts")).toBe(true);
-    expect(matchesFilter(filter, "a/b/c/d.ts")).toBe(true);
-    expect(matchesFilter({ on: "apps/site/**", exclude: [] }, "apps/site/src/x.svelte")).toBe(true);
-    expect(matchesFilter({ on: "apps/site/**", exclude: [] }, "apps/web/x.svelte")).toBe(false);
-  });
-
-  test("exclude wins over on", () => {
-    const filter = { on: "**/*.ts", exclude: ["**/node_modules/**", "dist/**"] };
-
-    expect(matchesFilter(filter, "node_modules/x/a.ts")).toBe(false);
-    expect(matchesFilter(filter, "pkg/node_modules/x/a.ts")).toBe(false);
-    expect(matchesFilter(filter, "dist/a.ts")).toBe(false);
-    expect(matchesFilter(filter, "src/a.ts")).toBe(true);
-  });
-
-  test("isExcluded", () => {
-    expect(isExcluded(["a/**", "b/*.{ts,js}"], "b/x.js")).toBe(true);
-    expect(isExcluded(["a/**"], "c/x.ts")).toBe(false);
-    expect(isExcluded([], "x")).toBe(false);
   });
 });
 

@@ -1,5 +1,5 @@
-import type { Verdict } from "./hook.ts";
 import type { SessionState } from "./state.ts";
+import type { Verdict } from "./verdict.ts";
 
 /** Lane name to the repo-relative files that failed in it. */
 export type Failing = Record<string, readonly string[]>;

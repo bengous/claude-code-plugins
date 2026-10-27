@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { Verdict } from "./hook.ts";
 import { clearFailures, diagnosticKey, failureKey, guard, resetTurn } from "./loop-guard.ts";
 import type { SessionState } from "./state.ts";
 import { freshState } from "./state.ts";
 import { scrubGitEnv } from "./test-support.ts";
+import type { Verdict } from "./verdict.ts";
 
 type PromptPayload = { readonly promptId?: string };
 

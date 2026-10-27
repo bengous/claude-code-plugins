@@ -1,9 +1,9 @@
 import path from "node:path";
 
+import { isExcluded } from "./command.ts";
 import type { Config, Fixer } from "./config.ts";
-import { ConfigError, DEFAULT_CAP, isExcluded, loadConfig } from "./config.ts";
-import type { StopContext, Verdict } from "./hook.ts";
-import { ALLOW } from "./hook.ts";
+import { DEFAULT_CAP, loadConfig } from "./config.ts";
+import type { StopContext } from "./hook.ts";
 import type { FixOptions, LaneResult } from "./lanes.ts";
 import {
   FIX_INSTRUCTION,
@@ -18,6 +18,7 @@ import {
 } from "./lanes.ts";
 import type { Diagnostics, Failing } from "./loop-guard.ts";
 import { CRASH_LANE, clearFailures, guard, renamedLanes, resetTurn } from "./loop-guard.ts";
+import { ConfigError } from "./reader.ts";
 import type { DirtyTree } from "./scope.ts";
 import {
   dirtyDigest,
@@ -33,6 +34,8 @@ import {
 } from "./scope.ts";
 import type { RootRecord, SessionState } from "./state.ts";
 import { rootName, rootRecord } from "./state.ts";
+import type { Verdict } from "./verdict.ts";
+import { ALLOW } from "./verdict.ts";
 
 const BUSY_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
 

@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { loadApprovals } from "../config.ts";
+import { configPath } from "../config.ts";
 import { isRecord, recordField, stringField } from "../json.ts";
+import { loadProfile } from "../profile.ts";
 import type { PackageScript } from "./argv.ts";
 import type { Vocabulary } from "./mentions.ts";
 import { findMentions, mentionsGh, mentionsGit, mentionsPackageManager } from "./mentions.ts";
-import { git, keyRead, profileOf, rootOf } from "./repo.ts";
+import { git, profileOf, rootOf } from "./repo.ts";
 
 type Manifest = { readonly dir: string; readonly scripts: ReadonlyMap<string, string> };
 
@@ -135,7 +136,7 @@ function reachableDirs(command: string, cwd: string): string[] {
 function approvalsAt(dir: string): boolean {
   const root = existsSync(dir) ? rootOf(dir, []) : null;
 
-  return root !== null && keyRead(root, loadApprovals).kind !== "absent";
+  return root !== null && loadProfile(configPath(root)).approvals.kind !== "absent";
 }
 
 function ancestorsOf(dir: string): string[] {

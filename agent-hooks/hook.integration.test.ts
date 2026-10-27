@@ -8,8 +8,8 @@ import path from "node:path";
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import type { Runner } from "./exec.ts";
 import { run } from "./exec.ts";
-import type { HookKind, Input, StopHandler, Verdict } from "./hook.ts";
-import { ALLOW, encode, heartbeat, parseInput, runHook, searchStarts } from "./hook.ts";
+import type { HookKind, Input, StopHandler } from "./hook.ts";
+import { encode, heartbeat, parseInput, runHook, searchStarts } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runSessionStart } from "./session-start.ts";
 import { beatPath, statePath } from "./state.ts";
@@ -24,6 +24,8 @@ import {
   scrubGitEnv,
   writeConfig,
 } from "./test-support.ts";
+import type { Verdict } from "./verdict.ts";
+import { ALLOW } from "./verdict.ts";
 
 const INVALID_CONFIG = '{ "stop": { "lanes": { "x": {} } } }';
 

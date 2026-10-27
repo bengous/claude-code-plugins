@@ -4,15 +4,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
+import { DELETED, sha256 } from "./hash.ts";
 import {
-  DELETED,
   dirtyDigest,
   dirtyTree,
   findRoot,
   parseGitStatus,
   rehashed,
   sessionFiles,
-  sha256,
   takePhoto,
   underRoot,
   wholeDirtyTree,

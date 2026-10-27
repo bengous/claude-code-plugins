@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { LandingProfile } from "../config.ts";
-import { ConfigError, configPath, loadLanding } from "../config.ts";
+import { configPath } from "../config.ts";
+import type { LandingProfile } from "../profile.ts";
+import { loadProfile } from "../profile.ts";
 import { git as runGit } from "../scope.ts";
 
 type ProfileRead =
@@ -39,32 +40,8 @@ export function rootOf(cwd: string, location: readonly string[]): string | null 
   return git(cwd, location, ["rev-parse", "--show-toplevel"]);
 }
 
-/** A profile key of the repo file at `root`: absent with the file or the key, or unreadable, its error named. */
-export type KeyRead<T> =
-  | { readonly kind: "read"; readonly value: T }
-  | { readonly kind: "absent" }
-  | { readonly kind: "unreadable"; readonly error: string };
-
-export function keyRead<T>(root: string, load: (root: string) => T | null): KeyRead<T> {
-  if (!existsSync(configPath(root))) {
-    return { kind: "absent" };
-  }
-
-  try {
-    const value = load(root);
-
-    return value === null ? { kind: "absent" } : { kind: "read", value };
-  } catch (error) {
-    if (error instanceof ConfigError) {
-      return { kind: "unreadable", error: error.message };
-    }
-
-    throw error;
-  }
-}
-
 export function profileOf(root: string): ProfileRead {
-  const read = keyRead(root, loadLanding);
+  const read = loadProfile(configPath(root)).landing;
 
   switch (read.kind) {
     case "read": {

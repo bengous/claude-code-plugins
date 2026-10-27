@@ -1,10 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { Approval } from "../config.ts";
-import { loadApprovals } from "../config.ts";
+import { configPath } from "../config.ts";
+import { messageOf } from "../errors.ts";
 import type { Deadline } from "../exec.ts";
 import type { Input } from "../hook.ts";
+import type { Approval } from "../profile.ts";
+import { loadProfile } from "../profile.ts";
 import type { GhCommand, GitCommand, PushTarget, ReleaseScript } from "./argv.ts";
 import { isReleaseCreate, pushOf, resolveTargets } from "./argv.ts";
 import { assess } from "./doors.ts";
@@ -28,16 +30,7 @@ import {
   unreadableProfileRefusal,
   unresolvedRefusal,
 } from "./refusals.ts";
-import {
-  DEFAULT,
-  defaultRemote,
-  git,
-  keyRead,
-  profileOf,
-  pushBranch,
-  remoteUrl,
-  rootOf,
-} from "./repo.ts";
+import { DEFAULT, defaultRemote, git, profileOf, pushBranch, remoteUrl, rootOf } from "./repo.ts";
 import { readHuman } from "./transcript.ts";
 import { manifestOf, scriptCommands, vocabularyOf } from "./vocabulary.ts";
 
@@ -252,7 +245,7 @@ function judgeGated(
   );
 
   const root = dir === undefined ? null : rootOf(dir, []);
-  const read = root === null ? null : keyRead(root, loadApprovals);
+  const read = root === null ? null : loadProfile(configPath(root)).approvals;
   const name = door.kind === "dispatch" ? "a workflow dispatch" : "a label";
 
   if (read?.kind === "unreadable") {
@@ -298,7 +291,7 @@ export function humanOf(input: Input | null): HumanMessage {
       ? { kind: "unreadable", why: "the transcript does not hold this turn's prompt yet: retry" }
       : { kind: "read", text: human.latestTyped };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
 
     return {
       kind: "unreadable",

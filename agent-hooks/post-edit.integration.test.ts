@@ -6,7 +6,7 @@ import path from "node:path";
 import { loadConfig } from "./config.ts";
 import { deadlineIn, run } from "./exec.ts";
 import type { HookContext } from "./hook.ts";
-import { ALLOW, parseInput } from "./hook.ts";
+import { parseInput } from "./hook.ts";
 import { recordField, stringField } from "./json.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
 import { runPostEdit } from "./pre-edit.ts";
@@ -23,6 +23,7 @@ import {
   writeConfig,
   writeRepoFile,
 } from "./test-support.ts";
+import { ALLOW } from "./verdict.ts";
 
 const temps: TempRepo[] = [];
 

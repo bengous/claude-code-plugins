@@ -1,18 +1,20 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
-import type { CommitMessagesMode } from "../config.ts";
-import { loadCommitMessages } from "../config.ts";
+import { configPath } from "../config.ts";
+import { messageOf } from "../errors.ts";
 import type { Deadline, Runner } from "../exec.ts";
 import { isAbsoluteLocation } from "../guard/doors.ts";
 import type { GuardVerdict } from "../guard/judge-doors.ts";
 import { ALLOW, note, refusal } from "../guard/judge-doors.ts";
-import type { KeyRead } from "../guard/repo.ts";
-import { git, keyRead, rootOf } from "../guard/repo.ts";
+import { git, rootOf } from "../guard/repo.ts";
+import { sha256 } from "../hash.ts";
 import type { Input } from "../hook.ts";
 import { stateKey } from "../hook.ts";
-import { sha256 } from "../scope.ts";
+import type { CommitMessagesMode, KeyRead } from "../profile.ts";
+import { loadProfile } from "../profile.ts";
 import { loadRefused, saveRefused } from "../state.ts";
+import { escapeRegExp } from "../text.ts";
 import type { Fault, Judgment } from "./commit-judge.ts";
 import { commitMessageOf, judge, judgeRefusal, withTrailers } from "./commit-judge.ts";
 import type { CommitInvocation } from "./commits.ts";
@@ -71,7 +73,7 @@ export async function judgeCommits(
     if (dir === null) {
       const here = rootOf(cwd, []);
 
-      if (here !== null && keyRead(here, loadCommitMessages).kind === "read") {
+      if (here !== null && loadProfile(configPath(here)).commitMessages.kind === "read") {
         notes.add(
           `agent-hooks: a commit went unjudged: an earlier ${commit.lost ?? "cd"} leaves its directory unknown`,
         );
@@ -84,7 +86,7 @@ export async function judgeCommits(
 
     if (!profiles.has(checkout)) {
       const root = rootOf(dir, commit.git.location);
-      profiles.set(checkout, root === null ? null : keyRead(root, loadCommitMessages));
+      profiles.set(checkout, root === null ? null : loadProfile(configPath(root)).commitMessages);
     }
 
     const read = profiles.get(checkout) ?? null;
@@ -156,7 +158,7 @@ function settled(
   try {
     saveRefused(key, [...new Set([...refusedBefore, ...refused.map(({ hash }) => hash)])]);
   } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
+    const why = messageOf(error);
 
     // A refusal its rerun cannot get past would refuse a legitimate message forever.
     return note(
@@ -194,7 +196,7 @@ function messageFileOf(
     return null;
   }
 
-  const name = path.basename(file).replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const name = escapeRegExp(path.basename(file));
 
   if (new RegExp(`(?<![\\w.-])${name}(?![\\w.-])`, "u").test(line.slice(0, commit.start))) {
     notes.add(UNSEEN_MESSAGE);
@@ -225,7 +227,7 @@ function messageFileOf(
 
     return readFileSync(resolved, "utf8").trim();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
     notes.add(`agent-hooks: a commit went unjudged: ${resolved} cannot be read (${message})`);
 
     return null;

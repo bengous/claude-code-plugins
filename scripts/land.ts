@@ -45,7 +45,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { CONFIG_GIT_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
+import { CONFIG_GIT_PATH } from "../agent-hooks/config.ts";
+import { parseProfile } from "../agent-hooks/profile.ts";
+import { ConfigError } from "../agent-hooks/reader.ts";
 import {
   type CheckRun,
   checkRunsOf,

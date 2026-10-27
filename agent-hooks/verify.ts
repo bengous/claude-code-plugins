@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import { isExcluded } from "./command.ts";
 import type { Config } from "./config.ts";
-import { isExcluded } from "./config.ts";
 import type { Runner } from "./exec.ts";
 import { deadlineIn, run } from "./exec.ts";
+import { DELETED } from "./hash.ts";
 import type { LaneResult } from "./lanes.ts";
 import { isFailure, runFixers, runLanes, sequential } from "./lanes.ts";
 import type { DirtyTree } from "./scope.ts";
 import {
-  DELETED,
   checkoutOf,
   dirtyDigest,
   dirtyTree,

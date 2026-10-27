@@ -1,11 +1,13 @@
 import { rmSync } from "node:fs";
 import path from "node:path";
 
-import type { HookContext, Verdict } from "./hook.ts";
-import { ALLOW, DEADLINES_MS, parseInput } from "./hook.ts";
+import type { HookContext } from "./hook.ts";
+import { DEADLINES_MS, parseInput } from "./hook.ts";
 import { isRecord } from "./json.ts";
 import { staleScratchDirs, takePhoto } from "./scope.ts";
 import { endBeats, liveOthers, pruneStates } from "./state.ts";
+import type { Verdict } from "./verdict.ts";
+import { ALLOW } from "./verdict.ts";
 
 /**
  * How recently another session must have run a kit hook in the checkout to count as working there. Every kit hook
