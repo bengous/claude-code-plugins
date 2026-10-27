@@ -25,7 +25,7 @@
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 
-import { TOOLS_TYPES_PATH, TYPES_PATH } from "./claude-code-types.ts";
+import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 
 const DEFAULT_COUNT = 3;
 

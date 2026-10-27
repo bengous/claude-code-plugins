@@ -43,6 +43,7 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 
 import { isE2ePath } from "./check-e2e-green.ts";
+import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 import {
   command,
   commonDirOf,
@@ -61,10 +62,6 @@ import {
   writeWhole,
 } from "./lib/headless-run.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
-
-export const TYPES_PATH = "vellum/types/claude-code.d.ts";
-
-export const TOOLS_TYPES_PATH = "vellum/types/claude-code-tools.d.ts";
 
 export const ROLLING_BRANCH = "chore/claude-code-types";
 

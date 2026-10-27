@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { TOOLS_TYPES_PATH, TYPES_PATH } from "./claude-code-types.ts";
+import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 import {
   type Commit,
   isEligible,

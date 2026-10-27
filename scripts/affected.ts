@@ -28,6 +28,7 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 
 import { retryReported } from "./flaky-report.ts";
+import { TYPES_DIR } from "./lib/claude-code-types-paths.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 /** A top-level directory, or `.claude/hooks`. */
@@ -66,9 +67,9 @@ const PULL_REQUEST_BASE = "HEAD^1";
 
 const GATES_ONLY = ["docs/", ".claude-plugin/", ".claude/rules/"];
 
-// `vellum/types/` is the engine contract every hooks module compiles against, and its first line
-// pins the Claude Code build every module's kit runs on in CI.
-const EVERYTHING = ["scripts/", "tools/", ".github/", ".lefthook/", ".claude/", "vellum/types/"];
+// The Claude Code types are the engine contract every hooks module compiles against, and the first
+// line of `TYPES_PATH` pins the Claude Code build every module's kit runs on in CI.
+const EVERYTHING = ["scripts/", "tools/", ".github/", ".lefthook/", ".claude/", TYPES_DIR];
 
 const COMMANDS = ["test", "github-output", "print"] as const;
 

@@ -12,12 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { stubbedEnv, write } from "../../scripts/claude-code-types.fixture.ts";
-import {
-  type Outcome,
-  RUN_GUARD,
-  statePaths,
-  TYPES_PATH,
-} from "../../scripts/claude-code-types.ts";
+import { type Outcome, RUN_GUARD, statePaths } from "../../scripts/claude-code-types.ts";
+import { TYPES_PATH } from "../../scripts/lib/claude-code-types-paths.ts";
 import { holdLock } from "../../scripts/lib/flock.fixture.ts";
 import { runState } from "../../scripts/lib/headless-run.ts";
 

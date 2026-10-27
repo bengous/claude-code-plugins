@@ -12,9 +12,8 @@ import {
   type Outcome,
   ROLLING_BRANCH,
   statePaths,
-  TOOLS_TYPES_PATH,
-  TYPES_PATH,
 } from "./claude-code-types.ts";
+import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 import { holdLock } from "./lib/flock.fixture.ts";
 import { runState as runStateOf } from "./lib/headless-run.ts";
 
