@@ -402,7 +402,7 @@ test("Send returns the final answers alone, and the journal keeps every gesture"
   await after.unmount();
 });
 
-test("the transcript holds each question, Claude's answer and the final one, and nothing else", async ($, on) => {
+test("the transcript holds each question, Claude's answer and the final one, and nothing else twice", async ($, on) => {
   const world = await started($, on);
 
   await ended($, ROUND);
@@ -419,7 +419,8 @@ test("the transcript holds each question, Claude's answer and the final one, and
   expect(pending).not.toMatch(RECOMMENDATIONS);
 
   await ui.press({ key: "choice-3-b" });
-  await ui.input({ key: "answer-2", text: "Ops", kind: "submit" });
+  await ui.press({ key: "toggle-2" });
+  await ui.press({ key: "take-2" });
   await ui.press({ key: "send" });
   await ui.unmount();
 
@@ -439,7 +440,7 @@ test("the transcript holds each question, Claude's answer and the final one, and
       "",
       "**Claude:** The platform team,\nwith the DBA on call.",
       "",
-      "**Answer:** Ops",
+      "**Answer:** Claude's",
       "",
       "**Q3** - **Date**: When does it ship: **(a)** this sprint, or **(b)** the one after?",
       "",
