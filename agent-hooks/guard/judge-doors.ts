@@ -7,7 +7,7 @@ import type { Deadline } from "../exec.ts";
 import type { Input } from "../payload.ts";
 import type { Approval } from "../profile.ts";
 import { loadProfile } from "../profile.ts";
-import type { Verdict } from "../verdict.ts";
+import type { PreBashVerdict } from "../verdict.ts";
 import { ALLOW } from "../verdict.ts";
 import type { GhCommand, GitCommand, PushTarget, ReleaseScript } from "./argv.ts";
 import { isReleaseCreate, pushOf, resolveTargets } from "./argv.ts";
@@ -35,9 +35,6 @@ import {
 import { DEFAULT, defaultRemote, git, profileOf, pushBranch, remoteUrl, rootOf } from "./repo.ts";
 import { readHuman } from "./transcript.ts";
 import { manifestOf, scriptCommands, vocabularyOf } from "./vocabulary.ts";
-
-/** The verdicts the landing guard and the commit judge give. */
-export type PreBashVerdict = Extract<Verdict, { kind: "allow" | "note" | "deny" }>;
 
 /** How deep a package script that runs another one is read: past it, a loop of scripts stops being followed. */
 const MAX_SCRIPT_DEPTH = 4;

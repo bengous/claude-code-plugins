@@ -16,3 +16,6 @@ export type Verdict =
     };
 
 export const ALLOW: Extract<Verdict, { kind: "allow" }> = { kind: "allow" };
+
+/** The verdicts the landing guard and the commit judge give. */
+export type PreBashVerdict = Extract<Verdict, { kind: "allow" | "note" | "deny" }>;

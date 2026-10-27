@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- this module reads Claude Code's transcript, JSON lines whose shape the harness does not publish: each record is narrowed here by hand, and a record of another shape is skipped. */
 import { readFileSync } from "node:fs";
 
-import { isRecord, recordField, stringField } from "../json.ts";
+import { isRecord, parseRecordLine, recordField, stringField } from "../json.ts";
 
 export type HumanRead = {
   /** The latest message the human typed, one sent while the agent worked included; null when there is none. */
@@ -22,7 +22,7 @@ export function readHuman(file: string, promptId: string | undefined): HumanRead
   let holdsPrompt = false;
 
   for (const line of readFileSync(file, "utf8").split("\n")) {
-    const record = parsed(line);
+    const record = parseRecordLine(line);
 
     if (record === null) {
       continue;
@@ -33,16 +33,6 @@ export function readHuman(file: string, promptId: string | undefined): HumanRead
   }
 
   return { latestTyped, holdsPrompt };
-}
-
-function parsed(line: string): Record<string, unknown> | null {
-  try {
-    const record: unknown = JSON.parse(line);
-
-    return isRecord(record) ? record : null;
-  } catch {
-    return null;
-  }
 }
 
 function typedText(record: Record<string, unknown>): string | null {

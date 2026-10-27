@@ -15,7 +15,7 @@ import { ConfigError } from "./reader.ts";
 import { checkoutOf, findRoot, realPathOf } from "./scope.ts";
 import type { SessionState } from "./state.ts";
 import { AGENT_SEPARATOR, beat, freshState, loadState, saveState, statesOf } from "./state.ts";
-import type { Verdict } from "./verdict.ts";
+import type { PreBashVerdict, Verdict } from "./verdict.ts";
 import { ALLOW } from "./verdict.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
@@ -95,7 +95,7 @@ export type Handler = (context: HookContext) => Promise<Verdict>;
 
 export type StopHandler = (context: StopContext) => Promise<Verdict>;
 
-export type PreBashHandler = (context: PreBashContext) => Promise<Verdict>;
+export type PreBashHandler = (context: PreBashContext) => Promise<PreBashVerdict>;
 
 /** A hook with its handler: the Stop's reads every checkout, pre-bash's one command, a root hook's one root. */
 export type HookRun =
@@ -225,7 +225,7 @@ type PreBashRun = RunHookOptions & { readonly hook: "pre-bash" };
  * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat and no
  * commit judge. A crash lets the command through with a note.
  */
-async function runPreBashHook(options: PreBashRun, now: number): Promise<Verdict | null> {
+async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBashVerdict | null> {
   const { payload } = options;
   const deadlineMs = options.deadlineMs ?? DEADLINES_MS["pre-bash"];
 

@@ -1,6 +1,8 @@
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { lineEnd } from "../text.ts";
+
 /** A stretch of the line, from `start` included to `end` excluded. */
 export type Span = { readonly start: number; readonly end: number };
 
@@ -472,12 +474,6 @@ function ansiQuoted(script: string, start: number): [string, number] {
   }
 
   return [text, index];
-}
-
-function lineEnd(script: string, start: number): number {
-  const end = script.indexOf("\n", start);
-
-  return end === -1 ? script.length : end;
 }
 
 /**

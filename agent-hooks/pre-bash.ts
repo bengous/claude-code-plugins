@@ -1,20 +1,20 @@
 import { messageOf } from "./errors.ts";
 import type { Deadline, Runner } from "./exec.ts";
-import type { GuardContext, PreBashVerdict } from "./guard/judge-doors.ts";
+import type { GuardContext } from "./guard/judge-doors.ts";
 import { combine, humanOf, judgeLine, note } from "./guard/judge-doors.ts";
 import type { HumanMessage } from "./guard/refusals.ts";
 import type { PreBashContext } from "./hook.ts";
 import type { Settle } from "./judge/judge-commits.ts";
 import { judgeCommits } from "./judge/judge-commits.ts";
 import type { Input } from "./payload.ts";
-import type { Verdict } from "./verdict.ts";
+import type { PreBashVerdict } from "./verdict.ts";
 
 /**
  * The landing guard on a Bash tool call, in any repository: refuses the one-way doors the repository's
  * `profile.landing` derives, or, without one, a push or a merge to the default branch of a public repository. The
  * guard alone races the deadline, so a guard past it still joins the commit judge's answer.
  */
-export async function runPreBash(context: PreBashContext): Promise<Verdict> {
+export async function runPreBash(context: PreBashContext): Promise<PreBashVerdict> {
   const { input, command, cwd, deadline } = context;
   let human: HumanMessage | null = null;
 

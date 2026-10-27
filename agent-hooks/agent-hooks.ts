@@ -19,8 +19,7 @@ import { runVerify } from "./verify.ts";
 
 const USAGE = [
   "usage:",
-  "  agent-hooks <session-start|pre-edit|post-edit|stop> [--harness claude|codex]   (payload on stdin)",
-  "  agent-hooks pre-bash   (Claude Code PreToolUse Bash payload on stdin)",
+  "  agent-hooks <session-start|pre-edit|post-edit|stop|pre-bash> [--harness claude|codex]   (payload on stdin)",
   "  agent-hooks session-end   (Claude Code SessionEnd payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",

@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { HOOK_KINDS } from "./hook.ts";
-import { isRecord, recordField, stringField } from "./json.ts";
+import { isRecord, parseRecordLine, recordField, stringField } from "./json.ts";
 import { FIX_INSTRUCTION, REPORT_HEADERS } from "./lanes.ts";
 import { findRoot } from "./scope.ts";
 
@@ -150,7 +150,7 @@ export async function readTranscript(
       continue;
     }
 
-    const value = parseLine(line);
+    const value = parseRecordLine(line);
 
     if (value === null) {
       continue;
@@ -177,16 +177,6 @@ export async function readTranscript(
   }
 
   return { cwds: [...cwds], injections, stops };
-}
-
-function parseLine(line: string): Record<string, unknown> | null {
-  try {
-    const value: unknown = JSON.parse(line);
-
-    return isRecord(value) ? value : null;
-  } catch {
-    return null;
-  }
 }
 
 function readHookRecord(
@@ -226,7 +216,7 @@ function readHookRecord(
 
 /** The outputs of one JSON line a kit hook printed. */
 function outputsOf(event: string, stdout: string): Injection[] {
-  const output = parseLine(stdout.trim());
+  const output = parseRecordLine(stdout.trim());
 
   if (output === null) {
     return [];

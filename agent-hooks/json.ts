@@ -1,4 +1,6 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns -- this module IS the boundary parser those rules ask for: JSONC and JSON text arrive here, and the rest of the kit reads them only through these narrowing readers. */
+import { lineEnd } from "./text.ts";
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -20,6 +22,16 @@ export function recordField(
 
 export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+export function parseRecordLine(line: string): Record<string, unknown> | null {
+  try {
+    const record: unknown = JSON.parse(line);
+
+    return isRecord(record) ? record : null;
+  } catch {
+    return null;
+  }
 }
 
 /** JSON with `//` and `/* *\/` comments outside strings and trailing commas before `}` or `]`. */
@@ -76,12 +88,6 @@ function stringEnd(text: string, start: number): number {
   }
 
   return text.length;
-}
-
-function lineEnd(text: string, start: number): number {
-  const end = text.indexOf("\n", start);
-
-  return end === -1 ? text.length : end;
 }
 
 /** The next character that is neither whitespace nor inside a comment, or "" at the end of the text. */
