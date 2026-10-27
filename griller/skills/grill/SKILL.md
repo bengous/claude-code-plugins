@@ -16,13 +16,13 @@ Find facts yourself (files, tools, a subagent): only decisions come to me.
 Write each round in this format, and end it with the `---` line. Number the questions across the whole grill: a round starts after the last number of the one before.
 
 ```
-❓ **Q<n>** - **<title>**: <the question, standing alone, with its choices when there are some>
+❓ **Q<n>** - **<title>**: <the question, standing alone, with its choices when there are some, each written **(a)** …, **(b)** …>
 
 ➡️ <your recommended answer>
 
 ---
 ```
 
-The griller mod shows me the questions in a pane and hides each ➡️ part unless I ask to see it, so I decide before seeing your recommendation. Never state a recommendation, or which way you lean, anywhere else.
+The griller mod shows me the questions in a pane, a button for each choice written **(a)**, and hides each ➡️ part unless I ask to see it, so I decide before seeing your recommendation. Never state a recommendation, or which way you lean, anywhere else.
 
 My answers come back as my next message, one line per question. When the frontier is empty, ask me to confirm we have reached a shared understanding, and act on nothing before I do.
