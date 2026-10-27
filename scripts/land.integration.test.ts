@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, win32 } from "node:path";
 
 import type { Clock } from "./ci-wait.ts";
 import { type GitHubOverrides, readGitHub, type RunSpec, serveGitHub } from "./land.fixture.ts";
@@ -24,6 +24,7 @@ import {
   type PullRequest,
   refusalOf,
   riskyOf,
+  samePath,
   WAITING,
   type Waiting,
 } from "./land.ts";
@@ -1041,6 +1042,18 @@ describe("checkoutOf", () => {
 
     expect(checkoutOf(porcelain, "feature/x")).toBe("/repo/.claude/worktrees/a");
     expect(checkoutOf(porcelain, "feature")).toBeNull();
+  });
+});
+
+describe("samePath", () => {
+  test("holds a path git spells with other separators or a redundant segment as the same", () => {
+    const types = "C:/Users/me/repo.wt/claude-code-types";
+
+    expect(samePath(types, "C:\\Users\\me\\repo.wt/claude-code-types", win32.resolve)).toBe(true);
+    expect(samePath(types, "C:\\Users\\me\\repo.wt\\other", win32.resolve)).toBe(false);
+    expect(
+      samePath("/repo.wt/claude-code-types", "/repo.wt/./claude-code-types", posix.resolve),
+    ).toBe(true);
   });
 });
 

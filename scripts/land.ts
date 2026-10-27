@@ -43,7 +43,7 @@
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { CONFIG_GIT_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
 import {
@@ -200,6 +200,11 @@ export function checkoutOf(porcelain: string, branch: string): string | null {
   }
 
   return null;
+}
+
+/** Whether `a` and `b` spell one path: on Windows git prints `C:/x` where `resolve` gives `C:\x`. */
+export function samePath(a: string, b: string, resolvePath = resolve): boolean {
+  return resolvePath(a) === resolvePath(b);
 }
 
 /** Why a branch may not land through `pr`, whatever its head and its runs; null when it may. */
@@ -609,7 +614,7 @@ export async function land(
 
   if (checkout === null) return refused(`no checkout holds ${branch}: check it out, then land`);
 
-  if (branch === ROLLING_BRANCH && checkout === (await worktreePath(cwd))) {
+  if (branch === ROLLING_BRANCH && samePath(checkout, await worktreePath(cwd))) {
     return refused(
       `${checkout} is where the types run recreates its worktree, under a landing: move that checkout elsewhere (git worktree move ${checkout} <path>), then land`,
     );
