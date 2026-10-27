@@ -33,11 +33,33 @@ The chat shows the questions and hides every ➡️ part, while the reply stream
 
 Claude reads each answer, and when you saw its recommendation: seen before answering, or seen after answering, with your first answer when you changed it. Then it asks the next round.
 
-## How it stays light
+## Why it is built this way
 
-There is no tool. The `/griller:grill` skill sets `disable-model-invocation`, so nothing of griller sits in Claude's context until you run it; the skill's text then enters the conversation once. Claude writes each round as plain text, and your answers come back as one short message that repeats none of the questions.
+griller has three requirements. Claude fixes its recommendation before your answer exists. You see the recommendation only once you have answered. And a grill takes as little of Claude's context as it can, since that context is what Claude works with.
 
-The round is read from the transcript: a mod reload or a restarted session opens again the round nobody has answered, without what you had typed and not recorded.
+Four ways can carry a round from Claude to a pane and the answers back:
+
+| Way | What it is | Fit for griller |
+|---|---|---|
+| An MCP server | An external process that gives Claude tools | Made to reach an external system. It cannot draw a pane, and its tool definitions sit in Claude's context on every request. |
+| A channel | An MCP server that pushes events into a running session, opted in with `--channels` | Made for events from outside while nobody is at the screen. Here you are at the screen, and the answers come from inside Claude Code. |
+| A mod tool | A tool the mod registers with `$.tool.register`, listed to Claude as `mcp__griller__ask`, that waits on the pane and returns the answers as its result | Meets the first two requirements: the recommendation is fixed in the call's input. But its definition rides in every request, grill or not, and the call waits by polling, since a hook's own time is capped. |
+| Text and a skill | Claude writes the round in its reply; the mod hides the recommendations from the chat, reads the round when the turn ends, and sends your answers back as your next message | Meets all three: the recommendation is written before your answer exists, nothing of griller is in Claude's context until you run `/griller:grill`, and nothing waits. |
+
+griller takes the last one. The `/griller:grill` skill sets `disable-model-invocation`, so its description stays out of Claude's context; its text enters the conversation once, when you run it. Claude writes each round as plain text, and your answers come back as one short message that repeats none of the questions.
+
+Measured with `claude -p`, as the difference in input tokens with and without each text, on one 3-question round:
+
+| | Mod tool | Text and skill |
+|---|---|---|
+| On every request, grill or not | 591 | 0 |
+| Once, when a grill starts | 0 | 396 |
+| A round: what Claude writes | 724 | 730 |
+| A round: what Claude reads back | 621 | 73 |
+
+What the text way costs in return is in Limits: it depends on Claude keeping the round format, and it hides recommendations by redrawing the chat, not by keeping them out of the stored reply.
+
+The round is read from the transcript, so a mod reload or a restarted session opens again the round nobody has answered, without what you had typed and not recorded.
 
 ## Limits
 
