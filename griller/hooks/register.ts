@@ -150,12 +150,20 @@ function transcriptOf(
   rounds: readonly (readonly Question[])[],
   open: readonly Question[] | null,
 ): string {
+  const answerOf = (q: Question) => {
+    const final = q.answer.trim();
+
+    if (final === "") return "_not answered yet_";
+
+    return final === q.recommendation ? "Claude's" : final;
+  };
+
   const block = (q: Question, isSent: boolean) =>
     [
       q.question,
       "",
       ...(isSent ? [`**Claude:** ${q.recommendation}`, ""] : []),
-      `**Answer:** ${q.answer.trim() === "" ? "_not answered yet_" : q.answer.trim()}`,
+      `**Answer:** ${answerOf(q)}`,
     ].join("\n");
 
   const sections = [
