@@ -233,6 +233,7 @@ describe("hooksModulePlugins", () => {
       "secret-pane",
       "pinpoint",
       "atlas",
+      "griller",
     ]);
   });
 

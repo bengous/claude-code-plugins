@@ -1,0 +1,13 @@
+{
+  "name": "griller",
+  "version": "0.1.0",
+  "description": "A grill where you answer before you see Claude's recommendation: Claude writes each round of questions in its reply, the chat hides every recommendation, and a pane beside it collects your answers and shows each recommendation once you have recorded yours",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/griller",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": ["grill", "interview", "decision", "anchoring", "mod", "function-hooks", "pane"]
+}

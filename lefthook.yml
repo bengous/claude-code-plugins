@@ -152,6 +152,15 @@ pre-commit:
         - "atlas/hooks/*"
         - "atlas/src/server/wire.ts"
       run: claude plugin test atlas
+    - name: validate-griller
+      glob:
+        - "griller/hooks/*"
+        - "griller/.claude-plugin/*"
+      run: claude plugin validate griller
+    - name: test-griller
+      glob:
+        - "griller/hooks/*"
+      run: claude plugin test griller
 
 commit-msg:
   jobs:
