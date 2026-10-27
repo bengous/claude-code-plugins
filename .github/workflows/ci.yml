@@ -35,7 +35,9 @@ jobs:
       # The hooks module's kit needs the engine its types were written by. An exact version,
       # unlike `latest`, is neither left where the action's cache first resolved it nor held
       # back by mise's minimum release age, so a types update is tested on its own engine.
-      - name: Pin Claude Code to the version the types were written by
+      - &pin-claude-code
+        name: Pin Claude Code to the version the types were written by
+        shell: bash
         run: |
           version=$(sed -n '1s|^// Written by Claude Code \([^ ]*\)\.$|\1|p' vellum/types/claude-code.d.ts)
           if [ -z "$version" ]; then
@@ -50,7 +52,7 @@ jobs:
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
         uses: jdx/mise-action@v5.2.2
         with:
-          cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
+          cache_key: &claude-cache-key "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -222,22 +224,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
-      - name: Pin Claude Code to the version the types were written by
-        shell: bash
-        run: |
-          version=$(sed -n '1s|^// Written by Claude Code \([^ ]*\)\.$|\1|p' vellum/types/claude-code.d.ts)
-          if [ -z "$version" ]; then
-            echo '::error::vellum/types/claude-code.d.ts: expected "// Written by Claude Code <version>." on line 1.'
-            exit 1
-          fi
-          echo "MISE_CLAUDE_VERSION=$version" >> "$GITHUB_ENV"
-          echo "Claude Code $version"
+      - *pin-claude-code
 
       - name: Set up tools (bun, claude via mise)
         uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun claude
-          cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
+          cache_key: *claude-cache-key
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
