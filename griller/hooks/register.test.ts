@@ -227,6 +227,7 @@ function waiting(): Map<string, string> {
     answer,
     draft: "",
     isShown: false,
+    isTaken: false,
   }));
 
   return new Map([[STATE, JSON.stringify({ last: 3, sent: [], open: questions })]]);
@@ -330,6 +331,35 @@ test("a picked choice records the answer and keeps the recommendation hidden", a
   );
   expect((await ui.find({ key: "answer-3" }))?.props.value).toBe("");
   await ui.unmount();
+});
+
+test("an answer that matches the recommendation by chance stays the person's own", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.input({ key: "answer-1", text: "Postgres", kind: "submit" });
+  expect((await ui.find({ key: "toggle-1" }))?.text).toBe("Peek at Claude's");
+  expect(await ui.find({ text: /Using Claude's answer/u })).toBeUndefined();
+
+  // Taken, then recorded again unchanged: still Claude's.
+  await ui.press({ key: "toggle-2" });
+  await ui.press({ key: "take-2" });
+  await ui.input({
+    key: "answer-2",
+    text: "The platform team,\nwith the DBA on call.",
+    kind: "submit",
+  });
+  await ui.press({ key: "choice-3-a" });
+  expect((await ui.find({ type: "Text", text: /answered/u }))?.text).toBe(
+    "3 of 3 answered · 1 used Claude's",
+  );
+  await ui.press({ key: "send" });
+  await ui.unmount();
+
+  expect(world.prompts).toEqual(["Grill answers:\nQ1: Postgres\nQ2: your recommendation\nQ3: (a)"]);
+  expect(world.files.get(TRANSCRIPT)).toContain("**Answer:** Postgres");
 });
 
 /** A line of the journal, as the mod writes it. */
