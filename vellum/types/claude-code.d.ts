@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.311.
+// Written by Claude Code 2.1.312.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -14469,7 +14469,11 @@ declare module 'claude-code' {
       model: string;
       /**
        * How hard the request asks the model to think: the session's setting or
-       * the model's default, absent for a model without effort; rewritable.
+       * the model's default, absent for a model without effort; rewritable. On a
+       * model that takes effort per message a level stands from one message with
+       * input to the next: a change waits through steps whose new input is tool
+       * results, and one made on a step with input stays for the tool steps after
+       * it. A number goes out at once.
        */
       effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
       /**
