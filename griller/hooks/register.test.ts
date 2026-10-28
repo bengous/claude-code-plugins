@@ -96,6 +96,7 @@ async function started(
   on("ui.toast", () => ({ value: undefined }));
   on("clock.now", () => ({ value: Date.UTC(2026, 0, 1) }));
   on("clock.sleep", () => ({ value: undefined }));
+  on("ui.focus", () => ({}));
   on("ui.render", (engine, e) => {
     drawn.push(e.props);
     const { Box } = engine.ui.resolve(e);
@@ -426,7 +427,6 @@ test("Send returns the final answers alone, and the journal keeps every gesture"
 
   expect(eventsIn(world)).toEqual([
     { kind: "open", questions: [1, 2, 3] },
-    { kind: "draft", q: 1, text: "MySQL" },
     { kind: "answer", q: 1, text: "MySQL" },
     { kind: "peek", q: 1 },
     { kind: "take", q: 1 },
@@ -442,6 +442,48 @@ test("Send returns the final answers alone, and the journal keeps every gesture"
 
   expect(await after.find({ key: "question-1" })).toBeUndefined();
   await after.unmount();
+});
+
+/** The person moving the pane's focus ring onto the element keyed `element`. */
+async function focused($: Engine, element: string) {
+  await $.ui.focus({
+    component: "Pane",
+    requestId: PLUGIN,
+    plugin: PLUGIN,
+    element,
+    origin: { kind: "person" },
+  });
+}
+
+test("the typing in a field is one journal line, written once the field loses the ring or another gesture comes", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+  const journaled = world.files.get(JOURNAL);
+
+  for (const text of ["M", "My", "MySQL"]) {
+    await ui.input({ key: "answer-1", text, kind: "change" });
+  }
+
+  expect(world.files.get(JOURNAL)).toBe(journaled);
+
+  await focused($, "toggle-1");
+  expect(eventsIn(world)).toEqual([
+    { kind: "open", questions: [1, 2, 3] },
+    { kind: "draft", q: 1, text: "MySQL" },
+  ]);
+
+  await ui.input({ key: "answer-2", text: "The platform", kind: "change" });
+  await ui.press({ key: "choice-3-a" });
+  await ui.unmount();
+
+  expect(eventsIn(world)).toEqual([
+    { kind: "open", questions: [1, 2, 3] },
+    { kind: "draft", q: 1, text: "MySQL" },
+    { kind: "draft", q: 2, text: "The platform" },
+    { kind: "choice", q: 3, text: "(a)" },
+  ]);
 });
 
 /** Every question of the round answered, the pane still mounted for the press on Send. */

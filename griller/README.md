@@ -37,7 +37,7 @@ Claude reads your final answers alone, one line per question under the number it
 The mod keeps the grill under `.claude/griller/` in the session's project, a folder whose own `.gitignore` keeps it out of git. Claude never reads any of it, and it stays on your machine:
 
 - `<session id>.md`: the grill as you read it, rewritten as you answer: each question as Claude wrote it, its recommendation once the round is sent, and your final answer. The round waiting shows no recommendation, so the file can sit beside the pane.
-- `<session id>.jsonl`: the journal, one timestamped line per gesture, for analysis: a round opened, reopened, sent or closed unsent; every keystroke in an answer field; each answer recorded, choice picked, peek, hide and Claude's answer taken.
+- `<session id>.jsonl`: the journal, one timestamped line per gesture, for analysis: a round opened, reopened, sent or closed unsent; the typing in an answer field, one line with its text once the field loses the focus or another gesture comes; each answer recorded, choice picked, peek, hide and Claude's answer taken.
 - `<session id>.json`: the mod's state, the last question number, the rounds sent and the round waiting with the answers recorded so far.
 
 A file over 4 MiB can no longer be read or written by a mod: a journal that grows past it is left as it is, and the mod says so.
@@ -77,7 +77,7 @@ The round waiting is read back from the scribe's state, so a mod reload or a res
 - Claude is told to give a recommendation you could take as is, and never to state one outside its ➡️ part; the mod checks neither.
 - A round Claude writes in another format opens no pane, and choices not written **(a)** get no button.
 - A question that takes several choices still gets one button each, and a press replaces the choice before it: you combine them by typing them, such as `a + d`.
-- The journal notes no end of session: a round left open when the session ends reads the same as one still waiting.
+- The journal notes no end of session: a round left open when the session ends reads the same as one still waiting, and typing that no gesture followed is not in it. Going back to the prompt does not end the typing in a field; the next gesture does.
 - The terminal's ctrl+o transcript shows replies as stored, recommendations included.
 - In the terminal, a round opened over earlier text can leave stray letters in the pane's blank rows; ctrl+l redraws the screen and clears them.
 - The pane needs a terminal or the desktop app: the mobile app draws no answer field.
