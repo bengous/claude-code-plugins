@@ -67,6 +67,12 @@ let sent: (readonly Question[])[] = [];
 /** The journal's lines; null when the file on disk could not be read, so it is never overwritten. */
 let journal: string | null = "";
 
+/**
+ * The typing in an answer field, journaled as one line once it ends: when the field loses the ring
+ * or the person's next gesture comes. A keystroke alone writes nothing.
+ */
+let typing: { readonly q: number; readonly field: string; text: string } | null = null;
+
 /** The questions of a reply written in the round format, each with its recommendation; none when it holds no round. */
 function parseRound(text: string): Asked[] {
   const asked: Asked[] = [];
@@ -216,7 +222,7 @@ let writing: Promise<void> | null = null;
 
 let isDirty = false;
 
-/** One write at a time, each of the whole state as it stands then: a burst of keystrokes costs a few. */
+/** One write at a time, each of the whole state as it stands then: a burst of gestures costs a few. */
 function flush($: EngineInterface): Promise<void> {
   isDirty = true;
 
@@ -234,21 +240,41 @@ function flush($: EngineInterface): Promise<void> {
   return writing;
 }
 
+/** The line that ends the typing in a field, if any. */
+function endTyping(): Event | null {
+  if (typing === null) return null;
+  const { q, text } = typing;
+
+  typing = null;
+
+  return { kind: "draft", q, text };
+}
+
+/** A gesture journaled after the typing it ends; an answer recorded from that field carries its text. */
 async function note($: EngineInterface, event: Event): Promise<void> {
+  if (event.kind === "answer" && event.q === typing?.q) typing = null;
+  const ended = endTyping();
+  const events = ended === null ? [event] : [ended, event];
   const at = new Date(await $.clock.now()).toISOString();
 
-  if (journal !== null) journal += `${JSON.stringify({ at, ...event })}\n`;
+  if (journal !== null) journal += events.map((e) => `${JSON.stringify({ at, ...e })}\n`).join("");
 }
 
 function unsaved($: EngineInterface): (cause: unknown) => void {
   return (cause) => $.ui.toast(`${PLUGIN}: the grill was not saved: ${String(cause)}`);
 }
 
-/** A gesture a press or a keystroke makes: journaled and saved without the pane waiting, a failure said. */
-function keep($: EngineInterface, event: Event): void {
-  note($, event)
+/** A gesture journaled and saved without the pane waiting, a failure said. */
+function keep($: EngineInterface, event: Event): Promise<void> {
+  return note($, event)
     .then(() => flush($))
     .catch(unsaved($));
+}
+
+function stopTyping($: EngineInterface): Promise<void> {
+  const ended = endTyping();
+
+  return ended === null ? Promise.resolve() : keep($, ended);
 }
 
 const TRIES = 3;
@@ -432,15 +458,23 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       return Button(choice);
     });
 
+    const key = `answer-${n}`;
+
     const field: InputProps = {
-      key: `answer-${n}`,
+      key,
       placeholder: letters.length > 0 ? "Or write your own" : "Your answer",
       value: q.draft,
       rows: 2,
       submitLabel: isAnswered ? "Update" : "Record",
       onInput: (text) => {
         q.draft = text;
-        keep($, { kind: "draft", q: q.n, text });
+
+        if (typing?.field === key) {
+          typing.text = text;
+        } else {
+          void stopTyping($);
+          typing = { q: q.n, field: key, text };
+        }
       },
       onSubmit: (text) => {
         q.draft = text;
@@ -620,6 +654,14 @@ export const register: Register = (on) => {
 
     return next(e);
   }).catch((_$, e, next) => next(e));
+
+  on("ui.focus", async ($, e, next) => {
+    const moved = await next(e);
+
+    if (moved.deny === undefined && e.element !== typing?.field) await stopTyping($);
+
+    return moved;
+  });
 
   // Every draw of a reply, each piece of a streamed one included, hides its recommendations.
   on("ui.render", { component: "AssistantMessage" }, (_$, e, next) => {
