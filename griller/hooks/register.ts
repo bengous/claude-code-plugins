@@ -30,6 +30,11 @@ type Question = Asked & {
   /** What the answer field holds. */
   draft: string;
   isShown: boolean;
+  /**
+   * The answer is Claude's, set by Use Claude's alone: an answer that matches the recommendation by
+   * chance stays the person's own, so the card gives no hidden recommendation away.
+   */
+  isTaken: boolean;
 };
 
 type Round = { readonly questions: readonly Question[]; isInBand: boolean };
@@ -123,7 +128,7 @@ function numbered(asked: readonly Asked[], after: number): Question[] {
 
     previous = n;
 
-    return { ...a, n, answer: "", draft: "", isShown: false };
+    return { ...a, n, answer: "", draft: "", isShown: false, isTaken: false };
   });
 }
 
@@ -133,11 +138,9 @@ function numbersOf(questions: readonly Question[]): number[] {
 
 /** The message the round's answers reach Claude as: the final answers alone, the journal keeps the rest. */
 function answersOf(r: Round): string {
-  const lines = r.questions.map((q) => {
-    const final = q.answer.trim();
-
-    return `Q${q.n}: ${final === q.recommendation ? "your recommendation" : final}`;
-  });
+  const lines = r.questions.map(
+    (q) => `Q${q.n}: ${q.isTaken ? "your recommendation" : q.answer.trim()}`,
+  );
 
   return ["Grill answers:", ...lines].join("\n");
 }
@@ -155,7 +158,7 @@ function transcriptOf(
 
     if (final === "") return "_not answered yet_";
 
-    return final === q.recommendation ? "Claude's" : final;
+    return q.isTaken ? "Claude's" : final;
   };
 
   const block = (q: Question, isSent: boolean) =>
@@ -362,7 +365,6 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     const n = at + 1;
     const recorded = q.answer.trim();
     const isAnswered = recorded !== "";
-    const isTaken = isAnswered && recorded === q.recommendation;
 
     const letters = choicesOf(q.question);
     const isChosen = letters.some((letter) => recorded === `(${letter})`);
@@ -373,6 +375,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
         label: `(${letter})`,
         onPress: () => {
           q.answer = `(${letter})`;
+          q.isTaken = false;
 
           return answered({ kind: "choice", q: q.n, text: q.answer });
         },
@@ -398,6 +401,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
         q.draft = text;
 
         if (text.trim() === "") return;
+        q.isTaken = q.isTaken && text === q.answer;
         q.answer = text;
         void answered({ kind: "answer", q: q.n, text });
       },
@@ -422,13 +426,14 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       onPress: () => {
         q.answer = q.recommendation;
         q.draft = q.recommendation;
+        q.isTaken = true;
 
         return answered({ kind: "take", q: q.n });
       },
     });
 
     // What commits an answer sits on the right; a peek, which commits nothing, on the left.
-    const below = isTaken
+    const below = q.isTaken
       ? [Text({ size: "caption", dimColor: true, children: "Using Claude's answer" })]
       : q.isShown
         ? [
@@ -461,7 +466,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
   });
 
   const done = r.questions.filter((q) => q.answer.trim() !== "").length;
-  const used = r.questions.filter((q) => q.answer.trim() === q.recommendation).length;
+  const used = r.questions.filter((q) => q.isTaken).length;
 
   const progress = Text({
     size: "footnote",
