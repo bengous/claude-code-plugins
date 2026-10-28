@@ -55,6 +55,8 @@ type World = {
   readonly messages: SessionMessage[];
   /** The files the mod wrote, by path. */
   readonly files: Map<string, string>;
+  /** How many of the next writes to a path reject, as a file over 4 MiB does. */
+  readonly failing: Map<string, number>;
 };
 
 const STATE = "/work/.claude/griller/session-1.json";
@@ -76,6 +78,7 @@ async function started(
   const messages = [...held];
   const prompts: string[] = [];
   const drawn: unknown[] = [];
+  const failing = new Map<string, number>();
   let opens = 0;
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
@@ -92,6 +95,7 @@ async function started(
   on("ui.close", () => ({ value: undefined }));
   on("ui.toast", () => ({ value: undefined }));
   on("clock.now", () => ({ value: Date.UTC(2026, 0, 1) }));
+  on("clock.sleep", () => ({ value: undefined }));
   on("ui.render", (engine, e) => {
     drawn.push(e.props);
     const { Box } = engine.ui.resolve(e);
@@ -104,6 +108,14 @@ async function started(
   on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
   on("fs.read", (_$, e) => ({ value: files.get(e.path) ?? "" }));
   on("fs.write", (_$, e) => {
+    const left = failing.get(e.path) ?? 0;
+
+    if (left > 0) {
+      failing.set(e.path, left - 1);
+
+      return { deny: `${e.path}: over 4 MiB` };
+    }
+
     files.set(e.path, e.text);
 
     return { value: undefined };
@@ -112,7 +124,7 @@ async function started(
   on("session.start", () => ({ cwd: "/work" }));
   await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
 
-  return { prompts, opens: () => opens, drawn, messages, files };
+  return { prompts, opens: () => opens, drawn, messages, files, failing };
 }
 
 /** Claude's turn ends on this reply. */
@@ -426,6 +438,63 @@ test("Send returns the final answers alone, and the journal keeps every gesture"
   ]);
   expect(world.files.get(JOURNAL)).toContain('"at":"2026-01-01T00:00:00.000Z"');
 
+  const after = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  expect(await after.find({ key: "question-1" })).toBeUndefined();
+  await after.unmount();
+});
+
+/** Every question of the round answered, the pane still mounted for the press on Send. */
+async function answered($: Engine, count: number) {
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  for (let n = 1; n <= count; n += 1) {
+    await ui.input({ key: `answer-${n}`, text: `answer ${n}`, kind: "submit" });
+  }
+
+  return ui;
+}
+
+test("a save that fails is tried again before the answers go", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await answered($, 3);
+
+  world.failing.set(JOURNAL, 2);
+  await ui.press({ key: "send" });
+  await ui.unmount();
+
+  expect(world.prompts).toEqual([
+    ["Grill answers:", "Q1: answer 1", "Q2: answer 2", "Q3: answer 3"].join("\n"),
+  ]);
+  expect(eventsIn(world).at(-1)).toEqual({ kind: "send", questions: [1, 2, 3] });
+});
+
+test("a save that keeps failing keeps the answers in the pane with the failure, until Send anyway", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await answered($, 3);
+
+  world.failing.set(JOURNAL, Infinity);
+  await ui.press({ key: "send" });
+
+  expect(world.prompts).toEqual([]);
+  expect((await ui.find({ key: "question-1" }))?.text).toContain("Which database?");
+  expect((await ui.find({ text: /could not be saved/u }))?.text).toContain(
+    `${JOURNAL}: over 4 MiB`,
+  );
+  expect(await ui.find({ key: "send-anyway" })).toBeDefined();
+  // SAFETY: the mod writes its state as a `Saved`, here the round back as the one waiting.
+  expect((JSON.parse(world.files.get(STATE) ?? "") as { open: unknown }).open).not.toBeNull();
+
+  await ui.press({ key: "send-anyway" });
+  await ui.unmount();
+
+  expect(world.prompts).toEqual([
+    ["Grill answers:", "Q1: answer 1", "Q2: answer 2", "Q3: answer 3"].join("\n"),
+  ]);
   const after = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   expect(await after.find({ key: "question-1" })).toBeUndefined();
