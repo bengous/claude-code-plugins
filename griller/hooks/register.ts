@@ -37,7 +37,12 @@ type Question = Asked & {
   isTaken: boolean;
 };
 
-type Round = { readonly questions: readonly Question[]; isInBand: boolean };
+type Round = {
+  readonly questions: readonly Question[];
+  isInBand: boolean;
+  /** Why the last Send kept the round: the save that still failed after its tries. */
+  failure: string | null;
+};
 
 /** One line of the journal, the person's every gesture; Claude never reads it. */
 type Event =
@@ -235,11 +240,33 @@ async function note($: EngineInterface, event: Event): Promise<void> {
   if (journal !== null) journal += `${JSON.stringify({ at, ...event })}\n`;
 }
 
+function unsaved($: EngineInterface): (cause: unknown) => void {
+  return (cause) => $.ui.toast(`${PLUGIN}: the grill was not saved: ${String(cause)}`);
+}
+
 /** A gesture a press or a keystroke makes: journaled and saved without the pane waiting, a failure said. */
 function keep($: EngineInterface, event: Event): void {
   note($, event)
     .then(() => flush($))
-    .catch((cause: unknown) => $.ui.toast(`${PLUGIN}: the grill was not saved: ${String(cause)}`));
+    .catch(unsaved($));
+}
+
+const TRIES = 3;
+
+const RETRY_MS = 200;
+
+/** A save tried again while a write fails, `TRIES` times in all: the last failure, or null once one holds. */
+async function failedSave($: EngineInterface): Promise<string | null> {
+  for (let tried = 1; ; tried += 1) {
+    try {
+      await flush($);
+
+      return null;
+    } catch (cause) {
+      if (tried === TRIES) return String(cause);
+      await $.clock.sleep(RETRY_MS);
+    }
+  }
 }
 
 async function load($: EngineInterface): Promise<Saved> {
@@ -261,29 +288,47 @@ async function load($: EngineInterface): Promise<Saved> {
   return JSON.parse(await $.fs.read(paths.state)) as Saved;
 }
 
+function restore(r: Round): void {
+  sent = sent.filter((questions) => questions !== r.questions);
+  round = r;
+}
+
 /**
- * The round leaves the pane at the press: the prompt waits until Claude's turn is over, and a pane
- * still open meanwhile would take a second Send. A refused prompt brings the round back.
+ * The round is saved as sent, then leaves the pane: the prompt waits until Claude's turn is over, a
+ * reload meanwhile must not bring it back, and a pane still open would take a second Send. A save
+ * that still fails keeps the round with the failure, unless the person sends it anyway; a refused
+ * prompt brings the round back.
  */
-async function send($: EngineInterface, r: Round): Promise<void> {
+async function send($: EngineInterface, r: Round, isForced = false): Promise<void> {
   if (round !== r) return;
   round = null;
   sent.push(r.questions);
-  await $.ui.close({ id: PANE });
-  $.ui.invalidate("ui.render");
-  await flush($);
-  const submitted = await $.prompt.submit({ text: answersOf(r), asUser: true });
+  const failure = await failedSave($);
 
-  if (submitted.drop === undefined) {
-    await note($, { kind: "send", questions: numbersOf(r.questions) });
-    await flush($);
+  if (failure !== null && !isForced) {
+    restore(r);
+    r.failure = failure;
+    $.ui.invalidate("ui.render");
+    // The state may have been written as sent before a later file failed.
+    await flush($).catch(unsaved($));
 
     return;
   }
 
-  sent = sent.filter((questions) => questions !== r.questions);
-  round = r;
-  await flush($);
+  r.failure = null;
+  await $.ui.close({ id: PANE });
+  $.ui.invalidate("ui.render");
+  const submitted = await $.prompt.submit({ text: answersOf(r), asUser: true });
+
+  if (submitted.drop === undefined) {
+    await note($, { kind: "send", questions: numbersOf(r.questions) });
+    await flush($).catch(unsaved($));
+
+    return;
+  }
+
+  restore(r);
+  await flush($).catch(unsaved($));
   await $.ui.open({ id: PANE, title: "Grill", focus: true });
   $.ui.invalidate("ui.render");
   $.ui.toast(`${PLUGIN}: the answers were not sent: ${submitted.drop}`);
@@ -310,7 +355,7 @@ async function lastTurnText($: EngineInterface, answer: string): Promise<string>
 }
 
 async function openRound($: EngineInterface, questions: readonly Question[]): Promise<void> {
-  const current: Round = { questions, isInBand: false };
+  const current: Round = { questions, isInBand: false, failure: null };
 
   round = current;
   const opened = await $.ui.open({ id: PANE, title: "Grill", focus: true });
@@ -474,17 +519,40 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     children: `${done} of ${r.questions.length} answered · ${used} used Claude's`,
   });
 
+  const sendAnyway = Button({
+    key: "send-anyway",
+    label: "Send anyway",
+    onPress: () => send($, r, true),
+  });
+
   const footer = isComplete(r)
     ? [
         progress,
-        Button({
-          key: "send",
-          label: "Send answers",
-          variant: "primary",
-          onPress: () => send($, r),
+        Box({
+          flexDirection: "row",
+          gap: 1,
+          children: [
+            Button({
+              key: "send",
+              label: "Send answers",
+              variant: "primary",
+              onPress: () => send($, r),
+            }),
+            ...(r.failure === null ? [] : [sendAnyway]),
+          ],
         }),
       ]
     : [progress];
+
+  const failure =
+    r.failure === null
+      ? []
+      : [
+          Text({
+            color: "error",
+            children: `Answers not sent: the grill could not be saved after ${TRIES} tries. ${r.failure}`,
+          }),
+        ];
 
   return Box({
     flexDirection: "column",
@@ -493,6 +561,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     children: [
       Text({ size: "footnote", dimColor: true, children: HINT }),
       ...blocks,
+      ...failure,
       Box({
         flexDirection: "row",
         justifyContent: "space-between",

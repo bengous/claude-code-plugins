@@ -28,7 +28,7 @@ The chat shows the questions and hides every ➡️ part, while the reply stream
 - **(a)**, **(b)**, **(c)**: a question that offers choices has a button per choice. A click records that choice.
 - **Record**: records what you wrote in the field, with Enter or the button. Typing alone records nothing. Once a question is answered, its text dims and Record becomes **Update**.
 - **Peek at Claude's** shows the recommendation, before or after you answer, with **Use Claude's** to take it in place of yours; **Hide** hides it again. Recording an answer never shows it.
-- **Send answers** appears once every question is answered, beside a count of the answers and of the recommendations you used. It sends your answers to Claude as your next message.
+- **Send answers** appears once every question is answered, beside a count of the answers and of the recommendations you used. It sends your answers to Claude as your next message, once the grill is saved: a save that still fails after three tries keeps the answers in the pane with the reason, and **Send anyway** sends them unsaved.
 
 Claude reads your final answers alone, one line per question under the number it gave it, `your recommendation` where you used its own. Then it asks the next round, its numbers following the last.
 
