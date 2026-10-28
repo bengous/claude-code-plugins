@@ -27,6 +27,10 @@ export const REGISTRY: Registry = {
       quote: "Agents never bump a version or write a `CHANGELOG.md`",
       held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.integration.test.ts"],
     },
+    "0e6d3332": {
+      quote: "A behaviour change to a plugin is done once the `field-test`",
+      prose: "whether a change alters behaviour is a judgement; no check knows a field test ran",
+    },
     f8c3afb9: {
       quote: "For plugin tests, permissions and the catalog lifecycle,",
       prose: "a pointer to the pages that hold the detail",
