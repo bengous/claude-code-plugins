@@ -29,8 +29,6 @@ type Question = Asked & {
   readonly n: number;
   /** The answer recorded (Record, a choice, Use Claude's); typing alone records nothing. */
   answer: string;
-  /** What the answer field holds. */
-  draft: string;
   isShown: boolean;
   /**
    * The answer is Claude's, set by Use Claude's alone: an answer that matches the recommendation by
@@ -100,6 +98,12 @@ let isStateRead = true;
  */
 let typing: { readonly q: number; readonly field: string; text: string } | null = null;
 
+/**
+ * What each answer field holds, in memory alone: a round brought back from the state opens each
+ * field on the answer recorded from it, without what was typed and not recorded.
+ */
+const drafts = new WeakMap<Question, string>();
+
 /** The questions of a reply written in the round format, each with its recommendation; none when it holds no round. */
 function parseRound(text: string): Asked[] {
   const asked: Asked[] = [];
@@ -166,7 +170,7 @@ function numbered(asked: readonly Asked[], after: number): Question[] {
 
     previous = n;
 
-    return { ...a, n, answer: "", draft: "", isShown: false, isTaken: false };
+    return { ...a, n, answer: "", isShown: false, isTaken: false };
   });
 }
 
@@ -182,8 +186,12 @@ function carried(questions: readonly Question[], replaced: readonly Question[]):
 
     if (before === undefined) return q;
     const isTaken = before.isTaken && before.recommendation === q.recommendation;
+    const kept: Question = { ...q, answer: before.answer, isTaken };
+    const draft = drafts.get(before);
 
-    return { ...q, answer: before.answer, draft: before.draft, isTaken };
+    if (draft !== undefined) drafts.set(kept, draft);
+
+    return kept;
   });
 }
 
@@ -585,11 +593,11 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     const field: InputProps = {
       key,
       placeholder: letters.length > 0 ? "Or write your own" : "Your answer",
-      value: q.draft,
+      value: drafts.get(q) ?? (isChosen ? "" : q.answer),
       rows: 2,
       submitLabel: isAnswered ? "Update" : "Record",
       onInput: (text) => {
-        q.draft = text;
+        drafts.set(q, text);
 
         if (typing?.field === key) {
           typing.text = text;
@@ -599,7 +607,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
         }
       },
       onSubmit: (text) => {
-        q.draft = text;
+        drafts.set(q, text);
 
         if (text.trim() === "") return;
 
@@ -631,7 +639,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       onPress: () =>
         answered(() => {
           q.answer = q.recommendation;
-          q.draft = q.recommendation;
+          drafts.set(q, q.recommendation);
           q.isTaken = true;
 
           return { kind: "take", q: q.n };

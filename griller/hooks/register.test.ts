@@ -333,7 +333,6 @@ function waiting(state = STATE): Map<string, string> {
     recommendation,
     n: at + 1,
     answer,
-    draft: "",
     isShown: false,
     isTaken: false,
   }));
@@ -356,6 +355,30 @@ test("a reload brings back the round nobody answered, with the answers recorded"
 async function reloaded($: Engine) {
   await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
 }
+
+test("a round brought back holds the answers recorded, and nothing typed and not recorded", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.input({ key: "answer-1", text: "MySQL", kind: "change" });
+  await ui.input({ key: "answer-2", text: "Ops", kind: "submit" });
+  await ui.input({ key: "answer-2", text: "Ops team", kind: "change" });
+  await ui.press({ key: "choice-3-a" });
+  await ui.unmount();
+
+  expect(world.files.get(STATE)).not.toMatch(/MySQL|Ops team/u);
+
+  await switched($, world, "session-2", "resume");
+  await switched($, world, "session-1", "resume");
+  const pane = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  expect((await pane.find({ key: "answer-1" }))?.props.value).toBe("");
+  expect((await pane.find({ key: "answer-2" }))?.props.value).toBe("Ops");
+  expect((await pane.find({ key: "answer-3" }))?.props.value).toBe("");
+  await pane.unmount();
+});
 
 test("a round already sent is not brought back by a reload", async ($, on) => {
   const world = await started($, on);
