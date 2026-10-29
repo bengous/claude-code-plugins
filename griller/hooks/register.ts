@@ -21,6 +21,12 @@ const CHOICE = /\*\*\(([a-z])\)\*\*/gu;
 
 const HINT = "Answer first: Claude's answer stays hidden until you peek at it.";
 
+/**
+ * The band's keys, in secret-pane's words: the band has no close mark, so Enter on an empty field
+ * drops the round.
+ */
+const BAND_HINT = "ctrl+x then tab to focus, Enter on empty cancels";
+
 type Asked = { readonly question: string; readonly recommendation: string };
 
 type Question = Asked & {
@@ -561,7 +567,14 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       onSubmit: (text) => {
         q.draft = text;
 
-        if (text.trim() === "") return;
+        if (text.trim() === "") {
+          if (r.isInBand && round === r) {
+            void keep($, abandon(r));
+            $.ui.invalidate("ui.render");
+          }
+
+          return;
+        }
 
         void answered(() => {
           q.isTaken = q.isTaken && text === q.answer;
@@ -634,10 +647,12 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
   const done = r.questions.filter((q) => q.answer.trim() !== "").length;
   const used = r.questions.filter((q) => q.isTaken).length;
 
+  const counts = `${done} of ${r.questions.length} answered · ${used} used Claude's`;
+
   const progress = Text({
     size: "footnote",
     dimColor: true,
-    children: `${done} of ${r.questions.length} answered · ${used} used Claude's`,
+    children: r.isInBand ? `${counts} · ${BAND_HINT}` : counts,
   });
 
   const sendAnyway = Button({
@@ -739,14 +754,9 @@ export const register: Register = (on) => {
     return done;
   });
 
-  on("ui.close", ($, e, next) => {
+  on("ui.close", async ($, e, next) => {
     // The person's close drops the round unsent; the close after Send finds it gone already.
-    if (e.id === PANE && round !== null && !round.isInBand) {
-      const questions = numbersOf(round.questions);
-
-      round = null;
-      keep($, { kind: "close", questions });
-    }
+    if (e.id === PANE && round !== null && !round.isInBand) await keep($, abandon(round));
 
     return next(e);
   }).catch((_$, e, next) => next(e));

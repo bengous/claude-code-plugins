@@ -712,6 +712,78 @@ test("a Send refused while the pane cannot be placed brings the round back in th
   await band.unmount();
 });
 
+/** The transcript of a session whose one round, `ROUND`, was closed unsent with Q1 answered `MySQL`. */
+const ABANDONED = [
+  "# Grill",
+  "",
+  "_Abandoned: not sent to Claude._",
+  "",
+  "**Q1** - **Database**: Which database?",
+  "",
+  "**Answer:** MySQL",
+  "",
+  "**Q2** - **Owner**: Who owns the migration?",
+  "",
+  "**Answer:** _not answered_",
+  "",
+  "**Q3** - **Date**: When does it ship: **(a)** this sprint, or **(b)** the one after?",
+  "",
+  "**Answer:** _not answered_",
+  "",
+].join("\n");
+
+test(
+  "the person's close drops the round unsent, and the transcript keeps it as abandoned",
+  { plugins: [HAND] },
+  async ($, on) => {
+    const world = await started($, on);
+
+    await ended($, ROUND);
+    const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+    await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
+    await ui.unmount();
+    await closedByHand($);
+
+    expect(eventsIn(world).at(-1)).toEqual({ kind: "close", questions: [1, 2, 3] });
+    expect(world.files.get(TRANSCRIPT)).toBe(ABANDONED);
+
+    await reloaded($);
+    expect(world.opens()).toBe(1);
+
+    await ended($, NEXT);
+    expect(world.files.get(TRANSCRIPT)).toBe(
+      `${ABANDONED}\n---\n\n**Q4** - **Backups**: Who restores a backup?\n\n**Answer:** _not answered yet_\n`,
+    );
+  },
+);
+
+test("in the band, Enter on an empty answer drops the round unsent", async ($, on) => {
+  const world = await started($, on);
+
+  world.place(false);
+  await ended($, ROUND);
+  const band = await $.ui.mount(BAND);
+
+  expect(
+    await band.find({ type: "Text", text: /ctrl\+x then tab to focus, Enter on empty cancels/u }),
+  ).toBeDefined();
+  await band.input({ key: "answer-1", text: "MySQL", kind: "submit" });
+  await band.input({ key: "answer-2", text: "", kind: "submit" });
+
+  expect(await band.find({ key: "question-1" })).toBeUndefined();
+  await band.unmount();
+  expect(eventsIn(world).at(-1)).toEqual({ kind: "close", questions: [1, 2, 3] });
+  expect(world.files.get(TRANSCRIPT)).toBe(ABANDONED);
+
+  await reloaded($);
+  expect(world.opens()).toBe(1);
+  const after = await $.ui.mount(BAND);
+
+  expect(await after.find({ key: "question-1" })).toBeUndefined();
+  await after.unmount();
+});
+
 test("the transcript holds each question, Claude's answer and the final one, and nothing else twice", async ($, on) => {
   const world = await started($, on);
 
