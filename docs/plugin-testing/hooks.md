@@ -124,8 +124,11 @@ under the [loader rules](hook-runtime.md#module-loader).
   (`"ui.ask" is not an event`). Measured in the kit on Claude Code 2.1.308,
   Linux, 2026-10-22 (`atlas/hooks/fixtures.ts`).
 
-- The kit's `$` has no `classic` noun, so a `classic.PermissionRequest` hook
-  cannot be raised from a test.
+- The kit's `$.classic.<Event>` raises a classic event over the module's hook
+  on it, its `session_id` as the test passes it. Nothing answers beneath: a
+  test's `on("classic.SessionStart", () => ({}))` does, or the call fails with
+  `no implementation for classic.SessionStart`
+  (`griller/hooks/register.test.ts`). Measured with `SessionStart` alone.
 
 - The kit keeps no conversation: a prompt submitted raises no
   `session.append`. A test raises one with its own `$.session.append`, the
