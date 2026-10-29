@@ -405,8 +405,7 @@ async function send($: EngineInterface, r: Round, isForced = false): Promise<voi
 
   restore(r);
   await flush($).catch(unsaved($));
-  await $.ui.open({ id: PANE, title: "Grill", focus: true });
-  $.ui.invalidate("ui.render");
+  await openRound($, r.questions);
   $.ui.toast(`${PLUGIN}: the answers were not sent: ${submitted.drop}`);
 }
 

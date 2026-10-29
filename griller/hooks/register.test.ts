@@ -1,5 +1,5 @@
 import type { On, SessionMessage } from "claude-code";
-import { type Engine, expect, test } from "claude-code/testing";
+import { type Engine, expect, type Plugin, test } from "claude-code/testing";
 
 const PLUGIN = "griller";
 
@@ -42,6 +42,21 @@ const PANE = {
   },
 } as const;
 
+/** The band above the prompt, where a round goes when its pane is not placed. */
+const BAND = {
+  plugin: PLUGIN,
+  surface: "terminal",
+  component: "AbovePrompt",
+  props: {
+    hasSurvey: false,
+    isWorking: false,
+    maxRows: 40,
+    bodyColumns: 80,
+    scroll: { offset: 0, bodyRows: 40 },
+    view: {},
+  },
+} as const;
+
 const SURFACES = ["terminal", "desktop"] as const;
 
 type World = {
@@ -51,6 +66,10 @@ type World = {
   readonly opens: () => number;
   /** How many times the mod closed its pane. */
   readonly closes: () => number;
+  /** Whether the pane's next opens are placed: a narrow terminal leaves an unasked one undrawn. */
+  readonly place: (isPlaced: boolean) => void;
+  /** Why each of the next prompts is dropped, one per prompt, as a mod refusing it does. */
+  readonly drops: string[];
   /** The toasts the mod raised, in order. */
   readonly toasts: string[];
   /** Points `$.session.id()` at another session, as a /clear or a resume does. */
@@ -94,11 +113,16 @@ async function started(
   const failing = new Map<string, number>();
   let opens = 0;
   let closes = 0;
+  let isPlaced = true;
+  const drops: string[] = [];
   const toasts: string[] = [];
   let id = "session-1";
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("prompt.submit", (_$, e) => {
+    const drop = drops.shift();
+
+    if (drop !== undefined) return { drop };
     prompts.push(e.text);
 
     return { text: e.text };
@@ -106,7 +130,7 @@ async function started(
   on("ui.open", () => {
     opens += 1;
 
-    return { value: { isPlaced: true } };
+    return { value: isPlaced ? { isPlaced } : { isPlaced, reason: "narrow terminal" } };
   });
   on("ui.close", () => {
     closes += 1;
@@ -154,6 +178,10 @@ async function started(
     prompts,
     opens: () => opens,
     closes: () => closes,
+    place: (next) => {
+      isPlaced = next;
+    },
+    drops,
     toasts,
     moveTo: (next) => {
       id = next;
@@ -294,18 +322,21 @@ test("a reload brings back the round nobody answered, with the answers recorded"
   await ui.unmount();
 });
 
+/** The mod reloaded: its variables go, and `session.start` gives them back from the saved state. */
+async function reloaded($: Engine) {
+  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+}
+
 test("a round already sent is not brought back by a reload", async ($, on) => {
-  const files = new Map([[STATE, JSON.stringify({ last: 3, sent: [], open: null })]]);
+  const world = await started($, on);
 
+  await ended($, ROUND);
+  await answeredAndSent($, 3);
   // The answers wait in the queue for Claude's turn: the conversation does not hold them yet.
-  const world = await started(
-    $,
-    on,
-    [message("user", "/griller:grill"), message("assistant", ROUND)],
-    files,
-  );
+  world.messages.push(message("user", "/griller:grill"), message("assistant", ROUND));
+  await reloaded($);
 
-  expect(world.opens()).toBe(0);
+  expect(world.opens()).toBe(1);
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
 
   expect((await ui.find({ type: "Text" }))?.text).toBe("No round is waiting for your answers.");
@@ -603,6 +634,82 @@ test("a save that keeps failing keeps the answers in the pane with the failure, 
 
   expect(await after.find({ key: "question-1" })).toBeUndefined();
   await after.unmount();
+});
+
+/**
+ * The kit has no act for the person's close mark, so this plugin closes griller's pane instead:
+ * griller's `ui.close` hook hears the same event, but for its origin, which it does not read.
+ */
+const HAND: Plugin = {
+  name: "hand",
+  register(on) {
+    on("tool.call", { tool: "mcp__hand__close" }, async ($) => {
+      await $.ui.close({ id: "griller" });
+
+      return { result: "closed" };
+    });
+  },
+};
+
+/** The person closing the pane with its mark, in a test that loads `HAND`. */
+async function closedByHand($: Engine) {
+  await $.tool.call({ tool: "mcp__hand__close" });
+}
+
+test(
+  "a Send refused from the band brings the round back in the pane alone, which the person's close drops",
+  { plugins: [HAND] },
+  async ($, on) => {
+    const world = await started($, on);
+
+    world.place(false);
+    await ended($, ROUND);
+    const band = await $.ui.mount(BAND);
+
+    for (let n = 1; n <= 3; n += 1) {
+      await band.input({ key: `answer-${n}`, text: `answer ${n}`, kind: "submit" });
+    }
+
+    // The press on Send is the person's, so the pane it opens is placed at any width.
+    world.place(true);
+    world.drops.push("held by another mod");
+    await band.press({ key: "send" });
+
+    expect(world.prompts).toEqual([]);
+    expect(world.toasts.at(-1)).toBe("griller: the answers were not sent: held by another mod");
+    expect(await band.find({ key: "question-1" })).toBeUndefined();
+    const pane = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+    expect((await pane.find({ key: "answer-1" }))?.props.value).toBe("answer 1");
+    await pane.unmount();
+    await band.unmount();
+
+    await closedByHand($);
+    const after = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+    expect((await after.find({ type: "Text" }))?.text).toBe(
+      "No round is waiting for your answers.",
+    );
+    await after.unmount();
+  },
+);
+
+test("a Send refused while the pane cannot be placed brings the round back in the band", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await answered($, 3);
+
+  world.place(false);
+  world.drops.push("held by another mod");
+  await ui.press({ key: "send" });
+  await ui.unmount();
+
+  expect(world.prompts).toEqual([]);
+  const band = await $.ui.mount(BAND);
+
+  expect((await band.find({ key: "answer-1" }))?.props.value).toBe("answer 1");
+  await band.unmount();
 });
 
 test("the transcript holds each question, Claude's answer and the final one, and nothing else twice", async ($, on) => {
