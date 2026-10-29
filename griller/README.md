@@ -30,7 +30,7 @@ The chat shows the questions and hides every ➡️ part, while the reply stream
 - **Peek at Claude's** shows the recommendation, before or after you answer, with **Use Claude's** to take it in place of yours; **Hide** hides it again. Recording an answer never shows it.
 - **Send answers** appears once every question is answered, beside a count of the answers and of the recommendations you used. It sends your answers to Claude as your next message, once the grill is saved: a save that still fails after three tries keeps the answers in the pane with the reason, and **Send anyway** sends them unsaved.
 
-Closing the pane drops the round unsent. On a terminal narrower than 144 columns Claude Code does not place a pane nobody asked for, so the round draws in the band above the prompt instead: press ctrl+x then tab to answer there; Enter on an empty answer field drops the round, as closing the pane does.
+Closing the pane drops the round unsent. On a terminal narrower than 144 columns Claude Code does not place a pane nobody asked for, so the round draws in the band above the prompt instead: press ctrl+x then tab to answer there. The band has no close mark: **Drop round**, beside the count of answers, drops the round as closing the pane does.
 
 Claude reads your final answers alone, one line per question under the number it gave it, `your recommendation` where you used its own. Then it asks the next round, its numbers following the last.
 

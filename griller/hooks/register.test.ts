@@ -259,6 +259,7 @@ test("a turn that ends on a round opens it in the pane, recommendations hidden",
     expect(await ui.find({ text: RECOMMENDATIONS })).toBeUndefined();
     expect((await ui.find({ key: "toggle-1" }))?.text).toBe("Peek at Claude's");
     expect(await ui.find({ key: "send" })).toBeUndefined();
+    expect(await ui.find({ key: "drop" })).toBeUndefined();
     await ui.unmount();
   }
 });
@@ -670,6 +671,7 @@ test(
       await band.input({ key: `answer-${n}`, text: `answer ${n}`, kind: "submit" });
     }
 
+    expect(await band.find({ key: "drop" })).toBeDefined();
     // The press on Send is the person's, so the pane it opens is placed at any width.
     world.place(true);
     world.drops.push("held by another mod");
@@ -758,18 +760,19 @@ test(
   },
 );
 
-test("in the band, Enter on an empty answer drops the round unsent", async ($, on) => {
+test("in the band, Drop round drops the round unsent, as the pane's close does", async ($, on) => {
   const world = await started($, on);
 
   world.place(false);
   await ended($, ROUND);
   const band = await $.ui.mount(BAND);
 
-  expect(
-    await band.find({ type: "Text", text: /ctrl\+x then tab to focus, Enter on empty cancels/u }),
-  ).toBeDefined();
+  expect((await band.find({ type: "Text", text: /ctrl\+x/u }))?.text).toBe(
+    "ctrl+x then tab to focus",
+  );
   await band.input({ key: "answer-1", text: "MySQL", kind: "submit" });
-  await band.input({ key: "answer-2", text: "", kind: "submit" });
+  expect(await band.find({ key: "send" })).toBeUndefined();
+  await band.press({ key: "drop" });
 
   expect(await band.find({ key: "question-1" })).toBeUndefined();
   await band.unmount();
@@ -782,6 +785,24 @@ test("in the band, Enter on an empty answer drops the round unsent", async ($, o
 
   expect(await after.find({ key: "question-1" })).toBeUndefined();
   await after.unmount();
+});
+
+test("in the band, Enter on an empty field records nothing and keeps the round", async ($, on) => {
+  const world = await started($, on);
+
+  world.place(false);
+  await ended($, ROUND);
+  const band = await $.ui.mount(BAND);
+
+  // A choice leaves its field empty: the Enter that follows by reflex must not lose the round.
+  await band.press({ key: "choice-3-a" });
+  await band.input({ key: "answer-3", text: "", kind: "submit" });
+
+  expect((await band.find({ type: "Text", text: /answered/u }))?.text).toBe(
+    "1 of 3 answered · 0 used Claude's",
+  );
+  await band.unmount();
+  expect(eventsIn(world).at(-1)).toEqual({ kind: "choice", q: 3, text: "(a)" });
 });
 
 test("the transcript holds each question, Claude's answer and the final one, and nothing else twice", async ($, on) => {
