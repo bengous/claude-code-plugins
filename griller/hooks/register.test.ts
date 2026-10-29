@@ -344,6 +344,41 @@ test("a round already sent is not brought back by a reload", async ($, on) => {
   await ui.unmount();
 });
 
+test("a state file cut short by a killed write is left as it is with the transcript, and the mod says so", async ($, on) => {
+  const cut = '{\n  "last": 3,\n  "sent": [\n    [\n      {\n        "question": "**Q1**';
+
+  const transcript =
+    "# Grill\n\n**Q1** - Which database?\n\n**Claude:** Postgres\n\n**Answer:** MySQL\n";
+
+  const journal = `${JSON.stringify({ at: "2026-01-01T00:00:00.000Z", kind: "send", questions: [1, 2, 3] })}\n`;
+
+  const world = await started(
+    $,
+    on,
+    [],
+    new Map([
+      [STATE, cut],
+      [TRANSCRIPT, transcript],
+      [JOURNAL, journal],
+    ]),
+  );
+
+  expect(world.toasts).toEqual([expect.stringContaining(`${STATE} could not be read`)]);
+
+  await ended($, NEXT);
+  await answeredAndSent($, 1);
+
+  expect(world.prompts).toEqual(["Grill answers:\nQ4: answer 1"]);
+  expect(world.files.get(STATE)).toBe(cut);
+  expect(world.files.get(TRANSCRIPT)).toBe(transcript);
+  expect(eventsIn(world)).toEqual([
+    { kind: "send", questions: [1, 2, 3] },
+    { kind: "open", questions: [4] },
+    { kind: "answer", q: 4, text: "answer 1" },
+    { kind: "send", questions: [4] },
+  ]);
+});
+
 test("the scribe's folder keeps itself out of git", async ($, on) => {
   const world = await started($, on);
 
