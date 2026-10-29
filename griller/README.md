@@ -83,6 +83,5 @@ The round waiting is read back from the scribe's state, so a mod reload, a resta
 - A question that takes several choices still gets one button each, and a press replaces the choice before it: you combine them by typing them, such as `a + d`.
 - The journal notes no end of session: a round left open when the session ends reads the same as one still waiting, and typing that no gesture followed is not in it. Going back to the prompt does not end the typing in a field; the next gesture does.
 - The terminal's ctrl+o transcript shows replies as stored, recommendations included.
-- In the terminal, a reply shows as it streams, recommendations included: the chat hides them once each of Claude's messages is whole.
 - In the terminal, a round opened over earlier text can leave stray letters in the pane's blank rows; ctrl+l redraws the screen and clears them.
 - The pane needs a terminal or the desktop app: the mobile app draws no answer field.

@@ -170,20 +170,21 @@ function parseRound(text: string): Asked[] {
 }
 
 /**
- * A message of Claude's as the chat draws it, `before` being where the earlier messages of its turn
- * left its first line: every line the pane reads as a recommendation is hidden.
+ * Claude's text as the chat draws it, a message or a batch of its lines, `before` being where the
+ * text before it in its turn left off: every line the pane reads as a recommendation is hidden, with
+ * the newline that ends it, so the batches of a message draw what the whole message draws.
  */
 function masked(text: string, before: Place): string {
-  const shown: string[] = [];
   let place = before;
 
-  for (const line of text.split("\n")) {
-    place = placeOf(line, place);
+  return text
+    .split(/(?<=\n)/u)
+    .filter((line) => {
+      place = placeOf(line, place);
 
-    if (place !== "recommendation") shown.push(line);
-  }
-
-  return shown.join("\n");
+      return place !== "recommendation";
+    })
+    .join("");
 }
 
 /** Each question numbered as Claude wrote it, or after the one before when Claude wrote no number. */
@@ -535,6 +536,9 @@ function startsIn(messages: readonly SessionMessage[]): Map<string, Place> {
 }
 
 let starts = new Map<string, Place>();
+
+/** Where the turn streaming on screen has left Claude's text, by the turn's id as the stream names it. */
+let streaming: { readonly turn: string; readonly place: Place } | null = null;
 
 let reading: Promise<void> | null = null;
 
@@ -898,6 +902,18 @@ export const register: Register = (on) => {
     const text = masked(e.props.text, await startOf($, e.props.text));
 
     return text === e.props.text ? next(e) : next({ ...e, props: { ...e.props, text } });
+  });
+
+  // A reply streams to the terminal in batches of whole lines that no drawing above sees; each is
+  // hidden by the same rule, read on from where the turn's batches before it left off.
+  on("classic.MessageDisplay", async (_$, e, next) => {
+    const done = await next(e);
+    const before = streaming?.turn === e.turn_id ? streaming.place : "outside";
+    const text = masked(e.delta, before);
+
+    streaming = { turn: e.turn_id, place: placeAfter(e.delta, before) };
+
+    return text === e.delta ? done : { ...done, displayContent: text };
   });
 
   on("ui.render", { component: "Pane", requestId: "griller" }, ($, e, next) => {

@@ -199,6 +199,7 @@ async function started(
   on("turn.complete", (_$, e) => ({ text: e.answer }));
   on("session.start", () => ({ cwd: "/work" }));
   on("classic.SessionStart", () => ({}));
+  on("classic.MessageDisplay", () => ({}));
   await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
 
   return {
@@ -269,6 +270,63 @@ test("a reply's recommendations are hidden in the chat, while it streams too", a
   const plain = "Use the ➡️ arrow key to move.";
 
   expect(await drawnReply($, world, "desktop", plain)).toBe(plain);
+});
+
+/**
+ * A message of Claude's streamed to the terminal a line at a time, as the engine flushes its batches
+ * of whole lines: the text the screen shows of it.
+ */
+async function streamed($: Engine, turn: string, messageId: string, text: string): Promise<string> {
+  const batches = text.split(/(?<=\n)/u);
+  let shown = "";
+
+  for (const [index, delta] of batches.entries()) {
+    const flushed = await $.classic.MessageDisplay({
+      turn_id: turn,
+      message_id: messageId,
+      index,
+      final: index === batches.length - 1,
+      delta,
+    });
+
+    shown += flushed.displayContent ?? delta;
+  }
+
+  return shown;
+}
+
+test("while a reply streams, the screen hides exactly what the chat hides once it is whole", async ($, on) => {
+  const world = await started($, on);
+  const shown = await streamed($, "turn-1", "message-1", ROUND);
+
+  expect(shown).toContain("When does it ship");
+  expect(shown).not.toMatch(RECOMMENDATIONS);
+  expect(shown).toBe(await drawnReply($, world, "terminal", ROUND));
+
+  const plain = await $.classic.MessageDisplay({
+    turn_id: "turn-2",
+    message_id: "message-2",
+    index: 0,
+    final: true,
+    delta: "Use the ➡️ arrow key to move.",
+  });
+
+  expect(plain.displayContent).toBeUndefined();
+});
+
+test("while a reply streams, a recommendation written after a tool call is hidden, until the next turn", async ($, on) => {
+  await started($, on);
+
+  expect(
+    await streamed($, "turn-1", "message-1", "❓ **Q1** - **Database**: Which database?\n\n"),
+  ).toContain("Which database?");
+  expect(await streamed($, "turn-1", "message-2", "➡️ Postgres,\nsince the team runs it.\n")).toBe(
+    "",
+  );
+
+  const after = "➡️ That settles the database.";
+
+  expect(await streamed($, "turn-2", "message-3", after)).toBe(after);
 });
 
 test("the chat hides exactly what the pane shows as a recommendation", async ($, on) => {
