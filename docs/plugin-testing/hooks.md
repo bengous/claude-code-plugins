@@ -136,6 +136,13 @@ under the [loader rules](hook-runtime.md#module-loader).
   raises itself. A test sees the module's scroll by what its failure does
   (`griller/hooks/register.test.ts`).
 
+- The kit has no act for the person's close of a pane: the engine's `$`
+  carries no `ui.close`, and a test hook's own `$.ui.close` is refused, its
+  scan listing no calls. An inline plugin's `$.ui.close({ id })` reaches the
+  module's `ui.close` hook for that id, origin `{ kind: "plugin" }`, so it
+  stands in for the person's close where the module does not read the
+  origin (`HAND` in `griller/hooks/register.test.ts`).
+
 - The kit keeps no conversation: a prompt submitted raises no
   `session.append`. A test raises one with its own `$.session.append`, the
   row's `door`, `origin` and `agentId` as it writes them, and the kit keeps
