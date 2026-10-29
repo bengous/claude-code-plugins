@@ -308,7 +308,7 @@ function waiting(state = STATE): Map<string, string> {
     isTaken: false,
   }));
 
-  return new Map([[state, JSON.stringify({ last: 3, sent: [], open: questions })]]);
+  return new Map([[state, JSON.stringify({ last: 3, closed: [], open: questions })]]);
 }
 
 test("a reload brings back the round nobody answered, with the answers recorded", async ($, on) => {
@@ -779,6 +779,77 @@ test("questions keep the numbers Claude gave them, and an unnumbered one follows
 
   // One rule between two rounds, none under the title.
   expect(world.files.get(TRANSCRIPT)?.split("\n---\n")).toHaveLength(3);
+});
+
+/** `ROUND` asked again after the person asked Claude a question instead of sending: Q3 reworded. */
+const RESTATED = ROUND.replace(
+  "When does it ship: **(a)** this sprint, or **(b)** the one after?",
+  "Which sprint ships it: **(a)** this one, or **(b)** the next?",
+);
+
+test("a round asked while another waits closes it unsent, and each question asked again unchanged keeps its answer", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
+  await ui.press({ key: "toggle-2" });
+  await ui.press({ key: "take-2" });
+  await ui.press({ key: "choice-3-a" });
+  await ui.unmount();
+
+  await ended($, RESTATED);
+  const pane = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  expect((await pane.find({ key: "question-3" }))?.text).toContain("Which sprint ships it");
+  expect((await pane.find({ key: "answer-1" }))?.props.value).toBe("MySQL");
+  expect((await pane.find({ key: "answer-1" }))?.props.submitLabel).toBe("Update");
+  expect(await pane.find({ text: /Using Claude's answer/u })).toBeDefined();
+  expect((await pane.find({ key: "choice-3-a" }))?.props.variant).toBeUndefined();
+  expect((await pane.find({ type: "Text", text: /answered/u }))?.text).toBe(
+    "2 of 3 answered · 1 used Claude's",
+  );
+  await pane.unmount();
+
+  expect(eventsIn(world).slice(-2)).toEqual([
+    { kind: "close", questions: [1, 2, 3] },
+    { kind: "open", questions: [1, 2, 3] },
+  ]);
+  expect(world.files.get(TRANSCRIPT)).toBe(
+    [
+      "# Grill",
+      "",
+      "_Abandoned: not sent to Claude._",
+      "",
+      "**Q1** - **Database**: Which database?",
+      "",
+      "**Answer:** MySQL",
+      "",
+      "**Q2** - **Owner**: Who owns the migration?",
+      "",
+      "**Answer:** Claude's",
+      "",
+      "**Q3** - **Date**: When does it ship: **(a)** this sprint, or **(b)** the one after?",
+      "",
+      "**Answer:** (a)",
+      "",
+      "---",
+      "",
+      "**Q1** - **Database**: Which database?",
+      "",
+      "**Answer:** MySQL",
+      "",
+      "**Q2** - **Owner**: Who owns the migration?",
+      "",
+      "**Answer:** Claude's",
+      "",
+      "**Q3** - **Date**: Which sprint ships it: **(a)** this one, or **(b)** the next?",
+      "",
+      "**Answer:** _not answered yet_",
+      "",
+    ].join("\n"),
+  );
 });
 
 /**

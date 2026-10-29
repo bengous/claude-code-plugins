@@ -32,13 +32,15 @@ The chat shows the questions and hides every ➡️ part, while the reply stream
 
 Claude reads your final answers alone, one line per question under the number it gave it, `your recommendation` where you used its own. Then it asks the next round, its numbers following the last.
 
+A round Claude writes while another still waits, as when you ask it something in the prompt instead of sending, takes that round's place: the round waiting is closed unsent, and each question asked again unchanged, the same number and the same text, keeps the answer you recorded for it. Its recommendation stays hidden, since it may be new.
+
 ## The scribe
 
 The mod keeps the grill under `.claude/griller/` in the session's project, a folder whose own `.gitignore` keeps it out of git. Claude never reads any of it, and it stays on your machine:
 
-- `<session id>.md`: the grill as you read it, rewritten as you answer: each question as Claude wrote it, its recommendation once the round is sent, and your final answer. The round waiting shows no recommendation, so the file can sit beside the pane.
+- `<session id>.md`: the grill as you read it, rewritten as you answer: each question as Claude wrote it, its recommendation once the round is sent, and your final answer. The round waiting shows no recommendation, so the file can sit beside the pane. A round another one replaced before you sent it stays, marked abandoned, with the answers it had and no recommendation.
 - `<session id>.jsonl`: the journal, one timestamped line per gesture, for analysis: a round opened, reopened, sent or closed unsent; the typing in an answer field, one line with its text once the field loses the focus or another gesture comes; each answer recorded, choice picked, peek, hide and Claude's answer taken.
-- `<session id>.json`: the mod's state, the last question number, the rounds sent and the round waiting with the answers recorded so far.
+- `<session id>.json`: the mod's state, the last question number, the rounds sent or abandoned and the round waiting with the answers recorded so far.
 
 A file over 4 MiB can no longer be read or written by a mod: a journal that grows past it is left as it is, and the mod says so.
 
