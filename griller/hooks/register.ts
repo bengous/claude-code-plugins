@@ -1,4 +1,10 @@
-import type { ButtonProps, EngineInterface, InputProps, Register } from "claude-code";
+import type {
+  ButtonProps,
+  EngineInterface,
+  InputProps,
+  Register,
+  SessionMessage,
+} from "claude-code";
 
 const PLUGIN = "griller";
 
@@ -104,33 +110,57 @@ let typing: { readonly q: number; readonly field: string; text: string } | null 
  */
 const drafts = new WeakMap<Question, string>();
 
+/** Where a line of Claude's text stands in the round format. */
+type Place = "outside" | "question" | "recommendation";
+
+/**
+ * The one rule the pane and the chat both read Claude's text by: a ❓ line opens a question, a ➡️
+ * line opens its recommendation only inside a question, and a separator ends both.
+ */
+function placeOf(line: string, before: Place): Place {
+  if (QUESTION.test(line)) return "question";
+
+  if (SEPARATOR.test(line)) return "outside";
+
+  if (before === "question" && RECOMMENDATION.test(line)) return "recommendation";
+
+  return before;
+}
+
+function placeAfter(text: string, before: Place): Place {
+  return text.split("\n").reduce<Place>((place, line) => placeOf(line, place), before);
+}
+
 /** The questions of a reply written in the round format, each with its recommendation; none when it holds no round. */
 function parseRound(text: string): Asked[] {
   const asked: Asked[] = [];
   let question: string[] = [];
-  let recommendation: string[] | null = null;
+  let recommendation: string[] = [];
+  let place: Place = "outside";
 
   const close = () => {
     const q = question.join("\n").trim();
-    const r = recommendation?.join("\n").trim() ?? "";
+    const r = recommendation.join("\n").trim();
 
     if (q !== "" && r !== "") asked.push({ question: q, recommendation: r });
     question = [];
-    recommendation = null;
+    recommendation = [];
   };
 
   for (const line of text.split("\n")) {
+    place = placeOf(line, place);
+
     if (QUESTION.test(line)) {
       close();
       question = [line.replace(QUESTION, "").trim()];
-    } else if (RECOMMENDATION.test(line) && question.length > 0) {
-      recommendation = [line.replace(RECOMMENDATION, "").trim()];
-    } else if (SEPARATOR.test(line)) {
-      close();
-    } else if (recommendation !== null) {
-      recommendation.push(line);
-    } else if (question.length > 0) {
+    } else if (place === "recommendation") {
+      recommendation.push(
+        RECOMMENDATION.test(line) ? line.replace(RECOMMENDATION, "").trim() : line,
+      );
+    } else if (place === "question") {
       question.push(line);
+    } else {
+      close();
     }
   }
 
@@ -140,22 +170,17 @@ function parseRound(text: string): Asked[] {
 }
 
 /**
- * A reply as the chat draws it: in a reply that holds a question, every recommendation is hidden from
- * its ➡️ line to the next separator or question, or to the end of what has streamed so far.
+ * A message of Claude's as the chat draws it, `before` being where the earlier messages of its turn
+ * left its first line: every line the pane reads as a recommendation is hidden.
  */
-function masked(text: string): string {
-  if (!text.split("\n").some((line) => QUESTION.test(line))) return text;
+function masked(text: string, before: Place): string {
   const shown: string[] = [];
-  let isHiding = false;
+  let place = before;
 
   for (const line of text.split("\n")) {
-    if (RECOMMENDATION.test(line)) {
-      isHiding = true;
-    } else if (isHiding && (SEPARATOR.test(line) || QUESTION.test(line))) {
-      isHiding = false;
-    }
+    place = placeOf(line, place);
 
-    if (!isHiding) shown.push(line);
+    if (place !== "recommendation") shown.push(line);
   }
 
   return shown.join("\n");
@@ -487,16 +512,60 @@ async function send($: EngineInterface, r: Round, isForced = false): Promise<voi
   $.ui.toast(`${PLUGIN}: the answers were not sent: ${submitted.drop}`);
 }
 
+/** A message that starts a turn: one the person or a plugin sent, never a tool's result. */
+function isPrompt(m: SessionMessage): boolean {
+  return m.role === "user" && m.text.trim() !== "" && (m.toolResults ?? []).length === 0;
+}
+
+/** Where each of Claude's messages starts, by its text: where the earlier messages of its turn left off. */
+function startsIn(messages: readonly SessionMessage[]): Map<string, Place> {
+  const starts = new Map<string, Place>();
+  let place: Place = "outside";
+
+  for (const m of messages) {
+    if (isPrompt(m)) {
+      place = "outside";
+    } else if (m.role === "assistant") {
+      starts.set(m.text, place);
+      place = placeAfter(m.text, place);
+    }
+  }
+
+  return starts;
+}
+
+let starts = new Map<string, Place>();
+
+let reading: Promise<void> | null = null;
+
+/** The conversation read again for `starts`; the drawings that ask meanwhile share the reading. */
+function reread($: EngineInterface): Promise<void> {
+  reading ??= (async () => {
+    starts = startsIn(await $.session.messages());
+  })().finally(() => {
+    reading = null;
+  });
+
+  return reading;
+}
+
+/**
+ * Where a message of Claude's starts; a text the conversation does not hold starts outside. A reading
+ * already under way may predate the message, so a second one follows it.
+ */
+async function startOf($: EngineInterface, text: string): Promise<Place> {
+  for (let tries = 0; !starts.has(text) && tries < 2; tries += 1) await reread($);
+
+  return starts.get(text) ?? "outside";
+}
+
 /**
  * Claude's text since the user's last prompt, `answer` added when the transcript does not hold it yet:
  * a round followed by a tool call is still found.
  */
 async function lastTurnText($: EngineInterface, answer: string): Promise<string> {
   const messages = await $.session.messages();
-
-  const prompt = messages.findLastIndex(
-    (m) => m.role === "user" && m.text.trim() !== "" && (m.toolResults ?? []).length === 0,
-  );
+  const prompt = messages.findLastIndex((m) => isPrompt(m));
 
   const text = messages
     .slice(prompt + 1)
@@ -824,9 +893,9 @@ export const register: Register = (on) => {
     return moved;
   });
 
-  // Every draw of a reply, each piece of a streamed one included, hides its recommendations.
-  on("ui.render", { component: "AssistantMessage" }, (_$, e, next) => {
-    const text = masked(e.props.text);
+  // Every draw of a message hides its recommendations, those of a round an earlier message opened too.
+  on("ui.render", { component: "AssistantMessage" }, async ($, e, next) => {
+    const text = masked(e.props.text, await startOf($, e.props.text));
 
     return text === e.props.text ? next(e) : next({ ...e, props: { ...e.props, text } });
   });

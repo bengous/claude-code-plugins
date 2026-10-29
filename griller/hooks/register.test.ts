@@ -271,6 +271,39 @@ test("a reply's recommendations are hidden in the chat, while it streams too", a
   expect(await drawnReply($, world, "desktop", plain)).toBe(plain);
 });
 
+test("the chat hides exactly what the pane shows as a recommendation", async ($, on) => {
+  const world = await started($, on);
+
+  const reply = [
+    "❓ **Q1** - **Database**: Which database?",
+    "",
+    "➡️ Postgres,",
+    "➡️ on the managed tier.",
+    "",
+    "---",
+    "",
+    "Next steps:",
+    "",
+    "➡️ run the migration on Monday.",
+  ].join("\n");
+
+  const shown = await drawnReply($, world, "desktop", reply);
+
+  expect(shown).toContain("Which database?");
+  expect(shown).not.toMatch(/Postgres|managed tier/u);
+  expect(shown).toContain("➡️ run the migration on Monday.");
+
+  await ended($, reply);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.press({ key: "toggle-1" });
+  expect((await ui.find({ key: "recommendation-1" }))?.text).toBe(
+    "Postgres,\non the managed tier.",
+  );
+  expect(await ui.find({ text: /run the migration/u })).toBeUndefined();
+  await ui.unmount();
+});
+
 test("a turn that ends on a round opens it in the pane, recommendations hidden", async ($, on) => {
   const world = await started($, on);
 
@@ -303,6 +336,49 @@ test("a round followed by a tool call in the same turn still opens", async ($, o
   );
   await ended($, "");
   expect(world.opens()).toBe(1);
+});
+
+test("a recommendation written after a tool call is hidden in the chat as in the pane, until the next prompt", async ($, on) => {
+  const world = await started($, on);
+  const asked = "❓ **Q1** - **Database**: Which database?";
+  const recommended = "➡️ Postgres,";
+  const continued = "since the team runs it.\n\n---";
+
+  const toolResult: SessionMessage = {
+    role: "user",
+    text: "",
+    toolUses: [],
+    toolResults: [{ tool_use_id: "toolu-1", text: "ok", isError: false }],
+  };
+
+  world.messages.push(
+    message("user", "/griller:grill the migration"),
+    message("assistant", asked),
+    message("assistant", ""),
+    toolResult,
+    message("assistant", recommended),
+    message("assistant", ""),
+    toolResult,
+    message("assistant", continued),
+  );
+
+  expect(await drawnReply($, world, "terminal", asked)).toBe(asked);
+  expect(await drawnReply($, world, "terminal", recommended)).not.toMatch(/Postgres/u);
+  expect(await drawnReply($, world, "terminal", continued)).not.toMatch(/team runs it/u);
+
+  await ended($, continued);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.press({ key: "toggle-1" });
+  expect((await ui.find({ key: "recommendation-1" }))?.text).toBe(
+    "Postgres,\n\nsince the team runs it.",
+  );
+  await ui.unmount();
+
+  const after = "➡️ That settles the database.";
+
+  world.messages.push(message("user", "Grill answers:\nQ1: MySQL"), message("assistant", after));
+  expect(await drawnReply($, world, "terminal", after)).toBe(after);
 });
 
 /** The round after `ROUND`, its questions numbered by Claude after the first round's. */

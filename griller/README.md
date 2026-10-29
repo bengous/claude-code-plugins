@@ -23,7 +23,7 @@ Run `/griller:grill <topic>`, such as `/griller:grill the migration plan`. Claud
 ---
 ```
 
-The chat shows the questions and hides every ➡️ part, while the reply streams too. Once Claude's turn ends, a Grill pane opens beside the chat with one card per question:
+The chat shows the questions and hides each ➡️ part that follows a question, up to its `---`, a part Claude writes after a tool call included: it hides exactly what the pane holds as a recommendation, so a ➡️ line outside a question stays in the chat. Once Claude's turn ends, a Grill pane opens beside the chat with one card per question:
 
 - **(a)**, **(b)**, **(c)**: a question that offers choices has a button per choice. A click records that choice.
 - **Record**: records what you wrote in the field, with Enter or the button. Typing alone records nothing. Once a question is answered, its text dims and Record becomes **Update**.
@@ -83,5 +83,6 @@ The round waiting is read back from the scribe's state, so a mod reload, a resta
 - A question that takes several choices still gets one button each, and a press replaces the choice before it: you combine them by typing them, such as `a + d`.
 - The journal notes no end of session: a round left open when the session ends reads the same as one still waiting, and typing that no gesture followed is not in it. Going back to the prompt does not end the typing in a field; the next gesture does.
 - The terminal's ctrl+o transcript shows replies as stored, recommendations included.
+- In the terminal, a reply shows as it streams, recommendations included: the chat hides them once each of Claude's messages is whole.
 - In the terminal, a round opened over earlier text can leave stray letters in the pane's blank rows; ctrl+l redraws the screen and clears them.
 - The pane needs a terminal or the desktop app: the mobile app draws no answer field.
