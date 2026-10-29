@@ -188,6 +188,18 @@ plugins (September 2026), unless a line says otherwise.
   `$.store` can be restored there. Registering the same tool or command name
   again replaces it, with no warning and no duplicate in the typeahead.
 
+- `/clear` and an in-process `/resume <id>` keep the process and the module's
+  variables, and raise no `session.start`. Each raises `classic.SessionEnd`
+  and `session.end` (reason `clear`, `resume`) with the ending session's id,
+  then `classic.SessionStart` (source `clear`, `resume`) whose `session_id` is
+  the next session's. Inside that hook `$.session.id()` already answers the
+  new id after `/clear`, but still the previous one after `/resume`, until
+  the command is over: a module takes the id from `e.session_id`
+  (`griller/hooks/register.ts`). At startup, `classic.SessionStart` (source
+  `startup`) runs while `session.start`'s `next(e)` is pending. Measured on
+  Claude Code 2.1.312, Linux, with a probe module logging each event in an
+  interactive `--plugin-dir` session.
+
 ## Tools, commands and modes
 
 - A plugin can hold a mode of its own instead of borrowing a native one. The
