@@ -647,12 +647,10 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
   const done = r.questions.filter((q) => q.answer.trim() !== "").length;
   const used = r.questions.filter((q) => q.isTaken).length;
 
-  const counts = `${done} of ${r.questions.length} answered · ${used} used Claude's`;
-
   const progress = Text({
     size: "footnote",
     dimColor: true,
-    children: r.isInBand ? `${counts} · ${BAND_HINT}` : counts,
+    children: `${done} of ${r.questions.length} answered · ${used} used Claude's`,
   });
 
   const sendAnyway = Button({
@@ -695,7 +693,14 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     gap: 2,
     paddingX: 1,
     children: [
-      Text({ size: "footnote", dimColor: true, children: HINT }),
+      // A band shows its first rows: the keys go there, not under the cards.
+      Box({
+        flexDirection: "column",
+        children: [
+          Text({ size: "footnote", dimColor: true, children: HINT }),
+          ...(r.isInBand ? [Text({ size: "footnote", dimColor: true, children: BAND_HINT })] : []),
+        ],
+      }),
       ...blocks,
       ...failure,
       Box({
