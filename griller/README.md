@@ -70,7 +70,7 @@ Measured with `claude -p`, as the difference in input tokens with and without ea
 
 What the text way costs in return is in Limits: it depends on Claude keeping the round format, and it hides recommendations by redrawing the chat, not by keeping them out of the stored reply.
 
-The round waiting is read back from the scribe's state, so a mod reload or a restarted session opens it again with the answers recorded, without what you had typed and not recorded, and a round already sent stays closed.
+The round waiting is read back from the scribe's state, so a mod reload, a restarted session or a resumed one, through `/resume` too, opens it again with the answers recorded, without what you had typed and not recorded, and a round already sent stays closed. A `/clear` leaves the grill with the session it ends: the pane closes, and the new conversation's grill starts from nothing, in files of its own.
 
 ## Limits
 
