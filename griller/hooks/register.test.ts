@@ -49,6 +49,10 @@ type World = {
   readonly prompts: string[];
   /** How many times the mod opened its pane. */
   readonly opens: () => number;
+  /** How many times the mod closed its pane. */
+  readonly closes: () => number;
+  /** Points `$.session.id()` at another session, as a /clear or a resume does. */
+  readonly moveTo: (id: string) => void;
   /** The props each drawing the engine made beneath the plugin received. */
   readonly drawn: unknown[];
   /** The conversation the session holds, as `$.session.messages()` answers it. */
@@ -65,6 +69,13 @@ const TRANSCRIPT = "/work/.claude/griller/session-1.md";
 
 const JOURNAL = "/work/.claude/griller/session-1.jsonl";
 
+/** The files of the session that takes the process after a /clear or a resume. */
+const OTHER = {
+  state: "/work/.claude/griller/session-2.json",
+  transcript: "/work/.claude/griller/session-2.md",
+  journal: "/work/.claude/griller/session-2.jsonl",
+} as const;
+
 function message(role: SessionMessage["role"], text: string): SessionMessage {
   return { role, text, toolUses: [] };
 }
@@ -80,6 +91,8 @@ async function started(
   const drawn: unknown[] = [];
   const failing = new Map<string, number>();
   let opens = 0;
+  let closes = 0;
+  let id = "session-1";
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("prompt.submit", (_$, e) => {
@@ -92,7 +105,11 @@ async function started(
 
     return { value: { isPlaced: true } };
   });
-  on("ui.close", () => ({ value: undefined }));
+  on("ui.close", () => {
+    closes += 1;
+
+    return { value: undefined };
+  });
   on("ui.toast", () => ({ value: undefined }));
   on("clock.now", () => ({ value: Date.UTC(2026, 0, 1) }));
   on("clock.sleep", () => ({ value: undefined }));
@@ -105,7 +122,7 @@ async function started(
   });
   on("session.messages", () => ({ value: messages }));
   on("session.root", () => ({ value: "/work" }));
-  on("session.id", () => ({ value: "session-1" }));
+  on("session.id", () => ({ value: id }));
   on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
   on("fs.read", (_$, e) => ({ value: files.get(e.path) ?? "" }));
   on("fs.write", (_$, e) => {
@@ -123,9 +140,21 @@ async function started(
   });
   on("turn.complete", (_$, e) => ({ text: e.answer }));
   on("session.start", () => ({ cwd: "/work" }));
+  on("classic.SessionStart", () => ({}));
   await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
 
-  return { prompts, opens: () => opens, drawn, messages, files, failing };
+  return {
+    prompts,
+    opens: () => opens,
+    closes: () => closes,
+    moveTo: (next) => {
+      id = next;
+    },
+    drawn,
+    messages,
+    files,
+    failing,
+  };
 }
 
 /** Claude's turn ends on this reply. */
@@ -228,7 +257,7 @@ async function answeredAndSent($: Engine, count: number) {
 }
 
 /** The scribe's state for a session whose first round waits, its third question answered (a). */
-function waiting(): Map<string, string> {
+function waiting(state = STATE): Map<string, string> {
   const questions = [
     ["Which database?", "Postgres", ""],
     ["Who owns the migration?", "The platform team", ""],
@@ -243,7 +272,7 @@ function waiting(): Map<string, string> {
     isTaken: false,
   }));
 
-  return new Map([[STATE, JSON.stringify({ last: 3, sent: [], open: questions })]]);
+  return new Map([[state, JSON.stringify({ last: 3, sent: [], open: questions })]]);
 }
 
 test("a reload brings back the round nobody answered, with the answers recorded", async ($, on) => {
@@ -385,8 +414,8 @@ type Logged = {
 };
 
 /** The journal's lines, without their timestamps. */
-function eventsIn(world: World): Omit<Logged, "at">[] {
-  return (world.files.get(JOURNAL) ?? "")
+function eventsIn(world: World, journal = JOURNAL): Omit<Logged, "at">[] {
+  return (world.files.get(journal) ?? "")
     .trim()
     .split("\n")
     .map((line) => {
@@ -610,4 +639,79 @@ test("questions keep the numbers Claude gave them, and an unnumbered one follows
 
   // One rule between two rounds, none under the title.
   expect(world.files.get(TRANSCRIPT)?.split("\n---\n")).toHaveLength(3);
+});
+
+/**
+ * Session `id` takes the process as the engine puts it there: `classic.SessionStart`, and no
+ * `session.start`. A /clear answers the new id from `$.session.id()` at once, a resume only once
+ * its command is over (docs/plugin-testing/hook-runtime.md).
+ */
+async function switched($: Engine, world: World, id: string, source: "clear" | "resume") {
+  if (source === "clear") world.moveTo(id);
+  await $.classic.SessionStart({ source, session_id: id });
+  world.moveTo(id);
+}
+
+/** The files of session-1 as they stand now. */
+function firstSessionFiles(world: World): Map<string, string> {
+  return new Map([...world.files].filter(([path]) => path.includes("/session-1.")));
+}
+
+test("after a /clear the old round leaves the pane, and nothing of the old conversation is written under the new id", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  await answeredAndSent($, 3);
+  world.messages.push(message("user", world.prompts[0] ?? ""));
+  await ended($, NEXT);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.input({ key: "answer-1", text: "The DBA on", kind: "change" });
+  await ui.unmount();
+  const before = firstSessionFiles(world);
+  const closed = world.closes();
+
+  await switched($, world, "session-2", "clear");
+  world.messages.splice(0);
+  expect(world.closes()).toBe(closed + 1);
+
+  const pane = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  expect((await pane.find({ type: "Text" }))?.text).toBe("No round is waiting for your answers.");
+  await pane.unmount();
+
+  await ended($, "❓ **Rollback**: Who decides a rollback?\n\n➡️ The on-call lead\n\n---");
+  await answeredAndSent($, 1);
+
+  expect(world.prompts.at(-1)).toBe("Grill answers:\nQ1: answer 1");
+  expect(eventsIn(world, OTHER.journal)).toEqual([
+    { kind: "open", questions: [1] },
+    { kind: "answer", q: 1, text: "answer 1" },
+    { kind: "send", questions: [1] },
+  ]);
+  expect(world.files.get(OTHER.transcript)).not.toMatch(/Which database|Who restores/u);
+  expect(firstSessionFiles(world)).toEqual(before);
+});
+
+test("a resume reopens the resumed session's own waiting round, and leaves the other session's files as they were", async ($, on) => {
+  const world = await started($, on, [], waiting(OTHER.state));
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.press({ key: "choice-3-b" });
+  await ui.unmount();
+  const before = firstSessionFiles(world);
+
+  await switched($, world, "session-2", "resume");
+  expect(world.opens()).toBe(2);
+
+  const pane = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  expect((await pane.find({ key: "choice-3-a" }))?.props.variant).toBe("primary");
+  expect((await pane.find({ key: "choice-3-b" }))?.props.variant).toBeUndefined();
+  await pane.unmount();
+
+  expect(eventsIn(world, OTHER.journal)).toEqual([{ kind: "reopen", questions: [1, 2, 3] }]);
+  expect(firstSessionFiles(world)).toEqual(before);
 });

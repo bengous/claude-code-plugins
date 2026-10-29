@@ -57,6 +57,19 @@ type Saved = {
   readonly open: readonly Question[] | null;
 };
 
+type Paths = {
+  readonly folder: string;
+  readonly state: string;
+  readonly transcript: string;
+  readonly journal: string;
+};
+
+/**
+ * The session whose grill the module holds, and its files: every write goes there, whatever session
+ * `$.session.id()` names by then.
+ */
+let held: { readonly id: string; readonly paths: Paths } | null = null;
+
 let round: Round | null = null;
 
 /** The number of the last question asked in this session; the next round continues after it. */
@@ -188,9 +201,8 @@ function transcriptOf(
   return `# Grill\n\n${sections.join("\n\n---\n\n")}\n`;
 }
 
-async function pathsOf($: EngineInterface) {
+async function pathsOf($: EngineInterface, id: string): Promise<Paths> {
   const folder = `${await $.session.root()}/${FOLDER}`;
-  const id = await $.session.id();
 
   return {
     folder,
@@ -201,7 +213,8 @@ async function pathsOf($: EngineInterface) {
 }
 
 async function writeAll($: EngineInterface): Promise<void> {
-  const paths = await pathsOf($);
+  if (held === null) throw new Error("no session's grill is loaded yet");
+  const { paths } = held;
   const open = round?.questions ?? null;
   const saved: Saved = { last, sent, open };
 
@@ -295,10 +308,12 @@ async function failedSave($: EngineInterface): Promise<string | null> {
   }
 }
 
-async function load($: EngineInterface): Promise<Saved> {
-  const paths = await pathsOf($);
+type Loaded = { readonly paths: Paths; readonly journal: string | null; readonly saved: Saved };
 
-  journal = (await $.fs.exists(paths.journal))
+async function load($: EngineInterface, id: string): Promise<Loaded> {
+  const paths = await pathsOf($, id);
+
+  const lines = (await $.fs.exists(paths.journal))
     ? await $.fs.read(paths.journal).catch((cause: unknown) => {
         $.ui.toast(
           `${PLUGIN}: the journal could not be read, so it is left as is: ${String(cause)}`,
@@ -308,10 +323,45 @@ async function load($: EngineInterface): Promise<Saved> {
       })
     : "";
 
-  if (!(await $.fs.exists(paths.state))) return { last: 0, sent: [], open: null };
+  if (!(await $.fs.exists(paths.state))) {
+    return { paths, journal: lines, saved: { last: 0, sent: [], open: null } };
+  }
 
   // SAFETY: only this module writes the file, from a `Saved`.
-  return JSON.parse(await $.fs.read(paths.state)) as Saved;
+  return { paths, journal: lines, saved: JSON.parse(await $.fs.read(paths.state)) as Saved };
+}
+
+/**
+ * Session `id`'s grill takes the module's place, its waiting round back in the pane. The grill held
+ * before leaves the pane and keeps its files as its last write left them.
+ */
+async function hold($: EngineInterface, id: string): Promise<void> {
+  const loaded = await load($, id);
+
+  // A write under way is the previous session's, into its files; its failure was said where it was asked.
+  for (let pending = writing; pending !== null; pending = writing) {
+    await Promise.allSettled([pending]);
+  }
+
+  const wasPlaced = round !== null && !round.isInBand;
+
+  held = { id, paths: loaded.paths };
+  journal = loaded.journal;
+  last = loaded.saved.last;
+  sent = [...loaded.saved.sent];
+  round = null;
+  typing = null;
+
+  if (loaded.saved.open !== null) {
+    await openRound($, loaded.saved.open);
+    await note($, { kind: "reopen", questions: numbersOf(loaded.saved.open) });
+    await flush($);
+
+    return;
+  }
+
+  if (wasPlaced) await $.ui.close({ id: PANE });
+  $.ui.invalidate("ui.render");
 }
 
 function restore(r: Round): void {
@@ -610,19 +660,26 @@ export const register: Register = (on) => {
   // The module's variables go with a reload or a restart: the saved state gives them back.
   on("session.start", async ($, e, next) => {
     const started = await next(e);
-    const saved = await load($);
 
-    last = saved.last;
-    sent = [...saved.sent];
-    round = null;
-
-    if (saved.open !== null) {
-      await openRound($, saved.open);
-      await note($, { kind: "reopen", questions: numbersOf(saved.open) });
-      await flush($);
-    }
+    await hold($, await $.session.id());
 
     return started;
+  });
+
+  // A /clear or a resume puts another session in the process and raises no `session.start`; after
+  // a resume, `$.session.id()` names the new session only once the event is over.
+  on("classic.SessionStart", async ($, e, next) => {
+    const started = await next(e);
+
+    if (held !== null && e.session_id !== held.id) await hold($, e.session_id);
+
+    return started;
+  }).catch(($, e, next) => {
+    $.ui.toast(
+      `${PLUGIN}: this session's grill could not be loaded: ${next.error.message ?? next.error.kind}`,
+    );
+
+    return next(e);
   });
 
   // A turn whose replies hold a round opens it in the pane once it ends.
