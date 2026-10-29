@@ -470,10 +470,12 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
   };
 
   /** The answer that completes the round brings Send into view: a long round puts it below the fold. */
-  const answered = async (event: Event) => {
-    changed(event);
+  const answered = async (record: () => Event) => {
+    const wasComplete = isComplete(r);
 
-    if (!isComplete(r) || r.isInBand) return;
+    changed(record());
+
+    if (wasComplete || !isComplete(r) || r.isInBand) return;
 
     await $.ui
       .scroll({ in: PANE, to: "end" })
@@ -494,12 +496,13 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       const choice: ButtonProps = {
         key: `choice-${n}-${letter}`,
         label: `(${letter})`,
-        onPress: () => {
-          q.answer = `(${letter})`;
-          q.isTaken = false;
+        onPress: () =>
+          answered(() => {
+            q.answer = `(${letter})`;
+            q.isTaken = false;
 
-          return answered({ kind: "choice", q: q.n, text: q.answer });
-        },
+            return { kind: "choice", q: q.n, text: q.answer };
+          }),
       };
 
       if (recorded === choice.label) choice.variant = "primary";
@@ -530,9 +533,13 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
         q.draft = text;
 
         if (text.trim() === "") return;
-        q.isTaken = q.isTaken && text === q.answer;
-        q.answer = text;
-        void answered({ kind: "answer", q: q.n, text });
+
+        void answered(() => {
+          q.isTaken = q.isTaken && text === q.answer;
+          q.answer = text;
+
+          return { kind: "answer", q: q.n, text };
+        });
       },
     };
 
@@ -552,13 +559,14 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     const use = Button({
       key: `take-${n}`,
       label: "Use Claude's",
-      onPress: () => {
-        q.answer = q.recommendation;
-        q.draft = q.recommendation;
-        q.isTaken = true;
+      onPress: () =>
+        answered(() => {
+          q.answer = q.recommendation;
+          q.draft = q.recommendation;
+          q.isTaken = true;
 
-        return answered({ kind: "take", q: q.n });
-      },
+          return { kind: "take", q: q.n };
+        }),
     });
 
     // What commits an answer sits on the right; a peek, which commits nothing, on the left.

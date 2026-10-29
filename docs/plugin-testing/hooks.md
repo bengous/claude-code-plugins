@@ -130,6 +130,12 @@ under the [loader rules](hook-runtime.md#module-loader).
   `no implementation for classic.SessionStart`
   (`griller/hooks/register.test.ts`). Measured with `SessionStart` alone.
 
+- The kit answers no module's `$.ui.scroll`: the call rejects with `no
+  implementation for ui.scroll`, a mounted pane and a test's
+  `on("ui.scroll")` notwithstanding, which hears only the scrolls the test
+  raises itself. A test sees the module's scroll by what its failure does
+  (`griller/hooks/register.test.ts`).
+
 - The kit keeps no conversation: a prompt submitted raises no
   `session.append`. A test raises one with its own `$.session.append`, the
   row's `door`, `origin` and `agentId` as it writes them, and the kit keeps
