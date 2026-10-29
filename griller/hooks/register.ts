@@ -50,10 +50,13 @@ type Event =
   | { readonly kind: "draft" | "answer" | "choice"; readonly q: number; readonly text: string }
   | { readonly kind: "peek" | "hide" | "take"; readonly q: number };
 
-/** The mod's state for the session: the last question number, the rounds sent, and the round waiting. */
+/** A round that left the pane: its answers sent to Claude, or abandoned unsent. */
+type Closed = { readonly kind: "sent" | "abandoned"; readonly questions: readonly Question[] };
+
+/** The mod's state for the session: the last question number, the rounds closed, and the round waiting. */
 type Saved = {
   readonly last: number;
-  readonly sent: readonly (readonly Question[])[];
+  readonly closed: readonly Closed[];
   readonly open: readonly Question[] | null;
 };
 
@@ -75,7 +78,7 @@ let round: Round | null = null;
 /** The number of the last question asked in this session; the next round continues after it. */
 let last = 0;
 
-let sent: (readonly Question[])[] = [];
+let closed: Closed[] = [];
 
 /** The journal's lines; null when the file on disk could not be read, so it is never overwritten. */
 let journal: string | null = "";
@@ -156,6 +159,20 @@ function numbered(asked: readonly Asked[], after: number): Question[] {
   });
 }
 
+/**
+ * A new round's questions, each one asked again unchanged (its number and its text) keeping the
+ * card the round it replaces had for it; its recommendation stays hidden, since it may be new.
+ */
+function carried(questions: readonly Question[], replaced: readonly Question[]): Question[] {
+  return questions.map((q) => {
+    const before = replaced.find((b) => b.n === q.n && b.question === q.question);
+
+    if (before === undefined) return q;
+
+    return { ...q, answer: before.answer, draft: before.draft, isTaken: before.isTaken };
+  });
+}
+
 function numbersOf(questions: readonly Question[]): number[] {
   return questions.map((q) => q.n);
 }
@@ -169,33 +186,38 @@ function answersOf(r: Round): string {
   return ["Grill answers:", ...lines].join("\n");
 }
 
+const ABANDONED = "_Abandoned: not sent to Claude._";
+
 /**
- * The grill as the person reads it: each question, Claude's answer and theirs. The round waiting
- * shows no recommendation, which the file beside the pane would otherwise give away.
+ * The grill as the person reads it: each question, Claude's answer and theirs. Only a round sent
+ * shows its recommendations: the file beside the pane would give away the waiting round's, and an
+ * abandoned round's, which Claude may ask again.
  */
-function transcriptOf(
-  rounds: readonly (readonly Question[])[],
-  open: readonly Question[] | null,
-): string {
-  const answerOf = (q: Question) => {
+function transcriptOf(rounds: readonly Closed[], open: readonly Question[] | null): string {
+  const answerOf = (q: Question, isWaiting: boolean) => {
     const final = q.answer.trim();
 
-    if (final === "") return "_not answered yet_";
+    if (final === "") return isWaiting ? "_not answered yet_" : "_not answered_";
 
     return q.isTaken ? "Claude's" : final;
   };
 
-  const block = (q: Question, isSent: boolean) =>
+  const block = (q: Question, state: Closed["kind"] | "waiting") =>
     [
       q.question,
       "",
-      ...(isSent ? [`**Claude:** ${q.recommendation}`, ""] : []),
-      `**Answer:** ${answerOf(q)}`,
+      ...(state === "sent" ? [`**Claude:** ${q.recommendation}`, ""] : []),
+      `**Answer:** ${answerOf(q, state === "waiting")}`,
     ].join("\n");
 
+  const section = (questions: readonly Question[], state: Closed["kind"] | "waiting") =>
+    [...(state === "abandoned" ? [ABANDONED] : []), ...questions.map((q) => block(q, state))].join(
+      "\n\n",
+    );
+
   const sections = [
-    ...rounds.map((questions) => questions.map((q) => block(q, true)).join("\n\n")),
-    ...(open === null ? [] : [open.map((q) => block(q, false)).join("\n\n")]),
+    ...rounds.map((r) => section(r.questions, r.kind)),
+    ...(open === null ? [] : [section(open, "waiting")]),
   ];
 
   return `# Grill\n\n${sections.join("\n\n---\n\n")}\n`;
@@ -216,7 +238,7 @@ async function writeAll($: EngineInterface): Promise<void> {
   if (held === null) throw new Error("no session's grill is loaded yet");
   const { paths } = held;
   const open = round?.questions ?? null;
-  const saved: Saved = { last, sent, open };
+  const saved: Saved = { last, closed, open };
 
   if (!(await $.fs.exists(`${paths.folder}/.gitignore`))) {
     await $.fs.write(`${paths.folder}/.gitignore`, "*\n");
@@ -224,8 +246,8 @@ async function writeAll($: EngineInterface): Promise<void> {
 
   await $.fs.write(paths.state, `${JSON.stringify(saved, null, 2)}\n`);
 
-  if (sent.length > 0 || open !== null) {
-    await $.fs.write(paths.transcript, transcriptOf(sent, open));
+  if (closed.length > 0 || open !== null) {
+    await $.fs.write(paths.transcript, transcriptOf(closed, open));
   }
 
   if (journal !== null) await $.fs.write(paths.journal, journal);
@@ -324,7 +346,7 @@ async function load($: EngineInterface, id: string): Promise<Loaded> {
     : "";
 
   if (!(await $.fs.exists(paths.state))) {
-    return { paths, journal: lines, saved: { last: 0, sent: [], open: null } };
+    return { paths, journal: lines, saved: { last: 0, closed: [], open: null } };
   }
 
   // SAFETY: only this module writes the file, from a `Saved`.
@@ -348,7 +370,7 @@ async function hold($: EngineInterface, id: string): Promise<void> {
   held = { id, paths: loaded.paths };
   journal = loaded.journal;
   last = loaded.saved.last;
-  sent = [...loaded.saved.sent];
+  closed = [...loaded.saved.closed];
   round = null;
   typing = null;
 
@@ -365,8 +387,16 @@ async function hold($: EngineInterface, id: string): Promise<void> {
 }
 
 function restore(r: Round): void {
-  sent = sent.filter((questions) => questions !== r.questions);
+  closed = closed.filter((c) => c.questions !== r.questions);
   round = r;
+}
+
+/** The round leaves unsent: the transcript keeps it as abandoned, and the journal notes its close. */
+function abandon(r: Round): Event {
+  if (round === r) round = null;
+  closed.push({ kind: "abandoned", questions: r.questions });
+
+  return { kind: "close", questions: numbersOf(r.questions) };
 }
 
 /**
@@ -378,7 +408,7 @@ function restore(r: Round): void {
 async function send($: EngineInterface, r: Round, isForced = false): Promise<void> {
   if (round !== r) return;
   round = null;
-  sent.push(r.questions);
+  closed.push({ kind: "sent", questions: r.questions });
   const failure = await failedSave($);
 
   if (failure !== null && !isForced) {
@@ -689,7 +719,7 @@ export const register: Register = (on) => {
     return next(e);
   });
 
-  // A turn whose replies hold a round opens it in the pane once it ends.
+  // A turn whose replies hold a round opens it in the pane once it ends, in place of the round waiting.
   on("turn.complete", async ($, e, next) => {
     const done = await next(e);
 
@@ -698,9 +728,11 @@ export const register: Register = (on) => {
 
     if (asked.length === 0) return done;
     const questions = numbered(asked, last);
+    const replaced = round;
 
+    if (replaced !== null) await note($, abandon(replaced));
     last = questions.at(-1)?.n ?? last;
-    await openRound($, questions);
+    await openRound($, replaced === null ? questions : carried(questions, replaced.questions));
     await note($, { kind: "open", questions: numbersOf(questions) });
     await flush($);
 
