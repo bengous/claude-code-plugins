@@ -133,6 +133,16 @@ Left out, for refusing good plans as often as bad ones. Measured on 2026-10-17 o
 
 The kept checks hit 0.9% of the approved plans and 3.6% of those sent back.
 
+## Closing a pull request
+
+A pull request integrated by squash, rebase or cherry-pick stays "closed" on GitHub, with nothing on it to say where its work went.
+
+| Hook | Event | What it does |
+|---|---|---|
+| `scripts/pr-close-reminder.ts` | `PostToolUse` on `Bash` | After a `gh pr close`, asks Claude to comment on the pull request: the SHA that integrated it, a summary of what landed, and that new work on its branch starts from the default branch; or why it was abandoned. It names a candidate, the newest commit whose message carries `#<n>` on the first of `origin/HEAD`, `main` and `HEAD` that has one. |
+
+Claude Code runs `PostToolUse` only after a command that succeeded, so a failed close gets no reminder. The hook exits 0 on every path, like the plan hooks.
+
 ## Requirements
 
 - GitHub CLI (`gh`) authenticated
