@@ -140,6 +140,22 @@ plugins (September 2026), unless a line says otherwise.
   the turn's last tool result, a prompt queued with `ctrl+x enter`
   (`wait: true`), and two prompts waiting for the same idle.
 
+- `$.session.messages()` lists the transcript's user and assistant rows
+  alone, one per content block: a reply's thinking, text and tool call are
+  three rows, `text` `''` on all but the text. Attachments (a
+  `queued_command`, hook context, reminders) and meta rows (a pasted image's
+  `[Image: source: <path>]` note) are no rows. A message typed while a Bash
+  call ran, sent with Enter or with `ctrl+x ctrl+s` (which moved the call to
+  the background), entered the turn as a `queued_command` attachment and
+  added no row; one typed while Claude wrote its last text waited for the
+  turn's end and started a turn of its own. A prompt holding a pasted image
+  alone is a row whose `text` is `[Image #1]`, beside the image block. So the
+  last user row with text and no tool result is the running turn's prompt
+  (`isPrompt` in `griller/hooks/register.ts`). Measured on Claude Code
+  2.1.312, Linux, in an interactive `--plugin-dir` session with a probe module
+  logging `session.append`, `turn.start`, `turn.complete` and the rows, once
+  each; an image prompt from the desktop app is not measured.
+
 - `$.session.append` of a `user` row keeps it with `isMeta: true` and
   `door: "note"` and starts no turn; the model reads it at the next one.
   Measured live.
@@ -195,7 +211,10 @@ plugins (September 2026), unless a line says otherwise.
   the next session's. Inside that hook `$.session.id()` already answers the
   new id after `/clear`, but still the previous one after `/resume`, until
   the command is over: a module takes the id from `e.session_id`
-  (`griller/hooks/register.ts`). At startup, `classic.SessionStart` (source
+  (`griller/hooks/register.ts`). `$.session.messages()` there still answers
+  the previous conversation after `/resume`, and the resumed one at the first
+  `AssistantMessage` drawing that follows (measured on 2.1.312 with the probe
+  module of the rows above). At startup, `classic.SessionStart` (source
   `startup`) runs while `session.start`'s `next(e)` is pending. Measured on
   Claude Code 2.1.312, Linux, with a probe module logging each event in an
   interactive `--plugin-dir` session.
@@ -331,6 +350,20 @@ plugins (September 2026), unless a line says otherwise.
   without the call. A hook that passes to `next(e)` finds nothing beneath in
   the kit (`no implementation for ui.render`), so a test answers the site
   with its own `on("ui.render", ...)` (`vellum/src/runtime/hooks/fixtures/band.ts`).
+
+- In the terminal, `ui.render` of `AssistantMessage` draws one assistant row
+  of `$.session.messages()`, its `text` the row's, once `session.append` has
+  kept the row: while a reply streamed, the screen showed its text as it came
+  and no drawing reached the hooks, so a rewrite (griller's hiding) applies
+  only once each message is whole. `classic.MessageDisplay` fires at each
+  flush meanwhile, its `turn_id` and `message_id` matching neither
+  `turn.start`'s `turnId` nor the row's `uuid`. The drawing's `requestId` was
+  the row's `uuid`, or, for the rows written after one turn of the session,
+  that uuid with its last group zeroed (`…-000000000000`), for no cause
+  found: it does not join a row reliably, and griller matches a drawing to
+  its row by text. Measured on Claude Code 2.1.312, Linux, with the probe
+  module of the rows above, and with griller's own rounds; the desktop app is
+  not measured.
 
 ## What the contract and the docs say
 
