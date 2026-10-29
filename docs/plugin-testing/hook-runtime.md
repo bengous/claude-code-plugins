@@ -353,17 +353,22 @@ plugins (September 2026), unless a line says otherwise.
 
 - In the terminal, `ui.render` of `AssistantMessage` draws one assistant row
   of `$.session.messages()`, its `text` the row's, once `session.append` has
-  kept the row: while a reply streamed, the screen showed its text as it came
-  and no drawing reached the hooks, so a rewrite (griller's hiding) applies
-  only once each message is whole. `classic.MessageDisplay` fires at each
-  flush meanwhile, its `turn_id` and `message_id` matching neither
-  `turn.start`'s `turnId` nor the row's `uuid`. The drawing's `requestId` was
+  kept the row: while a reply streams, no drawing reaches the hooks. The
+  streamed text goes through `classic.MessageDisplay`, one call per batch of
+  whole lines, and the screen shows the `displayContent` a hooks module
+  returns in that batch's place, the transcript keeping the text (griller's
+  hiding, `griller/hooks/register.ts`). Its `turn_id` stays the same across
+  the messages of a turn, a tool call between them included, and changes with
+  the next turn; `message_id` changes with each message; neither matches
+  `turn.start`'s `turnId` nor the row's `uuid`. The row can be drawn before
+  its message's last batch, so a rewrite goes on both. A background
+  subagent's text raised none. The drawing's `requestId` was
   the row's `uuid`, or, for the rows written after one turn of the session,
   that uuid with its last group zeroed (`…-000000000000`), for no cause
   found: it does not join a row reliably, and griller matches a drawing to
   its row by text. Measured on Claude Code 2.1.312, Linux, with the probe
-  module of the rows above, and with griller's own rounds; the desktop app is
-  not measured.
+  module of the rows above, and with griller's own rounds beside a probe
+  module logging `classic.MessageDisplay`; the desktop app is not measured.
 
 ## What the contract and the docs say
 
