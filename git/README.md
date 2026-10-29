@@ -1,6 +1,6 @@
 # Git Plugin
 
-Local git for Claude Code, without an editor: commit, interactive rebase, squash. Nothing here reaches the network.
+Local git for Claude Code, without an editor: commit, interactive rebase, squash, history re-signing. Nothing here reaches the network.
 
 Its siblings own the rest: `github-flow` for anything through `gh`, `git-sweep` for branch and worktree cleanup, `git-worktree` for the `git-wt` helper, `repo-bootstrap` for one-shot repo setup.
 
@@ -11,8 +11,9 @@ Its siblings own the rest: `github-flow` for anything through `gh`, `git-sweep` 
 | `commit` | `/git:commit [issue] [--no-close]` | Commits with a message that follows the repo's convention, and a `Closes #N` trailer when the argument or the branch name carries a number. |
 | `rebase` | `/git:rebase <branch\|N\|X..Y>` | Interactive rebase with a visual plan and reworked messages, no editor. |
 | `squash` | `/git:squash --pattern\|--hashes\|--range` | Squashes commits by pattern, hash list, or the last N, no editor. |
+| `gpg-sign-history` | `/git:gpg-sign-history` | GPG-signs the unsigned commits of the history behind a backup branch, keeps the author dates, and checks that no content changed. |
 
-All three invoke themselves when the request matches.
+`commit`, `rebase` and `squash` invoke themselves when the request matches. `gpg-sign-history` runs only on `/git:gpg-sign-history`: it rewrites every SHA in its range, and each new signature carries the date it was made, which `git verify-commit --raw` shows.
 
 ### Closing an issue
 
