@@ -1,5 +1,5 @@
 {
-  "description": "Lints a plan before it is approved, captures it, and attaches it to the pull request that lands it; reminds Claude to explain a closed pull request",
+  "description": "Lints a plan before it is approved, captures it, and attaches it to the pull request that lands it",
   "hooks": {
     "PreToolUse": [
       {
@@ -33,12 +33,6 @@
             "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/attach-plan.ts\"",
             "timeout": 30,
             "statusMessage": "Attaching the plan to the PR..."
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh pr close *)",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/pr-close-reminder.ts\"",
-            "timeout": 10
           }
         ]
       }
