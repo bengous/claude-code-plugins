@@ -21,11 +21,7 @@ const CHOICE = /\*\*\(([a-z])\)\*\*/gu;
 
 const HINT = "Answer first: Claude's answer stays hidden until you peek at it.";
 
-/**
- * The band's keys, in secret-pane's words: the band has no close mark, so Enter on an empty field
- * drops the round.
- */
-const BAND_HINT = "ctrl+x then tab to focus, Enter on empty cancels";
+const BAND_HINT = "ctrl+x then tab to focus";
 
 type Asked = { readonly question: string; readonly recommendation: string };
 
@@ -567,14 +563,7 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
       onSubmit: (text) => {
         q.draft = text;
 
-        if (text.trim() === "") {
-          if (r.isInBand && round === r) {
-            void keep($, abandon(r));
-            $.ui.invalidate("ui.render");
-          }
-
-          return;
-        }
+        if (text.trim() === "") return;
 
         void answered(() => {
           q.isTaken = q.isTaken && text === q.answer;
@@ -659,24 +648,39 @@ function drawRound($: EngineInterface, e: Typed, r: Round) {
     onPress: () => send($, r, true),
   });
 
-  const footer = isComplete(r)
-    ? [
-        progress,
-        Box({
-          flexDirection: "row",
-          gap: 1,
-          children: [
-            Button({
-              key: "send",
-              label: "Send answers",
-              variant: "primary",
-              onPress: () => send($, r),
-            }),
-            ...(r.failure === null ? [] : [sendAnyway]),
-          ],
-        }),
-      ]
-    : [progress];
+  // The band has no close mark: this button drops the round as the pane's close does.
+  const drop = Button({
+    key: "drop",
+    label: "Drop round",
+    onPress: () => {
+      if (round !== r) return;
+      const event = abandon(r);
+
+      $.ui.invalidate("ui.render");
+
+      return keep($, event);
+    },
+  });
+
+  const buttons = [
+    ...(isComplete(r)
+      ? [
+          Button({
+            key: "send",
+            label: "Send answers",
+            variant: "primary",
+            onPress: () => send($, r),
+          }),
+          ...(r.failure === null ? [] : [sendAnyway]),
+        ]
+      : []),
+    ...(r.isInBand ? [drop] : []),
+  ];
+
+  const footer =
+    buttons.length === 0
+      ? [progress]
+      : [progress, Box({ flexDirection: "row", gap: 1, children: buttons })];
 
   const failure =
     r.failure === null
