@@ -244,20 +244,28 @@ let writing: Promise<void> | null = null;
 
 let isDirty = false;
 
-/** One write at a time, each of the whole state as it stands then: a burst of gestures costs a few. */
+/**
+ * One write at a time, each of the whole state as it stands then: a burst of gestures costs a few.
+ *
+ * The writer lets go in the step that finds nothing left to write, not a tick later, so a call that
+ * comes after starts a writer of its own. That step follows a write, so it never comes before
+ * `writing` holds the writer.
+ */
 function flush($: EngineInterface): Promise<void> {
   isDirty = true;
 
   if (writing !== null) return writing;
 
   writing = (async () => {
-    while (isDirty) {
-      isDirty = false;
-      await writeAll($);
+    try {
+      while (isDirty) {
+        isDirty = false;
+        await writeAll($);
+      }
+    } finally {
+      writing = null;
     }
-  })().finally(() => {
-    writing = null;
-  });
+  })();
 
   return writing;
 }
