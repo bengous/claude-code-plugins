@@ -30,6 +30,8 @@ The chat shows the questions and hides every ➡️ part, while the reply stream
 - **Peek at Claude's** shows the recommendation, before or after you answer, with **Use Claude's** to take it in place of yours; **Hide** hides it again. Recording an answer never shows it.
 - **Send answers** appears once every question is answered, beside a count of the answers and of the recommendations you used. It sends your answers to Claude as your next message, once the grill is saved: a save that still fails after three tries keeps the answers in the pane with the reason, and **Send anyway** sends them unsaved.
 
+Closing the pane drops the round unsent. On a terminal narrower than 144 columns Claude Code does not place a pane nobody asked for, so the round draws in the band above the prompt instead: press ctrl+x then tab to answer there; Enter on an empty answer field drops the round, as closing the pane does.
+
 Claude reads your final answers alone, one line per question under the number it gave it, `your recommendation` where you used its own. Then it asks the next round, its numbers following the last.
 
 A round Claude writes while another still waits, as when you ask it something in the prompt instead of sending, takes that round's place: the round waiting is closed unsent, and each question asked again unchanged, the same number and the same text, keeps the answer you recorded for it. Its recommendation stays hidden, since it may be new.
@@ -38,7 +40,7 @@ A round Claude writes while another still waits, as when you ask it something in
 
 The mod keeps the grill under `.claude/griller/` in the session's project, a folder whose own `.gitignore` keeps it out of git. Claude never reads any of it, and it stays on your machine:
 
-- `<session id>.md`: the grill as you read it, rewritten as you answer: each question as Claude wrote it, its recommendation once the round is sent, and your final answer. The round waiting shows no recommendation, so the file can sit beside the pane. A round another one replaced before you sent it stays, marked abandoned, with the answers it had and no recommendation.
+- `<session id>.md`: the grill as you read it, rewritten as you answer: each question as Claude wrote it, its recommendation once the round is sent, and your final answer. The round waiting shows no recommendation, so the file can sit beside the pane. A round closed unsent, by you or by a round that took its place, stays, marked abandoned, with the answers it had and no recommendation.
 - `<session id>.jsonl`: the journal, one timestamped line per gesture, for analysis: a round opened, reopened, sent or closed unsent; the typing in an answer field, one line with its text once the field loses the focus or another gesture comes; each answer recorded, choice picked, peek, hide and Claude's answer taken.
 - `<session id>.json`: the mod's state, the last question number, the rounds sent or abandoned and the round waiting with the answers recorded so far.
 
@@ -72,7 +74,7 @@ Measured with `claude -p`, as the difference in input tokens with and without ea
 
 What the text way costs in return is in Limits: it depends on Claude keeping the round format, and it hides recommendations by redrawing the chat, not by keeping them out of the stored reply.
 
-The round waiting is read back from the scribe's state, so a mod reload, a restarted session or a resumed one, through `/resume` too, opens it again with the answers recorded, without what you had typed and not recorded, and a round already sent stays closed. A `/clear` leaves the grill with the session it ends: the pane closes, and the new conversation's grill starts from nothing, in files of its own.
+The round waiting is read back from the scribe's state, so a mod reload, a restarted session or a resumed one, through `/resume` too, opens it again with the answers recorded, without what you had typed and not recorded, and a round already sent or dropped stays closed. A `/clear` leaves the grill with the session it ends: the pane closes, and the new conversation's grill starts from nothing, in files of its own.
 
 ## Limits
 
