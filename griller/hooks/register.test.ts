@@ -945,6 +945,32 @@ test("a round asked while another waits closes it unsent, and each question aske
   );
 });
 
+test("a question asked again with a new recommendation keeps the answer taken from the old one as the person's own", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.press({ key: "toggle-2" });
+  await ui.press({ key: "take-2" });
+  await ui.unmount();
+
+  await ended($, ROUND.replace("➡️ The platform team,\nwith the DBA on call.", "➡️ The DBA alone"));
+  const pane = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  expect((await pane.find({ key: "answer-2" }))?.props.value).toBe(
+    "The platform team,\nwith the DBA on call.",
+  );
+  expect(await pane.find({ text: /Using Claude's answer/u })).toBeUndefined();
+  expect((await pane.find({ type: "Text", text: /answered/u }))?.text).toBe(
+    "1 of 3 answered · 0 used Claude's",
+  );
+  await pane.unmount();
+  expect(world.files.get(TRANSCRIPT)).toMatch(
+    /Who owns the migration\?\n\n\*\*Answer:\*\* The platform team,\nwith the DBA on call\.\n\n\*\*Q3\*\*[^\n]*\n\n\*\*Answer:\*\* _not answered yet_\n$/u,
+  );
+});
+
 /**
  * Session `id` takes the process as the engine puts it there: `classic.SessionStart`, and no
  * `session.start`. A /clear answers the new id from `$.session.id()` at once, a resume only once

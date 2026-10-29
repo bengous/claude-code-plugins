@@ -163,15 +163,18 @@ function numbered(asked: readonly Asked[], after: number): Question[] {
 
 /**
  * A new round's questions, each one asked again unchanged (its number and its text) keeping the
- * card the round it replaces had for it; its recommendation stays hidden, since it may be new.
+ * card the round it replaces had for it; its recommendation stays hidden, since it may be new. An
+ * answer taken from a recommendation Claude has since changed stays as the person's own: Claude
+ * would otherwise read `your recommendation` for one it never made.
  */
 function carried(questions: readonly Question[], replaced: readonly Question[]): Question[] {
   return questions.map((q) => {
     const before = replaced.find((b) => b.n === q.n && b.question === q.question);
 
     if (before === undefined) return q;
+    const isTaken = before.isTaken && before.recommendation === q.recommendation;
 
-    return { ...q, answer: before.answer, draft: before.draft, isTaken: before.isTaken };
+    return { ...q, answer: before.answer, draft: before.draft, isTaken };
   });
 }
 

@@ -34,7 +34,7 @@ Closing the pane drops the round unsent. On a terminal narrower than 144 columns
 
 Claude reads your final answers alone, one line per question under the number it gave it, `your recommendation` where you used its own. Then it asks the next round, its numbers following the last.
 
-A round Claude writes while another still waits, as when you ask it something in the prompt instead of sending, takes that round's place: the round waiting is closed unsent, and each question asked again unchanged, the same number and the same text, keeps the answer you recorded for it. Its recommendation stays hidden, since it may be new.
+A round Claude writes while another still waits, as when you ask it something in the prompt instead of sending, takes that round's place: the round waiting is closed unsent, and each question asked again unchanged, the same number and the same text, keeps the answer you recorded for it. Its recommendation stays hidden, since it may be new; an answer you took with **Use Claude's** counts as Claude's only while its recommendation is unchanged, and as your own once Claude changed it.
 
 ## The scribe
 
