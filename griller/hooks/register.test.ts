@@ -82,7 +82,14 @@ type World = {
   readonly files: Map<string, string>;
   /** How many of the next writes to a path reject, as a file over 4 MiB does. */
   readonly failing: Map<string, number>;
+  /** Holds the next write to the path until the test releases it. */
+  readonly holdWrite: (path: string) => Hold;
+  /** Holds the next read of the clock until the test releases it. */
+  readonly holdClock: () => Hold;
 };
+
+/** A call the test holds: `reached` once it comes, and it goes on once `release` is called. */
+type Hold = { readonly reached: Promise<void>; readonly release: () => void };
 
 const STATE = "/work/.claude/griller/session-1.json";
 
@@ -111,12 +118,27 @@ async function started(
   const prompts: string[] = [];
   const drawn: unknown[] = [];
   const failing = new Map<string, number>();
+  const holds = new Map<string, () => Promise<void>>();
   let opens = 0;
   let closes = 0;
   let isPlaced = true;
   const drops: string[] = [];
   const toasts: string[] = [];
   let id = "session-1";
+
+  const holding = (call: string): Hold => {
+    const reached = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+
+    holds.set(call, () => {
+      holds.delete(call);
+      reached.resolve();
+
+      return released.promise;
+    });
+
+    return { reached: reached.promise, release: () => released.resolve() };
+  };
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("prompt.submit", (_$, e) => {
@@ -142,7 +164,11 @@ async function started(
 
     return { value: undefined };
   });
-  on("clock.now", () => ({ value: Date.UTC(2026, 0, 1) }));
+  on("clock.now", async () => {
+    await holds.get("clock.now")?.();
+
+    return { value: Date.UTC(2026, 0, 1) };
+  });
   on("clock.sleep", () => ({ value: undefined }));
   on("ui.focus", () => ({}));
   on("ui.render", (engine, e) => {
@@ -156,7 +182,8 @@ async function started(
   on("session.id", () => ({ value: id }));
   on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
   on("fs.read", (_$, e) => ({ value: files.get(e.path) ?? "" }));
-  on("fs.write", (_$, e) => {
+  on("fs.write", async (_$, e) => {
+    await holds.get(e.path)?.();
     const left = failing.get(e.path) ?? 0;
 
     if (left > 0) {
@@ -190,6 +217,8 @@ async function started(
     messages,
     files,
     failing,
+    holdWrite: holding,
+    holdClock: () => holding("clock.now"),
   };
 }
 
@@ -838,6 +867,38 @@ test("in the band, Enter on an empty field records nothing and keeps the round",
   );
   await band.unmount();
   expect(eventsIn(world).at(-1)).toEqual({ kind: "choice", q: 3, text: "(a)" });
+});
+
+test("a gesture noted as the last write of the one before ends is written too", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  // The second gesture's note ends a few ticks after the first one's last write: at some count it
+  // falls between the writer's last look at what is left and its letting go.
+  for (let ticks = 0; ticks <= 8; ticks += 1) {
+    const write = world.holdWrite(JOURNAL);
+    const first = ui.press({ key: "toggle-1" });
+
+    await write.reached;
+    const clock = world.holdClock();
+    const second = ui.press({ key: "toggle-2" });
+
+    await clock.reached;
+    write.release();
+
+    for (let tick = 0; tick < ticks; tick += 1) await Promise.resolve();
+    clock.release();
+    await Promise.all([first, second]);
+
+    expect(eventsIn(world).at(-1), `${ticks} ticks apart`).toEqual({
+      kind: ticks % 2 === 0 ? "peek" : "hide",
+      q: 2,
+    });
+  }
+
+  await ui.unmount();
 });
 
 test("the transcript holds each question, Claude's answer and the final one, and nothing else twice", async ($, on) => {
