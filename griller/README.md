@@ -40,7 +40,7 @@ The mod keeps the grill under `.claude/griller/` in the session's project, a fol
 - `<session id>.jsonl`: the journal, one timestamped line per gesture, for analysis: a round opened, reopened, sent or closed unsent; the typing in an answer field, one line with its text once the field loses the focus or another gesture comes; each answer recorded, choice picked, peek, hide and Claude's answer taken.
 - `<session id>.json`: the mod's state, the last question number, the rounds sent and the round waiting with the answers recorded so far.
 
-A file over 4 MiB can no longer be read or written by a mod: a journal that grows past it is left as it is, and the mod says so.
+A file over 4 MiB can no longer be read or written by a mod: a journal that grows past it is left as it is, and the mod says so. A mod writes a file in place, so a process killed during a write can leave the state half written: a state file that cannot be read is left as it is, with the transcript drawn from it, the mod says so, and only the journal keeps what follows.
 
 Once every question is answered, the pane scrolls to **Send answers**.
 

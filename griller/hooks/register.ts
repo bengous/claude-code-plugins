@@ -57,6 +57,9 @@ type Saved = {
   readonly open: readonly Question[] | null;
 };
 
+/** The state of a session whose grill has not started. */
+const FRESH: Saved = { last: 0, sent: [], open: null };
+
 type Paths = {
   readonly folder: string;
   readonly state: string;
@@ -79,6 +82,12 @@ let sent: (readonly Question[])[] = [];
 
 /** The journal's lines; null when the file on disk could not be read, so it is never overwritten. */
 let journal: string | null = "";
+
+/**
+ * False when the state file on disk could not be read: it is never overwritten, nor the transcript,
+ * which would be drawn again from a state that has lost every earlier round.
+ */
+let isStateRead = true;
 
 /**
  * The typing in an answer field, journaled as one line once it ends: when the field loses the ring
@@ -222,9 +231,9 @@ async function writeAll($: EngineInterface): Promise<void> {
     await $.fs.write(`${paths.folder}/.gitignore`, "*\n");
   }
 
-  await $.fs.write(paths.state, `${JSON.stringify(saved, null, 2)}\n`);
+  if (isStateRead) await $.fs.write(paths.state, `${JSON.stringify(saved, null, 2)}\n`);
 
-  if (sent.length > 0 || open !== null) {
+  if (isStateRead && (sent.length > 0 || open !== null)) {
     await $.fs.write(paths.transcript, transcriptOf(sent, open));
   }
 
@@ -308,7 +317,12 @@ async function failedSave($: EngineInterface): Promise<string | null> {
   }
 }
 
-type Loaded = { readonly paths: Paths; readonly journal: string | null; readonly saved: Saved };
+type Loaded = {
+  readonly paths: Paths;
+  readonly journal: string | null;
+  /** Null when the file on disk could not be read. */
+  readonly saved: Saved | null;
+};
 
 async function load($: EngineInterface, id: string): Promise<Loaded> {
   const paths = await pathsOf($, id);
@@ -324,11 +338,22 @@ async function load($: EngineInterface, id: string): Promise<Loaded> {
     : "";
 
   if (!(await $.fs.exists(paths.state))) {
-    return { paths, journal: lines, saved: { last: 0, sent: [], open: null } };
+    return { paths, journal: lines, saved: FRESH };
   }
 
-  // SAFETY: only this module writes the file, from a `Saved`.
-  return { paths, journal: lines, saved: JSON.parse(await $.fs.read(paths.state)) as Saved };
+  // SAFETY: only this module writes the file, from a `Saved`; a write cut short fails the parse.
+  const saved = await $.fs
+    .read(paths.state)
+    .then((text) => JSON.parse(text) as Saved)
+    .catch((cause: unknown) => {
+      $.ui.toast(
+        `${PLUGIN}: ${paths.state} could not be read, so it and the transcript are left as they are: ${String(cause)}`,
+      );
+
+      return null;
+    });
+
+  return { paths, journal: lines, saved };
 }
 
 /**
@@ -344,17 +369,19 @@ async function hold($: EngineInterface, id: string): Promise<void> {
   }
 
   const wasPlaced = round !== null && !round.isInBand;
+  const saved = loaded.saved ?? FRESH;
 
   held = { id, paths: loaded.paths };
   journal = loaded.journal;
-  last = loaded.saved.last;
-  sent = [...loaded.saved.sent];
+  isStateRead = loaded.saved !== null;
+  last = saved.last;
+  sent = [...saved.sent];
   round = null;
   typing = null;
 
-  if (loaded.saved.open !== null) {
-    await openRound($, loaded.saved.open);
-    await note($, { kind: "reopen", questions: numbersOf(loaded.saved.open) });
+  if (saved.open !== null) {
+    await openRound($, saved.open);
+    await note($, { kind: "reopen", questions: numbersOf(saved.open) });
     await flush($);
 
     return;
