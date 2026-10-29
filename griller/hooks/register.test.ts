@@ -51,6 +51,8 @@ type World = {
   readonly opens: () => number;
   /** How many times the mod closed its pane. */
   readonly closes: () => number;
+  /** The toasts the mod raised, in order. */
+  readonly toasts: string[];
   /** Points `$.session.id()` at another session, as a /clear or a resume does. */
   readonly moveTo: (id: string) => void;
   /** The props each drawing the engine made beneath the plugin received. */
@@ -92,6 +94,7 @@ async function started(
   const failing = new Map<string, number>();
   let opens = 0;
   let closes = 0;
+  const toasts: string[] = [];
   let id = "session-1";
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
@@ -110,7 +113,11 @@ async function started(
 
     return { value: undefined };
   });
-  on("ui.toast", () => ({ value: undefined }));
+  on("ui.toast", (_$, e) => {
+    toasts.push(e.text);
+
+    return { value: undefined };
+  });
   on("clock.now", () => ({ value: Date.UTC(2026, 0, 1) }));
   on("clock.sleep", () => ({ value: undefined }));
   on("ui.focus", () => ({}));
@@ -147,6 +154,7 @@ async function started(
     prompts,
     opens: () => opens,
     closes: () => closes,
+    toasts,
     moveTo: (next) => {
       id = next;
     },
@@ -372,6 +380,31 @@ test("a picked choice records the answer and keeps the recommendation hidden", a
     "1 of 3 answered · 0 used Claude's",
   );
   expect((await ui.find({ key: "answer-3" }))?.props.value).toBe("");
+  await ui.unmount();
+});
+
+test("the answer that completes the round scrolls the pane to Send, and no edit after it does", async ($, on) => {
+  const world = await started($, on);
+
+  // The kit answers no module's `$.ui.scroll`: each scroll shows as the toast its failure raises.
+  const scrolls = () =>
+    world.toasts.filter((text) => text.includes("Send could not be scrolled to"));
+
+  await ended($, ROUND);
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+
+  await ui.input({ key: "answer-1", text: "MySQL", kind: "submit" });
+  await ui.input({ key: "answer-2", text: "The DBA", kind: "submit" });
+  expect(scrolls()).toHaveLength(0);
+
+  await ui.press({ key: "choice-3-a" });
+  expect(scrolls()).toHaveLength(1);
+
+  await ui.input({ key: "answer-1", text: "SQLite", kind: "submit" });
+  await ui.press({ key: "choice-3-b" });
+  await ui.press({ key: "toggle-2" });
+  await ui.press({ key: "take-2" });
+  expect(scrolls()).toHaveLength(1);
   await ui.unmount();
 });
 
