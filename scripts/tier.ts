@@ -3,7 +3,7 @@
 /**
  * The review tier of a change: `low` lands once its checks are green, `human` waits for the human's word.
  *
- *   bun ./scripts/tier.ts [--base origin/dev] [--pr <n>]   one line, low <reason> or human <reason>; exit 0
+ *   bun ./scripts/tier.ts [--base origin/dev] [--pr <n>] [--checkout <path>]   one line, low|human <reason>; exit 0
  *   bun ./scripts/tier.ts --history <n>                     the tier of each of dev's last n commits, bumps aside
  *   bun ./scripts/tier.ts --eval scripts/tier.cases.json    each case judged 3 times: agreement, false lows, 3/n
  *
@@ -53,11 +53,13 @@ const REASON_MAX = 300;
 
 const CONTROL = /\p{Cc}/gu;
 
-const LEFT_OPEN = /^#{1,6}\s*Left open\b.*$/imu;
+const LEFT_OPEN = /^#{1,6}\s*Left open\b/iu;
 
-const HEADING = /^#{1,6}\s/mu;
+const HEADING = /^#{1,6}\s/u;
 
-const SESSION_LINE = /^<!-- (?:opened|updated|executed)_by:/mu;
+const SESSION_LINE = /^<!-- (?:opened|updated|executed)_by:/u;
+
+const FENCE = /^\s*(`{3,}|~{3,})/u;
 
 const SCHEMA = {
   type: "object",
@@ -188,21 +190,34 @@ export function evidenceOf(source: Source): Evidence {
   };
 }
 
-/** The *Left open* section of a pull request's body, its heading aside; null when the body has none. */
+/**
+ * The *Left open* section of a pull request's body, its heading aside, up to the next heading or session line outside
+ * a code fence; null when the body has none.
+ */
 export function leftOpenOf(body: string): string | null {
-  const heading = LEFT_OPEN.exec(body);
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => LEFT_OPEN.test(line));
 
-  if (heading === null) return null;
+  if (start === -1) return null;
 
-  const rest = body.slice(heading.index + heading[0].length);
+  const section: string[] = [];
+  let fence: string | null = null;
 
-  const ends = [HEADING.exec(rest)?.index, SESSION_LINE.exec(rest)?.index].filter(
-    (index) => index !== undefined,
-  );
+  for (const line of lines.slice(start + 1)) {
+    const marker = FENCE.exec(line)?.[1];
 
-  const section = rest.slice(0, ends.length === 0 ? rest.length : Math.min(...ends)).trim();
+    if (fence === null && (HEADING.test(line) || SESSION_LINE.test(line))) break;
 
-  return section === "" ? null : section;
+    if (marker !== undefined && (fence === null || marker.startsWith(fence))) {
+      fence = fence === null ? marker : null;
+    }
+
+    section.push(line);
+  }
+
+  const text = section.join("\n").trim();
+
+  return text === "" ? null : text;
 }
 
 /** The message the judge reads: the change's files, size, messages, the PR's *Left open*, then its diff. */
@@ -663,7 +678,7 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
 async function main(argv: readonly string[]): Promise<number> {
   const usage =
-    "Usage: bun ./scripts/tier.ts [--base <ref>] [--pr <n>] | --history <n> | --eval <cases.json>";
+    "Usage: bun ./scripts/tier.ts [--base <ref>] [--pr <n>] [--checkout <path>] | --history <n> | --eval <cases.json>";
 
   let values;
 
@@ -673,6 +688,7 @@ async function main(argv: readonly string[]): Promise<number> {
       options: {
         base: { type: "string" },
         pr: { type: "string" },
+        checkout: { type: "string" },
         history: { type: "string" },
         eval: { type: "string" },
       },
@@ -683,7 +699,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
-  const cwd = process.cwd();
+  const cwd = values.checkout ?? process.cwd();
 
   if (values.history !== undefined) {
     const count = Number(values.history);

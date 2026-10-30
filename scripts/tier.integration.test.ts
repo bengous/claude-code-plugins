@@ -252,6 +252,28 @@ describe("leftOpenOf", () => {
     expect(leftOpenOf(`## Left open\none\n## Decisions\ntwo`)).toBe("one");
     expect(leftOpenOf("## Checks\ngreen")).toBeNull();
   });
+
+  test("keeps a line that starts with # inside a code fence", () => {
+    const body = [
+      "## Left open",
+      "```bash",
+      "# not run: the e2e suite",
+      "bun run --cwd vellum e2e",
+      "```",
+      "- the hook's matcher, read, not run",
+      "## Decisions",
+    ].join("\n");
+
+    expect(leftOpenOf(body)).toBe(
+      [
+        "```bash",
+        "# not run: the e2e suite",
+        "bun run --cwd vellum e2e",
+        "```",
+        "- the hook's matcher, read, not run",
+      ].join("\n"),
+    );
+  });
 });
 
 describe("answerOf", () => {
@@ -285,15 +307,13 @@ describe("tier.cases.json", () => {
 });
 
 describe("the command", () => {
-  test("prints the floor's line and exits 0", () => {
+  test("prints the floor's line for the checkout it names, from another directory, and exits 0", () => {
     commit("scripts/land.ts", "fix: land");
 
-    const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "tier.ts")], {
-      cwd: repo,
-      env: process.env,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const cli = Bun.spawnSync(
+      [process.execPath, join(import.meta.dir, "tier.ts"), "--checkout", repo],
+      { cwd: tmpdir(), env: process.env, stdout: "pipe", stderr: "pipe" },
+    );
 
     expect(cli.stdout.toString()).toBe("human touches a risky path: scripts/land.ts\n");
     expect(cli.exitCode).toBe(0);

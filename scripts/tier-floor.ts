@@ -37,14 +37,17 @@ export interface FloorInput {
   readonly lines: number;
 }
 
-/** A plugin, skill, agent or hook appears or goes with one of these files. */
+/** A plugin, skill, agent or command appears or goes with one of these files. */
 const COMPONENTS = [
   "**/SKILL.md",
   "**/agents/*.md",
-  "**/hooks/hooks.json",
+  "**/commands/*.md",
   "**/.claude-plugin/plugin.json",
   ".claude-plugin/marketplace.json",
 ].map((glob) => new Bun.Glob(glob));
+
+/** Hooks and MCP servers, which run in every session that loads them: any change to these files. */
+const SESSION_WIDE = ["**/hooks/hooks.json", "**/.mcp.json"].map((glob) => new Bun.Glob(glob));
 
 /** Added, deleted, renamed, copied. */
 const STRUCTURAL = new Set(["A", "D", "R", "C"]);
@@ -82,13 +85,20 @@ export function riskyOf(checkout: string, rev: string): RiskyRead {
   }
 }
 
-/** The paths among `paths` that a risky glob matches: all of them while the profile does not read. */
-export function riskyPaths(paths: readonly string[], risky: RiskyRead): readonly string[] {
-  if (risky.kind === "unreadable") return paths;
+/** Whether a path is risky, the globs compiled once: every path while the profile does not read. */
+export function riskyMatcher(risky: RiskyRead): (path: string) => boolean {
+  if (risky.kind === "unreadable") return () => true;
 
   const globs = risky.risky.map((glob) => new Bun.Glob(glob));
 
-  return paths.filter((path) => globs.some((glob) => glob.match(path)));
+  return (path) => globs.some((glob) => glob.match(path));
+}
+
+/** The paths among `paths` that a risky glob matches: all of them while the profile does not read. */
+export function riskyPaths(paths: readonly string[], risky: RiskyRead): readonly string[] {
+  const isRisky = riskyMatcher(risky);
+
+  return paths.filter((path) => isRisky(path));
 }
 
 /** `git diff --name-status -z` read as changes; a rename or a copy carries its old path, then its new one. */
@@ -160,6 +170,10 @@ export function floorOf({ changes, subjects, risky, lines }: FloorInput): Verdic
   if (components.length > 0) {
     return human(`adds, removes or renames a plugin component: ${named(components)}`);
   }
+
+  const sessionWide = paths.filter((path) => SESSION_WIDE.some((glob) => glob.match(path)));
+
+  if (sessionWide.length > 0) return human(`changes hooks or MCP servers: ${named(sessionWide)}`);
 
   if (lines > LINE_CAP) return human(`${lines} lines changed, past the ${LINE_CAP}-line cap`);
 

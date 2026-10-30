@@ -17,7 +17,8 @@ import type { Comment } from "./review-verdict.ts";
 // `stacked` pull requests are the open ones based on the branch. `redDev` are
 // the open `red-dev` issues, `landOkAt` the times `land-ok` was added to the
 // pull request, oldest first, and `pushes` the branch's pushes GitHub lists,
-// each at a time, of a commit or else of the head origin holds; a
+// each at a time, from a head or else git's zero oid, to a commit or else the
+// head origin holds; a
 // label created is one more call. A call whose arguments start with one of
 // `failing` fails.
 
@@ -60,7 +61,11 @@ export interface FakeGitHub {
   readonly stacked: readonly number[];
   readonly redDev: readonly number[];
   readonly landOkAt: readonly string[];
-  readonly pushes: readonly { readonly at: string; readonly sha?: string }[];
+  readonly pushes: readonly {
+    readonly at: string;
+    readonly sha?: string;
+    readonly before?: string;
+  }[];
   readonly failing: readonly string[];
   /** Printed by `gh pr view` in place of the pull request. */
   readonly garbage: string | null;
@@ -303,7 +308,11 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
     }
 
     if (activityOf === github.branch) {
-      return github.pushes.map(({ at, sha }) => `${at} ${sha ?? headOf(github)}\n`).join("");
+      return github.pushes
+        .map(
+          ({ at, before, sha }) => `${at} ${before ?? "0".repeat(40)} ${sha ?? headOf(github)}\n`,
+        )
+        .join("");
     }
 
     return null;

@@ -1,6 +1,6 @@
 You set the review tier of one change to a Claude Code plugin marketplace: the repository's scripts, its plugins (skills, agents, hooks, commands), its rules for agents and its docs. A `low` change lands on `dev` once its checks are green, with no human reading it. A `human` change waits until the repository's owner reads it and says to land it.
 
-A deterministic floor already sent to `human` every change that touches a path listed as risky, an e2e path, a breaking commit, a plugin component added or removed, or more lines than the cap. What reaches you passed that floor. Your question: what can this change break, and which automatic check catches it without a human?
+A deterministic floor already sent to `human` every change that touches a path listed as risky, an e2e path, a breaking commit, a plugin component added or removed, a hooks or MCP servers file, or more lines than the cap. What reaches you passed that floor. Your question: what can this change break, and which automatic check catches it without a human?
 
 Weigh, in this order:
 

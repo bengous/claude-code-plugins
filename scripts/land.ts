@@ -98,6 +98,9 @@ import { riskyOf, riskyPaths, type Tier, type Verdict } from "./tier-floor.ts";
 /** Set in the environment of `origin/dev`'s copy, which runs the landing itself. */
 const DEV_COPY = "LAND_DEV_COPY";
 
+/** Set in the environment of `origin/dev`'s copy: the directory the landing was asked from. */
+const LAND_CWD = "LAND_CWD";
+
 /** The directories `origin/dev`'s copy needs: this script, its imports, the profile's parser. */
 const DEV_COPY_PATHS = ["scripts", "agent-hooks"];
 
@@ -345,11 +348,21 @@ async function readPullRequest({
   }
 }
 
-/** `tier.ts` beside this script, run in `checkout`: `origin/dev`'s when this runs as its copy. */
+/**
+ * `tier.ts` beside this script, `origin/dev`'s when this runs as its copy, reading `checkout`. It starts in its own
+ * directory, not the checkout: bun runs the `preload` of the `bunfig.toml` it starts in, which the branch could set.
+ */
 export async function tierScript(checkout: string, pr: number): Promise<Verdict> {
   const child = Bun.spawn(
-    [process.execPath, join(import.meta.dir, "tier.ts"), "--pr", String(pr)],
-    { cwd: checkout, stdout: "pipe", stderr: "pipe" },
+    [
+      process.execPath,
+      join(import.meta.dir, "tier.ts"),
+      "--pr",
+      String(pr),
+      "--checkout",
+      checkout,
+    ],
+    { cwd: import.meta.dir, stdout: "pipe", stderr: "pipe" },
   );
 
   const [out, err, code] = await Promise.all([
@@ -400,27 +413,40 @@ async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier
  * times, not a commit's date, which its author sets.
  */
 async function headPushedBefore(lander: Lander, added: string): Promise<string | null> {
-  const pushes = await lander.gh([
-    "api",
-    `repos/{owner}/{repo}/activity?ref=refs/heads/${lander.branch}&per_page=100`,
-    "--paginate",
-    "--jq",
-    '.[] | "\\(.timestamp) \\(.after)"',
-  ]);
-
   const before = Date.parse(added);
-  let last: { readonly at: number; readonly sha: string } | null = null;
+  let last: Push | null = null;
 
-  for (const line of pushes.split("\n")) {
-    const [timestamp = "", sha = ""] = line.split(" ");
-    const at = Date.parse(timestamp);
-
-    if (Number.isFinite(at) && at < before && COMMIT.test(sha) && (last === null || at > last.at)) {
-      last = { at, sha };
+  for (const push of await pushesOf(lander)) {
+    if (push.at < before && COMMIT.test(push.after) && (last === null || push.at > last.at)) {
+      last = push;
     }
   }
 
-  return last?.sha ?? null;
+  return last?.after ?? null;
+}
+
+interface Push {
+  readonly at: number;
+  readonly before: string;
+  readonly after: string;
+}
+
+/** The pushes to the branch GitHub lists, each with its time and the heads it moved the branch from and to. */
+async function pushesOf({ gh, branch }: Pick<Lander, "gh" | "branch">): Promise<readonly Push[]> {
+  const out = await gh([
+    "api",
+    `repos/{owner}/{repo}/activity?ref=refs/heads/${branch}&per_page=100`,
+    "--paginate",
+    "--jq",
+    '.[] | "\\(.timestamp) \\(.before) \\(.after)"',
+  ]);
+
+  return out.split("\n").flatMap((line) => {
+    const [timestamp = "", before = "", after = ""] = line.split(" ");
+    const at = Date.parse(timestamp);
+
+    return Number.isFinite(at) ? [{ at, before, after }] : [];
+  });
 }
 
 /**
@@ -514,7 +540,9 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
     if (approval === null) return null;
 
-    const why = raised ? "its tier:human label, left by an earlier pass" : tiering.verdict.reason;
+    const why = raised
+      ? `its tier:human label, left by an earlier pass; tier.ts now says low: ${tiering.verdict.reason}`
+      : tiering.verdict.reason;
 
     return `#${pr.number} is tier:human (${why}), ${approval}: it lands once the human types « land #${pr.number} » in a session; stop`;
   }
@@ -860,8 +888,9 @@ function addCheckout(cwd: string, porcelain: string, branch: string): Added {
 }
 
 /**
- * Fast-forwards a checkout behind its pull request's head, as a worker's kept worktree is once a `fix` worker pushed
- * on it. A head ahead of it, or apart from it, is left for the landing to refuse.
+ * Brings a clean checkout to its pull request's head: fast-forwarded when behind it, as a worker's kept worktree is
+ * once a `fix` worker pushed on it, reset when its head is one a push to GitHub already replaced, as after a `fix`
+ * worker's rebase. A head GitHub never held is left for the landing to refuse.
  */
 async function caughtUp(
   { gh, branch }: Pick<Lander, "gh" | "branch">,
@@ -877,18 +906,24 @@ async function caughtUp(
 
   const { headRefOid } = await readPullRequest({ gh, branch });
 
-  if (
-    headRefOid === head ||
-    !run(["git", "merge-base", "--is-ancestor", head, headRefOid], checkout).ok
-  ) {
-    return null;
+  if (headRefOid === head) return null;
+
+  if (run(["git", "merge-base", "--is-ancestor", head, headRefOid], checkout).ok) {
+    const merged = run(["git", "merge", "--ff-only", "--quiet", headRefOid], checkout);
+
+    return merged.ok
+      ? null
+      : `git merge --ff-only ${short(headRefOid)} in ${checkout}: ${merged.err}`;
   }
 
-  const merged = run(["git", "merge", "--ff-only", "--quiet", headRefOid], checkout);
+  // A head GitHub once held and a push moved away from, as a fix worker's rebase does, holds nothing unpushed.
+  const superseded = (await pushesOf({ gh, branch })).some((push) => push.before === head);
 
-  return merged.ok
-    ? null
-    : `git merge --ff-only ${short(headRefOid)} in ${checkout}: ${merged.err}`;
+  if (!superseded) return null;
+
+  const reset = run(["git", "reset", "--quiet", "--hard", headRefOid], checkout);
+
+  return reset.ok ? null : `git reset --hard ${short(headRefOid)} in ${checkout}: ${reset.err}`;
 }
 
 export async function land(
@@ -1151,9 +1186,11 @@ function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
 
     if (!extracted.ok) return { kind: "failed", why: `tar -x ${archive}: ${extracted.err}` };
 
+    // Started in the copy, the checkout named in the environment: bun runs the `preload` of the `bunfig.toml` it
+    // starts in, which a branch could set.
     const landed = Bun.spawnSync([process.execPath, join(copy, "scripts", "land.ts"), ...args], {
-      cwd,
-      env: { ...process.env, [DEV_COPY]: "1" },
+      cwd: copy,
+      env: { ...process.env, [DEV_COPY]: "1", [LAND_CWD]: cwd },
       stdio: ["inherit", "inherit", "inherit"],
     });
 
@@ -1184,7 +1221,12 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  const landing = await land(branch, process.cwd());
+  const from = process.env[LAND_CWD] ?? process.cwd();
+
+  // Read once: a command the landing runs, the pre-push gates' tests included, must not inherit it.
+  delete process.env[LAND_CWD];
+
+  const landing = await land(branch, from);
 
   if (landing.kind === "landed") {
     const remote =

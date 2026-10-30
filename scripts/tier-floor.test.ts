@@ -63,7 +63,7 @@ describe("floorOf", () => {
   test.each([
     ["A", "github-flow/skills/new/SKILL.md"],
     ["D", "github-flow/agents/issue-worker.md"],
-    ["A", "todos/hooks/hooks.json"],
+    ["R", "github-flow/skills/pr/SKILL.md"],
     ["A", "newplugin/.claude-plugin/plugin.json"],
     ["D", ".claude-plugin/marketplace.json"],
   ])("sends a component file with status %s (%s) to the human", (status, path) => {
@@ -75,6 +75,19 @@ describe("floorOf", () => {
   test("leaves a component file only modified to the judge", () => {
     expect(floorOf(input([modified("github-flow/skills/pr/SKILL.md")]))).toBeNull();
   });
+
+  test("sends an added command to the human", () => {
+    expect(floorOf(input([{ status: "A", paths: ["git/commands/new.md"] }]))?.tier).toBe("human");
+  });
+
+  test.each(["github-flow/hooks/hooks.json", "atlas/.mcp.json", ".mcp.json"])(
+    "sends any change to %s, which runs in every session, to the human",
+    (path) => {
+      expect(floorOf(input([modified(path)]))?.reason).toBe(
+        `changes hooks or MCP servers: ${path}`,
+      );
+    },
+  );
 
   test("sends a change past the line cap to the human, and keeps one at the cap", () => {
     const docs = [modified("docs/x.md")];

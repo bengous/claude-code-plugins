@@ -583,6 +583,41 @@ describe("land", () => {
     expect(branchHead()).toBe(fixed);
   });
 
+  test("resets a clean checkout whose head a push to GitHub replaced, then lands the new head", async () => {
+    const replaced = branchHead();
+
+    git(other, "fetch", "--quiet", "origin");
+    git(other, "switch", "--quiet", "feature/x");
+    writeFileSync(join(other, "b.txt"), "rewritten by a fix worker's rebase\n");
+    git(other, "commit", "--quiet", "--all", "--amend", "--no-edit");
+    git(other, "push", "--quiet", "--force", "origin", "feature/x");
+
+    const rewritten = git(other, "rev-parse", "HEAD");
+
+    serve({ pushes: [{ at: "2000-01-01T00:00:00Z", before: replaced, sha: rewritten }] });
+
+    expect(await landing()).toEqual({
+      kind: "landed",
+      dev: rewritten,
+      pr: 7,
+      remote: { kind: "deleted" },
+    });
+    expect(branchHead()).toBe(rewritten);
+  });
+
+  test("keeps a checkout apart from its pull request's head that GitHub never held, and refuses", async () => {
+    const local = commit(work, "e.txt", "never pushed");
+
+    git(other, "fetch", "--quiet", "origin");
+    git(other, "switch", "--quiet", "feature/x");
+    commit(other, "d.txt", "pushed by someone else");
+    git(other, "push", "--quiet", "origin", "feature/x");
+    serve();
+
+    expect(why(await landing())).toContain("push it, then land again");
+    expect(branchHead()).toBe(local);
+  });
+
   test("refuses the types branch held where the types run recreates its worktree", async () => {
     git(
       work,
@@ -1205,7 +1240,7 @@ describe("land, the tier", () => {
     serve({ pr: { labels: ["tier:human"] } });
 
     expect(why(await landing())).toBe(
-      "#7 is tier:human (its tier:human label, left by an earlier pass), with no land-ok label: it lands once the human types « land #7 » in a session; stop",
+      "#7 is tier:human (its tier:human label, left by an earlier pass; tier.ts now says low: the stub judge finds it low), with no land-ok label: it lands once the human types « land #7 » in a session; stop",
     );
     expect(tierEdits()).toEqual([]);
   });
