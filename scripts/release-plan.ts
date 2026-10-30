@@ -30,14 +30,13 @@ import {
   typesAt,
   unbumped,
 } from "./check-plugin-bumps.ts";
+import { BREAKING } from "./lib/breaking-subject.ts";
 import type { PluginDir } from "./lib/plugin-sources.ts";
 import { withoutSessionIdentity } from "./lib/session-env.ts";
 
 const LEVELS = ["major", "minor", "patch"] as const;
 
 export type Level = (typeof LEVELS)[number];
-
-export const BREAKING = /^[a-z]+(?:\([^)]*\))?!:/u;
 
 const FEATURE = /^feat(?:\([^)]*\))?!?:/u;
 

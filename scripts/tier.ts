@@ -356,7 +356,7 @@ function floorFor(evidence: Evidence, risky: RiskyRead): Verdict | null {
 }
 
 /** The floor's verdict, else the judge's, asked of `model`; a judge that fails answers `human` with why. */
-export async function decide(
+export function decide(
   evidence: Evidence,
   risky: RiskyRead,
   leftOpen: string | null,
@@ -365,8 +365,19 @@ export async function decide(
 ): Promise<Decided> {
   const floor = floorFor(evidence, risky);
 
-  if (floor !== null) return { verdict: floor, by: "floor", model: null, costUsd: 0 };
+  if (floor !== null)
+    return Promise.resolve({ verdict: floor, by: "floor", model: null, costUsd: 0 });
 
+  return askJudge(evidence, leftOpen, judge, model);
+}
+
+/** The judge's verdict on a change past the floor, asked of `model`; a judge that fails answers `human` with why. */
+async function askJudge(
+  evidence: Evidence,
+  leftOpen: string | null,
+  judge: Judge,
+  model: string,
+): Promise<Decided> {
   try {
     const plain = answerOf(await judge.ask(model, judge.system, promptOf(evidence, null)));
 
@@ -431,7 +442,7 @@ export async function tierOf(
     return { tier: "human", reason: stale ?? "no calibrated model" };
   }
 
-  const decided = await decide(evidence, risky, leftOpen, judge, model);
+  const decided = await askJudge(evidence, leftOpen, judge, model);
 
   if (decided.by === "judge" && decided.model !== model) {
     return {

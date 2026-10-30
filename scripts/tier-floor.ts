@@ -7,8 +7,8 @@ import { CONFIG_GIT_PATH } from "../agent-hooks/config.ts";
 import { parseProfile } from "../agent-hooks/profile.ts";
 import { ConfigError } from "../agent-hooks/reader.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
+import { BREAKING } from "./lib/breaking-subject.ts";
 import { run } from "./lib/run.ts";
-import { BREAKING } from "./release-plan.ts";
 
 /** Past this many lines added and removed, the change waits for the human: too much for one read to vouch for. */
 export const LINE_CAP = 400;
