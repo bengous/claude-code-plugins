@@ -16,8 +16,10 @@ import type { Comment } from "./review-verdict.ts";
 // dev holds reads merged, once `mergeLag` reads have still shown it open. The
 // `stacked` pull requests are the open ones based on the branch. `redDev` are
 // the open `red-dev` issues, `landOkAt` the times `land-ok` was added to the
-// pull request, oldest first; a label created is one more call. A call whose
-// arguments start with one of `failing` fails.
+// pull request, oldest first, and `pushes` the branch's pushes GitHub lists,
+// each at a time, of a commit or else of the head origin holds; a
+// label created is one more call. A call whose arguments start with one of
+// `failing` fails.
 
 export type JobEnd = "success" | "failure";
 
@@ -58,6 +60,7 @@ export interface FakeGitHub {
   readonly stacked: readonly number[];
   readonly redDev: readonly number[];
   readonly landOkAt: readonly string[];
+  readonly pushes: readonly { readonly at: string; readonly sha?: string }[];
   readonly failing: readonly string[];
   /** Printed by `gh pr view` in place of the pull request. */
   readonly garbage: string | null;
@@ -98,6 +101,7 @@ export function serveGitHub(
     stacked: [],
     redDev: [],
     landOkAt: [],
+    pushes: [{ at: "2000-01-01T00:00:00Z" }],
     failing: [],
     garbage: null,
     pinnedHead: null,
@@ -278,6 +282,8 @@ const CHECK_RUNS = /commits\/([0-9a-f]+)\/check-runs\?/u;
 
 const EVENTS = /issues\/(\d+)\/events$/u;
 
+const ACTIVITY = /\/activity\?ref=refs\/heads\/([^&]+)&/u;
+
 async function answer(github: FakeGitHub, args: readonly string[]): Promise<string | null> {
   const [command, verb, target, flag, value] = args;
 
@@ -286,6 +292,7 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
     const [, runsOf] = RUNS.exec(path) ?? [];
     const [, checksOf] = CHECK_RUNS.exec(path) ?? [];
     const [, eventsOf] = EVENTS.exec(path) ?? [];
+    const [, activityOf] = ACTIVITY.exec(path) ?? [];
 
     if (runsOf !== undefined) return listRuns(github, runsOf);
 
@@ -293,6 +300,10 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
 
     if (eventsOf === String(github.pr.number)) {
       return github.landOkAt.map((at) => `${at}\n`).join("");
+    }
+
+    if (activityOf === github.branch) {
+      return github.pushes.map(({ at, sha }) => `${at} ${sha ?? headOf(github)}\n`).join("");
     }
 
     return null;

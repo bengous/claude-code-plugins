@@ -1128,13 +1128,51 @@ describe("land, the tier", () => {
     expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
   });
 
-  test("refuses a land-ok added before the head was committed", async () => {
+  test("refuses a land-ok the human gave to an earlier head, whatever its commit's date", async () => {
+    const earlier = branchHead();
+
     addSkill();
-    serve({ landOkAt: ["2000-01-01T00:00:00Z"], pr: { labels: ["land-ok"] } });
+    serve({
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: earlier },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+    });
 
     expect(why(await landing())).toContain(
-      "with a land-ok added at 2000-01-01T00:00:00Z, before its head",
+      `with a land-ok added at 2050-01-01T00:00:00Z for ${earlier.slice(0, 8)}, whose change is not that of its head`,
     );
+  });
+
+  test("refuses a land-ok added before any push of the branch", async () => {
+    addSkill();
+    serve({ landOkAt: ["1990-01-01T00:00:00Z"], pr: { labels: ["land-ok"] } });
+
+    expect(why(await landing())).toContain("before any push of feature/x GitHub lists");
+  });
+
+  test("keeps the human's land-ok through a rebase that leaves the change as it was", async () => {
+    addSkill();
+
+    const okHead = branchHead();
+
+    moveDev();
+    git(work, "fetch", "--quiet", "origin");
+    git(work, "rebase", "--quiet", "origin/dev");
+    pushBranch();
+    serve({
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: okHead },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+    });
+
+    expect(branchHead()).not.toBe(okHead);
+    expect((await landing()).kind).toBe("landed");
   });
 
   test("refuses a land-ok taken off while CI ran", async () => {

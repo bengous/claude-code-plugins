@@ -9,8 +9,8 @@
  *
  * The floor (`scripts/tier-floor.ts`) decides first, the risky paths read from the base's profile so a branch cannot
  * loosen them. Past it, Haiku reads the change, headless, with no tool, hook, setting file or MCP server, from a
- * private empty directory: a CLAUDE.md planted in the shared tmpdir would be read. `--pr` hands it the pull request's
- * *Left open* section, which may only raise the tier. The judge answers only with the model and the prompt that
+ * private empty directory: a CLAUDE.md planted in the shared tmpdir would be read. With `--pr`, a change that reads low
+ * is read again with the pull request's *Left open* section, which can thus raise the tier and never lower it. The judge answers only with the model and the prompt that
  * `scripts/tier.cases.json` was validated with; anything else, and any failure, answers `human` with its reason: the
  * safe direction, written.
  */
@@ -351,13 +351,25 @@ export async function decide(
   if (floor !== null) return { verdict: floor, by: "floor", model: null, costUsd: 0 };
 
   try {
-    const answer = answerOf(await judge.ask(model, judge.system, promptOf(evidence, leftOpen)));
+    const plain = answerOf(await judge.ask(model, judge.system, promptOf(evidence, null)));
+
+    if (plain.tier === "human" || leftOpen === null) {
+      return {
+        verdict: { tier: plain.tier, reason: plain.reason },
+        by: "judge",
+        model: plain.model,
+        costUsd: plain.costUsd,
+      };
+    }
+
+    // *Left open* is the author's text: read only once the change alone reads low, it can raise the tier, not lower it.
+    const read = answerOf(await judge.ask(model, judge.system, promptOf(evidence, leftOpen)));
 
     return {
-      verdict: { tier: answer.tier, reason: answer.reason },
+      verdict: { tier: read.tier, reason: read.reason },
       by: "judge",
-      model: answer.model,
-      costUsd: answer.costUsd,
+      model: plain.model === read.model ? read.model : null,
+      costUsd: plain.costUsd + read.costUsd,
     };
   } catch (error) {
     return {
@@ -532,9 +544,10 @@ async function history(cwd: string, count: number, judge: Judge): Promise<void> 
 
   const cost = decided.reduce((sum, row) => sum + row.decided.costUsd, 0);
   const lows = decided.filter((row) => row.decided.verdict.tier === "low").length;
+  const models = new Set(decided.flatMap((row) => row.decided.model ?? []));
 
   console.error(
-    `${decided.length} commits: ${lows} low, ${decided.length - lows} human; model ${model}, prompt ${digestOf(judge.system)}, $${cost.toFixed(2)}`,
+    `${decided.length} commits: ${lows} low, ${decided.length - lows} human; model ${[...models].join(", ") || "none answered"}, asked as ${model}; prompt ${digestOf(judge.system)}; $${cost.toFixed(2)}`,
   );
 }
 
@@ -585,6 +598,7 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
     let agreed = 0;
     let judged = 0;
+    const failures: string[] = [];
     const falseLows: string[] = [];
     const falseHumans: string[] = [];
     const models = new Set<string>();
@@ -595,9 +609,10 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
       for (const decided of runs) {
         if (decided.model !== null) models.add(decided.model);
 
-        if (decided.by !== "floor") judged += 1;
+        if (decided.by === "judge") judged += 1;
 
-        if (decided.verdict.tier === entry.expected) agreed += 1;
+        if (decided.by === "failure") failures.push(`${entry.name}: ${decided.verdict.reason}`);
+        else if (decided.verdict.tier === entry.expected) agreed += 1;
         else if (decided.verdict.tier === "low")
           falseLows.push(`${entry.name}: ${decided.verdict.reason}`);
         else falseHumans.push(`${entry.name}: ${decided.verdict.reason}`);
@@ -622,8 +637,9 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
     );
 
     console.log(
-      `\nagreement ${agreed}/${total} runs; ${judged} judged by the model, the rest by the floor`,
+      `\nagreement ${agreed}/${total} runs; ${judged} judged by the model, ${failures.length} failed, the rest by the floor`,
     );
+    console.log(`failed ${failures.length}${failures.map((line) => `\n  ${line}`).join("")}`);
     console.log(`false low ${falseLows.length}${falseLows.map((line) => `\n  ${line}`).join("")}`);
     console.log(
       `false human ${falseHumans.length}${falseHumans.map((line) => `\n  ${line}`).join("")}`,
@@ -636,10 +652,10 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
     }
 
     console.log(
-      `model ${[...models].join(", ") || model}; prompt ${digestOf(judge.system)}; $${cost.toFixed(2)}`,
+      `model ${[...models].join(", ") || "none answered"}, asked as ${model}; prompt ${digestOf(judge.system)}; $${cost.toFixed(2)}`,
     );
 
-    return falseLows.length === 0 ? 0 : 1;
+    return falseLows.length === 0 && failures.length === 0 ? 0 : 1;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

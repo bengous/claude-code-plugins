@@ -25,9 +25,11 @@
  * this script, so `origin/dev`'s, once per landing, on the pull request read
  * before and after the wait for CI; a `tier:human` label already on the pull
  * request keeps it human. The pull request gets the label of its tier. A human
- * one lands only with a `land-ok` label added after its head was committed,
- * which the agent-hooks guard lets an agent add only on the human's words. A
- * low one without that label is refused while a `red-dev` issue is open.
+ * one lands only with a `land-ok` label given to its change: the head GitHub
+ * held when the label was added, by its push times, has the patch of the head
+ * the landing starts from. The agent-hooks guard lets an agent add the label
+ * only on the human's words. A low one without it is refused while a `red-dev`
+ * issue is open.
  * Renovate's branches and the types branch have guards of their own.
  *
  * Then it waits, an hour at most in all, until
@@ -130,6 +132,9 @@ export const TIER_LABELS: Readonly<
 
 const TIER_LINE = /^(low|human) (.+)$/u;
 
+/** A commit's oid, not git's zero oid, which is the `after` of a branch's deletion. */
+const COMMIT = /^(?!0+$)[0-9a-f]{40,64}$/u;
+
 /** The tier of the branch held in `checkout`, whose pull request is `pr`. */
 export type Tiering = (checkout: string, pr: number) => Promise<Verdict>;
 
@@ -181,7 +186,7 @@ interface Lander {
   readonly deadline: number;
   /** The runs this landing re-ran, each once at most. */
   readonly rerun: Set<number>;
-  /** The head the landing started from, which a `land-ok` must postdate. */
+  /** The head the landing started from, whose patch a `land-ok` must have been given to. */
   readonly reviewed: string;
   /** How the branch is tiered, its verdict once read; null for a branch with guards of its own. */
   readonly tiering: { readonly of: Tiering; verdict: Verdict | null } | null;
@@ -390,7 +395,39 @@ async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier
   await lander.gh(["pr", "edit", lander.branch, "--add-label", name]);
 }
 
-/** Null when the pull request carries a `land-ok` added after its head was committed; else what it carries. */
+/**
+ * The branch's head on GitHub when `added`: the last push GitHub lists before that time. Read from the server's push
+ * times, not a commit's date, which its author sets.
+ */
+async function headPushedBefore(lander: Lander, added: string): Promise<string | null> {
+  const pushes = await lander.gh([
+    "api",
+    `repos/{owner}/{repo}/activity?ref=refs/heads/${lander.branch}&per_page=100`,
+    "--paginate",
+    "--jq",
+    '.[] | "\\(.timestamp) \\(.after)"',
+  ]);
+
+  const before = Date.parse(added);
+  let last: { readonly at: number; readonly sha: string } | null = null;
+
+  for (const line of pushes.split("\n")) {
+    const [timestamp = "", sha = ""] = line.split(" ");
+    const at = Date.parse(timestamp);
+
+    if (Number.isFinite(at) && at < before && COMMIT.test(sha) && (last === null || at > last.at)) {
+      last = { at, sha };
+    }
+  }
+
+  return last?.sha ?? null;
+}
+
+/**
+ * Null when the pull request carries a `land-ok` given to the change that lands: the head GitHub held when the label
+ * was added has the patch of the head this landing started from. A rebase that keeps the patch, `land.ts`'s own
+ * included, keeps the ok; a commit after it does not.
+ */
 async function approvalOf(
   lander: Lander,
   pr: PullRequest,
@@ -411,15 +448,26 @@ async function approvalOf(
     .filter((line) => line !== "")
     .at(-1);
 
-  const committed = run(["git", "show", "-s", "--format=%cI", lander.reviewed], lander.checkout);
-
-  if (!committed.ok) throw new Error(`git show ${short(lander.reviewed)}: ${committed.err}`);
-
   if (added === undefined) return `with a ${LAND_OK} label GitHub lists no event of`;
 
-  if (Date.parse(added) > Date.parse(committed.out)) return null;
+  const approved = await headPushedBefore(lander, added);
 
-  return `with a ${LAND_OK} added at ${added}, before its head ${short(lander.reviewed)} was committed at ${committed.out}`;
+  if (approved === null) {
+    return `with a ${LAND_OK} added at ${added}, before any push of ${lander.branch} GitHub lists`;
+  }
+
+  if (approved === lander.reviewed) return null;
+
+  if (!run(["git", "cat-file", "-e", `${approved}^{commit}`], lander.checkout).ok) {
+    run(["git", "fetch", "--quiet", REMOTE, approved], lander.checkout);
+  }
+
+  const then = patchIdOf(lander.checkout, BASE, approved);
+  const now = patchIdOf(lander.checkout, BASE, lander.reviewed);
+
+  if (then.kind === "read" && now.kind === "read" && then.id === now.id) return null;
+
+  return `with a ${LAND_OK} added at ${added} for ${short(approved)}, whose change is not that of its head ${short(lander.reviewed)}`;
 }
 
 /** The open `red-dev` issues, each `#<number>`. */
@@ -444,7 +492,7 @@ async function redDevIssues(lander: Lander): Promise<readonly string[]> {
 }
 
 /**
- * Why `pr` may not land at its tier, or null when it may: a human one without a `land-ok` added after its head, a low
+ * Why `pr` may not land at its tier, or null when it may: a human one without a `land-ok` given to its change, a low
  * one without it while `dev` is red. The tier is the branch's, read once per landing, raised by a `tier:human` label
  * an earlier pass left; its label goes on the pull request on the way.
  */
@@ -461,11 +509,11 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
   await labelTier(lander, labels, tier);
 
-  const approval = await approvalOf(lander, pr, labels);
-
-  if (approval === null) return null;
-
   if (tier === "human") {
+    const approval = await approvalOf(lander, pr, labels);
+
+    if (approval === null) return null;
+
     const why = raised ? "its tier:human label, left by an earlier pass" : tiering.verdict.reason;
 
     return `#${pr.number} is tier:human (${why}), ${approval}: it lands once the human types « land #${pr.number} » in a session; stop`;
@@ -473,9 +521,9 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
   const red = await redDevIssues(lander);
 
-  return red.length === 0
-    ? null
-    : `${DEV} is red (${red.join(", ")}): no unattended landing until it is green`;
+  if (red.length === 0 || (await approvalOf(lander, pr, labels)) === null) return null;
+
+  return `${DEV} is red (${red.join(", ")}): no unattended landing until it is green`;
 }
 
 function remaining(lander: Lander): number {

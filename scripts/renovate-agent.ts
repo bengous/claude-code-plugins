@@ -79,7 +79,7 @@ import {
   writeWhole,
 } from "./lib/headless-run.ts";
 import { BASE, type Comment, patchIdOf, postVerdict, short, verdictsOf } from "./review-verdict.ts";
-import { riskyOf } from "./tier-floor.ts";
+import { riskyOf, riskyPaths as riskyAmong } from "./tier-floor.ts";
 
 export const MAJOR_LABEL = "major";
 
@@ -1188,15 +1188,11 @@ function unique(heads: readonly string[]): string[] {
   return [...new Set(heads)];
 }
 
-/** The risky-path predicate of `origin/dev`'s profile, every path while it does not read, as land.ts does. */
+/** The risky-path predicate of `origin/dev`'s profile, every path while it does not read, as land.ts reads it. */
 function riskyPaths(cwd: string): RiskyPath {
   const profile = riskyOf(cwd, BASE);
 
-  if (profile.kind === "unreadable") return () => true;
-
-  const globs = profile.risky.map((glob) => new Bun.Glob(glob));
-
-  return (path) => globs.some((glob) => glob.match(path));
+  return (path) => riskyAmong([path], profile).length > 0;
 }
 
 /** Whether a verdict on `pr`, by someone who can push, names its risky head's patch, the one `land.ts` matches. */
