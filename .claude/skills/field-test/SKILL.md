@@ -44,7 +44,7 @@ Done when every observable of step 2 is checked on the change.
 
 Report a table, one row per observable, with the text read on each side, and name what the run did not check (see "Desktop and mobile" in the reference). Then `stop` each session: it removes the tmux session, the `--ref` worktree, the scratch directory and Claude Code's data for it.
 
-| Observable | Base (`1e2d8e51`) | Change |
+| Observable | Base (`<base>`) | Change |
 |---|---|---|
 | Card after a blind (b), the recommendation | `Using Claude's answer` | `Peek at Claude's` |
 | What Claude receives | `Q1: your recommendation` | `Q1: (b)` |
@@ -52,7 +52,7 @@ Report a table, one row per observable, with the text read on each side, and nam
 ## Commands
 
 ```bash
-bun ./scripts/field-test.ts start griller-base --ref 1e2d8e51 griller   # session on the base; prints the work directory
+bun ./scripts/field-test.ts start griller-base --ref <base> griller     # session on the base; prints the work directory
 bun ./scripts/field-test.ts send griller-base "/griller:grill <topic and the exact form wanted>"
 bun ./scripts/field-test.ts wait griller-base "of 2 answered"            # until the text shows; --gone until it leaves
 bun ./scripts/field-test.ts messages griller-base --last                 # what Claude wrote, hidden parts included

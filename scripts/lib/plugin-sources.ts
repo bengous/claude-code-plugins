@@ -398,6 +398,21 @@ export async function installedVersions(): Promise<Map<string, string>> {
   return versions;
 }
 
+/**
+ * Claude Code installs a plugin's dependencies at its cache; under
+ * `--plugin-dir` nothing does. Null once installed or when the plugin has
+ * none; else why the install failed.
+ */
+export async function installDependencies(pluginDir: string): Promise<string | null> {
+  if (!existsSync(join(pluginDir, "package.json"))) return null;
+
+  const installed = await $`bun install --cwd ${pluginDir} --frozen-lockfile`.nothrow().quiet();
+
+  return installed.exitCode === 0
+    ? null
+    : `bun install in ${pluginDir}\n${installed.stderr.toString().trim()}`;
+}
+
 /** One row per plugin of `root`, for the first screen and for `--list`. */
 export async function readPlugins(root: PluginDir): Promise<PluginRow[]> {
   const names = pluginNamesIn(root);

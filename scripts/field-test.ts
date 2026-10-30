@@ -27,6 +27,8 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
+import { installDependencies } from "./lib/plugin-sources.ts";
+
 const USAGE = [
   "usage: field-test.ts <command> <name> ...",
   "  start <name> [--ref <ref>] [--model <model>] [--cwd <dir>] [--width <n>] [--height <n>] <plugin>...",
@@ -48,6 +50,9 @@ const DIVIDER = "│";
 const WIDTH = 220;
 
 const HEIGHT = 50;
+
+/** The trust dialog's own lines; a path or a tip holding the word alone is no dialog. */
+const TRUST = /Is this a project you created or one you trust|Yes, I trust this folder/u;
 
 /** A full turn of Tab through a pane of a dozen cards stays far below it. */
 const MAX_TABS = 80;
@@ -364,26 +369,13 @@ function focusOf(lines: readonly Line[]): (Run & { readonly row: number })[] {
   return lines.flatMap((line, row) => line.reversed.map((run) => ({ ...run, row })));
 }
 
-/**
- * Claude Code installs a plugin's dependencies at its cache; under
- * `--plugin-dir` nothing does.
- */
-async function install(pluginDir: string): Promise<void> {
-  if (!existsSync(join(pluginDir, "package.json"))) return;
-
-  const installed = await $`bun install --cwd ${pluginDir} --frozen-lockfile`.nothrow().quiet();
-
-  if (installed.exitCode !== 0)
-    fail(`bun install in ${pluginDir}\n${installed.stderr.toString().trim()}`);
-}
-
 /** Until Claude Code's prompt is ready to take a line, or it asks to trust the folder. */
 async function ready(name: string): Promise<void> {
   for (let waited = 0; waited < 60_000; waited += 300) {
     const plain = await plainOf(name);
     const text = plain.join("\n");
 
-    if (/trust/iu.test(text)) {
+    if (TRUST.test(text)) {
       console.log(tidy(plain).join("\n"));
       fail(
         `${name}: Claude Code asks to trust the folder. Read the choices, answer with keys, then send.`,
@@ -447,7 +439,11 @@ async function start(name: string, args: string[]): Promise<void> {
     return dir;
   });
 
-  for (const dir of pluginDirs) await install(dir);
+  for (const dir of pluginDirs) {
+    const failure = await installDependencies(dir);
+
+    if (failure !== null) fail(failure);
+  }
 
   const work = values.cwd ?? join(scratch, "work");
 
@@ -595,22 +591,30 @@ async function stop(name: string): Promise<void> {
 
   const state = existsSync(join(scratch, "state.json")) ? await stateOf(name) : null;
   const removed = [`tmux ${target(name)}`];
+  // A step that fails is said once the rest is removed: a stop that aborts halfway cannot be run again.
+  const failed: string[] = [];
 
   if (state?.isOwnWork === true) {
-    await $`claude purge --yes ${state.work}`.quiet();
-    removed.push(`Claude Code's data for ${state.work}`);
+    const purged = await $`claude purge --yes ${state.work}`.nothrow().quiet();
+
+    if (purged.exitCode === 0) removed.push(`Claude Code's data for ${state.work}`);
+    else failed.push(`claude purge ${state.work}: ${purged.stderr.toString().trim()}`);
   }
 
   const source = join(scratch, "source");
 
   if (existsSync(source)) {
-    await $`git -C ${ROOT} worktree remove --force ${source}`.quiet();
-    removed.push(`worktree ${source}`);
+    const unlinked = await $`git -C ${ROOT} worktree remove --force ${source}`.nothrow().quiet();
+
+    if (unlinked.exitCode === 0) removed.push(`worktree ${source}`);
+    else failed.push(`git worktree remove ${source}: ${unlinked.stderr.toString().trim()}`);
   }
 
   rmSync(scratch, { recursive: true, force: true });
   removed.push(scratch);
   console.log(`removed: ${removed.join(", ")}`);
+
+  if (failed.length > 0) fail(`not removed:\n${failed.join("\n")}`);
 }
 
 if (import.meta.main) {
@@ -623,7 +627,7 @@ if (import.meta.main) {
       await start(name, rest);
       break;
     case "send":
-      await $`tmux send-keys -l -t ${target(name)} ${rest.join(" ")}`.quiet();
+      await $`tmux send-keys -l -t ${target(name)} -- ${rest.join(" ")}`.quiet();
       await Bun.sleep(150);
       await keys(name, ["Enter"]);
       break;

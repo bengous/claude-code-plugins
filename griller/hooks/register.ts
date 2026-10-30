@@ -19,8 +19,8 @@ const RECOMMENDATION = /^\s*➡️?/u;
 
 const SEPARATOR = /^\s*-{3,}\s*$/u;
 
-/** The number Claude gives a question, written `**Q4**`. */
-const NUMBER = /\*\*Q(\d+)\*\*/u;
+/** The number Claude gives a question, written `**Q4**` at its start; one cited later is another's. */
+const NUMBER = /^\*\*Q(\d+)\*\*/u;
 
 /** A choice the question offers, written `**(a)**`. */
 const CHOICE = /\*\*\(([a-z])\)\*\*/gu;
@@ -50,7 +50,7 @@ type Round = {
   failure: string | null;
 };
 
-/** One line of the journal, the person's every gesture; Claude never reads it. */
+/** One line of the journal, the person's every gesture; never sent to Claude. */
 type Event =
   | { readonly kind: "open" | "reopen" | "send" | "close"; readonly questions: readonly number[] }
   | { readonly kind: "draft" | "answer" | "choice"; readonly q: number; readonly text: string }
@@ -451,7 +451,7 @@ async function hold($: EngineInterface, id: string): Promise<void> {
   if (saved.open !== null) {
     await openRound($, saved.open);
     await note($, { kind: "reopen", questions: numbersOf(saved.open) });
-    await flush($);
+    await flush($).catch(unsaved($));
 
     return;
   }
@@ -518,7 +518,13 @@ function isPrompt(m: SessionMessage): boolean {
   return m.role === "user" && m.text.trim() !== "" && (m.toolResults ?? []).length === 0;
 }
 
-/** Where each of Claude's messages starts, by its text: where the earlier messages of its turn left off. */
+/** How much of a message a start hides: each place hides all that the one before it does. */
+const DEPTH: Readonly<Record<Place, number>> = { outside: 0, question: 1, recommendation: 2 };
+
+/**
+ * Where each of Claude's messages starts, by its text: where the earlier messages of its turn left off.
+ * Two messages of the same text share the start that hides the most: a drawing names no message.
+ */
 function startsIn(messages: readonly SessionMessage[]): Map<string, Place> {
   const starts = new Map<string, Place>();
   let place: Place = "outside";
@@ -527,7 +533,9 @@ function startsIn(messages: readonly SessionMessage[]): Map<string, Place> {
     if (isPrompt(m)) {
       place = "outside";
     } else if (m.role === "assistant") {
-      starts.set(m.text, place);
+      const known = starts.get(m.text);
+
+      if (known === undefined || DEPTH[place] > DEPTH[known]) starts.set(m.text, place);
       place = placeAfter(m.text, place);
     }
   }
@@ -555,10 +563,13 @@ function reread($: EngineInterface): Promise<void> {
 
 /**
  * Where a message of Claude's starts; a text the conversation does not hold starts outside. A reading
- * already under way may predate the message, so a second one follows it.
+ * already under way may predate the message, so one of its own follows it; a drawing starts at most
+ * one, since a reply still streaming is a new text at each drawing.
  */
 async function startOf($: EngineInterface, text: string): Promise<Place> {
-  for (let tries = 0; !starts.has(text) && tries < 2; tries += 1) await reread($);
+  if (!starts.has(text) && reading !== null) await reading;
+
+  if (!starts.has(text)) await reread($);
 
   return starts.get(text) ?? "outside";
 }
@@ -874,10 +885,10 @@ export const register: Register = (on) => {
     const replaced = round;
 
     if (replaced !== null) await note($, abandon(replaced));
-    last = questions.at(-1)?.n ?? last;
+    last = Math.max(last, ...numbersOf(questions));
     await openRound($, replaced === null ? questions : carried(questions, replaced.questions));
     await note($, { kind: "open", questions: numbersOf(questions) });
-    await flush($);
+    await flush($).catch(unsaved($));
 
     return done;
   });
@@ -909,14 +920,16 @@ export const register: Register = (on) => {
   on("classic.MessageDisplay", async (_$, e, next) => {
     const done = await next(e);
     const before = streaming?.turn === e.turn_id ? streaming.place : "outside";
-    const text = masked(e.delta, before);
+    // Another hook may have rewritten the batch already: the hiding applies to what it shows.
+    const shown = done.displayContent ?? e.delta;
+    const text = masked(shown, before);
 
     streaming = { turn: e.turn_id, place: placeAfter(e.delta, before) };
 
-    return text === e.delta ? done : { ...done, displayContent: text };
+    return text === shown ? done : { ...done, displayContent: text };
   });
 
-  on("ui.render", { component: "Pane", requestId: "griller" }, ($, e, next) => {
+  on("ui.render", { component: "Pane", requestId: PANE }, ($, e, next) => {
     if (e.surface === "mobile") return next(e);
 
     if (round !== null) return drawRound($, e, round);

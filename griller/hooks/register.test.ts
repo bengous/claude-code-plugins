@@ -1127,6 +1127,37 @@ test("questions keep the numbers Claude gave them, and an unnumbered one follows
   expect(world.files.get(TRANSCRIPT)?.split("\n---\n")).toHaveLength(3);
 });
 
+test("a round asking an earlier question again moves no number back, and a number a question cites is not its own", async ($, on) => {
+  const world = await started($, on);
+
+  await ended($, ROUND);
+  await answeredAndSent($, 3);
+  world.messages.push(message("user", world.prompts[0] ?? ""));
+  await ended($, "❓ **Q2** - **Owner**: Who owns the migration?\n\n➡️ The platform team\n\n---");
+  await answeredAndSent($, 1);
+  world.messages.push(message("user", world.prompts[1] ?? ""));
+  await ended(
+    $,
+    "❓ **Rollback**: Given **Q2**, who decides a rollback?\n\n➡️ The on-call lead\n\n---",
+  );
+  await answeredAndSent($, 1);
+
+  expect(world.prompts.slice(1)).toEqual([
+    "Grill answers:\nQ2: answer 1",
+    "Grill answers:\nQ4: answer 1",
+  ]);
+});
+
+test("a round whose save fails still opens, and the mod says the grill was not saved", async ($, on) => {
+  const world = await started($, on);
+
+  world.failing.set(JOURNAL, 1);
+  await ended($, ROUND);
+
+  expect(world.opens()).toBe(1);
+  expect(world.toasts).toEqual([expect.stringContaining("griller: the grill was not saved")]);
+});
+
 /** `ROUND` asked again after the person asked Claude a question instead of sending: Q3 reworded. */
 const RESTATED = ROUND.replace(
   "When does it ship: **(a)** this sprint, or **(b)** the one after?",

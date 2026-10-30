@@ -42,7 +42,7 @@ A round Claude writes while another still waits, as when you ask it something in
 
 ## The scribe
 
-The mod keeps the grill under `.claude/griller/` in the session's project, a folder whose own `.gitignore` keeps it out of git. Claude never reads any of it, and it stays on your machine:
+The mod keeps the grill under `.claude/griller/` in the session's project, a folder whose own `.gitignore` keeps it out of git. None of it is sent to Claude, and it stays on your machine; Claude's tools can still open it, as any file of the project:
 
 - `<session id>.md`: the grill as you read it, rewritten as you answer: each question as Claude wrote it, its recommendation once the round is sent, and your final answer. The round waiting shows no recommendation, so the file can sit beside the pane. A round closed unsent, by you or by a round that took its place, stays, marked abandoned, with the answers it had and no recommendation.
 - `<session id>.jsonl`: the journal, one timestamped line per gesture, for analysis: a round opened, reopened, sent or closed unsent; the typing in an answer field, one line with its text once the field loses the focus or another gesture comes; each answer recorded, choice picked, peek, hide and Claude's answer taken.

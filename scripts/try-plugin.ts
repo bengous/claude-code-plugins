@@ -10,7 +10,6 @@
  * Why each launch flag is there: docs/plugin-testing/sessions.md, "Launch a test session".
  */
 
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { $ } from "bun";
@@ -21,6 +20,7 @@ import {
   type PluginName,
   type PluginRow,
   type Source,
+  installDependencies,
   installedVersions,
   pluginDirAt,
   pluginNameIn,
@@ -256,20 +256,6 @@ async function header(checkout: PluginDir, plugins: PluginName[]): Promise<strin
 }
 
 /**
- * Claude Code installs a plugin's dependencies at its cache; under
- * `--plugin-dir` nothing does.
- */
-async function install(pluginDir: string): Promise<void> {
-  if (!existsSync(join(pluginDir, "package.json"))) return;
-
-  const installed = await $`bun install --cwd ${pluginDir} --frozen-lockfile`.nothrow().quiet();
-
-  if (installed.exitCode !== 0) {
-    fail(`tp: bun install in ${pluginDir}\n${installed.stderr.toString().trim()}`, 1);
-  }
-}
-
-/**
  * Terminal: `execve` replaces this process, so nothing after it runs. Its
  * `PluginDir` is the state the launch depends on: a ref with no worktree has
  * no directory to hand it, and cannot reach here.
@@ -281,7 +267,11 @@ async function launch(
 ): Promise<void> {
   const pluginDirs = plugins.map((plugin) => join(checkout, plugin));
 
-  for (const dir of pluginDirs) await install(dir);
+  for (const dir of pluginDirs) {
+    const failure = await installDependencies(dir);
+
+    if (failure !== null) fail(`tp: ${failure}`, 1);
+  }
 
   console.log((await header(checkout, plugins)).join("\n"));
 
