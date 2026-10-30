@@ -101,6 +101,8 @@ export interface Answer {
 export interface Case {
   readonly name: string;
   readonly expected: Tier;
+  /** Judged only after the prompt's last revision, never tuned on: the cases that alone bound the false-low rate. */
+  readonly heldOut: boolean;
   /** A commit whose own change is judged. */
   readonly sha?: string;
   /** Or a patch applied on `base`, judged with `message`. */
@@ -462,18 +464,25 @@ export function calibrationOf(text: string): Calibration {
       throw new Error(`${where} needs a name and an expected tier, low or human`);
     }
 
+    const marked = value["heldOut"];
+
+    if (marked !== undefined && marked !== true && marked !== false) {
+      throw new Error(`${where} (${name}): heldOut is true or false`);
+    }
+
+    const heldOut = marked === true;
     const sha = stringField(value, "sha");
     const base = stringField(value, "base");
     const patch = stringField(value, "patch");
     const message = stringField(value, "message");
 
-    if (sha !== undefined) return { name, expected, sha };
+    if (sha !== undefined) return { name, expected, heldOut, sha };
 
     if (base === undefined || patch === undefined || message === undefined) {
       throw new Error(`${where} (${name}) needs a sha, or a base, a patch and a message`);
     }
 
-    return { name, expected, base, patch, message };
+    return { name, expected, heldOut, base, patch, message };
   });
 
   return {
@@ -586,20 +595,33 @@ export interface CaseRuns {
 }
 
 /**
- * The rule-of-three line over the changes the model judged, null when it judged none. A case's runs share one change
- * and sample only the model's noise, so both counts are of changes: a case is a false low when any of its runs reads low.
+ * The rule-of-three line over the held-out changes the model judged. A case's runs share one change and sample only
+ * the model's noise, so both counts are of changes: a case is a false low when any of its runs reads low.
  */
-export function ruleOfThree(results: readonly CaseRuns[]): string | null {
-  const judged = results.filter(({ runs }) => runs.some((decided) => decided.by === "judge"));
+export function ruleOfThree(results: readonly CaseRuns[]): string {
+  const judged = results.filter(
+    ({ entry, runs }) => entry.heldOut && runs.some((decided) => decided.by === "judge"),
+  );
 
-  if (judged.length === 0) return null;
+  if (judged.length === 0) return "rule of three: no held-out case the model judged, no bound";
 
   const falseLows = judged.filter(
     ({ entry, runs }) =>
       entry.expected === "human" && runs.some((decided) => decided.verdict.tier === "low"),
   ).length;
 
-  return `rule of three: ${falseLows} of ${judged.length} changes the model judged read a false low; at 0, the false-low rate is under 3/${judged.length} = ${((3 / judged.length) * 100).toFixed(1)}% at 95%, counting only cases no prompt revision was tuned on`;
+  return `rule of three: ${falseLows} of ${judged.length} held-out changes read a false low; at 0, the false-low rate is under 3/${judged.length} = ${((3 / judged.length) * 100).toFixed(1)}% at 95%`;
+}
+
+/** The `low` cases read `human` on every run: a judge that answers human to all would pass on false lows alone. */
+export function humanOnEveryRun(results: readonly CaseRuns[]): readonly string[] {
+  return results.flatMap(({ entry, runs }) =>
+    entry.expected === "low" &&
+    runs.length > 0 &&
+    runs.every((decided) => decided.by !== "failure" && decided.verdict.tier === "human")
+      ? [entry.name]
+      : [],
+  );
 }
 
 async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
@@ -683,15 +705,18 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
       `false human ${falseHumans.length}${falseHumans.map((line) => `\n  ${line}`).join("")}`,
     );
 
-    const bound = ruleOfThree(results);
+    const lowsLost = humanOnEveryRun(results);
 
-    if (bound !== null) console.log(bound);
+    console.log(
+      `low read human on every run ${lowsLost.length}${lowsLost.map((name) => `\n  ${name}`).join("")}`,
+    );
+    console.log(ruleOfThree(results));
 
     console.log(
       `model ${[...models].join(", ") || "none answered"}, asked as ${model}; prompt ${digestOf(judge.system)}; $${cost.toFixed(2)}`,
     );
 
-    return falseLows.length === 0 && failures.length === 0 ? 0 : 1;
+    return falseLows.length === 0 && failures.length === 0 && lowsLost.length === 0 ? 0 : 1;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

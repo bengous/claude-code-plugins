@@ -9,10 +9,12 @@ import {
   answerOf,
   type Calibration,
   calibrationOf,
+  type Case,
   CASES_FILE,
   type Decided,
   digestOf,
   evidenceOf,
+  humanOnEveryRun,
   type Judge,
   leftOpenOf,
   messagesOf,
@@ -306,6 +308,24 @@ describe("tier.cases.json", () => {
 
     if (prompt !== null) expect(prompt).toBe(digestOf(readFileSync(PROMPT_FILE, "utf8")));
   });
+
+  test("reads heldOut as false when absent, and refuses one that is not a boolean", () => {
+    const parsed = calibrationOf(
+      JSON.stringify({
+        cases: [
+          { name: "a", expected: "low", sha: "x" },
+          { name: "b", expected: "low", sha: "y", heldOut: true },
+        ],
+      }),
+    );
+
+    expect(parsed.cases.map((entry) => entry.heldOut)).toEqual([false, true]);
+    expect(() =>
+      calibrationOf(
+        JSON.stringify({ cases: [{ name: "c", expected: "low", sha: "z", heldOut: "yes" }] }),
+      ),
+    ).toThrow("heldOut is true or false");
+  });
 });
 
 describe("the command", () => {
@@ -356,46 +376,74 @@ function run(tier: Tier, by: Decided["by"] = "judge"): Decided {
   return { verdict: { tier, reason: "r" }, by, model: MODEL, costUsd: 0 };
 }
 
-describe("ruleOfThree", () => {
-  const human = { name: "h", expected: "human" as const, sha: "a" };
-  const low = { name: "l", expected: "low" as const, sha: "b" };
+const HUMAN: Case = { name: "h", expected: "human", heldOut: true, sha: "a" };
 
-  test("counts a change whose three runs read low as one false low over the changes judged", () => {
+const LOW_CASE: Case = { name: "l", expected: "low", heldOut: true, sha: "b" };
+
+describe("ruleOfThree", () => {
+  test("counts a change whose three runs read low as one false low over the held-out changes", () => {
     const line = ruleOfThree([
-      { entry: human, runs: [run("low"), run("low"), run("low")] },
-      { entry: low, runs: [run("low"), run("low"), run("low")] },
+      { entry: HUMAN, runs: [run("low"), run("low"), run("low")] },
+      { entry: LOW_CASE, runs: [run("low"), run("low"), run("low")] },
     ]);
 
-    expect(line).toStartWith("rule of three: 1 of 2 changes the model judged read a false low");
+    expect(line).toStartWith("rule of three: 1 of 2 held-out changes read a false low");
   });
 
   test("counts a change as a false low when one run of three reads low", () => {
-    const line = ruleOfThree([{ entry: human, runs: [run("human"), run("low"), run("human")] }]);
+    const line = ruleOfThree([{ entry: HUMAN, runs: [run("human"), run("low"), run("human")] }]);
 
-    expect(line).toStartWith("rule of three: 1 of 1 changes");
+    expect(line).toStartWith("rule of three: 1 of 1 held-out changes");
   });
 
   test("leaves out a change whose every run failed, and counts one a run of which the model judged", () => {
     const line = ruleOfThree([
-      { entry: human, runs: [run("human", "failure"), run("human", "failure")] },
-      { entry: human, runs: [run("human", "failure"), run("human"), run("human")] },
+      { entry: HUMAN, runs: [run("human", "failure"), run("human", "failure")] },
+      { entry: HUMAN, runs: [run("human", "failure"), run("human"), run("human")] },
     ]);
 
-    expect(line).toStartWith("rule of three: 0 of 1 changes");
+    expect(line).toStartWith("rule of three: 0 of 1 held-out changes");
   });
 
-  test("bounds over the judged changes alone, a floored case aside", () => {
+  test("bounds over the held-out changes the model judged alone, floored and tuned cases aside", () => {
     const line = ruleOfThree([
-      { entry: human, runs: [run("human", "floor")] },
-      { entry: human, runs: [run("human"), run("human"), run("human")] },
-      { entry: low, runs: [run("low"), run("human"), run("low")] },
+      { entry: HUMAN, runs: [run("human", "floor")] },
+      { entry: { ...HUMAN, heldOut: false }, runs: [run("low"), run("low"), run("low")] },
+      { entry: HUMAN, runs: [run("human"), run("human"), run("human")] },
+      { entry: LOW_CASE, runs: [run("low"), run("human"), run("low")] },
     ]);
 
-    expect(line).toContain("0 of 2 changes");
+    expect(line).toStartWith("rule of three: 0 of 2 held-out changes");
     expect(line).toContain("under 3/2 = 150.0%");
   });
 
-  test("prints nothing when the model judged no change", () => {
-    expect(ruleOfThree([{ entry: human, runs: [run("human", "floor")] }])).toBeNull();
+  test("says there is no bound when the model judged no held-out change", () => {
+    expect(
+      ruleOfThree([
+        { entry: HUMAN, runs: [run("human", "floor")] },
+        { entry: { ...HUMAN, heldOut: false }, runs: [run("human")] },
+      ]),
+    ).toBe("rule of three: no held-out case the model judged, no bound");
+  });
+});
+
+describe("humanOnEveryRun", () => {
+  test("names a low case read human on every run, the floor's included", () => {
+    expect(
+      humanOnEveryRun([
+        { entry: LOW_CASE, runs: [run("human"), run("human"), run("human")] },
+        { entry: { ...LOW_CASE, name: "floored" }, runs: [run("human", "floor")] },
+      ]),
+    ).toEqual(["l", "floored"]);
+  });
+
+  test("passes a low case read low once, a failed run, and a human case read human", () => {
+    expect(
+      humanOnEveryRun([
+        { entry: LOW_CASE, runs: [run("human"), run("low"), run("human")] },
+        { entry: LOW_CASE, runs: [run("human", "failure"), run("human"), run("human")] },
+        { entry: HUMAN, runs: [run("human"), run("human"), run("human")] },
+      ]),
+    ).toEqual([]);
   });
 });

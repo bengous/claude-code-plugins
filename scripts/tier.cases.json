@@ -137,67 +137,80 @@
     {
       "name": "a value agents read in the page, set by untested wiring",
       "expected": "human",
-      "sha": "2b5afa300869bba182c9673f593023d0c43caa8f"
+      "sha": "2b5afa300869bba182c9673f593023d0c43caa8f",
+      "heldOut": true
     },
     {
       "name": "a pointer capture's timing in the page's engine",
       "expected": "human",
-      "sha": "11351a69b4c589ab49a78cbcd58bd93359a04b3b"
+      "sha": "11351a69b4c589ab49a78cbcd58bd93359a04b3b",
+      "heldOut": true
     },
     {
       "name": "five UI behaviours changed with no test",
       "expected": "human",
-      "sha": "3f02e493d76a908a4b3bcdb8413c36f9c3952056"
+      "sha": "3f02e493d76a908a4b3bcdb8413c36f9c3952056",
+      "heldOut": true
     },
     {
       "name": "a permission hook that now denies on a missing field",
       "expected": "human",
-      "sha": "7eb3ee22d2ac019686d113215e35e1104573b844"
+      "sha": "7eb3ee22d2ac019686d113215e35e1104573b844",
+      "heldOut": true
     },
     {
       "name": "a server's host and origin gates widened",
       "expected": "human",
-      "sha": "835fe7bcc3d22ef31da87a49375eda71a65e9b1e"
+      "sha": "835fe7bcc3d22ef31da87a49375eda71a65e9b1e",
+      "heldOut": true
     },
     {
       "name": "a skill given a new never rule",
       "expected": "human",
-      "sha": "dd46e5cce0c1d350a072184cf8ccc2516959ab47"
+      "sha": "dd46e5cce0c1d350a072184cf8ccc2516959ab47",
+      "heldOut": true
     },
     {
       "name": "an AGENTS.md rule added for commit messages",
       "expected": "human",
-      "sha": "180b8ce30059ba3629d129f683a6f76cb1f64b95"
+      "sha": "180b8ce30059ba3629d129f683a6f76cb1f64b95",
+      "heldOut": true
     },
     {
       "name": "a dev tool's pin bumped",
       "expected": "low",
-      "sha": "75b84a57fbb427d64a721c50ee6f54db37547c34"
+      "sha": "75b84a57fbb427d64a721c50ee6f54db37547c34",
+      "heldOut": true
     },
     {
       "name": "a test's rows spelled out",
       "expected": "low",
-      "sha": "e00676496d8f89241d3a3e4bb915d05d5196d9fe"
+      "sha": "e00676496d8f89241d3a3e4bb915d05d5196d9fe",
+      "heldOut": true
     },
     {
       "name": "an arrow-merge fix its unit tests cover",
       "expected": "low",
-      "sha": "474f476938b2eb56322f661ee3d5a5ff0191e740"
+      "sha": "474f476938b2eb56322f661ee3d5a5ff0191e740",
+      "heldOut": true
     },
     {
       "name": "a tsconfig include narrowed, its doc line with it",
       "expected": "low",
-      "sha": "4f3a5896a5e065afeb5aaab601c75fe3ea65f785"
+      "sha": "4f3a5896a5e065afeb5aaab601c75fe3ea65f785",
+      "heldOut": true
     },
     {
       "name": "a JSDoc comment reworded",
       "expected": "low",
-      "sha": "c335f6b71189ab91627d6e75136b3d96256bc505"
+      "sha": "c335f6b71189ab91627d6e75136b3d96256bc505",
+      "heldOut": true
     },
     {
       "name": "a maintainer report's count, with its tests",
       "expected": "low",
-      "sha": "665abbebc4ef2c0a4566b85b854a0d99fde0919b"
+      "sha": "665abbebc4ef2c0a4566b85b854a0d99fde0919b",
+      "heldOut": true
     }
   ]
 }
