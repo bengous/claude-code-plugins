@@ -613,6 +613,7 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
     let agreed = 0;
     let judged = 0;
+    let judgedCases = 0;
     const failures: string[] = [];
     const falseLows: string[] = [];
     const falseHumans: string[] = [];
@@ -620,6 +621,8 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
     for (const { entry, runs } of results) {
       const tiers = runs.map((decided) => decided.verdict.tier);
+
+      if (runs.some((decided) => decided.by === "judge")) judgedCases += 1;
 
       for (const decided of runs) {
         if (decided.model !== null) models.add(decided.model);
@@ -660,9 +663,10 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
       `false human ${falseHumans.length}${falseHumans.map((line) => `\n  ${line}`).join("")}`,
     );
 
-    if (judged > 0) {
+    // A case's runs share one change and sample only the model's noise: the bound counts changes, not runs.
+    if (judgedCases > 0) {
       console.log(
-        `rule of three: ${falseLows.length} false low in ${judged} judged runs bounds the false-low rate under 3/${judged} = ${((3 / judged) * 100).toFixed(1)}% at 95% when it is 0`,
+        `rule of three: ${falseLows.length} false low over ${judgedCases} changes the model judged bounds the false-low rate under 3/${judgedCases} = ${((3 / judgedCases) * 100).toFixed(1)}% at 95% when it is 0`,
       );
     }
 
