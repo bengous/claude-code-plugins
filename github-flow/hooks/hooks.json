@@ -1,5 +1,5 @@
 {
-  "description": "Lints a plan before it is approved, captures it, and attaches it to the pull request that lands it",
+  "description": "Lints a plan before it is approved, captures it, and attaches it to the pull request that lands it; refuses to close a pull request without a comment saying what became of it",
   "hooks": {
     "PreToolUse": [
       {
@@ -19,6 +19,17 @@
           {
             "type": "command",
             "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/stamp-plan.ts\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr close *)",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/gate-pr-close.ts\"",
             "timeout": 10
           }
         ]

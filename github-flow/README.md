@@ -133,6 +133,16 @@ Left out, for refusing good plans as often as bad ones. Measured on 2026-10-17 o
 
 The kept checks hit 0.9% of the approved plans and 3.6% of those sent back.
 
+## Closing a pull request
+
+A pull request integrated by squash, rebase or cherry-pick stays "closed" on GitHub, with nothing on it to say where its work went.
+
+| Hook | Event | What it does |
+|---|---|---|
+| `scripts/gate-pr-close.ts` | `PreToolUse` on `Bash`, `if: "Bash(gh pr close *)"` | Denies a `gh pr close` with no non-empty `--comment` (`-c`). The reason gives the convention: the commits that integrated the pull request and what landed, or the reason it was abandoned. |
+
+The hook matches the whole command with two regexes, with no git or network call. A `gh pr close` written as text, in a commit message or a heredoc, is denied too, which costs Claude one retry; in a chain of closes, one comment lets them all through. A variable such as `-c "$NOTE"` counts as a comment, since the hook cannot expand it. Any failure lets the call through.
+
 ## Requirements
 
 - GitHub CLI (`gh`) authenticated
