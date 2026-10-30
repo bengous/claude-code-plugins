@@ -37,7 +37,7 @@ const LEVELS = ["major", "minor", "patch"] as const;
 
 export type Level = (typeof LEVELS)[number];
 
-const BREAKING = /^[a-z]+(?:\([^)]*\))?!:/u;
+export const BREAKING = /^[a-z]+(?:\([^)]*\))?!:/u;
 
 const FEATURE = /^feat(?:\([^)]*\))?!?:/u;
 

@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { isE2ePath } from "./check-e2e-green.ts";
 import type { CiVerdict } from "./ci-wait.ts";
 import { write } from "./claude-code-types.fixture.ts";
-import { riskyOf } from "./land.ts";
 import {
   AGENT_ROUNDS,
   agentModel,
@@ -33,6 +32,7 @@ import {
   versionOf,
 } from "./renovate-agent.ts";
 import { patchIdOf, verdictLine, verdictsOf } from "./review-verdict.ts";
+import { riskyOf } from "./tier-floor.ts";
 
 const SCRIPT = join(import.meta.dir, "renovate-agent.ts");
 

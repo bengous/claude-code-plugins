@@ -45,9 +45,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { CONFIG_GIT_PATH } from "../agent-hooks/config.ts";
-import { parseProfile } from "../agent-hooks/profile.ts";
-import { ConfigError } from "../agent-hooks/reader.ts";
 import {
   type CheckRun,
   checkRunsOf,
@@ -79,6 +76,7 @@ import {
   short,
   verdictsOf,
 } from "./review-verdict.ts";
+import { riskyOf, riskyPaths } from "./tier-floor.ts";
 
 /** Set in the environment of `origin/dev`'s copy, which runs the landing itself. */
 const DEV_COPY = "LAND_DEV_COPY";
@@ -241,41 +239,6 @@ export function changedPaths(checkout: string, base: string, head = "HEAD"): Pat
   return { kind: "read", paths: diff.out.split("\0").filter((path) => path !== "") };
 }
 
-/** The profile file in `rev`, as `git show` names it. */
-export function profileSpec(rev: string): string {
-  return `${rev}:${CONFIG_GIT_PATH}`;
-}
-
-export type RiskyRead =
-  | { readonly kind: "read"; readonly risky: readonly string[] }
-  | { readonly kind: "unreadable"; readonly why: string };
-
-/** The risky globs of the profile in `rev`: none only when `rev` holds no profile file or no review in it. */
-export function riskyOf(checkout: string, rev: string): RiskyRead {
-  const spec = profileSpec(rev);
-
-  const listed = run(
-    ["git", "ls-tree", "--full-tree", "--name-only", rev, "--", CONFIG_GIT_PATH],
-    checkout,
-  );
-
-  if (!listed.ok) return { kind: "unreadable", why: `git ls-tree ${rev}: ${listed.err}` };
-
-  if (listed.out === "") return { kind: "read", risky: [] };
-
-  const shown = run(["git", "show", spec], checkout);
-
-  if (!shown.ok) return { kind: "unreadable", why: `git show ${spec}: ${shown.err}` };
-
-  try {
-    return { kind: "read", risky: parseProfile(spec, shown.out).review?.risky ?? [] };
-  } catch (error) {
-    if (error instanceof ConfigError) return { kind: "unreadable", why: error.message };
-
-    throw error;
-  }
-}
-
 /**
  * Why the branch, `reviewed` on its pull request and `rebased` on `origin/dev` here, changing `paths`, may not land
  * without another review; null when it touches no risky path or a clean verdict holds its patch. Read from
@@ -289,11 +252,7 @@ function reviewRefusal(
   { reviewed, rebased, paths }: { reviewed: string; rebased: string; paths: readonly string[] },
 ): string | null {
   const profile = riskyOf(checkout, BASE);
-
-  const touched =
-    profile.kind === "unreadable"
-      ? paths
-      : paths.filter((path) => profile.risky.some((glob) => new Bun.Glob(glob).match(path)));
+  const touched = riskyPaths(paths, profile);
 
   if (touched.length === 0) return null;
 

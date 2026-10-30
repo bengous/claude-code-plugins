@@ -61,7 +61,6 @@ import { join } from "node:path";
 import { isE2ePath } from "./check-e2e-green.ts";
 import { type CiVerdict, ciVerdict, ghCli } from "./ci-wait.ts";
 import { RUN_GUARD as TYPES_RUN_GUARD } from "./claude-code-types.ts";
-import { riskyOf } from "./land.ts";
 import {
   type ChildSlot,
   command,
@@ -80,6 +79,7 @@ import {
   writeWhole,
 } from "./lib/headless-run.ts";
 import { BASE, type Comment, patchIdOf, postVerdict, short, verdictsOf } from "./review-verdict.ts";
+import { riskyOf } from "./tier-floor.ts";
 
 export const MAJOR_LABEL = "major";
 

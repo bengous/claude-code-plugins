@@ -20,15 +20,14 @@ import {
   land,
   type Landing,
   movedOn,
-  profileSpec,
   type PullRequest,
   refusalOf,
-  riskyOf,
   samePath,
   WAITING,
   type Waiting,
 } from "./land.ts";
 import { type Comment, record } from "./review-verdict.ts";
+import { profileSpec, riskyOf } from "./tier-floor.ts";
 
 let root = "";
 
