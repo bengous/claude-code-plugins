@@ -18,9 +18,9 @@ import type { Comment } from "./review-verdict.ts";
 // the open `red-dev` issues, `landOkAt` the times `land-ok` was added to the
 // pull request, oldest first, and `pushes` the branch's pushes GitHub lists,
 // each at a time, from a head or else git's zero oid, to a commit or else the
-// head origin holds; a
-// label created is one more call. A call whose arguments start with one of
-// `failing` fails.
+// head origin holds; a label created is one more call. A comment posted is
+// kept, its `--body` or else its stdin. A call whose arguments start with one
+// of `failing` fails.
 
 export type JobEnd = "success" | "failure";
 
@@ -54,6 +54,7 @@ export interface FakeGitHub {
     readonly number: number;
     state: string;
     readonly baseRefName: string;
+    readonly url: string;
     readonly comments: readonly Comment[];
     labels: string[];
   };
@@ -101,7 +102,15 @@ export function serveGitHub(
   const github: FakeGitHub = {
     origin,
     branch,
-    pr: { number: 7, state: "OPEN", baseRefName: "dev", comments: [], labels: [], ...pr },
+    pr: {
+      number: 7,
+      state: "OPEN",
+      baseRefName: "dev",
+      url: "https://github.com/o/r/pull/7",
+      comments: [],
+      labels: [],
+      ...pr,
+    },
     mergeLag: 0,
     stacked: [],
     redDev: [],
@@ -345,7 +354,9 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
   }
 
   if (command === "pr" && verb === "comment") {
-    github.comment = await Bun.stdin.text();
+    const body = args.indexOf("--body");
+
+    github.comment = body === -1 ? await Bun.stdin.text() : (args[body + 1] ?? "");
 
     return "";
   }

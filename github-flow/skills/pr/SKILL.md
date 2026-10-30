@@ -41,7 +41,7 @@ Agents review the PR first. The body is for the human who opens it afterwards an
    - A user in the session: every decision in one `AskUserQuestion`, the option the agent would take first. An answer that changes the code is committed (`/git:commit`). *Decisions* records each answer as a choice made.
    - No user, inside a subagent, a `/loop` run or a scheduled task: never call `AskUserQuestion`; decide. A file of the diff that the issue's *Out of scope* names goes back to its `origin/<base>` state in a commit (`git restore --source origin/<base> -- <file>`), and *Left open* names it with what it would have fixed. Each choice goes in *Decisions*.
 6. **Review.** Before the body, so the body and the tier describe the final head. Wait for each reviewer's report before step 7.
-   - `/code-review` of the branch against `origin/<base>`. Each finding is fixed and committed, or answered in *Decisions*.
+   - `/code-review` of the branch against `origin/<base>`. Each finding is fixed and committed, or answered in *Decisions*. On an update of a PR whose comments hold a `<!-- land-ok: void approved=<sha> … -->` line newer than its last `land-ok`: the review reads `git diff <sha>..HEAD` alone, the human having read the rest, and *Checks* says `reviewed since <sha>`.
    - `plugin-dev:skill-reviewer` when the diff touches a `SKILL.md` or an `agents/*.md`, its findings under the same rule.
    - A reviewer that cannot run or never reports: *Checks* says `not reviewed: <why>`, no verdict is posted, and the tier is `human`.
 7. **Body.** Fill the sections below. The title follows the convention of `git log --oneline -10`. A body with a Mermaid block carries `Diagrams not seen rendered on GitHub.` in *Left open* until step 10 has looked at them.

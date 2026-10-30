@@ -28,7 +28,10 @@
  * one lands only with a `land-ok` label given to its change: the head GitHub
  * held when the label was added, by its push times, has the patch of the head
  * the landing starts from. The agent-hooks guard lets an agent add the label
- * only on the human's words. A low one without it is refused while a `red-dev`
+ * only on the human's words. A `land-ok` whose change is no longer the head's
+ * comes off, with a comment naming the commits since and GitHub's compare view
+ * of the two heads: the human reads those alone, then says « land #n » again,
+ * which adds the label anew. A low one without it is refused while a `red-dev`
  * issue is open.
  * Renovate's branches and the types branch have guards of their own.
  *
@@ -159,6 +162,7 @@ export interface PullRequest {
   readonly state: string;
   readonly baseRefName: string;
   readonly headRefOid: string;
+  readonly url: string;
   readonly labels: readonly { readonly name: string }[];
   readonly comments: readonly Comment[];
 }
@@ -336,12 +340,12 @@ async function readPullRequest({
     "view",
     branch,
     "--json",
-    "number,state,baseRefName,headRefOid,labels,comments",
+    "number,state,baseRefName,headRefOid,url,labels,comments",
   ]);
 
   try {
     // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
-    // as open, against dev and at the head waited for.
+    // as open, against dev and at the head waited for, or fail before any write when its url is read.
     return JSON.parse(out);
   } catch {
     throw new Error(`gh printed no pull request for ${branch}: ${out.trim()}`);
@@ -452,7 +456,8 @@ async function pushesOf({ gh, branch }: Pick<Lander, "gh" | "branch">): Promise<
 /**
  * Null when the pull request carries a `land-ok` given to the change that lands: the head GitHub held when the label
  * was added has the patch of the head this landing started from. A rebase that keeps the patch, `land.ts`'s own
- * included, keeps the ok; a commit after it does not.
+ * included, keeps the ok; a commit after it does not, and that ok comes off (`voidApproval`). An ok whose head or
+ * patch cannot be read is refused as it is: nothing is taken off on a read that failed.
  */
 async function approvalOf(
   lander: Lander,
@@ -484,16 +489,99 @@ async function approvalOf(
 
   if (approved === lander.reviewed) return null;
 
+  const given = `with a ${LAND_OK} given to ${short(approved)}`;
+
   if (!run(["git", "cat-file", "-e", `${approved}^{commit}`], lander.checkout).ok) {
-    run(["git", "fetch", "--quiet", REMOTE, approved], lander.checkout);
+    const fetched = run(["git", "fetch", "--quiet", REMOTE, approved], lander.checkout);
+
+    if (!fetched.ok) return `${given}, which ${REMOTE} no longer serves: ${fetched.err.trim()}`;
   }
 
   const then = patchIdOf(lander.checkout, BASE, approved);
+
+  if (then.kind === "failed") return `${given}, whose patch does not read: ${then.why}`;
+
   const now = patchIdOf(lander.checkout, BASE, lander.reviewed);
 
-  if (then.kind === "read" && now.kind === "read" && then.id === now.id) return null;
+  if (now.kind === "failed") return `${given}, and a head whose patch does not read: ${now.why}`;
 
-  return `with a ${LAND_OK} added at ${added} for ${short(approved)}, whose change is not that of its head ${short(lander.reviewed)}`;
+  if (then.id === now.id) return null;
+
+  return voidApproval(lander, pr, approved);
+}
+
+/**
+ * Takes off a `land-ok` whose change is no longer the pull request's: the human's next « land #n » adds it again,
+ * as a new event GitHub dates, which a label left on would not be. The comment, posted first so a failed removal
+ * loses nothing, leaves the human what to read before that: the commits since the head the ok covered, those with
+ * no patch among the ones it covered and not on `origin/dev`, which a rebase brings in, each linked; and GitHub's
+ * compare view of the two heads when the ok's head leads to this one, since after a rebase that view starts from
+ * the old base and shows the rebase too.
+ */
+async function voidApproval(lander: Lander, pr: PullRequest, approved: string): Promise<string> {
+  const { branch, checkout, reviewed } = lander;
+
+  const since = run(
+    [
+      "git",
+      "log",
+      "--right-only",
+      "--cherry-pick",
+      "--no-merges",
+      "--format=%H %s",
+      `${approved}...${reviewed}`,
+      `^${BASE}`,
+    ],
+    checkout,
+  );
+
+  if (!since.ok) {
+    throw new Error(`git log ${short(approved)}...${short(reviewed)}: ${since.err.trim()}`);
+  }
+
+  const repo = pr.url.replace(/\/pull\/\d+$/u, "");
+
+  const commits = since.out
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => {
+      const [sha = "", ...subject] = line.split(" ");
+
+      return `- ${short(sha)} ${subject.join(" ")} (${repo}/commit/${sha})`;
+    });
+
+  const linear = run(["git", "merge-base", "--is-ancestor", approved, reviewed], checkout).ok;
+  const compare = `${repo}/compare/${approved}...${reviewed}`;
+  // Two dots: the two heads' trees compared as they are, for a change with no commit to list.
+  const direct = `${repo}/compare/${approved}..${reviewed}`;
+
+  const changed =
+    commits.length === 0
+      ? "the patch changed with no new commit, amended or reset"
+      : `${commits.length === 1 ? "1 commit" : `${commits.length} commits`} since changed the patch`;
+
+  const toRead = linear
+    ? compare
+    : commits.length === 0
+      ? `the two heads' own diff, ${direct}`
+      : `the commits below; the compare view ${compare} would show the rebase too`;
+
+  const where = linear ? compare : commits.length === 0 ? direct : "the commits its comment links";
+
+  await lander.gh([
+    "pr",
+    "comment",
+    branch,
+    "--body",
+    [
+      `<!-- land-ok: void approved=${approved} head=${reviewed} -->`,
+      `The human's \`${LAND_OK}\` covered ${short(approved)}; ${changed}, so the label is off. To read before the next « land #${pr.number} »: ${toRead}`,
+      ...commits,
+    ].join("\n"),
+  ]);
+  await lander.gh(["pr", "edit", branch, "--remove-label", LAND_OK]);
+
+  return `with a ${LAND_OK} given to ${short(approved)}, whose change is not that of its head ${short(reviewed)}: the label is off; ${commits.length === 0 ? "no new commit, the patch amended or reset" : `${commits.length === 1 ? "1 commit" : `${commits.length} commits`} since`}, to read at ${where}`;
 }
 
 /** The open `red-dev` issues, each `#<number>`. */
@@ -520,7 +608,8 @@ async function redDevIssues(lander: Lander): Promise<readonly string[]> {
 /**
  * Why `pr` may not land at its tier, or null when it may: a human one without a `land-ok` given to its change, a low
  * one without it while `dev` is red. The tier is the branch's, read once per landing, raised by a `tier:human` label
- * an earlier pass left; its label goes on the pull request on the way.
+ * an earlier pass left; its label goes on the pull request on the way, and a `land-ok` given to another change
+ * comes off on the way too, named in the refusal.
  */
 async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | null> {
   const { tiering } = lander;
@@ -549,9 +638,15 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
   const red = await redDevIssues(lander);
 
-  if (red.length === 0 || (await approvalOf(lander, pr, labels)) === null) return null;
+  if (red.length === 0) return null;
 
-  return `${DEV} is red (${red.join(", ")}): no unattended landing until it is green`;
+  const approval = await approvalOf(lander, pr, labels);
+
+  if (approval === null) return null;
+
+  const unattended = `${DEV} is red (${red.join(", ")}): no unattended landing until it is green`;
+
+  return labels.has(LAND_OK) ? `${unattended}; #${pr.number}, ${approval}` : unattended;
 }
 
 function remaining(lander: Lander): number {

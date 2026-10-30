@@ -1163,7 +1163,7 @@ describe("land, the tier", () => {
     expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
   });
 
-  test("refuses a land-ok the human gave to an earlier head, whatever its commit's date", async () => {
+  test("takes off a land-ok the human gave to an earlier head, whatever its commit's date, and names the commits since", async () => {
     const earlier = branchHead();
 
     addSkill();
@@ -1176,9 +1176,139 @@ describe("land, the tier", () => {
       pr: { labels: ["land-ok"] },
     });
 
+    const compare = `https://github.com/o/r/compare/${earlier}...${branchHead()}`;
+
     expect(why(await landing())).toContain(
-      `with a land-ok added at 2050-01-01T00:00:00Z for ${earlier.slice(0, 8)}, whose change is not that of its head`,
+      `with a land-ok given to ${earlier.slice(0, 8)}, whose change is not that of its head ${branchHead().slice(0, 8)}: the label is off; 1 commit since, to read at ${compare}`,
     );
+    expect(edits()).toEqual(["pr edit feature/x --remove-label land-ok"]);
+    expect(github().pr.labels).not.toContain("land-ok");
+    expect(github().calls.filter((call) => call.startsWith("pr comment"))).toHaveLength(1);
+    expect(github().comment).toBe(
+      [
+        `<!-- land-ok: void approved=${earlier} head=${branchHead()} -->`,
+        `The human's \`land-ok\` covered ${earlier.slice(0, 8)}; 1 commit since changed the patch, so the label is off. To read before the next « land #7 »: ${compare}`,
+        `- ${branchHead().slice(0, 8)} feat: a skill (https://github.com/o/r/commit/${branchHead()})`,
+      ].join("\n"),
+    );
+  });
+
+  test("keeps a land-ok whose head origin no longer serves, refusing without a write", async () => {
+    addSkill();
+    serve({
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: "deadbeef".repeat(5) },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+    });
+
+    expect(why(await landing())).toContain(
+      "with a land-ok given to deadbeef, which origin no longer serves",
+    );
+    expect(edits()).toEqual([]);
+    expect(github().pr.labels).toContain("land-ok");
+    expect(github().comment).toBeNull();
+  });
+
+  test("keeps the label on when the comment that names what to read cannot be posted", async () => {
+    const earlier = branchHead();
+
+    addSkill();
+    serve({
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: earlier },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+      failing: ["pr comment"],
+    });
+
+    expect(why(await landing())).toContain("gh pr comment feature/x exited 1");
+    expect(edits()).toEqual([]);
+    expect(github().pr.labels).toContain("land-ok");
+  });
+
+  test("names a change amended or reset with no new commit, whose patch the ok no longer covers", async () => {
+    addSkill();
+
+    const okHead = branchHead();
+
+    writeFileSync(join(work, "skills/x/SKILL.md"), "feat: a skill \n");
+    git(work, "add", "skills/x/SKILL.md");
+    git(work, "commit", "--quiet", "--amend", "--no-edit");
+    pushBranch();
+    serve({
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: okHead },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+    });
+
+    expect(why(await landing())).toContain(
+      `the label is off; no new commit, the patch amended or reset, to read at https://github.com/o/r/compare/${okHead}..${branchHead()}`,
+    );
+    expect(github().comment).toContain(
+      `the patch changed with no new commit, amended or reset, so the label is off. To read before the next « land #7 »: the two heads' own diff, https://github.com/o/r/compare/${okHead}..${branchHead()}`,
+    );
+    expect(github().comment).not.toContain("\n- ");
+  });
+
+  test("takes a voided land-ok off a low branch too while dev is red, and says so", async () => {
+    const earlier = branchHead();
+
+    commit(work, "docs/x.md", "docs: a page");
+    pushBranch();
+    serve({
+      redDev: [41],
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: earlier },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+    });
+
+    const refusal = why(await landing());
+
+    expect(refusal).toContain(
+      "dev is red (#41): no unattended landing until it is green; #7, with a land-ok given to",
+    );
+    expect(refusal).toContain("the label is off; 1 commit since");
+    expect(github().pr.labels).not.toContain("land-ok");
+  });
+
+  test("lists as the commits since only those whose patch the ok did not cover, a rebase aside", async () => {
+    addSkill();
+
+    const okHead = branchHead();
+
+    moveDev();
+    git(work, "fetch", "--quiet", "origin");
+    git(work, "rebase", "--quiet", "origin/dev");
+    commit(work, "skills/x/more.md", "docs: one more line");
+    pushBranch();
+    serve({
+      landOkAt: ["2050-01-01T00:00:00Z"],
+      pushes: [
+        { at: "2000-01-01T00:00:00Z", sha: okHead },
+        { at: "2100-01-01T00:00:00Z", sha: branchHead() },
+      ],
+      pr: { labels: ["land-ok"] },
+    });
+
+    expect(why(await landing())).toContain(
+      "1 commit since, to read at the commits its comment links",
+    );
+    expect(github().comment).toContain(
+      `- ${branchHead().slice(0, 8)} docs: one more line (https://github.com/o/r/commit/${branchHead()})`,
+    );
+    expect(github().comment).toContain("would show the rebase too");
+    expect(github().comment).not.toContain("feat: a skill");
   });
 
   test("refuses a land-ok added before any push of the branch", async () => {
@@ -1208,6 +1338,8 @@ describe("land, the tier", () => {
 
     expect(branchHead()).not.toBe(okHead);
     expect((await landing()).kind).toBe("landed");
+    expect(github().pr.labels).toContain("land-ok");
+    expect(github().comment).toBeNull();
   });
 
   test("refuses a land-ok taken off while CI ran", async () => {
@@ -1386,6 +1518,7 @@ describe("refusalOf", () => {
     state: "OPEN",
     baseRefName: "dev",
     headRefOid: "abc",
+    url: "https://github.com/o/r/pull/1",
     labels: [],
     comments: [],
   };
