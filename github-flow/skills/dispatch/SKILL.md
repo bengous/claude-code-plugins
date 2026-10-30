@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: "Hand ready GitHub issues to worker subagents that implement, verify, open their own pull request and land it when its tier is low, one worker per issue. Use when the user asks to dispatch, assign, or hand issues to agents, or to turn issues into PRs."
+description: "Hand ready GitHub issues to worker subagents that implement, verify, open their own pull request and land it when its tier is low, one worker per issue. Use when the user asks to dispatch issues, to hand or assign them to agents or workers, or to turn issues into PRs; not to assign an issue to a person."
 argument-hint: "<n> [<n>...] [--plan] [--approve]"
 allowed-tools: Bash(gh issue:*), Bash(gh pr view:*), Bash(gh pr edit:*), Bash(gh label:*), Bash(gh api:*), Agent, Read, Grep, Glob
 ---

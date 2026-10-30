@@ -1,8 +1,8 @@
 ---
 name: pr
-description: Open or update the pull request of the current branch with a body that shows the change first, as a diagram, a file tree, a shaped diff, a table or screenshots, and images attached through gh. Use when the user asks to open, create, submit, update, or rewrite a PR, or to push and open one.
+description: Open or update the pull request of the current branch once the branch is reviewed, with a body that shows the change first, as a diagram, a file tree, a shaped diff, a table or screenshots, and images attached through gh, then label it with its review tier. Use when the user asks to open, create, submit, update, or rewrite a PR, or to push and open one.
 argument-hint: "[--dry-run] [image.png#alt ...] [what the reviewer should know]"
-allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git push:*), Bash(gh repo view:*), Bash(gh issue view:*), Bash(gh pr view:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh label create:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/tree-diff.ts *), Read, Grep, Glob
+allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git rev-parse:*), Bash(git restore:*), Bash(git push:*), Bash(gh repo view:*), Bash(gh issue view:*), Bash(gh pr view:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh label create:*), Bash(mktemp:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/tree-diff.ts *), Skill, Read, Grep, Glob
 ---
 
 # PR
@@ -20,7 +20,7 @@ Agents review the PR first. The body is for the human who opens it afterwards an
 
 ## Protocol
 
-1. **Branch.** `git branch --show-current`. On `dev`, `main`, or the repo's default branch: stop, show `git status --short`, ask for a branch name. Uncommitted changes: stop and say so; the commit comes first (`/git:commit`).
+1. **Branch.** `git branch --show-current`. On `dev`, `main`, the repo's default branch, or no branch: stop, show `git status --short`, ask for a branch name; with no user to ask, report `no branch` and stop. Uncommitted changes: stop and say so; the commit comes first (`/git:commit`).
 2. **Base.** `dev` when `origin/dev` exists, else `gh repo view --json defaultBranchRef`. `gh` takes that bare name; a `git` command or the script takes `origin/<base>`, since a local branch of that name may be missing or stale.
 3. **Evidence.** Read before citing.
    - `git log --oneline origin/<base>..HEAD` and `git diff --stat origin/<base>...HEAD`: the size, the files.
@@ -38,13 +38,14 @@ Agents review the PR first. The body is for the human who opens it afterwards an
 
    A pair of stills proves a state. A clip proves a transition two images cannot show: an animation, a navigation, a sequence of gestures. Record one only then, and for the After: the Before stays a still, because what it proves is that nothing happened. Playwright drives the recording, from a script that touches no file of the repo. Recipe, traps and publishing: `references/video.md`
 5. **Decisions.** The body asks nothing. A decision is a file of the diff that the issue puts *Out of scope*, a form the diff leaves open, or a behaviour read but not run whose answer would change the branch.
-   - A user in the session, the `AskUserQuestion` tool available: every decision in one `AskUserQuestion`, the option the agent would take first. An answer that changes the code is committed (`/git:commit`). *Decisions* records each answer as a choice made.
-   - No user, `AskUserQuestion` absent (a subagent, a `/loop`, a scheduled task): decide inside the *Out of scope* boundary. A file outside it goes back to its `origin/<base>` state in a commit, and *Left open* names it with what it would have fixed. Each choice goes in *Decisions*.
-6. **Review.** Before the body, so the body and the tier describe the final head.
+   - A user in the session: every decision in one `AskUserQuestion`, the option the agent would take first. An answer that changes the code is committed (`/git:commit`). *Decisions* records each answer as a choice made.
+   - No user, inside a subagent, a `/loop` run or a scheduled task: never call `AskUserQuestion`; decide. A file of the diff that the issue's *Out of scope* names goes back to its `origin/<base>` state in a commit (`git restore --source origin/<base> -- <file>`), and *Left open* names it with what it would have fixed. Each choice goes in *Decisions*.
+6. **Review.** Before the body, so the body and the tier describe the final head. Wait for each reviewer's report before step 7.
    - `/code-review` of the branch against `origin/<base>`. Each finding is fixed and committed, or answered in *Decisions*.
    - `plugin-dev:skill-reviewer` when the diff touches a `SKILL.md` or an `agents/*.md`, its findings under the same rule.
+   - A reviewer that cannot run or never reports: *Checks* says `not reviewed: <why>`, no verdict is posted, and the tier is `human`.
 7. **Body.** Fill the sections below. The title follows the convention of `git log --oneline -10`. A body with a Mermaid block carries `Diagrams not seen rendered on GitHub.` in *Left open* until step 10 has looked at them.
-8. **Publish.** No question about publishing: the skill is the guard, and a caller that wants a look first passes `--dry-run`. Without `--dry-run`, push with `git push -u origin HEAD`. A rejected push: report it verbatim and stop; never force. Body in a temporary file outside the repo. A PR already open on the branch (`gh pr view --json number,body`) is edited, else one is created:
+8. **Publish.** No question about publishing: the skill is the guard, and a caller that wants a look first passes `--dry-run`. Without `--dry-run`, push with `git push -u origin HEAD`. A rejected push: report it verbatim and stop; never force. Body in a file of a directory of its own, from `mktemp -d`, outside the repo. A PR already open on the branch (`gh pr view --json number,body`) is edited, else one is created:
 
    ```bash
    gh pr create --base <base> --title "<title>" --body-file <tmp> --attach './before.png#<alt>'
@@ -53,12 +54,13 @@ Agents review the PR first. The body is for the human who opens it afterwards an
 
    `--body-file` keeps the markdown intact. A `![alt](<path>)` in the body is rewritten to the uploaded asset when `<path>` is the same string as in `--attach`, and the alt text in the body wins. The image files stay outside the repo, so both strings are the absolute path of the capture, not `./before.png`; `--attach` is their only path to GitHub.
 
-   Then the `verdict` command of `.claude/github-flow.json` when it has one, once step 6 left no finding open: `{branch}` is the branch, `{sha}` the head pushed (`git rev-parse HEAD`). It posts on the PR that a review of that head came out clean. Report the title, the URL, and the files *Left open* names.
+   Then, without `--dry-run`, the `verdict` command of `.claude/github-flow.json` when it has one, once every reviewer of step 6 reported and left no finding open: `{branch}` is the branch, `{sha}` the head pushed (`git rev-parse HEAD`). It posts on the PR that a review of that head came out clean.
 9. **Tier.** The `tier` command of `.claude/github-flow.json`, `{pr}` filled. It prints one line, `low <reason>` or `human <reason>`. That line goes in *Checks*, and one edit carries the body and the label: `gh pr edit <n> --body-file <tmp> --add-label tier:low`, or `tier:human`. A label the repository lacks is created first: `gh label create tier:low --description "Lands on green checks without a human"`, or `tier:human` with `"Waits for the human's land #N"`.
    - The tier only goes up. On an update, `human` over a PR labelled `tier:low` replaces it: `--remove-label tier:low --add-label tier:human`. `low` over a PR labelled `tier:human` leaves the label as it is.
-   - No file, no `tier` key, or the command failing: `tier:human`, its reason `no tier command in .claude/github-flow.json` or the first line of the failure.
+   - No file, no `tier` key, or the command failing or denied: `tier:human`, its reason `no tier command in .claude/github-flow.json` or the first line of the failure. A branch step 6 left `not reviewed` is `tier:human` whatever the line says.
    - Under `--dry-run`: the line is printed and no label is added; with no PR open, the tier waits for the publish.
 10. **Render check.** A body with a Mermaid block, after a publish. Only GitHub shows the drawing: `gh pr view` returns the markdown. When the session's browser can open the PR (on a private repository, only the user's logged-in browser can), screenshot each diagram, fix what does not read, `gh pr edit <n> --body-file <tmp>`, and look again: two rounds at most. The last edit replaces the *Left open* line of step 7 with what still does not read, or drops it. No such browser, a worker in a worktree for one: the line stays.
+11. **Report.** The title, the URL, the tier line, and the files *Left open* names.
 
 ## Views
 
