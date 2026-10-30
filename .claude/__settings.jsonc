@@ -150,6 +150,13 @@
       // against dev and green, and the pre-push gates still run.
       "Bash(bun ./scripts/land.ts *)",
 
+      // The loop's other commands (.claude/github-flow.json): a prompt nobody
+      // answers turns a worker's tier human. Local, or a headless judge call.
+      "Bash(bun ./scripts/tier.ts *)",
+      "Bash(bun ./scripts/review-verdict.ts record *)",
+      "Bash(bun ./scripts/run-gates.ts*)",
+      "Bash(bun test *)",
+
       // Blankets that also reach past this machine (a publish, an install, a
       // POST): kept as they are until a measured use narrows them.
       "Bash(npm:*)",
