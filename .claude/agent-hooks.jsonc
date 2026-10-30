@@ -41,6 +41,8 @@
         "agent-hooks/profile.ts",
         "agent-hooks/reader.ts",
         "agent-hooks/config.ts",
+        "agent-hooks/json.ts",
+        "scripts/lib/breaking-subject.ts",
         "scripts/tier.ts",
         "scripts/tier-floor.ts",
         "scripts/tier.prompt.md",
