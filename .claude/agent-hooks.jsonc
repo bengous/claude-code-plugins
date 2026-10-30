@@ -5,10 +5,14 @@
   // refuses the one-way doors this derives. scripts/land.ts lands a change to a `risky` path only with a clean
   // review verdict for its patch (scripts/review-verdict.ts), reading this list from origin/dev: the paths that
   // move what lands, releases or guards, this file and the gate's own scripts included, and the lint and format
-  // configuration whose fixes scripts/renovate-agent.ts vouches for without a review. Each task takes a worktree
-  // of its own: a session starting in a checkout another session works in is told so.
+  // configuration whose fixes scripts/renovate-agent.ts vouches for without a review, and what sets a change's
+  // tier: the tier scripts, the github-flow skills that publish, dispatch and land, and the commands they read.
+  // scripts/land.ts lands a tier:human pull request only once it carries land-ok, which an agent adds only when the
+  // human's latest typed message says "land #<n>". Each task takes a worktree of its own: a session starting in a
+  // checkout another session works in is told so.
   "profile": {
     "landing": { "trunk": "dev", "release": "main" },
+    "approvals": { "labels": { "land-ok": ["land #{pr}", "land {pr}"] } },
     "review": {
       "risky": [
         "scripts/land.ts",
@@ -33,6 +37,14 @@
         ".claude/agent-hooks.jsonc",
         "agent-hooks/pre-bash.ts",
         "agent-hooks/guard/**",
+        "scripts/tier.ts",
+        "scripts/tier-floor.ts",
+        "scripts/tier.prompt.md",
+        "scripts/tier.cases.json",
+        ".claude/github-flow.json",
+        "github-flow/skills/pr/**",
+        "github-flow/skills/dispatch/**",
+        "github-flow/skills/shift/**",
       ],
     },
     "worktree": "per-task",

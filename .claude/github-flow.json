@@ -1,0 +1,6 @@
+{
+  "validate": ["bun ./scripts/run-gates.ts", "bun test --parallel"],
+  "tier": "bun ./scripts/tier.ts --pr {pr}",
+  "verdict": "bun ./scripts/review-verdict.ts record {branch} --sha {sha}",
+  "land": "bun ./scripts/land.ts {branch}"
+}
