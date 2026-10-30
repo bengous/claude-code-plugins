@@ -34,7 +34,7 @@ Agents review the PR first. The body is for the human who opens it afterwards an
    - A Mermaid diagram: read `references/mermaid.md` first. GitHub's renderer has traps a terminal never shows.
    - Worked examples of every view: `references/views.md`.
 
-   A change the reader sees (a page, a view, a component, a stylesheet) gets a Before/After pair when `$ARGUMENTS` gave none. The browser tool of the session captures the base state (the live page, else the base branch served) and the branch, one state per file, outside the repo. No reachable base: After alone, and the caption says so.
+   A change the reader sees (a page, a view, a component, a stylesheet) gets a Before/After pair when `$ARGUMENTS` gave none. The browser tool of the session captures the base state (the live page, else the base branch served) and the branch, one state per file, outside the repo, in a directory from `mktemp -d`. No reachable base: After alone, and the caption says so.
 
    A pair of stills proves a state. A clip proves a transition two images cannot show: an animation, a navigation, a sequence of gestures. Record one only then, and for the After: the Before stays a still, because what it proves is that nothing happened. Playwright drives the recording, from a script that touches no file of the repo. Recipe, traps and publishing: `references/video.md`
 5. **Decisions.** The body asks nothing. A decision is a file of the diff that the issue puts *Out of scope*, a form the diff leaves open, or a behaviour read but not run whose answer would change the branch.
@@ -52,7 +52,7 @@ Agents review the PR first. The body is for the human who opens it afterwards an
    gh pr edit <n> --title "<title>" --body-file <tmp> --attach '<capture dir>/after.png#<alt>'
    ```
 
-   `--body-file` keeps the markdown intact. A `![alt](<path>)` in the body is rewritten to the uploaded asset when `<path>` is the same string as in `--attach`, and the alt text in the body wins. The image files stay outside the repo, so both strings are the absolute path of the capture, `<capture dir>` the directory of its own the capture went to; `--attach` is their only path to GitHub.
+   `--body-file` keeps the markdown intact. A `![alt](<path>)` in the body is rewritten to the uploaded asset when `<path>` is the same string as in `--attach`, and the alt text in the body wins. The image files stay outside the repo, so both strings are the absolute path of the capture, `<capture dir>` that `mktemp -d` directory; `--attach` is their only path to GitHub.
 
    Then, without `--dry-run`, the `verdict` command of `.claude/github-flow.json` when it has one, once every reviewer of step 6 reported and left no finding open: `{branch}` is the branch, `{sha}` the head pushed (`git rev-parse HEAD`). It posts on the PR that a review of that head came out clean.
 9. **Tier.** The `tier` command of `.claude/github-flow.json`, `{pr}` filled. It prints one line, `low <reason>` or `human <reason>`. That line goes in *Checks*, and one edit carries the body and the label: `gh pr edit <n> --body-file <tmp> --add-label tier:low`, or `tier:human`. A label the repository lacks is created first: `gh label create tier:low --description "Lands on green checks without a human"`, or `tier:human` with `"Waits for the human's land #N"`.

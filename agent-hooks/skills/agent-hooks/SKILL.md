@@ -266,9 +266,9 @@ What the model bounds and the kit does not try to cross:
   names (`gh issue edit 12 13`); one added with no literal number (`gh pr edit` alone, a branch,
   `gh pr create --label`) is refused, and so are a GraphQL `labelIds` or `addLabelsToLabelable`, and a
   dispatch or label endpoint the guard does not read (`repositories/<id>/…`), whatever the message. A phrase matches
-  as whole words, any case, any run of whitespace between them, and nothing reads around it: `pas ok
-  #12` holds `ok #{pr}`, so a workflow's phrase passes there; a label's phrase opens a line, so no word
-  before it can negate it, and `pas ok #12` does not pass. The message is the latest one the human typed in the session's transcript, a
+  as whole words, any case, any run of whitespace between them, and nothing reads after it: `pas de
+  release` holds `release`, so a workflow's phrase passes there; a label's phrase must open a line, so
+  no word before it can negate it, and `pas ok #12` does not pass `ok #{pr}`. The message is the latest one the human typed in the session's transcript, a
   message queued while the agent worked included, read from the main transcript in a subagent too; a
   task notification, a tool result, a peer session's or a teammate's message and an approved plan are
   not typed (`readHuman` in `guard/transcript.ts`). A transcript that cannot
