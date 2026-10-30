@@ -157,7 +157,6 @@
       "Bash(bun ./scripts/tier.ts --pr *)",
       "Bash(bun ./scripts/review-verdict.ts record feature/*)",
       "Bash(bun ./scripts/review-verdict.ts record fix/*)",
-      "Bash(bun ./scripts/run-gates.ts)",
       "Bash(bun ./scripts/run-gates.ts *)",
       "Bash(bun test *)",
 
