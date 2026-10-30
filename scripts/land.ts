@@ -13,10 +13,24 @@
  * the landing lands under the rule already on `dev`.
  *
  * Refused before any push: a branch outside `feature/`, `fix/`, `renovate/`
- * and `chore/claude-code-types`, no checkout holding it, the types branch held
- * where the types run recreates its worktree, tracked changes
- * there, a pull request not open against `dev`, or whose head is not the
- * local head within a minute. Then it waits, an hour at most in all, until
+ * and `chore/claude-code-types`, the types branch held where the types run
+ * recreates its worktree, tracked changes in the checkout holding the branch,
+ * a pull request not open against `dev`, or whose head is not the local head
+ * within a minute. No checkout holding the branch: one is added under
+ * `.claude/worktrees/land-<branch>`, its lockfile installed, and removed once
+ * the landing ends. A clean checkout behind its pull request's head is
+ * fast-forwarded to it first.
+ *
+ * The tier: a `feature/` or `fix/` branch is tiered by the `tier.ts` beside
+ * this script, so `origin/dev`'s, once per landing, on the pull request read
+ * before and after the wait for CI; a `tier:human` label already on the pull
+ * request keeps it human. The pull request gets the label of its tier. A human
+ * one lands only with a `land-ok` label added after its head was committed,
+ * which the agent-hooks guard lets an agent add only on the human's words. A
+ * low one without that label is refused while a `red-dev` issue is open.
+ * Renovate's branches and the types branch have guards of their own.
+ *
+ * Then it waits, an hour at most in all, until
  * every `ci.yml` run of that head is green (`scripts/ci-wait.ts`), a run red
  * in its e2e jobs alone re-run once. A branch touching the e2e paths whose
  * head holds `origin/dev` and has no green `e2e` check run, the pre-push
@@ -41,7 +55,7 @@
  * is named, with why, on the verdict line of a landing that still succeeded.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -66,6 +80,7 @@ import {
 } from "./ci-wait.ts";
 import { ROLLING_BRANCH, worktreePath } from "./claude-code-types.ts";
 import { run } from "./lib/run.ts";
+import { LABEL as RED_DEV } from "./red-dev.ts";
 import {
   BASE,
   type Comment,
@@ -76,7 +91,7 @@ import {
   short,
   verdictsOf,
 } from "./review-verdict.ts";
-import { riskyOf, riskyPaths } from "./tier-floor.ts";
+import { riskyOf, riskyPaths, type Tier, type Verdict } from "./tier-floor.ts";
 
 /** Set in the environment of `origin/dev`'s copy, which runs the landing itself. */
 const DEV_COPY = "LAND_DEV_COPY";
@@ -99,6 +114,28 @@ const E2E_LABEL = "e2e";
 const GREEN_JOB = new Set(["success", "skipped", "neutral"]);
 
 const PR_NUMBER = /^\d+$/u;
+
+/** Renovate's branches: `scripts/renovate-agent.ts` and the verdict it posts guard them, not the tier. */
+const BOT_BRANCH = /^renovate\//u;
+
+/** The human's ok on one pull request, added only on the human's own words (`profile.approvals.labels`). */
+export const LAND_OK = "land-ok";
+
+export const TIER_LABELS: Readonly<
+  Record<Tier, { readonly name: string; readonly color: string; readonly description: string }>
+> = {
+  low: { name: "tier:low", color: "0E8A16", description: "Lands on green checks without a human" },
+  human: { name: "tier:human", color: "D93F0B", description: "Waits for the human's land #N" },
+};
+
+const TIER_LINE = /^(low|human) (.+)$/u;
+
+/** The tier of the branch held in `checkout`, whose pull request is `pr`. */
+export type Tiering = (checkout: string, pr: number) => Promise<Verdict>;
+
+export interface Deps {
+  readonly tier: Tiering;
+}
 
 export interface Waiting {
   readonly clock: Clock;
@@ -144,6 +181,10 @@ interface Lander {
   readonly deadline: number;
   /** The runs this landing re-ran, each once at most. */
   readonly rerun: Set<number>;
+  /** The head the landing started from, which a `land-ok` must postdate. */
+  readonly reviewed: string;
+  /** How the branch is tiered, its verdict once read; null for a branch with guards of its own. */
+  readonly tiering: { readonly of: Tiering; verdict: Verdict | null } | null;
 }
 
 function refused(why: string): Refused {
@@ -278,11 +319,14 @@ function reviewRefusal(
   return `${risky}; #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review ${short(reviewed)}, and once no finding is open, ${recordCommand(branch, reviewed)}; then land again`;
 }
 
-async function readPullRequest(lander: Lander): Promise<PullRequest> {
-  const out = await lander.gh([
+async function readPullRequest({
+  gh,
+  branch,
+}: Pick<Lander, "gh" | "branch">): Promise<PullRequest> {
+  const out = await gh([
     "pr",
     "view",
-    lander.branch,
+    branch,
     "--json",
     "number,state,baseRefName,headRefOid,labels,comments",
   ]);
@@ -292,8 +336,146 @@ async function readPullRequest(lander: Lander): Promise<PullRequest> {
     // as open, against dev and at the head waited for.
     return JSON.parse(out);
   } catch {
-    throw new Error(`gh printed no pull request for ${lander.branch}: ${out.trim()}`);
+    throw new Error(`gh printed no pull request for ${branch}: ${out.trim()}`);
   }
+}
+
+/** `tier.ts` beside this script, run in `checkout`: `origin/dev`'s when this runs as its copy. */
+export async function tierScript(checkout: string, pr: number): Promise<Verdict> {
+  const child = Bun.spawn(
+    [process.execPath, join(import.meta.dir, "tier.ts"), "--pr", String(pr)],
+    { cwd: checkout, stdout: "pipe", stderr: "pipe" },
+  );
+
+  const [out, err, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+
+  const line = TIER_LINE.exec(out.trim());
+
+  if (code === 0 && line !== null) {
+    return { tier: line[1] === "low" ? "low" : "human", reason: line[2] ?? "" };
+  }
+
+  const [first = ""] = (err || out).trim().split("\n");
+
+  return { tier: "human", reason: `tier.ts exited ${code}: ${first}` };
+}
+
+export const DEPS: Deps = { tier: tierScript };
+
+/** Puts the label of `tier` on the pull request, taking `tier:low` off a human one: a tier only goes up. */
+async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier): Promise<void> {
+  const { name, color, description } = TIER_LABELS[tier];
+  const low = TIER_LABELS.low.name;
+
+  if (tier === "human" && labels.has(low)) {
+    await lander.gh(["pr", "edit", lander.branch, "--remove-label", low]);
+  }
+
+  if (labels.has(name)) return;
+
+  await lander.gh([
+    "label",
+    "create",
+    name,
+    "--force",
+    "--color",
+    color,
+    "--description",
+    description,
+  ]);
+  await lander.gh(["pr", "edit", lander.branch, "--add-label", name]);
+}
+
+/** Null when the pull request carries a `land-ok` added after its head was committed; else what it carries. */
+async function approvalOf(
+  lander: Lander,
+  pr: PullRequest,
+  labels: ReadonlySet<string>,
+): Promise<string | null> {
+  if (!labels.has(LAND_OK)) return `with no ${LAND_OK} label`;
+
+  const events = await lander.gh([
+    "api",
+    `repos/{owner}/{repo}/issues/${pr.number}/events`,
+    "--paginate",
+    "--jq",
+    `.[] | select(.event == "labeled" and .label.name == "${LAND_OK}") | .created_at`,
+  ]);
+
+  const added = events
+    .split("\n")
+    .filter((line) => line !== "")
+    .at(-1);
+
+  const committed = run(["git", "show", "-s", "--format=%cI", lander.reviewed], lander.checkout);
+
+  if (!committed.ok) throw new Error(`git show ${short(lander.reviewed)}: ${committed.err}`);
+
+  if (added === undefined) return `with a ${LAND_OK} label GitHub lists no event of`;
+
+  if (Date.parse(added) > Date.parse(committed.out)) return null;
+
+  return `with a ${LAND_OK} added at ${added}, before its head ${short(lander.reviewed)} was committed at ${committed.out}`;
+}
+
+/** The open `red-dev` issues, each `#<number>`. */
+async function redDevIssues(lander: Lander): Promise<readonly string[]> {
+  const out = await lander.gh([
+    "issue",
+    "list",
+    "--label",
+    RED_DEV,
+    "--state",
+    "open",
+    "--json",
+    "number",
+    "--jq",
+    ".[].number",
+  ]);
+
+  return out
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((number) => `#${number}`);
+}
+
+/**
+ * Why `pr` may not land at its tier, or null when it may: a human one without a `land-ok` added after its head, a low
+ * one without it while `dev` is red. The tier is the branch's, read once per landing, raised by a `tier:human` label
+ * an earlier pass left; its label goes on the pull request on the way.
+ */
+async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | null> {
+  const { tiering } = lander;
+
+  if (tiering === null) return null;
+
+  tiering.verdict ??= await tiering.of(lander.checkout, pr.number);
+
+  const labels = new Set(pr.labels.map((label) => label.name));
+  const raised = tiering.verdict.tier === "low" && labels.has(TIER_LABELS.human.name);
+  const tier: Tier = raised ? "human" : tiering.verdict.tier;
+
+  await labelTier(lander, labels, tier);
+
+  const approval = await approvalOf(lander, pr, labels);
+
+  if (approval === null) return null;
+
+  if (tier === "human") {
+    const why = raised ? "its tier:human label, left by an earlier pass" : tiering.verdict.reason;
+
+    return `#${pr.number} is tier:human (${why}), ${approval}: it lands once the human types « land #${pr.number} » in a session; stop`;
+  }
+
+  const red = await redDevIssues(lander);
+
+  return red.length === 0
+    ? null
+    : `${DEV} is red (${red.join(", ")}): no unattended landing until it is green`;
 }
 
 function remaining(lander: Lander): number {
@@ -454,6 +636,10 @@ async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> 
 
   if (at.kind === "refused") return at;
 
+  const before = await tierRefusal(lander, at.pr);
+
+  if (before !== null) return refused(before);
+
   const query: CiQuery = { sha, event: "pull_request" };
   const outcome = await settle(lander, query);
 
@@ -473,7 +659,13 @@ async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> 
     }
   }
 
-  return pullRequestAt(lander, sha);
+  const after = await pullRequestAt(lander, sha);
+
+  if (after.kind === "refused") return after;
+
+  const tiered = await tierRefusal(lander, after.pr);
+
+  return tiered === null ? after : refused(tiered);
 }
 
 function kept(why: string): RemoteBranch {
@@ -558,10 +750,104 @@ async function deleteRemote(lander: Lander, pr: number, head: string): Promise<R
   return deleted.ok ? { kind: "deleted" } : kept(`the delete was refused: ${deleted.err}`);
 }
 
+/** Where a checkout of `branch` is added when none holds it: under the main worktree's `.claude/worktrees/`. */
+export function addedCheckoutPath(porcelain: string, branch: string): string | null {
+  const main = porcelain
+    .split("\n")
+    .find((line) => line.startsWith("worktree "))
+    ?.slice("worktree ".length);
+
+  return main === undefined
+    ? null
+    : join(main, ".claude", "worktrees", `land-${branch.replaceAll("/", "-")}`);
+}
+
+type Added = { readonly kind: "added"; readonly path: string } | Refused;
+
+function removeCheckout(cwd: string, path: string): void {
+  const removed = run(["git", "worktree", "remove", path], cwd);
+
+  if (!removed.ok) console.error(`land: the checkout ${path} it added stays: ${removed.err}`);
+}
+
+/** A checkout of `branch` added for this landing, from its local branch or else from origin's, its lockfile installed. */
+function addCheckout(cwd: string, porcelain: string, branch: string): Added {
+  const path = addedCheckoutPath(porcelain, branch);
+
+  if (path === null) return refused("git worktree list --porcelain named no main worktree");
+
+  const unfetched = fetchOrigin(cwd);
+
+  if (unfetched !== null) return refused(unfetched);
+
+  const local = run(["git", "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], cwd).ok;
+  const remote = `refs/remotes/${REMOTE}/${branch}`;
+
+  if (!local && !run(["git", "rev-parse", "--verify", "--quiet", remote], cwd).ok) {
+    return refused(
+      `no checkout holds ${branch}, and ${REMOTE} has no ${branch}: push it, then land`,
+    );
+  }
+
+  const added = run(
+    local
+      ? ["git", "worktree", "add", "--quiet", path, branch]
+      : ["git", "worktree", "add", "--quiet", "--track", "-b", branch, path, `${REMOTE}/${branch}`],
+    cwd,
+  );
+
+  if (!added.ok) return refused(`git worktree add ${path}: ${added.err}`);
+
+  if (existsSync(join(path, "bun.lock"))) {
+    const install = run(["bun", "install", "--frozen-lockfile"], path);
+
+    if (!install.ok) {
+      removeCheckout(cwd, path);
+
+      return refused(`bun install --frozen-lockfile in ${path}: ${install.err}`);
+    }
+  }
+
+  return { kind: "added", path };
+}
+
+/**
+ * Fast-forwards a checkout behind its pull request's head, as a worker's kept worktree is once a `fix` worker pushed
+ * on it. A head ahead of it, or apart from it, is left for the landing to refuse.
+ */
+async function caughtUp(
+  { gh, branch }: Pick<Lander, "gh" | "branch">,
+  checkout: string,
+): Promise<string | null> {
+  const unfetched = fetchOrigin(checkout);
+
+  if (unfetched !== null) return unfetched;
+
+  const head = headOf(checkout);
+
+  if (head === null) return `git rev-parse HEAD failed in ${checkout}`;
+
+  const { headRefOid } = await readPullRequest({ gh, branch });
+
+  if (
+    headRefOid === head ||
+    !run(["git", "merge-base", "--is-ancestor", head, headRefOid], checkout).ok
+  ) {
+    return null;
+  }
+
+  const merged = run(["git", "merge", "--ff-only", "--quiet", headRefOid], checkout);
+
+  return merged.ok
+    ? null
+    : `git merge --ff-only ${short(headRefOid)} in ${checkout}: ${merged.err}`;
+}
+
 export async function land(
   branch: string,
   cwd: string,
   waiting: Waiting = WAITING,
+  deps: Deps = DEPS,
 ): Promise<Landing> {
   if (!LANDABLE.test(branch) && branch !== ROLLING_BRANCH) {
     return refused(`${branch} is not a ${LANDABLE_NAMES}: only those land on ${DEV}`);
@@ -571,19 +857,49 @@ export async function land(
 
   if (!worktrees.ok) return refused(`git worktree list: ${worktrees.err}`);
 
-  const checkout = checkoutOf(worktrees.out, branch);
+  const held = checkoutOf(worktrees.out, branch);
 
-  if (checkout === null) return refused(`no checkout holds ${branch}: check it out, then land`);
+  if (held === null) {
+    const added = addCheckout(cwd, worktrees.out, branch);
 
-  if (branch === ROLLING_BRANCH && samePath(checkout, await worktreePath(cwd))) {
+    if (added.kind === "refused") return added;
+
+    try {
+      return await landFrom(branch, added.path, waiting, deps);
+    } finally {
+      removeCheckout(cwd, added.path);
+    }
+  }
+
+  if (branch === ROLLING_BRANCH && samePath(held, await worktreePath(cwd))) {
     return refused(
-      `${checkout} is where the types run recreates its worktree, under a landing: move that checkout elsewhere (git worktree move ${checkout} <path>), then land`,
+      `${held} is where the types run recreates its worktree, under a landing: move that checkout elsewhere (git worktree move ${held} <path>), then land`,
     );
   }
 
+  return landFrom(branch, held, waiting, deps);
+}
+
+/** The landing of `branch` from `checkout`, the clean checkout that holds it. */
+async function landFrom(
+  branch: string,
+  checkout: string,
+  waiting: Waiting,
+  deps: Deps,
+): Promise<Landing> {
   const dirty = dirtyOf(checkout);
 
   if (dirty !== null) return refused(dirty);
+
+  const gh: Gh = (args) => ghCli(args, checkout);
+
+  try {
+    const behind = await caughtUp({ gh, branch }, checkout);
+
+    if (behind !== null) return refused(behind);
+  } catch (error) {
+    return refused(error instanceof Error ? error.message : String(error));
+  }
 
   const reviewed = headOf(checkout);
 
@@ -596,10 +912,15 @@ export async function land(
   const lander: Lander = {
     branch,
     checkout,
-    gh: (args) => ghCli(args, checkout),
+    gh,
     waiting,
     deadline: waiting.clock.now() + waiting.timeoutMs,
     rerun: new Set(),
+    reviewed,
+    tiering:
+      BOT_BRANCH.test(branch) || branch === ROLLING_BRANCH
+        ? null
+        : { of: deps.tier, verdict: null },
   };
 
   // The head the remote branch holds: the reviewed one, then each one this run pushed.

@@ -14,7 +14,9 @@ import type { Comment } from "./review-verdict.ts";
 // listing of a run in progress takes one poll off it; a hidden run sits out
 // that many listings before it shows. An open pull request whose head origin's
 // dev holds reads merged, once `mergeLag` reads have still shown it open. The
-// `stacked` pull requests are the open ones based on the branch. A call whose
+// `stacked` pull requests are the open ones based on the branch. `redDev` are
+// the open `red-dev` issues, `landOkAt` the times `land-ok` was added to the
+// pull request, oldest first; a label created is one more call. A call whose
 // arguments start with one of `failing` fails.
 
 export type JobEnd = "success" | "failure";
@@ -54,6 +56,8 @@ export interface FakeGitHub {
   };
   mergeLag: number;
   readonly stacked: readonly number[];
+  readonly redDev: readonly number[];
+  readonly landOkAt: readonly string[];
   readonly failing: readonly string[];
   /** Printed by `gh pr view` in place of the pull request. */
   readonly garbage: string | null;
@@ -92,6 +96,8 @@ export function serveGitHub(
     pr: { number: 7, state: "OPEN", baseRefName: "dev", comments: [], labels: [], ...pr },
     mergeLag: 0,
     stacked: [],
+    redDev: [],
+    landOkAt: [],
     failing: [],
     garbage: null,
     pinnedHead: null,
@@ -270,6 +276,8 @@ const RUNS = /actions\/workflows\/ci\.yml\/runs\?head_sha=([0-9a-f]+)&event=pull
 
 const CHECK_RUNS = /commits\/([0-9a-f]+)\/check-runs\?/u;
 
+const EVENTS = /issues\/(\d+)\/events$/u;
+
 async function answer(github: FakeGitHub, args: readonly string[]): Promise<string | null> {
   const [command, verb, target, flag, value] = args;
 
@@ -277,13 +285,24 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
     const path = args.find((arg) => arg.startsWith("repos/")) ?? "";
     const [, runsOf] = RUNS.exec(path) ?? [];
     const [, checksOf] = CHECK_RUNS.exec(path) ?? [];
+    const [, eventsOf] = EVENTS.exec(path) ?? [];
 
     if (runsOf !== undefined) return listRuns(github, runsOf);
 
     if (checksOf !== undefined) return listCheckRuns(github, checksOf);
 
+    if (eventsOf === String(github.pr.number)) {
+      return github.landOkAt.map((at) => `${at}\n`).join("");
+    }
+
     return null;
   }
+
+  if (command === "issue" && verb === "list" && args.includes("red-dev")) {
+    return github.redDev.map((number) => `${number}\n`).join("");
+  }
+
+  if (command === "label" && verb === "create") return "";
 
   if (command === "pr" && verb === "view") {
     if (github.garbage !== null) return github.garbage;

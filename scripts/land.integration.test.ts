@@ -15,6 +15,7 @@ import { dirname, join, posix, win32 } from "node:path";
 import type { Clock } from "./ci-wait.ts";
 import { type GitHubOverrides, readGitHub, type RunSpec, serveGitHub } from "./land.fixture.ts";
 import {
+  addedCheckoutPath,
   changedPaths,
   checkoutOf,
   land,
@@ -23,11 +24,13 @@ import {
   type PullRequest,
   refusalOf,
   samePath,
+  type Tiering,
   WAITING,
   type Waiting,
 } from "./land.ts";
 import { type Comment, record } from "./review-verdict.ts";
 import { profileSpec, riskyOf } from "./tier-floor.ts";
+import { digestOf, evidenceOf, type Judge, messagesOf, tierOf } from "./tier.ts";
 
 let root = "";
 
@@ -96,9 +99,61 @@ function github() {
   return readGitHub(githubFile);
 }
 
-/** The gh calls that change GitHub, in their order. */
+/** The gh calls that change GitHub, the tier's labels aside, in their order. */
 function edits(): readonly string[] {
-  return github().calls.filter((call) => call.startsWith("pr edit") || call.startsWith("run "));
+  return github().calls.filter(
+    (call) => (call.startsWith("pr edit") || call.startsWith("run ")) && !call.includes(" tier:"),
+  );
+}
+
+/** The gh calls that put or take off a tier label, in their order. */
+function tierEdits(): readonly string[] {
+  return github().calls.filter((call) => call.startsWith("pr edit") && call.includes(" tier:"));
+}
+
+/** A judge that finds every change low: past the floor, the branch lands without the human. */
+const LOW_JUDGE: Judge = {
+  ask: () =>
+    Promise.resolve(
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        structured_output: { tier: "low", reason: "the stub judge finds it low" },
+        modelUsage: { stub: {} },
+      }),
+    ),
+  system: "stub",
+  calibration: { model: "stub", prompt: digestOf("stub"), cases: [] },
+};
+
+/** tier.ts's floor on the checkout's change, then a judge that says low. */
+const floorThenLow: Tiering = (checkout) =>
+  tierOf(
+    evidenceOf({
+      cwd: checkout,
+      diff: ["origin/dev...HEAD"],
+      messages: messagesOf(checkout, "origin/dev..HEAD"),
+    }),
+    riskyOf(checkout, "origin/dev"),
+    null,
+    LOW_JUDGE,
+  );
+
+const NEVER_TIERED: Tiering = () => Promise.reject(new Error("a bot branch was tiered"));
+
+/** An hour from now: a land-ok added after any commit of the fixture. */
+function later(): string {
+  return new Date(Date.now() + 60 * 60_000).toISOString();
+}
+
+/** `overrides`, the pull request carrying a land-ok the human approved after its head. */
+function approved(overrides: GitHubOverrides = {}): GitHubOverrides {
+  return {
+    ...overrides,
+    landOkAt: [later()],
+    pr: { ...overrides.pr, labels: [...(overrides.pr?.labels ?? []), "land-ok"] },
+  };
 }
 
 function runListings(): number {
@@ -122,9 +177,13 @@ function clockOf(during: () => void): Clock {
 
 function landing(
   branch = "feature/x",
-  { during = () => {}, ...waiting }: Partial<Waiting> & { during?: () => void } = {},
+  {
+    during = () => {},
+    tier = floorThenLow,
+    ...waiting
+  }: Partial<Waiting> & { during?: () => void; tier?: Tiering } = {},
 ): Promise<Landing> {
-  return land(branch, work, { ...WAITING, clock: clockOf(during), ...waiting });
+  return land(branch, work, { ...WAITING, clock: clockOf(during), ...waiting }, { tier });
 }
 
 function moveDev(): string {
@@ -452,22 +511,76 @@ describe("land", () => {
   });
 
   test.each(["renovate/react-monorepo", "chore/claude-code-types"])(
-    "lands the bot branch %s",
+    "lands the bot branch %s untiered, its own guards holding it",
     async (branch) => {
       git(work, "branch", "--quiet", "-m", branch);
       git(work, "push", "--quiet", "origin", branch);
       serveGitHub(bin, githubFile, { origin, branch });
 
-      expect((await landing(branch)).kind).toBe("landed");
+      expect((await landing(branch, { tier: NEVER_TIERED })).kind).toBe("landed");
       expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
+      expect(tierEdits()).toEqual([]);
     },
   );
 
-  test("refuses a branch no checkout holds", async () => {
+  test("refuses a branch neither a checkout nor origin holds", async () => {
     expect(await landing("fix/nowhere")).toEqual({
       kind: "refused",
-      why: "no checkout holds fix/nowhere: check it out, then land",
+      why: "no checkout holds fix/nowhere, and origin has no fix/nowhere: push it, then land",
     });
+  });
+
+  test("adds a checkout for a branch none holds, installs its lockfile, lands, then removes it", async () => {
+    commit(work, "bun.lock", "lock the dependencies");
+    pushBranch();
+    git(work, "switch", "--quiet", "dev");
+    serve();
+
+    const added = join(work, ".claude", "worktrees", "land-feature-x");
+    const head = git(origin, "rev-parse", "feature/x");
+
+    expect(await landing()).toEqual({
+      kind: "landed",
+      dev: head,
+      pr: 7,
+      remote: { kind: "deleted" },
+    });
+    expect(bunCalls()).toBe(`${added} install --frozen-lockfile`);
+    expect(existsSync(added)).toBe(false);
+    expect(checkoutOf(git(work, "worktree", "list", "--porcelain"), "feature/x")).toBeNull();
+  });
+
+  test("adds the checkout from origin's branch when no local branch has its name", async () => {
+    git(work, "switch", "--quiet", "dev");
+    git(work, "branch", "--quiet", "-D", "feature/x");
+    serve();
+
+    const head = git(origin, "rev-parse", "feature/x");
+
+    expect(await landing()).toEqual({
+      kind: "landed",
+      dev: head,
+      pr: 7,
+      remote: { kind: "deleted" },
+    });
+  });
+
+  test("fast-forwards a clean checkout behind its pull request's head, then lands that head", async () => {
+    git(other, "fetch", "--quiet", "origin");
+    git(other, "switch", "--quiet", "feature/x");
+
+    const fixed = commit(other, "d.txt", "fixed by another worker");
+
+    git(other, "push", "--quiet", "origin", "feature/x");
+    serve();
+
+    expect(await landing()).toEqual({
+      kind: "landed",
+      dev: fixed,
+      pr: 7,
+      remote: { kind: "deleted" },
+    });
+    expect(branchHead()).toBe(fixed);
   });
 
   test("refuses the types branch held where the types run recreates its worktree", async () => {
@@ -491,7 +604,7 @@ describe("land, a branch that touches the e2e paths", () => {
   beforeEach(touchE2e);
 
   test("asks for an e2e run with the label, waits for it, then lands", async () => {
-    serve();
+    serve(approved());
 
     expect((await landing()).kind).toBe("landed");
     expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
@@ -499,7 +612,7 @@ describe("land, a branch that touches the e2e paths", () => {
   });
 
   test("takes the label off first when it is on, since adding it again starts no run", async () => {
-    serve({ pr: { labels: ["e2e"] } });
+    serve(approved({ pr: { labels: ["e2e"] } }));
 
     expect((await landing()).kind).toBe("landed");
     expect(edits()).toEqual([
@@ -509,14 +622,14 @@ describe("land, a branch that touches the e2e paths", () => {
   });
 
   test("waits for the label's run, a second run on the head, though the first is green", async () => {
-    serve({ labelRun: { validate: "success", e2e: "success", polls: 1, hidden: 2 } });
+    serve(approved({ labelRun: { validate: "success", e2e: "success", polls: 1, hidden: 2 } }));
 
     expect((await landing()).kind).toBe("landed");
     expect(github().runs.map((run) => run.sha)).toEqual([branchHead(), branchHead()]);
   });
 
   test("asks for no run when the head has a green e2e already", async () => {
-    serve({ pushRun: { validate: "success", e2e: "success", polls: 0 } });
+    serve(approved({ pushRun: { validate: "success", e2e: "success", polls: 0 } }));
 
     expect((await landing()).kind).toBe("landed");
     expect(edits()).toEqual([]);
@@ -526,7 +639,7 @@ describe("land, a branch that touches the e2e paths", () => {
     const reviewed = branchHead();
     const moved = moveDev();
 
-    serve({ lag: 2 });
+    serve(approved({ lag: 2 }));
 
     const landed = await landing();
     const head = branchHead();
@@ -544,10 +657,12 @@ describe("land, a branch that touches the e2e paths", () => {
   });
 
   test("gives up once the waits add up to an hour", async () => {
-    serve({
-      pushRun: { validate: "success", e2e: "skipped", polls: 5 },
-      labelRun: { validate: "success", e2e: "success", polls: 3 },
-    });
+    serve(
+      approved({
+        pushRun: { validate: "success", e2e: "skipped", polls: 5 },
+        labelRun: { validate: "success", e2e: "success", polls: 3 },
+      }),
+    );
 
     const landed = await landing("feature/x", { pollMs: 10 * 60_000 });
 
@@ -555,7 +670,7 @@ describe("land, a branch that touches the e2e paths", () => {
   });
 
   test("re-runs once a run red in its e2e jobs alone, then lands", async () => {
-    serve({ labelRun: RED_E2E });
+    serve(approved({ labelRun: RED_E2E }));
 
     expect((await landing()).kind).toBe("landed");
     expect(edits()).toEqual(["pr edit feature/x --add-label e2e", "run rerun 101 --failed"]);
@@ -564,7 +679,7 @@ describe("land, a branch that touches the e2e paths", () => {
   test("refuses a run still red after its one re-run, naming it, and leaves dev unmoved", async () => {
     const before = git(origin, "rev-parse", "dev");
 
-    serve({ labelRun: RED_E2E, rerun: RED_E2E });
+    serve(approved({ labelRun: RED_E2E, rerun: RED_E2E }));
 
     const landed = await landing();
 
@@ -577,14 +692,14 @@ describe("land, a branch that touches the e2e paths", () => {
   });
 
   test("re-runs a red e2e found on the head instead of adding the label again", async () => {
-    serve({ pushRun: { ...RED_E2E, polls: 0 } });
+    serve(approved({ pushRun: { ...RED_E2E, polls: 0 } }));
 
     expect((await landing()).kind).toBe("landed");
     expect(edits()).toEqual(["run rerun 100 --failed"]);
   });
 
   test("refuses a red run whose red is not the e2e's, with no re-run", async () => {
-    serve({ labelRun: { validate: "failure", e2e: "failure", polls: 1 } });
+    serve(approved({ labelRun: { validate: "failure", e2e: "failure", polls: 1 } }));
 
     expect(why(await landing())).toContain("CI is red on");
     expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
@@ -707,7 +822,10 @@ describe("land, the remote branch once landed", () => {
   });
 
   test("names what it did with the remote branch on the verdict line", () => {
-    serve({ stacked: [9] });
+    // A skill added: tier.ts's floor says human, so no model is asked, and the human's land-ok lands it.
+    commit(work, "skills/x/SKILL.md", "feat: a skill");
+    pushBranch();
+    serve(approved({ stacked: [9] }));
     setEnv("LAND_DEV_COPY", "1");
 
     const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), "feature/x"], {
@@ -766,7 +884,7 @@ describe("land, a branch that touches a risky path", () => {
     const reviewed = branchHead();
     const before = git(origin, "rev-parse", "dev");
 
-    serve();
+    serve(approved());
 
     const landed = await landing();
 
@@ -778,7 +896,7 @@ describe("land, a branch that touches a risky path", () => {
   });
 
   test("records the patch-id that git diff piped to git patch-id --verbatim gives", () => {
-    serve();
+    serve(approved());
 
     const recording = record("feature/x", branchHead(), work);
     const mergeBase = git(work, "merge-base", "origin/dev", "HEAD");
@@ -798,7 +916,7 @@ describe("land, a branch that touches a risky path", () => {
   test("lands with the verdict review-verdict.ts records", async () => {
     const verdict = recordVerdict();
 
-    serve({ pr: { comments: [verdict] } });
+    serve(approved({ pr: { comments: [verdict] } }));
 
     expect((await landing()).kind).toBe("landed");
     expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
@@ -807,7 +925,7 @@ describe("land, a branch that touches a risky path", () => {
   test("lands with a verdict posted while it waited for CI", async () => {
     const verdict = recordVerdict();
 
-    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } });
+    serve(approved({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } }));
 
     const landed = await landing("feature/x", {
       during: () => {
@@ -827,7 +945,7 @@ describe("land, a branch that touches a risky path", () => {
     const verdict = recordVerdict();
     const moved = moveDev();
 
-    serve({ pr: { comments: [verdict] } });
+    serve(approved({ pr: { comments: [verdict] } }));
 
     expect((await landing()).kind).toBe("landed");
     expect(git(work, "rev-parse", "HEAD~2")).toBe(moved);
@@ -838,7 +956,7 @@ describe("land, a branch that touches a risky path", () => {
 
     commit(work, "risky/a.ts", "changed after the review");
     pushBranch();
-    serve({ pr: { comments: [verdict] } });
+    serve(approved({ pr: { comments: [verdict] } }));
 
     const landed = await landing();
 
@@ -851,7 +969,7 @@ describe("land, a branch that touches a risky path", () => {
 
     commit(work, "risky/a.ts", "indent after the review", "  risky\n");
     pushBranch();
-    serve({ pr: { comments: [verdict] } });
+    serve(approved({ pr: { comments: [verdict] } }));
 
     expect(why(await landing())).toContain("no clean review verdict");
   });
@@ -866,7 +984,7 @@ describe("land, a branch that touches a risky path", () => {
 
     commit(other, "risky/b.ts", "change line 3 on dev", lines(3, "context"));
     git(other, "push", "--quiet", "origin", "dev");
-    serve({ pr: { comments: [verdict] } });
+    serve(approved({ pr: { comments: [verdict] } }));
 
     const landed = await landing();
 
@@ -878,7 +996,7 @@ describe("land, a branch that touches a risky path", () => {
   test("counts no verdict posted by someone without write access", async () => {
     const verdict = recordVerdict();
 
-    serve({ pr: { comments: [{ ...verdict, authorAssociation: "NONE" }] } });
+    serve(approved({ pr: { comments: [{ ...verdict, authorAssociation: "NONE" }] } }));
 
     expect(why(await landing())).toContain("no clean review verdict");
   });
@@ -886,7 +1004,7 @@ describe("land, a branch that touches a risky path", () => {
   test("lets a branch that touches no risky path land without a verdict", async () => {
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
-    serve();
+    serve(approved());
 
     expect((await landing()).kind).toBe("landed");
   });
@@ -895,7 +1013,7 @@ describe("land, a branch that touches a risky path", () => {
     onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
-    serve();
+    serve(approved());
 
     const landed = await landing();
 
@@ -912,7 +1030,7 @@ describe("land, a branch that touches a risky path", () => {
     );
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
-    serve();
+    serve(approved());
 
     const landed = await landing();
 
@@ -928,7 +1046,7 @@ describe("land, a branch that touches a risky path", () => {
 
     const verdict = recordVerdict();
 
-    serve({ pr: { comments: [verdict] } });
+    serve(approved({ pr: { comments: [verdict] } }));
 
     expect((await landing()).kind).toBe("landed");
   });
@@ -955,7 +1073,7 @@ describe("land, a branch that touches a risky path", () => {
     expect(skipped).not.toBe(gated);
     commit(work, "scripts/land.ts", "skip the gate", skipped);
     pushBranch();
-    serve();
+    serve(approved());
 
     const before = git(origin, "rev-parse", "dev");
 
@@ -972,6 +1090,139 @@ describe("land, a branch that touches a risky path", () => {
     expect(cli.stderr.toString()).toContain("no clean review verdict");
     expect(cli.exitCode).toBe(1);
     expect(git(origin, "rev-parse", "dev")).toBe(before);
+  });
+});
+
+const HUMAN_STUB: Tiering = () => Promise.resolve({ tier: "human", reason: "a hook matches more" });
+
+/** A skill added on the branch: the floor sends it to the human. */
+function addSkill() {
+  commit(work, "skills/x/SKILL.md", "feat: a skill");
+  pushBranch();
+}
+
+describe("land, the tier", () => {
+  test("refuses a human branch without the human's land-ok before any wait, labelled tier:human", async () => {
+    addSkill();
+    serve();
+
+    const before = git(origin, "rev-parse", "dev");
+
+    expect(await landing()).toEqual({
+      kind: "refused",
+      why: "#7 is tier:human (adds, removes or renames a plugin component: skills/x/SKILL.md), with no land-ok label: it lands once the human types « land #7 » in a session; stop",
+    });
+    expect(runListings()).toBe(0);
+    expect(tierEdits()).toEqual(["pr edit feature/x --add-label tier:human"]);
+    expect(github().calls).toContain(
+      "label create tier:human --force --color D93F0B --description Waits for the human's land #N",
+    );
+    expect(git(origin, "rev-parse", "dev")).toBe(before);
+  });
+
+  test("lands a human branch with a land-ok added after its head", async () => {
+    addSkill();
+    serve(approved());
+
+    expect((await landing()).kind).toBe("landed");
+    expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
+  });
+
+  test("refuses a land-ok added before the head was committed", async () => {
+    addSkill();
+    serve({ landOkAt: ["2000-01-01T00:00:00Z"], pr: { labels: ["land-ok"] } });
+
+    expect(why(await landing())).toContain(
+      "with a land-ok added at 2000-01-01T00:00:00Z, before its head",
+    );
+  });
+
+  test("refuses a land-ok taken off while CI ran", async () => {
+    addSkill();
+    serve(approved({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } }));
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        const read = github();
+
+        writeFileSync(
+          githubFile,
+          JSON.stringify({ ...read, pr: { ...read.pr, labels: ["tier:human"] } }),
+        );
+      },
+    });
+
+    expect(why(landed)).toContain("#7 is tier:human");
+    expect(runListings()).toBeGreaterThan(0);
+  });
+
+  test("labels a low branch tier:low and lands it unattended", async () => {
+    serve();
+
+    expect((await landing()).kind).toBe("landed");
+    expect(tierEdits()).toEqual(["pr edit feature/x --add-label tier:low"]);
+  });
+
+  test("keeps a branch human once a pass labelled it so, whatever the judge says now", async () => {
+    serve({ pr: { labels: ["tier:human"] } });
+
+    expect(why(await landing())).toBe(
+      "#7 is tier:human (its tier:human label, left by an earlier pass), with no land-ok label: it lands once the human types « land #7 » in a session; stop",
+    );
+    expect(tierEdits()).toEqual([]);
+  });
+
+  test("raises a branch labelled tier:low to tier:human, taking the low label off", async () => {
+    serve({ pr: { labels: ["tier:low"] } });
+
+    expect(why(await landing("feature/x", { tier: HUMAN_STUB }))).toContain(
+      "#7 is tier:human (a hook matches more)",
+    );
+    expect(tierEdits()).toEqual([
+      "pr edit feature/x --remove-label tier:low",
+      "pr edit feature/x --add-label tier:human",
+    ]);
+  });
+
+  test("refuses a low branch while a red-dev issue is open", async () => {
+    serve({ redDev: [41] });
+
+    expect(await landing()).toEqual({
+      kind: "refused",
+      why: "dev is red (#41): no unattended landing until it is green",
+    });
+  });
+
+  test("lands a low branch with the human's land-ok while dev is red: it fixes the red", async () => {
+    serve(approved({ redDev: [41] }));
+
+    expect((await landing()).kind).toBe("landed");
+  });
+
+  test("reads the tier once per landing", async () => {
+    let asked = 0;
+
+    const tier: Tiering = () => {
+      asked += 1;
+
+      return Promise.resolve({ tier: "low", reason: "counted" });
+    };
+
+    serve();
+
+    expect((await landing("feature/x", { tier })).kind).toBe("landed");
+    expect(asked).toBe(1);
+  });
+});
+
+describe("addedCheckoutPath", () => {
+  test("puts the checkout under the main worktree's .claude/worktrees", () => {
+    const porcelain =
+      "worktree /repo\nHEAD 1111\nbranch refs/heads/dev\n\nworktree /repo/wt\nHEAD 2";
+
+    expect(addedCheckoutPath(porcelain, "fix/12-a")).toBe(
+      join("/repo", ".claude", "worktrees", "land-fix-12-a"),
+    );
   });
 });
 
