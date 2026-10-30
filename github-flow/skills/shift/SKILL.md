@@ -39,12 +39,13 @@ One pass over the tracker with nobody watching. The state lives on GitHub, in la
    Triaged      #<n> <verdict>, ...
    Dispatched   #<n> -> <pr url> <tier>
    Landed       <pr url> <tier>: <reason>
+   Not landed   <pr url> <tier>: <the land command's last line>
    Fixed        <pr url> <what changed>
    Blocked      #<n> <first line of the failure>
    Needs you    <pr url> human: <reason> — <first entry of its Decisions>
    Low escapes  30 d: <M>/<N> — <the M pr urls>
    ```
 
-   *Needs you* lists each open `shift` PR that is neither `tier:low` nor labelled `land-ok`, a PR with no tier label written `human: no tier label`: the human reads it and types `land #<n>` in a session. A PR whose newest `<!-- land-ok: void … -->` comment is newer than its last `land-ok` is written `human: re-read <what that comment links>, <n> commits since your ok` in place of its reason: the human reads those commits alone. *Low escapes*: N counts the `tier:low` PRs merged in the last 30 days (`gh pr list --state merged --label tier:low --search "merged:>=<date 30 days ago>" --json url,mergedAt,files`); M counts those with a file that a commit on `origin/<base>` whose subject starts with `fix` or `revert` touched within 7 days of the merge (`git log origin/<base> --since=<mergedAt> --until=<mergedAt plus 7 days> --format=%s --name-only`). The human opens only the M. An empty section is written empty, not dropped.
+   *Not landed* lists each PR whose `land` command this pass ended without landing it, a `tier:low` PR held while `dev` is red included. *Needs you* lists each open `shift` PR that is neither `tier:low` nor labelled `land-ok`, a PR with no tier label written `human: no tier label`: the human reads it and types `land #<n>` in a session. A PR whose newest `<!-- land-ok: void … -->` comment is newer than its last `land-ok` is written `human: re-read <what that comment links>, <n> commits since your ok` in place of its reason: the human reads those commits alone. *Low escapes*: N counts the `tier:low` PRs merged in the last 30 days (`gh pr list --state merged --label tier:low --search "merged:>=<date 30 days ago>" --json url,mergedAt,files`); M counts those with a file that a commit on `origin/<base>` whose subject starts with `fix` or `revert` touched within 7 days of the merge (`git log origin/<base> --since=<mergedAt> --until=<mergedAt plus 7 days> --format=%s --name-only`). The human opens only the M. An empty section is written empty, not dropped.
 
 Never merges through GitHub, never closes a PR, never pushes `main`; it lands only through the repository's landing command, which gates each landing on its tier, CI and `land-ok`.

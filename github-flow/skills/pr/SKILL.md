@@ -48,11 +48,11 @@ Agents review the PR first. The body is for the human who opens it afterwards an
 8. **Publish.** No question about publishing: the skill is the guard, and a caller that wants a look first passes `--dry-run`. Without `--dry-run`, push with `git push -u origin HEAD`. A rejected push: report it verbatim and stop; never force. Body in a file of a directory of its own, from `mktemp -d`, outside the repo. A PR already open on the branch (`gh pr view --json number,body`) is edited, else one is created:
 
    ```bash
-   gh pr create --base <base> --title "<title>" --body-file <tmp> --attach './before.png#<alt>'
-   gh pr edit <n> --title "<title>" --body-file <tmp> --attach './after.png#<alt>'
+   gh pr create --base <base> --title "<title>" --body-file <tmp> --attach '<capture dir>/before.png#<alt>'
+   gh pr edit <n> --title "<title>" --body-file <tmp> --attach '<capture dir>/after.png#<alt>'
    ```
 
-   `--body-file` keeps the markdown intact. A `![alt](<path>)` in the body is rewritten to the uploaded asset when `<path>` is the same string as in `--attach`, and the alt text in the body wins. The image files stay outside the repo, so both strings are the absolute path of the capture, not `./before.png`; `--attach` is their only path to GitHub.
+   `--body-file` keeps the markdown intact. A `![alt](<path>)` in the body is rewritten to the uploaded asset when `<path>` is the same string as in `--attach`, and the alt text in the body wins. The image files stay outside the repo, so both strings are the absolute path of the capture, `<capture dir>` the directory of its own the capture went to; `--attach` is their only path to GitHub.
 
    Then, without `--dry-run`, the `verdict` command of `.claude/github-flow.json` when it has one, once every reviewer of step 6 reported and left no finding open: `{branch}` is the branch, `{sha}` the head pushed (`git rev-parse HEAD`). It posts on the PR that a review of that head came out clean.
 9. **Tier.** The `tier` command of `.claude/github-flow.json`, `{pr}` filled. It prints one line, `low <reason>` or `human <reason>`. That line goes in *Checks*, and one edit carries the body and the label: `gh pr edit <n> --body-file <tmp> --add-label tier:low`, or `tier:human`. A label the repository lacks is created first: `gh label create tier:low --description "Lands on green checks without a human"`, or `tier:human` with `"Waits for the human's land #N"`.
