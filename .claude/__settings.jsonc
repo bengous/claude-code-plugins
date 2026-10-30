@@ -151,10 +151,14 @@
       "Bash(bun ./scripts/land.ts *)",
 
       // The loop's other commands (.claude/github-flow.json): a prompt nobody
-      // answers turns a worker's tier human. Local, or a headless judge call.
-      "Bash(bun ./scripts/tier.ts *)",
-      "Bash(bun ./scripts/review-verdict.ts record *)",
-      "Bash(bun ./scripts/run-gates.ts*)",
+      // answers turns a worker's tier human. tier.ts --pr bills one or two
+      // headless judge calls; record posts the review's verdict on a
+      // worker's own PR, never a renovate/ one, which that verdict alone lands.
+      "Bash(bun ./scripts/tier.ts --pr *)",
+      "Bash(bun ./scripts/review-verdict.ts record feature/*)",
+      "Bash(bun ./scripts/review-verdict.ts record fix/*)",
+      "Bash(bun ./scripts/run-gates.ts)",
+      "Bash(bun ./scripts/run-gates.ts *)",
       "Bash(bun test *)",
 
       // Blankets that also reach past this machine (a publish, an install, a
