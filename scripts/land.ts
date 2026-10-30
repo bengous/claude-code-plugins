@@ -388,17 +388,20 @@ export async function tierScript(checkout: string, pr: number): Promise<Verdict>
 
 export const DEPS: Deps = { tier: tierScript };
 
-/** Puts the label of `tier` on the pull request, taking `tier:low` off a human one: a tier only goes up. */
-async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier): Promise<void> {
-  const { name, color, description } = TIER_LABELS[tier];
-  const low = TIER_LABELS.low.name;
+interface Label {
+  readonly name: string;
+  readonly color: string;
+  readonly description: string;
+}
 
-  if (tier === "human" && labels.has(low)) {
-    await lander.gh(["pr", "edit", lander.branch, "--remove-label", low]);
-  }
+const LAND_OK_LABEL: Label = {
+  name: LAND_OK,
+  color: "5319E7",
+  description: "The human typed land #N in a session",
+};
 
-  if (labels.has(name)) return;
-
+/** Creates `label` in the repository, or sets its color and description when it exists. */
+async function createLabel(lander: Lander, { name, color, description }: Label): Promise<void> {
   await lander.gh([
     "label",
     "create",
@@ -409,6 +412,20 @@ async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier
     "--description",
     description,
   ]);
+}
+
+/** Puts the label of `tier` on the pull request, taking `tier:low` off a human one: a tier only goes up. */
+async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier): Promise<void> {
+  const { name } = TIER_LABELS[tier];
+  const low = TIER_LABELS.low.name;
+
+  if (tier === "human" && labels.has(low)) {
+    await lander.gh(["pr", "edit", lander.branch, "--remove-label", low]);
+  }
+
+  if (labels.has(name)) return;
+
+  await createLabel(lander, TIER_LABELS[tier]);
   await lander.gh(["pr", "edit", lander.branch, "--add-label", name]);
 }
 
@@ -628,6 +645,9 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
     const approval = await approvalOf(lander, pr, labels);
 
     if (approval === null) return null;
+
+    // The agent adds land-ok on the human's next words, outside any shift pass that would create it.
+    if (!labels.has(LAND_OK)) await createLabel(lander, LAND_OK_LABEL);
 
     const why = raised
       ? `its tier:human label, left by an earlier pass; tier.ts now says low: ${tiering.verdict.reason}`

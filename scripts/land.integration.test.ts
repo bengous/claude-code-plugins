@@ -1152,6 +1152,9 @@ describe("land, the tier", () => {
     expect(github().calls).toContain(
       "label create tier:human --force --color D93F0B --description Waits for the human's land #N",
     );
+    expect(github().calls).toContain(
+      "label create land-ok --force --color 5319E7 --description The human typed land #N in a session",
+    );
     expect(git(origin, "rev-parse", "dev")).toBe(before);
   });
 
