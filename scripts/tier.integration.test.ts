@@ -331,15 +331,19 @@ describe("the command", () => {
     expect(cli.exitCode).toBe(0);
   });
 
-  test("refuses --pr beside --history or --eval before any judge call, exit 2", () => {
-    for (const mode of [
-      ["--history", "5"],
-      ["--eval", CASES_FILE],
+  test("refuses two modes in one run before any judge call, exit 2", () => {
+    for (const modes of [
+      ["--pr", "1", "--history", "5"],
+      ["--pr", "1", "--eval", CASES_FILE],
+      ["--base", "origin/dev", "--eval", CASES_FILE],
+      ["--history", "5", "--eval", CASES_FILE],
     ]) {
-      const cli = Bun.spawnSync(
-        [process.execPath, join(import.meta.dir, "tier.ts"), "--pr", "1", ...mode],
-        { cwd: repo, env: process.env, stdout: "pipe", stderr: "pipe" },
-      );
+      const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "tier.ts"), ...modes], {
+        cwd: repo,
+        env: process.env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
 
       expect(cli.stdout.toString()).toBe("");
       expect(cli.stderr.toString()).toStartWith("Usage:");
@@ -363,6 +367,21 @@ describe("ruleOfThree", () => {
     ]);
 
     expect(line).toStartWith("rule of three: 1 of 2 changes the model judged read a false low");
+  });
+
+  test("counts a change as a false low when one run of three reads low", () => {
+    const line = ruleOfThree([{ entry: human, runs: [run("human"), run("low"), run("human")] }]);
+
+    expect(line).toStartWith("rule of three: 1 of 1 changes");
+  });
+
+  test("leaves out a change whose every run failed, and counts one a run of which the model judged", () => {
+    const line = ruleOfThree([
+      { entry: human, runs: [run("human", "failure"), run("human", "failure")] },
+      { entry: human, runs: [run("human", "failure"), run("human"), run("human")] },
+    ]);
+
+    expect(line).toStartWith("rule of three: 0 of 1 changes");
   });
 
   test("bounds over the judged changes alone, a floored case aside", () => {
