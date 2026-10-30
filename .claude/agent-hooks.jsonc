@@ -34,6 +34,7 @@
         "lefthook.yml",
         ".lefthook/**",
         ".claude/__settings.jsonc",
+        ".claude/settings.json",
         ".claude/agent-hooks.jsonc",
         "agent-hooks/pre-bash.ts",
         "agent-hooks/guard/**",
