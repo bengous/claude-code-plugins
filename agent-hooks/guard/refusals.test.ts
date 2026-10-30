@@ -203,33 +203,44 @@ describe("approvingPhrase", () => {
   const release = ["on publie", "publie", "release"];
 
   test("finds a phrase as words of its own, any case, any whitespace", () => {
-    expect(approvingPhrase("Ok, on publie !", release, null)).toBe("on publie");
-    expect(approvingPhrase("ON\n  PUBLIE", release, null)).toBe("on publie");
-    expect(approvingPhrase("go for the Release", release, null)).toBe("release");
-    expect(approvingPhrase("publie la 1.2", release, null)).toBe("publie");
+    expect(approvingPhrase("Ok, on publie !", release, null, "anywhere")).toBe("on publie");
+    expect(approvingPhrase("ON\n  PUBLIE", release, null, "anywhere")).toBe("on publie");
+    expect(approvingPhrase("go for the Release", release, null, "anywhere")).toBe("release");
+    expect(approvingPhrase("publie la 1.2", release, null, "anywhere")).toBe("publie");
   });
 
   test("a phrase inside a longer word is none", () => {
-    expect(approvingPhrase("on publiera demain", release, null)).toBeNull();
-    expect(approvingPhrase("c'est publié", release, null)).toBeNull();
-    expect(approvingPhrase("the releases page", release, null)).toBeNull();
-    expect(approvingPhrase("prerelease", release, null)).toBeNull();
+    expect(approvingPhrase("on publiera demain", release, null, "anywhere")).toBeNull();
+    expect(approvingPhrase("c'est publié", release, null, "anywhere")).toBeNull();
+    expect(approvingPhrase("the releases page", release, null, "anywhere")).toBeNull();
+    expect(approvingPhrase("prerelease", release, null, "anywhere")).toBeNull();
   });
 
   test("puts the pull request's number in place of {pr}, which must match whole", () => {
     const ok = ["ok #{pr}", "ok pour la #{pr}"];
 
-    expect(approvingPhrase("ok #12", ok, 12)).toBe("ok #{pr}");
-    expect(approvingPhrase("OK pour la #12, merci", ok, 12)).toBe("ok pour la #{pr}");
-    expect(approvingPhrase("ok #12", ok, 1)).toBeNull();
-    expect(approvingPhrase("ok #123", ok, 12)).toBeNull();
-    expect(approvingPhrase("ok #12", ok, 123)).toBeNull();
-    expect(approvingPhrase("ok", ok, 12)).toBeNull();
+    expect(approvingPhrase("ok #12", ok, 12, "anywhere")).toBe("ok #{pr}");
+    expect(approvingPhrase("OK pour la #12, merci", ok, 12, "anywhere")).toBe("ok pour la #{pr}");
+    expect(approvingPhrase("ok #12", ok, 1, "anywhere")).toBeNull();
+    expect(approvingPhrase("ok #123", ok, 12, "anywhere")).toBeNull();
+    expect(approvingPhrase("ok #12", ok, 123, "anywhere")).toBeNull();
+    expect(approvingPhrase("ok", ok, 12, "anywhere")).toBeNull();
   });
 
   test("reads a phrase's characters literally", () => {
-    expect(approvingPhrase("go (v2)", ["go (v2)"], null)).toBe("go (v2)");
-    expect(approvingPhrase("go xv2y", ["go (v2)"], null)).toBeNull();
+    expect(approvingPhrase("go (v2)", ["go (v2)"], null, "anywhere")).toBe("go (v2)");
+    expect(approvingPhrase("go xv2y", ["go (v2)"], null, "anywhere")).toBeNull();
+  });
+
+  test("at line start, takes a phrase that opens the message or one of its lines, and no other", () => {
+    const land = ["land #{pr}", "land {pr}"];
+
+    expect(approvingPhrase("land #443", land, 443, "line start")).toBe("land #{pr}");
+    expect(approvingPhrase("  Land 442 puis calibre", land, 442, "line start")).toBe("land {pr}");
+    expect(approvingPhrase("land #12\nland #13", land, 13, "line start")).toBe("land #{pr}");
+    expect(approvingPhrase("don't land 12", land, 12, "line start")).toBeNull();
+    expect(approvingPhrase("ne land pas 12, land 13 plutôt", land, 13, "line start")).toBeNull();
+    expect(approvingPhrase("ok, land #12", land, 12, "line start")).toBeNull();
   });
 });
 
@@ -247,8 +258,9 @@ describe("dispatchRefusal and labelRefusal", () => {
       `agent-hooks: dispatching release.yml is the human's decision, and the human's latest message does not say so (it would hold one of "on publie", "release"). Ask the human whether to run it, and dispatch it once their own message says so.`,
     );
     expect(labelRefusal(okHumain, [12], { kind: "read", text: "ok #11" })).toBe(
-      `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would hold one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
+      `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would open a line with one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
     );
+    expect(labelRefusal(okHumain, [12], { kind: "read", text: "pas ok #12" })).not.toBeNull();
   });
 
   test("refuse a session with no typed message, a transcript that cannot be read, a label with no number", () => {
@@ -264,7 +276,10 @@ describe("dispatchRefusal and labelRefusal", () => {
     expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12" })).toContain(
       "the label ok-humain on #13",
     );
-    expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12, ok #13" })).toBeNull();
+    expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12\nok #13" })).toBeNull();
+    expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12, ok #13" })).toContain(
+      "the label ok-humain on #13",
+    );
   });
 });
 

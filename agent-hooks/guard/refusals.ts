@@ -218,15 +218,21 @@ export type HumanMessage =
 
 const LETTER_OR_DIGIT = "[\\p{L}\\p{N}_]";
 
+/** Where a phrase must stand in the message: anywhere, or opening one of its lines, so no word before it negates it. */
+export type Placement = "anywhere" | "line start";
+
 /**
  * The first of `phrases` that `text` holds as words of its own, any case, any run of whitespace between them, with
- * `pr` in place of `{pr}`; null when it holds none.
+ * `pr` in place of `{pr}`, where `placement` says; null when it holds none.
  */
 export function approvingPhrase(
   text: string,
   phrases: readonly string[],
   pr: number | null,
+  placement: Placement,
 ): string | null {
+  const before = placement === "line start" ? "^[^\\S\\n]*" : `(?<!${LETTER_OR_DIGIT})`;
+
   return (
     phrases.find((phrase) => {
       const words = phrase
@@ -235,10 +241,7 @@ export function approvingPhrase(
         .split(/\s+/u)
         .map((word) => escapeRegExp(word));
 
-      return new RegExp(
-        `(?<!${LETTER_OR_DIGIT})${words.join("\\s+")}(?!${LETTER_OR_DIGIT})`,
-        "iu",
-      ).test(text);
+      return new RegExp(`${before}${words.join("\\s+")}(?!${LETTER_OR_DIGIT})`, "imu").test(text);
     }) ?? null
   );
 }
@@ -247,11 +250,12 @@ function quoted(phrases: readonly string[], pr: number | null): string {
   return phrases.map((phrase) => `"${phrase.replaceAll("{pr}", String(pr))}"`).join(", ");
 }
 
-/** Why the human's message does not count, or null when it holds a phrase. */
+/** Why the human's message does not count, or null when it holds a phrase where `placement` says. */
 function unapproved(
   human: HumanMessage,
   phrases: readonly string[],
   pr: number | null,
+  placement: Placement,
 ): string | null {
   if (human.kind === "unreadable") {
     return `the guard cannot read the human's latest message (${human.why})`;
@@ -261,14 +265,16 @@ function unapproved(
     return "the session holds no message the human typed";
   }
 
-  return approvingPhrase(human.text, phrases, pr) === null
-    ? `the human's latest message does not say so (it would hold one of ${quoted(phrases, pr)})`
+  const where = placement === "line start" ? "open a line with" : "hold";
+
+  return approvingPhrase(human.text, phrases, pr, placement) === null
+    ? `the human's latest message does not say so (it would ${where} one of ${quoted(phrases, pr)})`
     : null;
 }
 
 /** Why dispatching `workflow`'s file is refused; null when the human's latest typed message asks for it. */
 export function dispatchRefusal(workflow: Approval, human: HumanMessage): string | null {
-  const why = unapproved(human, workflow.phrases, null);
+  const why = unapproved(human, workflow.phrases, null, "anywhere");
 
   return why === null
     ? null
@@ -295,7 +301,7 @@ export function labelRefusal(
 }
 
 function prLabelRefusal(label: Approval, pr: number, human: HumanMessage): string | null {
-  const why = unapproved(human, label.phrases, pr);
+  const why = unapproved(human, label.phrases, pr, "line start");
 
   return why === null
     ? null

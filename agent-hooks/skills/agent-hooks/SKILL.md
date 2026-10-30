@@ -262,12 +262,13 @@ What the model bounds and the kit does not try to cross:
   human's latest typed message holds one of its phrases. A listed label added to pull request `N`
   (`gh pr edit N --add-label`, `gh issue edit N --add-label`, `POST` or `PUT
   repos/<owner>/<repo>/issues/N/labels`, `PATCH repos/<owner>/<repo>/issues/N` with `labels`) passes
-  only when that message holds one of its phrases with `N` in place of `{pr}`, for each `N` the command
+  only when a line of that message opens with one of its phrases, `N` in place of `{pr}`, for each `N` the command
   names (`gh issue edit 12 13`); one added with no literal number (`gh pr edit` alone, a branch,
   `gh pr create --label`) is refused, and so are a GraphQL `labelIds` or `addLabelsToLabelable`, and a
   dispatch or label endpoint the guard does not read (`repositories/<id>/…`), whatever the message. A phrase matches
   as whole words, any case, any run of whitespace between them, and nothing reads around it: `pas ok
-  #12` holds `ok #{pr}`. The message is the latest one the human typed in the session's transcript, a
+  #12` holds `ok #{pr}`, so a workflow's phrase passes there; a label's phrase opens a line, so no word
+  before it can negate it, and `pas ok #12` does not pass. The message is the latest one the human typed in the session's transcript, a
   message queued while the agent worked included, read from the main transcript in a subagent too; a
   task notification, a tool result, a peer session's or a teammate's message and an approved plan are
   not typed (`readHuman` in `guard/transcript.ts`). A transcript that cannot

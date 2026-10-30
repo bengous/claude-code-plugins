@@ -867,7 +867,7 @@ describe("pre-bash where the landing action moves the trunk and the human's word
     expect(reasons).toEqual([
       `agent-hooks: dispatching release.yml is the human's decision, and the human's latest message does not say so (it would hold one of "on publie", "publie", "release"). Ask the human whether to run it, and dispatch it once their own message says so.`,
       expect.stringContaining("dispatching release.yml is the human's decision"),
-      `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would hold one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
+      `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would open a line with one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
       expect.stringContaining("the label ok-humain on #12 is the human's ok"),
     ]);
   });

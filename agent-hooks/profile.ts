@@ -24,7 +24,7 @@ export type LandingProfile = {
   readonly by: LandedBy;
 };
 
-/** A door that passes only when the human's latest typed message holds one of its phrases. */
+/** A door that passes only on one of its phrases in the human's latest typed message: a label's opens a line of it. */
 export type Approval = { readonly name: string; readonly phrases: readonly string[] };
 
 /**
