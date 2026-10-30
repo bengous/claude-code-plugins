@@ -579,6 +579,29 @@ function caseSource(cwd: string, entry: Case, index: string): Source {
   return { cwd, diff: ["--cached", base], env, messages: [entry.message ?? ""] };
 }
 
+/** One case of `--eval` and the decisions of its runs. */
+export interface CaseRuns {
+  readonly entry: Case;
+  readonly runs: readonly Decided[];
+}
+
+/**
+ * The rule-of-three line over the changes the model judged, null when it judged none. A case's runs share one change
+ * and sample only the model's noise, so both counts are of changes: a case is a false low when any of its runs reads low.
+ */
+export function ruleOfThree(results: readonly CaseRuns[]): string | null {
+  const judged = results.filter(({ runs }) => runs.some((decided) => decided.by === "judge"));
+
+  if (judged.length === 0) return null;
+
+  const falseLows = judged.filter(
+    ({ entry, runs }) =>
+      entry.expected === "human" && runs.some((decided) => decided.verdict.tier === "low"),
+  ).length;
+
+  return `rule of three: ${falseLows} of ${judged.length} changes the model judged read a false low; at 0, the false-low rate is under 3/${judged.length} = ${((3 / judged.length) * 100).toFixed(1)}% at 95%, counting only cases no prompt revision was tuned on`;
+}
+
 async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
   const judge: Judge = {
     ask,
@@ -613,7 +636,6 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
     let agreed = 0;
     let judged = 0;
-    let judgedCases = 0;
     const failures: string[] = [];
     const falseLows: string[] = [];
     const falseHumans: string[] = [];
@@ -621,8 +643,6 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
     for (const { entry, runs } of results) {
       const tiers = runs.map((decided) => decided.verdict.tier);
-
-      if (runs.some((decided) => decided.by === "judge")) judgedCases += 1;
 
       for (const decided of runs) {
         if (decided.model !== null) models.add(decided.model);
@@ -663,12 +683,9 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
       `false human ${falseHumans.length}${falseHumans.map((line) => `\n  ${line}`).join("")}`,
     );
 
-    // A case's runs share one change and sample only the model's noise: the bound counts changes, not runs.
-    if (judgedCases > 0) {
-      console.log(
-        `rule of three: ${falseLows.length} false low over ${judgedCases} changes the model judged bounds the false-low rate under 3/${judgedCases} = ${((3 / judgedCases) * 100).toFixed(1)}% at 95% when it is 0`,
-      );
-    }
+    const bound = ruleOfThree(results);
+
+    if (bound !== null) console.log(bound);
 
     console.log(
       `model ${[...models].join(", ") || "none answered"}, asked as ${model}; prompt ${digestOf(judge.system)}; $${cost.toFixed(2)}`,
@@ -698,6 +715,19 @@ async function main(argv: readonly string[]): Promise<number> {
       },
     }));
   } catch {
+    console.error(usage);
+
+    return 2;
+  }
+
+  // One mode per run: an allow rule on `--pr *` must not also cover a --history or --eval that bills a call per commit.
+  const modes = [
+    values.history !== undefined,
+    values.eval !== undefined,
+    values.pr !== undefined || values.base !== undefined,
+  ].filter(Boolean).length;
+
+  if (modes > 1) {
     console.error(usage);
 
     return 2;

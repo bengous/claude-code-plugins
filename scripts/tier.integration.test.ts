@@ -3,19 +3,21 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { riskyOf } from "./tier-floor.ts";
+import { riskyOf, type Tier } from "./tier-floor.ts";
 import {
   type Ask,
   answerOf,
   type Calibration,
   calibrationOf,
   CASES_FILE,
+  type Decided,
   digestOf,
   evidenceOf,
   type Judge,
   leftOpenOf,
   messagesOf,
   PROMPT_FILE,
+  ruleOfThree,
   tierOf,
 } from "./tier.ts";
 
@@ -327,5 +329,54 @@ describe("the command", () => {
 
     expect(cli.stdout.toString()).toStartWith("human git log --reverse");
     expect(cli.exitCode).toBe(0);
+  });
+
+  test("refuses --pr beside --history or --eval before any judge call, exit 2", () => {
+    for (const mode of [
+      ["--history", "5"],
+      ["--eval", CASES_FILE],
+    ]) {
+      const cli = Bun.spawnSync(
+        [process.execPath, join(import.meta.dir, "tier.ts"), "--pr", "1", ...mode],
+        { cwd: repo, env: process.env, stdout: "pipe", stderr: "pipe" },
+      );
+
+      expect(cli.stdout.toString()).toBe("");
+      expect(cli.stderr.toString()).toStartWith("Usage:");
+      expect(cli.exitCode).toBe(2);
+    }
+  });
+});
+
+function run(tier: Tier, by: Decided["by"] = "judge"): Decided {
+  return { verdict: { tier, reason: "r" }, by, model: MODEL, costUsd: 0 };
+}
+
+describe("ruleOfThree", () => {
+  const human = { name: "h", expected: "human" as const, sha: "a" };
+  const low = { name: "l", expected: "low" as const, sha: "b" };
+
+  test("counts a change whose three runs read low as one false low over the changes judged", () => {
+    const line = ruleOfThree([
+      { entry: human, runs: [run("low"), run("low"), run("low")] },
+      { entry: low, runs: [run("low"), run("low"), run("low")] },
+    ]);
+
+    expect(line).toStartWith("rule of three: 1 of 2 changes the model judged read a false low");
+  });
+
+  test("bounds over the judged changes alone, a floored case aside", () => {
+    const line = ruleOfThree([
+      { entry: human, runs: [run("human", "floor")] },
+      { entry: human, runs: [run("human"), run("human"), run("human")] },
+      { entry: low, runs: [run("low"), run("human"), run("low")] },
+    ]);
+
+    expect(line).toContain("0 of 2 changes");
+    expect(line).toContain("under 3/2 = 150.0%");
+  });
+
+  test("prints nothing when the model judged no change", () => {
+    expect(ruleOfThree([{ entry: human, runs: [run("human", "floor")] }])).toBeNull();
   });
 });
