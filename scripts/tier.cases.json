@@ -1,6 +1,6 @@
 {
-  "model": null,
-  "prompt": null,
+  "model": "claude-haiku-5-5",
+  "prompt": "599706e0e472",
   "cases": [
     {
       "name": "a never line taken out of a skill",
@@ -78,6 +78,126 @@
       "base": "1c2442d2f00ac758fd410490d956fb549511494f",
       "message": "docs(repo-ops): say the sampled review skips version bumps",
       "patch": "diff --git a/docs/repo-ops/git.md b/docs/repo-ops/git.md\nindex ea5575a6..550628b9 100644\n--- a/docs/repo-ops/git.md\n+++ b/docs/repo-ops/git.md\n@@ -22,7 +22,7 @@ The human's step: `bun ./scripts/release.ts --dry-run`, read its plan, then `bun\n \n ## Sampled review\n \n-`bun ./scripts/sample-review.ts`, after a `git fetch origin`: 3 commits landed on `origin/dev` in the last complete ISO week (`--week <YYYY-Www>`, `--count <n>`), weighted by their code lines, each with its `/code-review` command. It reviews nothing itself.\n+`bun ./scripts/sample-review.ts`, after a `git fetch origin`: 3 commits landed on `origin/dev` in the last complete ISO week (`--week <YYYY-Www>`, `--count <n>`), weighted by their code lines, each with its `/code-review` command. It reviews nothing itself, and a commit that only bumps a version is never drawn.\n \n ## Friction report\n \n"
+    },
+    {
+      "name": "a permission hook's ask-skip condition changed under a types update",
+      "expected": "human",
+      "sha": "178d89c95acda7bdeba1b08e59f85f899dfd6e48"
+    },
+    {
+      "name": "an untested frame loop that moves the view",
+      "expected": "human",
+      "sha": "6951b3ee5f9e71ca351ef6a38a16652e44871f41"
+    },
+    {
+      "name": "a page state agents read, wired by untested glue",
+      "expected": "human",
+      "sha": "b050bd06c81c317327dfc47c7d9f04b788f4f3a7"
+    },
+    {
+      "name": "a skill's and a tool's text changed with the command they run",
+      "expected": "human",
+      "sha": "a91d8fa4d81d7689c4d6250d8fe9eaa213c28400"
+    },
+    {
+      "name": "a test that covers less than before",
+      "expected": "human",
+      "sha": "623d489f21a70d255449b7a0a0c494ba0df4e183"
+    },
+    {
+      "name": "a runtime dependency's pin bumped",
+      "expected": "low",
+      "sha": "d205201f1b1ad1f79ab7225741f87ac6f9427022"
+    },
+    {
+      "name": "an atlas fix its specs cover",
+      "expected": "low",
+      "sha": "8272b38ecdf4ea076f0912bfaac0c396d35d369a"
+    },
+    {
+      "name": "a test tightened and one added",
+      "expected": "low",
+      "sha": "ae63400793ac8a5805d8b694a021cd547965a6bd"
+    },
+    {
+      "name": "a tsconfig include widened",
+      "expected": "low",
+      "sha": "6f0a5db8993f8ba1478046e29d85d191e0ba312a"
+    },
+    {
+      "name": "a shell comment's marker changed",
+      "expected": "low",
+      "sha": "9a6e8ebe3933ef34bc1d7409aeaf85442de8acea"
+    },
+    {
+      "name": "constants moved to a leaf module",
+      "expected": "low",
+      "sha": "a698928c71d6d37b1b418f454a765c9e7d7ccac7"
+    },
+    {
+      "name": "a value agents read in the page, set by untested wiring",
+      "expected": "human",
+      "sha": "2b5afa300869bba182c9673f593023d0c43caa8f"
+    },
+    {
+      "name": "a pointer capture's timing in the page's engine",
+      "expected": "human",
+      "sha": "11351a69b4c589ab49a78cbcd58bd93359a04b3b"
+    },
+    {
+      "name": "five UI behaviours changed with no test",
+      "expected": "human",
+      "sha": "3f02e493d76a908a4b3bcdb8413c36f9c3952056"
+    },
+    {
+      "name": "a permission hook that now denies on a missing field",
+      "expected": "human",
+      "sha": "7eb3ee22d2ac019686d113215e35e1104573b844"
+    },
+    {
+      "name": "a server's host and origin gates widened",
+      "expected": "human",
+      "sha": "835fe7bcc3d22ef31da87a49375eda71a65e9b1e"
+    },
+    {
+      "name": "a skill given a new never rule",
+      "expected": "human",
+      "sha": "dd46e5cce0c1d350a072184cf8ccc2516959ab47"
+    },
+    {
+      "name": "an AGENTS.md rule added for commit messages",
+      "expected": "human",
+      "sha": "180b8ce30059ba3629d129f683a6f76cb1f64b95"
+    },
+    {
+      "name": "a dev tool's pin bumped",
+      "expected": "low",
+      "sha": "75b84a57fbb427d64a721c50ee6f54db37547c34"
+    },
+    {
+      "name": "a test's rows spelled out",
+      "expected": "low",
+      "sha": "e00676496d8f89241d3a3e4bb915d05d5196d9fe"
+    },
+    {
+      "name": "an arrow-merge fix its unit tests cover",
+      "expected": "low",
+      "sha": "474f476938b2eb56322f661ee3d5a5ff0191e740"
+    },
+    {
+      "name": "a tsconfig include narrowed, its doc line with it",
+      "expected": "low",
+      "sha": "4f3a5896a5e065afeb5aaab601c75fe3ea65f785"
+    },
+    {
+      "name": "a JSDoc comment reworded",
+      "expected": "low",
+      "sha": "c335f6b71189ab91627d6e75136b3d96256bc505"
+    },
+    {
+      "name": "a maintainer report's count, with its tests",
+      "expected": "low",
+      "sha": "665abbebc4ef2c0a4566b85b854a0d99fde0919b"
     }
   ]
 }
