@@ -4,6 +4,10 @@ A Claude Code mod for a grill where you answer before you see Claude's recommend
 
 A recommendation shown with the question anchors the answer. Deciding before seeing the AI's suggestion reduces overreliance on it ([Buçinca, Malaya and Gajos, CSCW 2021](https://www.eecs.harvard.edu/~kgajos/papers/2021/bucinca2021trust.shtml)). Asking Claude to hold its recommendation back is not enough: it would then form one after reading yours. So Claude writes each recommendation in its reply, before your answer exists, and the mod hides it from you unless you ask to see it.
 
+One round in the Claude desktop app, with the scribe's transcript and journal on the right.
+
+https://github.com/user-attachments/assets/584c3592-1e2a-4914-99f6-eac3fcb7cc26
+
 ## Install
 
 ```
