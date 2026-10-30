@@ -26,8 +26,11 @@ bun test --parallel ./.claude/hooks/*.test.ts          # the repo's own hooks; `
 bun ./scripts/run-gates.ts                             # CI's `validate` gates for what the change reaches (`--all`: everything)
 bun ./scripts/affected.ts print                        # what the change reaches since origin/dev; `test` runs those suites
 bun ./scripts/land.ts <branch>                         # land a branch on dev; run once in the background, its last line says what to do next
+bun ./scripts/tier.ts                                  # this branch's review tier, low or human; `--history`, `--eval` calibrate it
 bun run --cwd vellum e2e                               # vellum's browser suite; Chromium once per machine: `bun run --cwd vellum e2e:install`
 ```
+
+`.claude/github-flow.json` names the validate, tier, verdict and land commands that the `github-flow` skills and their workers run here.
 
 `vellum/`, `pinpoint/` and `atlas/` carry `package.json` + `bun.lock`: `bun install --cwd <plugin> --frozen-lockfile` before their tests or their server.
 
@@ -69,6 +72,6 @@ Two lanes; the agent judges by scope, the user can override:
 - Inline — one concern, small diff: commit directly on `dev`. A commit that touches the e2e paths (listed in `scripts/check-e2e-green.ts`) goes through a branch instead: the pre-push hook lets it reach `dev` only once its SHA has a green `e2e` run, and that run needs a pushed branch.
 - Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`. During a feature the branch ignores `dev`; rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
 
-Review: one agent review, once, on a branch that touches the `profile.review.risky` paths of `.claude/agent-hooks.jsonc`, whose verdict `land.ts` requires; the human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause.
+Review: one agent review of each branch, before `github-flow:pr` publishes it; on a branch that touches the `profile.review.risky` paths of `.claude/agent-hooks.jsonc`, `land.ts` requires its verdict. The change sets the tier: a `tier:low` pull request lands through its worker once green, a `tier:human` one waits until the human types `land #<n>`. The inline lane stays outside the tier, at its author's judgement, so the loop's *Low escapes* does not cover all of `dev`. The human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause.
 
 Before any push or release: follow [Repo operations](docs/repo-ops.md); landing is remote-first.

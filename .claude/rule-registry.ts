@@ -39,6 +39,11 @@ export const REGISTRY: Registry = {
       quote: "`pre-commit` and `pre-push` run the gates; CI runs them all",
       held: ["gate lint-config", "hook scripts/run-gates.ts", "hook scripts/affected.ts"],
     },
+    "650a7855": {
+      quote: "`.claude/github-flow.json` names the validate, tier, verdict",
+      prose:
+        "a pointer to the file the skills read; a key missing from it makes the tier human, the safe direction",
+    },
     "9679b29c": { quote: "| Layer | Language | Boundary |", prose: "the table's header" },
     cdfaa70d: {
       quote: "| Logic | TypeScript on Bun | Parsing, branching, state.",
@@ -115,9 +120,9 @@ export const REGISTRY: Registry = {
       quote: "Branch — several concerns, big work (large feature, large",
       prose: "the lane, the split into PRs and when to rebase are judgements of scope",
     },
-    "045c3965": {
-      quote: "Review: one agent review, once, on a branch that touches the",
-      prose: "a review is a judgement; no tool reads a finding",
+    "7805585a": {
+      quote: "Review: one agent review of each branch, before",
+      held: ["test scripts/land.integration.test.ts", "hook agent-hooks/agent-hooks.ts"],
     },
     b3476aba: {
       quote: "Before any push or release: follow [Repo",
@@ -206,9 +211,10 @@ export const REGISTRY: Registry = {
       quote: '`description` ends with a "Use when ..." clause naming the',
       prose: "`validate-frontmatter` does not read a description's wording",
     },
-    f46e61f7: {
+    e8f93bdb: {
       quote: "A skill whose effect leaves the machine or rewrites history",
-      prose: "whether an effect can be undone is a judgement",
+      prose:
+        "whether an effect can be undone is a judgement; the exception's push is land.ts's, whose tier gate scripts/land.integration.test.ts holds",
     },
   },
   ".claude/rules/test-tiers.md": {

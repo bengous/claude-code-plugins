@@ -38,4 +38,8 @@ recipes in [Skill permissions and prompts](../../docs/plugin-testing/skills.md).
 - A skill whose effect leaves the machine or rewrites history without an
   undo (close, merge, push to a shared branch) carries
   `disable-model-invocation: true`: a natural-language request must not
-  trigger it by accident.
+  trigger it by accident. `github-flow`'s `dispatch` and `shift` are the
+  exception, since a scheduled fire invokes only a model-invocable skill:
+  their only push to a shared branch goes through the repository's landing
+  command, which a code gate holds to the change's tier, green CI and, for a
+  `tier:human` change, the `land-ok` the human's own words allow.
