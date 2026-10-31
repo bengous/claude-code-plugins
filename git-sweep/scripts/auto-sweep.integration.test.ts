@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -84,7 +92,7 @@ async function makeRepo(prefix: string): Promise<string> {
   await git(repo, "init", "--initial-branch=main");
   await git(repo, "config", "user.email", "test@test.com");
   await git(repo, "config", "user.name", "Test");
-  writeFileSync(join(repo, ".gitignore"), "node_modules/\n*.env\nplans/\n/*/tsconfig.json\n");
+  writeFileSync(join(repo, ".gitignore"), "node_modules/\n*.env\nplans\n/*/tsconfig.json\n");
   mkdirSync(join(repo, "pinpoint"));
   writeFileSync(join(repo, "pinpoint", "README.md"), "a plugin");
   await git(repo, "add", ".");
@@ -305,6 +313,22 @@ describe("auto-sweep", () => {
     expect(await branchExists(repo, "feature/built")).toBe(false);
     expect(existsSync(join(planned, "plans", "only-copy.md"))).toBe(true);
     expect(await branchExists(repo, "feature/planned")).toBe(true);
+  });
+
+  test("removes an agent worktree whose other ignored paths are symbolic links, and leaves their targets", async () => {
+    const repo = await makeRepo("links");
+    const target = makeTmpDir("target");
+    writeFileSync(join(target, "only-copy.md"), "the plan");
+    const linked = await addWorktree(repo, agentPath(repo, "a10"), "feature/linked");
+    symlinkSync(target, join(linked, "plans"));
+
+    const { exitCode, stdout } = await sweep(repo);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("agent-a10 on feature/linked (ancestry; removes plans)");
+    expect(existsSync(linked)).toBe(false);
+    expect(await branchExists(repo, "feature/linked")).toBe(false);
+    expect(readFileSync(join(target, "only-copy.md"), "utf8")).toBe("the plan");
   });
 
   test("drops a stale agent registration with its branch, keeps a stale non-agent one", async () => {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
+import { join } from "node:path";
 
 import { execute } from "./git-clean-apply.ts";
 import { audit, type AuditSuccess } from "./git-clean-audit.ts";
@@ -30,7 +31,8 @@ export const NO_PR_IDLE_DAYS = 30;
 // checkout of this repository: dependencies, test and mutation output, and
 // the tsconfig.json and .claude-plugin/types/ Claude Code writes at a
 // plugin's root at each --plugin-dir load (.gitignore). Any other ignored
-// path keeps its worktree: a plans/ there may be the only copy of a plan.
+// path keeps its worktree, a plans/ there may be the only copy of a plan,
+// unless it is a symbolic link: the removal deletes the link, never its target.
 export const DISPOSABLE_IGNORED: readonly RegExp[] = [
   /(?:^|\/)node_modules\/$/u,
   /(?:^|\/)__pycache__\/$/u,
@@ -95,6 +97,9 @@ const listed = (items: string[]): string =>
 export const isDisposable = (ignoredPath: string): boolean =>
   DISPOSABLE_IGNORED.some((pattern) => pattern.test(ignoredPath));
 
+const isSymbolicLink = (path: string): boolean =>
+  lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() === true;
+
 const notSwept = (path: string, mainWorktree: string): string =>
   path.startsWith(`${mainWorktree}${WORKTREES_DIR}`)
     ? `named worktree ${path}, not swept`
@@ -133,7 +138,10 @@ export async function leftoversOf(path: string): Promise<Leftovers> {
   }
 
   const ignored = lines.map((line) => line.slice(3));
-  const precious = ignored.filter((entry) => !isDisposable(entry));
+
+  const precious = ignored.filter(
+    (entry) => !isDisposable(entry) && !isSymbolicLink(join(path, entry)),
+  );
 
   return precious.length === 0
     ? { kind: "disposable", paths: ignored }
