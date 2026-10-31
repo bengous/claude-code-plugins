@@ -50,6 +50,7 @@ declare module "claude-code" {
       rows: readonly RowEntry[];
       opened: readonly OpenedEntry[];
       repoName: string;
+      isPaneOpen: boolean;
     };
   }
 }

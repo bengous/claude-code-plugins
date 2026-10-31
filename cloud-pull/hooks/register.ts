@@ -31,6 +31,9 @@ const LIST_LIMIT = 50;
 
 const TELEPORT_TIMEOUT_MS = 5 * 60_000;
 
+/** Set on the headless teleport the plugin runs, so that process, which loads this plugin too, skips the cloud lookup. */
+const TELEPORT_ENV = "CLOUD_PULL_TELEPORT";
+
 const SESSION_ID = /^session_[A-Za-z0-9]+$/u;
 
 const STEPS: readonly OpenStep[] = ["worktree", "teleport", "desktop"];
@@ -58,6 +61,8 @@ const rowStates = atom({ plugin: "cloud-pull", key: "rows" } as const, NO_ROW_ST
 const openedSessions = atom({ plugin: "cloud-pull", key: "opened" } as const, NONE_OPENED);
 
 const repoName = atom({ plugin: "cloud-pull", key: "repoName" } as const, "");
+
+const isPaneOpen = atom({ plugin: "cloud-pull", key: "isPaneOpen" } as const, false);
 
 /** A failure the pane can explain: what failed, what to do about it, and the raw cause. */
 class Failure extends Error {
@@ -255,9 +260,9 @@ async function run(
   $: EngineInterface,
   argv: readonly string[],
   cwd: string,
-  timeoutMs?: number,
+  options: { readonly timeoutMs?: number; readonly env?: Record<string, string> } = {},
 ): Promise<string> {
-  const result = await $.process.run(argv, timeoutMs === undefined ? { cwd } : { cwd, timeoutMs });
+  const result = await $.process.run(argv, { cwd, ...options });
 
   if (result.exitCode !== 0) {
     throw new Error(
@@ -375,7 +380,7 @@ async function pull(
     $,
     ["claude", "--teleport", cloud.id, "-p", rename, "--output-format", "json"],
     worktree,
-    TELEPORT_TIMEOUT_MS,
+    { timeoutMs: TELEPORT_TIMEOUT_MS, env: { [TELEPORT_ENV]: "1" } },
   ).catch(
     explainAs(
       "The teleport failed",
@@ -436,6 +441,25 @@ async function refresh($: EngineInterface) {
     await update($, listState, () => IDLE);
   } catch (error) {
     await update($, listState, (): ListState => ({ kind: "error", problem: problemOf(error) }));
+  }
+}
+
+async function openPane($: EngineInterface) {
+  await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
+  await update($, isPaneOpen, () => true);
+  void refresh($);
+}
+
+/** The lookup behind the band: a failure only hides the band, and goes to the debug log; the pane shows it in full. */
+async function detectCloudSessions($: EngineInterface) {
+  try {
+    const rows = await listCloudSessions($);
+    await update($, sessions, () => rows);
+  } catch (error) {
+    const problem = problemOf(error);
+    $.ui.log(`cloud-pull: no cloud lookup at start: ${problem.headline} (${problem.detail})`, {
+      to: "debug",
+    });
   }
 }
 
@@ -542,7 +566,12 @@ export const register: Register = (on) => {
       argumentHint: "[session_id]",
     });
     const result = await next(e);
-    // The headless teleport starts in the same worktree, before /cloud-pull writes the record: it finds none.
+
+    if ((await $.env.get("CLOUD_PULL_TELEPORT")) === "1") {
+      return result;
+    }
+
+    void detectCloudSessions($);
     const record = await readPulled($, e.cwd);
 
     if (record === undefined) {
@@ -595,8 +624,7 @@ export const register: Register = (on) => {
     const id = e.args.trim();
 
     if (id === "") {
-      await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
-      void refresh($);
+      await openPane($);
 
       return {};
     }
@@ -622,6 +650,43 @@ export const register: Register = (on) => {
 
       return { text: `cloud-pull: ${problem.headline}. ${problem.fix} (${problem.detail})` };
     }
+  });
+
+  on("ui.close", async ($, e, next) => {
+    if (e.id === PANE) {
+      await update($, isPaneOpen, () => false);
+    }
+
+    return next(e);
+  });
+
+  // One quiet door: shown only while this repository has cloud sessions and the pane is closed.
+  on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    const others = await next(e);
+    const rows = await read($, sessions);
+
+    if (rows.length === 0 || (await read($, isPaneOpen))) {
+      return others;
+    }
+
+    const { Box, Text, Button } = $.ui.resolve(e);
+
+    return Box({
+      flexDirection: "column",
+      children: [
+        others,
+        Button({
+          key: "continue-cloud",
+          plain: true,
+          onPress: () => void openPane($),
+          children: [
+            Text({ dimColor: true, children: "☁ " }),
+            "Continue cloud sessions",
+            Text({ dimColor: true, tabular: true, children: ` · ${rows.length}` }),
+          ],
+        }),
+      ],
+    });
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
