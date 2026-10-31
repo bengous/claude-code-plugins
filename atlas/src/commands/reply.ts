@@ -16,6 +16,14 @@ export class ReplyError extends Error {}
  */
 const LOCK_TIMEOUT_MS = 5_000;
 
+/**
+ * How long a rename Windows refuses as held (`EBUSY`, `EPERM`, `EACCES`) is retried: a scanner
+ * holds a file just written for up to about a second and a half, and serve.ts reads threads.json
+ * to answer the page. The retry runs with the lock held, so it stays under LOCK_TIMEOUT_MS, which
+ * the next reply waits.
+ */
+const HELD_RETRY_MS = 3_000;
+
 export async function appendReply(
   file: string,
   known: ReadonlySet<string>,
@@ -42,7 +50,7 @@ export async function appendReply(
 
       const next = appendEntry(threads, id, { who, text: text.trim() });
       // FIXME: writeAtomic puts a new file in place, so a threads.json that is a symbolic link stops being one at the next reply, and one with a mode of its own takes the default; resolve the link and keep the mode before the write if a map folder ever relies on either.
-      await writeAtomic(file, formatThreads(next));
+      await writeAtomic(file, formatThreads(next), { heldRetryMs: HELD_RETRY_MS });
 
       return next;
     },
