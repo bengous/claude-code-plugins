@@ -128,11 +128,16 @@ export async function writeText(project: string, path: ProjectPath, text: string
 
 /**
  * Writes through a scratch file renamed over the file, so a write cut short leaves the old text
- * whole. Only under `.review/`: anywhere else in the working directory the scratch file would
- * reach `watchFiles`.
+ * whole; a rename Windows refuses as held is retried for `heldRetryMs`. Only under `.review/`:
+ * anywhere else in the working directory the scratch file would reach `watchFiles`.
  */
-export async function writeWhole(project: string, path: ProjectPath, text: string): Promise<void> {
-  await writeAtomic(join(project, path), text, { mkdir: true });
+export async function writeWhole(
+  project: string,
+  path: ProjectPath,
+  text: string,
+  heldRetryMs: number,
+): Promise<void> {
+  await writeAtomic(join(project, path), text, { mkdir: true, heldRetryMs });
 }
 
 /** The scratch name `writeAtomic` gives a file's write, `.<base>.<pid>.<uuid>.tmp`: the base captured. */

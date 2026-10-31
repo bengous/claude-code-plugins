@@ -413,8 +413,7 @@ export class Queue {
       await writeText(project, projectPath(`${workdir}${notesFile(version)}`), notes);
     await removeWhole(project, this.draftDoc());
     await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), await this.planText(version));
-    const heldRetryMs = this.options.heldRetryMs ?? HELD_RETRY_MS;
-    const renamed = await renameWorkspace(project, workdir, dir, heldRetryMs);
+    const renamed = await renameWorkspace(project, workdir, dir, this.heldRetryMs());
 
     if (!renamed.ok) {
       this.memory = { kind: "finalizeError", version, error: renamed.error };
@@ -454,7 +453,7 @@ export class Queue {
     }
 
     if (!takesComments(await this.workspace())) return false;
-    await writeWhole(project, this.draftDoc(), JSON.stringify(draft));
+    await writeWhole(project, this.draftDoc(), JSON.stringify(draft), this.heldRetryMs());
 
     return true;
   }
@@ -464,11 +463,15 @@ export class Queue {
     const { project } = this.options;
 
     if (draftIsEmpty(rest)) await removeFile(project, this.draftDoc());
-    else await writeWhole(project, this.draftDoc(), JSON.stringify(rest));
+    else await writeWhole(project, this.draftDoc(), JSON.stringify(rest), this.heldRetryMs());
   }
 
   private draftDoc(): ProjectPath {
     return projectPath(`${this.options.workdir}${DRAFT_FILE}`);
+  }
+
+  private heldRetryMs(): number {
+    return this.options.heldRetryMs ?? HELD_RETRY_MS;
   }
 
   /**
