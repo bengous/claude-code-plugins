@@ -445,6 +445,15 @@ describe("Queue", () => {
     expect(existsSync(join(root, FINAL, ".review/draft.json"))).toBe(false);
   });
 
+  test("an approve carries no scratch file of the draft, left by a server killed mid-write, into the final directory", async () => {
+    const { events, root } = await gated();
+    const scratch = ".review/.draft.json.4242.0f8e3c1a-5b2d-4e6f-9a7b-1c2d3e4f5a6b.tmp";
+    writeFileSync(join(root, WIP, scratch), '{"annotations":[');
+    await events.decide(APPROVE);
+    expect(existsSync(join(root, FINAL, ".review/v1.md"))).toBe(true);
+    expect(existsSync(join(root, FINAL, scratch))).toBe(false);
+  });
+
   test("approve renames the directory at once and tells the channel, moved with it, its name", async () => {
     const { review, events, root } = await gated();
     const result = await events.decide(APPROVE);

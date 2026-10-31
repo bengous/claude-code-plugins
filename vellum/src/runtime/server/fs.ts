@@ -1,6 +1,6 @@
 import { watch } from "node:fs";
 import { appendFile, readdir, rm, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 
 import { isHeld, rename, writeAtomic } from "../../platform/node.ts";
 import { isErrno } from "../../platform/pure.ts";
@@ -133,6 +133,27 @@ export async function writeText(project: string, path: ProjectPath, text: string
  */
 export async function writeWhole(project: string, path: ProjectPath, text: string): Promise<void> {
   await writeAtomic(join(project, path), text, { mkdir: true });
+}
+
+/** The scratch name `writeAtomic` gives a file's write, `.<base>.<pid>.<uuid>.tmp`: the base captured. */
+const SCRATCH = /^\.(.+)\.\d+\.[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}\.tmp$/u;
+
+/** Removes a file `writeWhole` wrote, with the scratch files of it a writer killed mid-write left beside it. */
+export async function removeWhole(project: string, path: ProjectPath): Promise<void> {
+  const file = join(project, path);
+
+  const names = await readdir(dirname(file)).catch((cause: unknown) => {
+    if (isErrno(cause, "ENOENT")) return [];
+    throw cause;
+  });
+
+  for (const name of names) {
+    if (SCRATCH.exec(name)?.[1] === basename(file)) {
+      await rm(join(dirname(file), name), { force: true });
+    }
+  }
+
+  await rm(file, { force: true });
 }
 
 export async function appendText(project: string, path: ProjectPath, text: string): Promise<void> {
