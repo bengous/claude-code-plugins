@@ -122,6 +122,18 @@ describe("run", () => {
     });
   });
 
+  test("a program that cannot start, from a cwd gone from disk or a path to nothing, is missing", async () => {
+    const gone = path.join(temp.dir, "gone");
+
+    expect(await run(["sh", "-c", "exit 0"], { cwd: gone, timeoutMs: 5000 })).toEqual({
+      kind: "missing",
+      program: "sh",
+    });
+    expect(
+      await run([path.join(gone, "no-such-binary-xyz")], { cwd: temp.repo, timeoutMs: 5000 }),
+    ).toEqual({ kind: "missing", program: path.join(gone, "no-such-binary-xyz") });
+  });
+
   test("succeeded only for exit code 0", async () => {
     expect(succeeded(await sh("exit 0"))).toBe(true);
     expect(succeeded(await sh("exit 1"))).toBe(false);

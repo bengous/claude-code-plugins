@@ -314,6 +314,31 @@ describe("pruneStates", () => {
     expect(existsSync(leftover)).toBe(false);
   });
 
+  test("a scratch file named as a save names its own is kept while young, removed once stale", () => {
+    const renames = spyOn(fs, "renameSync");
+    let scratch: string;
+
+    try {
+      saveState(freshState("crashed", temp.repo));
+      scratch = String(renames.mock.calls[0]?.[0]);
+    } finally {
+      renames.mockRestore();
+    }
+
+    expect(path.dirname(scratch)).toBe(temp.stateDir);
+
+    writeFileSync(scratch, '{"version":2,"sessionId":"cr');
+    pruneStates(STALE_TEMPORARY_MS);
+
+    expect(existsSync(scratch)).toBe(true);
+
+    const before = new Date(Date.now() - 2 * STALE_TEMPORARY_MS);
+    utimesSync(scratch, before, before);
+    pruneStates(STALE_TEMPORARY_MS);
+
+    expect(existsSync(scratch)).toBe(false);
+  });
+
   test("removes a heartbeat older than the TTL, keeps a younger one", () => {
     beat("old", temp.repo);
     beat("recent", temp.repo);

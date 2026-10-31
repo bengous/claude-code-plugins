@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-export type Argv = readonly [program: string, ...args: string[]];
+import type { Argv, RunResult as ProcessResult } from "./lib/platform/node.ts";
+import { run as runProcess } from "./lib/platform/node.ts";
+
+export type { Argv } from "./lib/platform/node.ts";
+
+export { OUTPUT_GRACE_MS } from "./lib/platform/node.ts";
 
 export type RunOptions = {
   readonly cwd: string;
@@ -10,20 +15,7 @@ export type RunOptions = {
   readonly stdin?: string;
 };
 
-export type RunResult =
-  | {
-      readonly kind: "exited";
-      readonly code: number;
-      readonly stdout: string;
-      readonly stderr: string;
-    }
-  | {
-      readonly kind: "timedOut";
-      readonly timeoutMs: number;
-      readonly stdout: string;
-      readonly stderr: string;
-    }
-  | { readonly kind: "missing"; readonly program: string };
+export type RunResult = ProcessResult;
 
 export type Runner = (argv: Argv, options: RunOptions) => Promise<RunResult>;
 
@@ -40,44 +32,17 @@ export function deadlineIn(ms: number, start = Date.now()): Deadline {
   return { remaining: () => Math.max(0, at - Date.now()) };
 }
 
+/**
+ * The platform's `run`, where a program that cannot start is `missing` whatever stops it: a name the PATH does not
+ * hold, a path to no program, a program it may not run, or a cwd gone from disk, which the landing guard derives
+ * from the command it reads.
+ */
 export async function run(argv: Argv, options: RunOptions): Promise<RunResult> {
-  if (options.timeoutMs <= 0) {
-    return { kind: "timedOut", timeoutMs: options.timeoutMs, stdout: "", stderr: "" };
-  }
-
-  let proc: Bun.Subprocess<"ignore" | Response, "pipe", "pipe">;
-
   try {
-    proc = Bun.spawn([...argv], {
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-      stdin: options.stdin === undefined ? "ignore" : new Response(options.stdin),
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: options.timeoutMs,
-      killSignal: "SIGKILL",
-    });
+    return await runProcess(argv, options);
   } catch {
     return { kind: "missing", program: argv[0] };
   }
-
-  const output = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-  const code = await proc.exited;
-  // A killed shell leaves its children holding the pipes: wait for the output only as long as the grace period.
-  const [stdout, stderr] = (await Promise.race([output, abandonedOutput()])) ?? ["", ""];
-
-  // An async Subprocess carries no timeout flag, so the kill signal we asked for is the only evidence Bun cut it short.
-  return proc.signalCode === "SIGKILL"
-    ? { kind: "timedOut", timeoutMs: options.timeoutMs, stdout, stderr }
-    : { kind: "exited", code, stdout, stderr };
-}
-
-export const OUTPUT_GRACE_MS = 1000;
-
-async function abandonedOutput(): Promise<null> {
-  await Bun.sleep(OUTPUT_GRACE_MS);
-
-  return null;
 }
 
 export function succeeded(result: RunResult): boolean {

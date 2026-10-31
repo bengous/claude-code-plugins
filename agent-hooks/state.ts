@@ -1,20 +1,12 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- these checks parse the state files read back from disk: `parseState`, `stateOf` and their guards are the boundary, and a file of another shape reads as no state. */
 
-import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
 import { sha256 } from "./hash.ts";
 import { isRecord } from "./json.ts";
+import { writeAtomicSync } from "./lib/platform/node.ts";
 
 export const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -252,10 +244,7 @@ function isStringArrayRecord(value: unknown): value is Record<string, readonly s
  * own temporary name: two hooks writing one file at once must not rename each other's.
  */
 export function writeAtomically(file: string, text: string): void {
-  const temporary = `${file}.${process.pid}.${randomUUID()}${TEMPORARY_SUFFIX}`;
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(temporary, text);
-  renameSync(temporary, file);
+  writeAtomicSync(file, text, { mkdir: true });
 }
 
 export function saveState(state: SessionState, now = Date.now()): void {
