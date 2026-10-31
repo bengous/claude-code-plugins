@@ -157,5 +157,10 @@ export default defineConfig({
       files: ["agent-hooks/guard/shell.ts"],
       rules: { "max-lines": "off" },
     },
+    {
+      // A copy of tools/platform/, whose size its source sets: no edit here can cut it.
+      files: ["agent-hooks/lib/platform/**"],
+      rules: { "max-lines": "off" },
+    },
   ],
 });

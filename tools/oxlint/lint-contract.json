@@ -117,6 +117,14 @@
       "rules": {
         "max-lines": "off"
       }
+    },
+    {
+      "files": [
+        "agent-hooks/lib/platform/**"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
     }
   ],
   "rules": {

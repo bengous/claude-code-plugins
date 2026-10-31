@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -288,6 +289,27 @@ describe("withLock", () => {
       await expect(withLock(lock, () => Promise.resolve(), { timeoutMs: 50 })).rejects.toThrow(
         "by an unknown holder;",
       );
+    },
+  );
+
+  test.if(!WINDOWS && process.getuid?.() !== 0)(
+    "a lock its directory refuses to create fails at once with its errno, not as held",
+    async () => {
+      const locked = join(dir, "read-only");
+      mkdirSync(locked);
+      chmodSync(locked, 0o500);
+      const started = performance.now();
+
+      try {
+        const thrown = await withLock(join(locked, "x.lock"), () => Promise.resolve(), {
+          timeoutMs: 5000,
+        }).catch((cause: unknown) => cause);
+
+        expect(errnoOf(thrown)).toBe("EACCES");
+        expect(performance.now() - started).toBeLessThan(1000);
+      } finally {
+        chmodSync(locked, 0o700);
+      }
     },
   );
 

@@ -137,10 +137,13 @@ export type LockOptions = {
 
 const LOCK_HOLDER = /^(\d+) (\S+)$/u;
 
-/** What the lock file holds; `null` when there is none to read, its holder having let go. */
+/**
+ * What the lock file holds; `null` when there is none to read: its holder let go, or, on Windows,
+ * the file it removed is pending deletion (`isHeld`).
+ */
 function lockText(lockFile: string): Promise<string | null> {
   return readFile(lockFile, "utf8").catch((cause: unknown) => {
-    if (isErrno(cause, "ENOENT")) return null;
+    if (isErrno(cause, "ENOENT") || isHeld(cause)) return null;
     throw cause;
   });
 }
@@ -157,16 +160,26 @@ function heldLockError(lockFile: string, timeoutMs: number, text: string): Error
 }
 
 /**
- * Creates the lock file with this process's pid and the date; `false` when another holds it, or,
- * on Windows, while the file a holder removes is still pending deletion (`isHeld`).
+ * An attempt at the lock: `taken`, `held` by another, or `refused` as Windows refuses a file a
+ * holder removes while it is pending deletion (`isHeld`), which a real refusal reads as too.
  */
-async function tryLock(lockFile: string): Promise<boolean> {
+type LockAttempt =
+  | { readonly kind: "taken" }
+  | { readonly kind: "held" }
+  | { readonly kind: "refused"; readonly cause: unknown };
+
+/** Tries to create the lock file with this process's pid and the date. */
+async function tryLock(lockFile: string): Promise<LockAttempt> {
+  let attempt: LockAttempt = { kind: "held" };
+
   const handle = await open(lockFile, "wx").catch((cause: unknown) => {
-    if (isErrno(cause, "EEXIST") || isHeld(cause)) return null;
-    throw cause;
+    if (isHeld(cause)) attempt = { kind: "refused", cause };
+    else if (!isErrno(cause, "EEXIST")) throw cause;
+
+    return null;
   });
 
-  if (handle === null) return false;
+  if (handle === null) return attempt;
 
   try {
     await handle.writeFile(`${process.pid} ${new Date().toISOString()}\n`);
@@ -178,7 +191,7 @@ async function tryLock(lockFile: string): Promise<boolean> {
 
   await handle.close();
 
-  return true;
+  return { kind: "taken" };
 }
 
 /**
@@ -193,17 +206,25 @@ export async function withLock<T>(
   options: LockOptions,
 ): Promise<T> {
   const until = performance.now() + options.timeoutMs;
+  let attempt = await tryLock(lockFile);
 
-  while (!(await tryLock(lockFile))) {
+  while (attempt.kind !== "taken") {
     if (performance.now() >= until) {
       const text = await lockText(lockFile);
 
-      // A holder that let go between the last try and this read: one more try, then the error.
-      if (text === null && (await tryLock(lockFile))) break;
-      throw heldLockError(lockFile, options.timeoutMs, text ?? "");
+      if (text !== null) throw heldLockError(lockFile, options.timeoutMs, text);
+      // No lock file to read: its holder let go since the last try, so one more; a refusal that
+      // outlasts the wait with no file behind it is a real one, and its own error.
+      attempt = await tryLock(lockFile);
+
+      if (attempt.kind === "taken") break;
+
+      if (attempt.kind === "refused") throw attempt.cause;
+      throw heldLockError(lockFile, options.timeoutMs, "");
     }
 
     await Bun.sleep(LOCK_POLL_MS);
+    attempt = await tryLock(lockFile);
   }
 
   try {
