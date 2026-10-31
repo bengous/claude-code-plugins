@@ -1,0 +1,66 @@
+# Platform helpers
+
+The file, path and process helpers of the whole repository, in one source. A plugin stands alone
+once installed, so it never imports this directory: it imports its own copy, which
+`scripts/sync-platform.ts` writes and holds identical. `scripts/` and `.claude/` import this
+directory directly.
+
+| File | Holds | Imports |
+|---|---|---|
+| `pure.ts` | quoting, errno, messages, lexical paths | nothing, and names no `Bun`, `process` or `NodeJS`: a mod imports it by value |
+| `node.ts` | writes, renames, the lock, processes, git | `node:fs`, `node:path`, `node:os`, Bun, `./pure.ts` |
+| `consumers.ts` | the copies: `{ dir, files }` each | nothing |
+
+A mod runs in Claude Code's engine, which has no Node, no `process` and no `Bun`
+([Hook tests](../../docs/plugin-testing/hooks.md)): a directory whose code runs only in mods copies
+`pure.ts` alone.
+
+## Copies
+
+- `consumers.ts` lists each copy: `dir` is `<owner>/lib/platform` or `<owner>/src/platform`, its
+  owner a directory at the root; `files` names `pure.ts`, `node.ts` or both.
+- Edit this directory, never a copy, then run `bun ./scripts/sync-platform.ts --write`: it writes
+  each listed file that differs or is missing, and removes what a copy holds beyond its list.
+- `bun ./scripts/sync-platform.ts`, the gate `platform-copies`, writes nothing and refuses:
+  - a copy that differs from its source, byte for byte;
+  - a listed file a copy lacks, or a file it holds beyond its list;
+  - a consumer whose owner does not exist, or a `dir` of another form;
+  - a `lib/platform/` or `src/platform/` directory `consumers.ts` does not list;
+  - a value import of `tools/platform/` from a catalog plugin or a consumer's owner
+    (`Bun.Transpiler.scanImports`, so a type-only import passes).
+- The tests stay here and run against the source: a mod's kit collects every `*.test.ts` under its
+  plugin, so no test is copied.
+
+## `pure.ts`
+
+| Helper | Contract |
+|---|---|
+| `shellQuote(value)` | One POSIX shell word: always single-quoted, each `'` written `'\''`. |
+| `errnoOf(cause)` | The errno of a thrown value: its `code` when the error carries one, else the `E…` a mod's `$.fs` ends its message on (`… failed: ENOENT`); `null` for neither, and for anything not an `Error`. |
+| `isErrno(cause, ...codes)` | Whether `errnoOf(cause)` is one of `codes`. |
+| `messageOf(cause)` | An error's `message`, anything else through `String`. |
+| `isInsideRelative(rel, seps)` | Whether a relative path stays under its root: `""` (the root itself) and `..env` do; a whole `..` segment anywhere, or an absolute path, does not. `seps` are passed explicitly, since on POSIX `\` is part of a name: `[sep]` for `node:path`'s answer, `["/", "\\"]` for a path that may hold either. With `\` among them, a drive letter followed by a separator is absolute. |
+| `isUnder(root, path, sep)` | Whether `path` lies under `root`, lexically: past a separator boundary (`/a` holds `/a/b`, not `/ab`), with no `..` segment anywhere in `path`. The root is not under itself: a caller that counts it adds `path === root`. |
+| `baseNameOf(path)` | What follows the last `/` or `\`; the whole path when it holds neither. |
+| `dirNameOf(path)` | What precedes the last `/` or `\`, `/` when that separator leads the path; `null` when it holds neither. |
+
+## `node.ts`
+
+| Helper | Contract |
+|---|---|
+| `isHeld(cause)` | Whether Windows refused a rename because a program holds the file or folder: `EBUSY`, `EPERM` or `EACCES` on `win32`; always `false` elsewhere, where a held folder renames and an `EPERM` is a real refusal. |
+| `rename(from, to, { heldRetryMs })`, `renameSync` | `node:fs`'s rename, tried again every 100 ms for `heldRetryMs` (`0` by default) while `isHeld` says Windows holds it; any other failure is thrown at once. |
+| `writeAtomic(file, data, { mkdir, heldRetryMs })`, `writeAtomicSync` | Writes `data` (`string` or `Uint8Array`) to `.<base>.<pid>.<uuid>.tmp` beside `file`, then renames it over `file` through `rename`: a reader meets the old content or the new, whole, and two writers never rename each other's scratch file. The scratch file is removed when the write or the rename fails. `mkdir` creates the directory first. No fsync: it guards against a process crash and concurrent writers, not a power loss. |
+| `createExclusiveSync(file, data)` | Creates `file` unless it exists: the data goes to a scratch file beside it, which is linked into place and removed in any case. `true` when created, `false` on `EEXIST` with `file` untouched; any other failure is thrown. |
+| `withLock(lockFile, fn, { timeoutMs })` | Creates `lockFile` exclusively (`wx`) holding `<pid> <ISO date>`, runs `fn`, and removes the lock once `fn` settles, thrown or not. While another holds it, it tries again every 50 ms up to `timeoutMs`, then throws naming the file, the holder's pid and the lock's age. A lock its holder left behind is never taken over: the error says to remove it. |
+| `run(argv, options)`, `runSync` | Runs `argv` to its end, its output captured, and answers `exited { code, stdout, stderr }`, `timedOut { timeoutMs, stdout, stderr }` or `missing { program }`. Options: `cwd` (this process's by default); `env`, laid over this process's environment, which the child gets in full; `timeoutMs`, none by default, a timeout killing the process with `SIGKILL`, and `<= 0` answering `timedOut` without starting it (Bun reads `timeout: 0` as none); `stdin`, a `string` or a `Uint8Array`; `stdout: "buffer"`, which answers stdout as a `Buffer`. A timeout is read off the kill signal (`signalCode === "SIGKILL"`). `missing` answers Bun's "Executable not found" alone; any other failure to start, a missing `cwd` among them, is thrown. `run` waits for the output at most 1 s (`OUTPUT_GRACE_MS`) after the exit, then answers it empty: a killed shell's children may hold its pipes. `runSync` has no grace, and reports a process a signal ended with code 128 plus the signal's number, as `run` does. Every process starts with `windowsHide`. |
+| `git(args, options)`, `gitSync` | Runs git through `run`, its output raw, untrimmed, a failure an `exited` result. A git missing from the PATH throws. `cwd` is an option; a call that names its repository with `-C` keeps it in `args`. Options beyond `run`'s, all opt-in: `cLocale` sets `LC_ALL=C`; `scrubGitEnv` leaves out every `GIT_*` variable of this process's environment before `env` is laid over it; `config` passes each `key=value` as `-c` before `args`. |
+| `gitRead(args, options)`, `gitReadSync` | A git command that must succeed: its stdout trimmed. Any other end throws a `GitError` whose message is `git <args> failed (exit <code>): <stderr trimmed>`, or `git <args> timed out after <n> ms: <stderr trimmed>`. |
+
+## What the lint holds
+
+Two rules, `local/no-raw-rename` and `local/no-raw-git-spawn` (`tools/oxlint/local/`), report a
+`rename` from `node:fs` and a git spawned by hand outside this directory, its copies and the tests,
+wherever `oxlint.config.ts` sets them to `error`. They are the only guarantee that code goes
+through these helpers: no rule sees a hand-written shell quote, errno test, error message, path
+check or in-place write, so those families use the helpers by review alone.

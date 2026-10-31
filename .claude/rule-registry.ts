@@ -63,7 +63,12 @@ export const REGISTRY: Registry = {
     },
     cf4262d2: {
       quote: "Plugins are self-contained. No import crosses a plugin",
-      prose: "no lint rule or test reads where an import points",
+      held: ["gate platform-copies"],
+    },
+    fa2b6c3a: {
+      quote: "File, path and process code goes through the platform",
+      prose:
+        "oxlint.config.ts leaves local/no-raw-rename and local/no-raw-git-spawn off, and no rule sees quoting, errno, messages, path checks or in-place writes",
     },
     c7b55ea9: {
       quote: "Ship sources, never compiled binaries. `bun` is the runtime.",
@@ -98,6 +103,10 @@ export const REGISTRY: Registry = {
     "6573bd70": {
       quote: "`tools/oxlint/anti-slop/` - vendored lint plugin. Do not",
       held: ["gate lint-config"],
+    },
+    "9fd94dd1": {
+      quote: "`tools/platform/` - the file, path and process helpers; edit",
+      held: ["gate platform-copies"],
     },
     "32b88bf5": {
       quote: "`tools/oxlint/local/` - the repo's own lint plugin, edited",

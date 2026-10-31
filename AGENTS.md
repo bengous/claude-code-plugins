@@ -47,6 +47,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 
 - Extensions are mandatory: `.ts`, `.tsx`, `.sh`. The gates select files by extension, so a script named without one is checked by nothing.
 - Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`.
+- File, path and process code goes through the platform helpers: `tools/platform/` from `scripts/` and `.claude/`, the directory's own copy elsewhere.
 - Ship sources, never compiled binaries. `bun` is the runtime.
 
 ## Method
@@ -61,6 +62,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 
 - `archive/` - retired plugins, not in the marketplace.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
+- `tools/platform/` - the file, path and process helpers; edit here, then `bun ./scripts/sync-platform.ts --write`; never edit a copy.
 - `tools/oxlint/local/` - the repo's own lint plugin, edited here; registered beside anti-slop in `oxlint.config.ts`.
 
 ## Branching
