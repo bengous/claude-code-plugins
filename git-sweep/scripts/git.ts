@@ -1,7 +1,7 @@
 // The one git runner of both scripts, and the ref type every git call that
 // names a branch takes.
 
-import { GitError, git as runGit, gitRead as readGit } from "../lib/platform/node.ts";
+import { GitError, git as runGit, type GitResult as RunResult } from "../lib/platform/node.ts";
 
 export { GitError };
 
@@ -11,9 +11,30 @@ export type GitResult = { stdout: string; stderr: string; exitCode: number };
 // `remote ref does not exist`); LC_ALL=C pins them.
 const C_LOCALE = { cLocale: true } as const;
 
+// The platform's git throws a plain Error, with this message, when git is not
+// on the PATH. Read here as a command that failed, as Bun's shell answered it:
+// an exit-code read sees a failure, and a gitRead throws the GitError both
+// entry points catch. 127 is the shell's code for a command not found, which
+// no git command answers.
+const NO_GIT: RunResult = {
+  kind: "exited",
+  code: 127,
+  stdout: "",
+  stderr: "git is not on the PATH",
+};
+
+async function runC(args: string[]): Promise<RunResult> {
+  try {
+    return await runGit(args, C_LOCALE);
+  } catch (cause) {
+    if (cause instanceof Error && cause.message === NO_GIT.stderr) return NO_GIT;
+    throw cause;
+  }
+}
+
 // For a command whose exit code is the answer (is-ancestor, --verify, config).
 export async function git(...args: string[]): Promise<GitResult> {
-  const result = await runGit(args, C_LOCALE);
+  const result = await runC(args);
 
   if (result.kind !== "exited") throw new GitError(args, result);
 
@@ -22,8 +43,12 @@ export async function git(...args: string[]): Promise<GitResult> {
 
 // For a command that must succeed: a failure is an environment problem the
 // caller cannot answer, so it throws with the command attached.
-export function gitRead(...args: string[]): Promise<string> {
-  return readGit(args, C_LOCALE);
+export async function gitRead(...args: string[]): Promise<string> {
+  const result = await runC(args);
+
+  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
+
+  return result.stdout.trim();
 }
 
 export const LOCAL_REFS = "refs/heads/";

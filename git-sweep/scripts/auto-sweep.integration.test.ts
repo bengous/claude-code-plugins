@@ -625,4 +625,19 @@ exec ${realGit} "$@"
     expect(await branchExists(repo, "worktree-agent-old")).toBe(false);
     expect(await git(repo, "rev-parse", "refs/archive/worktree-agent-old")).toBe(oldTip);
   });
+
+  test("with no git on the PATH, the sweep fails at the audit's validation and changes nothing", async () => {
+    const repo = await makeRepo("no-git");
+    const bunOnly = makeTmpDir("bun-only");
+    symlinkSync(process.execPath, join(bunOnly, "bun"));
+
+    const { exitCode, stdout, stderr } = await sweep(repo, [], { PATH: bunOnly });
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toBe(
+      "auto-sweep: the audit failed (validate): no trunk branch found; pass --base <branch>",
+    );
+    expect(await branchExists(repo, "dev")).toBe(true);
+  });
 });
