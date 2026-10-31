@@ -173,7 +173,7 @@ export function run(
   }
 }
 
-if (import.meta.main) {
+export function main(): never {
   const outcome = run(process.argv.slice(2), process.cwd(), new Date());
 
   process.stdout.write(outcome.stdout);

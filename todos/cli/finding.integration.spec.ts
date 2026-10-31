@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -180,13 +181,38 @@ describe("closing", () => {
   });
 });
 
-test("the bin wrapper runs the command", () => {
-  const ran = Bun.spawnSync([WRAPPER, "src/a.ts:1", "through the wrapper"], {
+function wrapper(command: (pathBin: string) => string, ...args: string[]) {
+  const pathBin = join(base, "path-bin");
+
+  mkdirSync(join(base, "hop"));
+  mkdirSync(pathBin);
+  symlinkSync(WRAPPER, join(base, "hop", "todos-finding"));
+  symlinkSync(join("..", "hop", "todos-finding"), join(pathBin, "todos-finding"));
+
+  return Bun.spawnSync([command(pathBin), ...args], {
     cwd: repo,
+    env: { ...process.env, PATH: `${pathBin}:${process.env["PATH"]}` },
     stdout: "pipe",
     stderr: "pipe",
   });
+}
 
-  expect([ran.exitCode, ran.stderr.toString()]).toEqual([0, ""]);
-  expect(recorded().map(({ record }) => record.why)).toEqual(["through the wrapper"]);
+describe("the bin wrapper", () => {
+  test.each([
+    ["by its own path", () => WRAPPER],
+    ["through the links, by their path", (pathBin: string) => join(pathBin, "todos-finding")],
+    ["through the links, by its name on PATH", () => "todos-finding"],
+  ])("runs the command %s", (_how, command) => {
+    const ran = wrapper(command, "src/a.ts:1", "through the wrapper");
+
+    expect([ran.exitCode, ran.stderr.toString()]).toEqual([0, ""]);
+    expect(recorded().map(({ record }) => record.why)).toEqual(["through the wrapper"]);
+  });
+
+  test("exits with the command's code", () => {
+    const ran = wrapper(() => WRAPPER, "src/a.ts");
+
+    expect([ran.exitCode, ran.stdout.toString()]).toEqual([2, ""]);
+    expect(ran.stderr.toString()).toContain("say why it matters, after the path");
+  });
 });
