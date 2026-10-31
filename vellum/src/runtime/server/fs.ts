@@ -2,6 +2,7 @@ import { watch } from "node:fs";
 import { appendFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
+import { writeAtomic } from "../../platform/node.ts";
 import { rewriteLinks } from "../../workshop/links.ts";
 import type { FinalDir, ParseResult, ProjectPath, Slug, WipDir } from "../../workshop/paths.ts";
 import { dateOf, parseFinalDir } from "../../workshop/paths.ts";
@@ -151,6 +152,15 @@ export function readText(project: string, path: ProjectPath): Promise<string> {
 
 export async function writeText(project: string, path: ProjectPath, text: string): Promise<void> {
   await Bun.write(join(project, path), text);
+}
+
+/**
+ * Writes through a scratch file renamed over the file, so a write cut short leaves the old text
+ * whole. Only under `.review/`: anywhere else in the working directory the scratch file would
+ * reach `watchFiles`.
+ */
+export async function writeWhole(project: string, path: ProjectPath, text: string): Promise<void> {
+  await writeAtomic(join(project, path), text, { mkdir: true });
 }
 
 export async function appendText(project: string, path: ProjectPath, text: string): Promise<void> {

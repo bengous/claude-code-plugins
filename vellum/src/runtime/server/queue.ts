@@ -62,6 +62,7 @@ import {
   removeFile,
   renameFile,
   writeText,
+  writeWhole,
 } from "./fs.ts";
 
 export type QueueOptions = {
@@ -451,7 +452,7 @@ export class Queue {
     }
 
     if (!takesComments(await this.workspace())) return false;
-    await writeText(project, this.draftDoc(), JSON.stringify(draft));
+    await writeWhole(project, this.draftDoc(), JSON.stringify(draft));
 
     return true;
   }
@@ -461,7 +462,7 @@ export class Queue {
     const { project } = this.options;
 
     if (draftIsEmpty(rest)) await removeFile(project, this.draftDoc());
-    else await writeText(project, this.draftDoc(), JSON.stringify(rest));
+    else await writeWhole(project, this.draftDoc(), JSON.stringify(rest));
   }
 
   private draftDoc(): ProjectPath {
