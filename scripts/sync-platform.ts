@@ -6,14 +6,15 @@
  *   bun ./scripts/sync-platform.ts          checks, writes nothing
  *   bun ./scripts/sync-platform.ts --write  writes the copies `consumers.ts` lists, then checks
  *
- * A plugin stands alone once installed, so it imports its own copy, never the source. The check
- * refuses a copy that differs from its source byte for byte, a file a copy lacks or holds beyond
- * its list, a consumer whose directory does not exist, a copy directory `consumers.ts` does not
- * list, and an import of `tools/platform/` from a plugin or a consumer's directory.
+ * A plugin stands alone once installed, so it imports its own copy, never the source, and nothing
+ * outside its directory. The check refuses a copy that differs from its source byte for byte, a
+ * file a copy lacks or holds beyond its list, a consumer whose directory does not exist, a copy
+ * directory `consumers.ts` does not list, and an import that leaves a plugin's or a consumer's
+ * directory. A copy holds what git lists there: an ignored file is neither refused nor removed.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
 import type { Consumer } from "../tools/platform/consumers.ts";
 import { CONSUMERS } from "../tools/platform/consumers.ts";
@@ -43,7 +44,8 @@ const LOADERS = new Map<string, "ts" | "tsx" | "js" | "jsx">([
 
 type Catalog = { readonly plugins: readonly { readonly source: string }[] };
 
-const ownerOf = (dir: string): string => dir.slice(0, dir.indexOf("/"));
+/** The directory at the root a path lies in; `""` for a file at the root. */
+const ownerOf = (path: string): string => path.slice(0, Math.max(0, path.indexOf("/")));
 
 /** The files git sees under `root`, tracked or new and not ignored, that are on disk. */
 async function listedFiles(root: string): Promise<string[]> {
@@ -57,10 +59,11 @@ async function listedFiles(root: string): Promise<string[]> {
     .filter((path) => path !== "" && !path.startsWith("archive/") && existsSync(join(root, path)));
 }
 
-function filesUnder(dir: string): string[] {
-  return readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => !entry.isDirectory())
-    .map((entry) => relative(dir, join(entry.parentPath, entry.name)).split(sep).join("/"));
+/** What git lists in a copy directory, relative to it. */
+function heldBy(consumer: Consumer, files: readonly string[]): string[] {
+  const prefix = `${consumer.dir}/`;
+
+  return files.flatMap((file) => (file.startsWith(prefix) ? [file.slice(prefix.length)] : []));
 }
 
 function manifestProblems(root: string, consumers: readonly Consumer[]): string[] {
@@ -83,9 +86,12 @@ function manifestProblems(root: string, consumers: readonly Consumer[]): string[
       problems.push(`${consumer.dir}: tools/platform/consumers.ts lists it twice`);
     seen.add(consumer.dir);
 
-    if (consumer.files.length === 0 || new Set(consumer.files).size !== consumer.files.length)
+    if (
+      !consumer.files.includes("pure.ts") ||
+      new Set(consumer.files).size !== consumer.files.length
+    )
       problems.push(
-        `${consumer.dir}: tools/platform/consumers.ts lists no file, or one twice: name pure.ts, node.ts, or both`,
+        `${consumer.dir}: tools/platform/consumers.ts names its files once each, pure.ts alone or pure.ts and node.ts, which imports ./pure.ts`,
       );
 
     return problems;
@@ -99,10 +105,9 @@ function placed(root: string, consumers: readonly Consumer[]): readonly Consumer
   );
 }
 
-function copyProblems(root: string, consumer: Consumer): string[] {
+function copyProblems(root: string, consumer: Consumer, files: readonly string[]): string[] {
   const dir = join(root, consumer.dir);
   const listed = new Set<string>(consumer.files);
-  const held = existsSync(dir) && statSync(dir).isDirectory() ? filesUnder(dir) : [];
 
   const missingOrDiffering = consumer.files.flatMap((file) => {
     const copy = join(dir, file);
@@ -114,7 +119,7 @@ function copyProblems(root: string, consumer: Consumer): string[] {
       : [`${consumer.dir}/${file} differs from ${SOURCE_DIR}/${file}: ${NEVER_A_COPY}`];
   });
 
-  const extra = held
+  const extra = heldBy(consumer, files)
     .filter((file) => !listed.has(file))
     .map(
       (file) =>
@@ -167,28 +172,35 @@ function valueImports(file: string): string[] {
     .map(({ path }) => path);
 }
 
-function sourceImports(
+function outsideImport(file: string, specifier: string, target: string): string {
+  const owner = ownerOf(file);
+
+  return isInsideRelative(posix.relative(SOURCE_DIR, target), ["/"])
+    ? `${file} imports ${specifier}: a plugin imports the copy in its own directory, listed in tools/platform/consumers.ts and written by ${WRITE_COMMAND}; ${NEVER_A_COPY}`
+    : `${file} imports ${specifier}, outside ${owner}/: a plugin stands alone once installed, so no import leaves its directory`;
+}
+
+/** Each value import of a standalone directory's file that resolves outside that directory. */
+function outsideImports(
   root: string,
   files: readonly string[],
   consumers: readonly Consumer[],
 ): string[] {
   const owners = standaloneDirs(root, consumers);
-  const source = join(root, SOURCE_DIR);
 
   return files
-    .filter((file) => owners.has(file.slice(0, file.indexOf("/"))))
+    .filter((file) => owners.has(ownerOf(file)))
     .flatMap((file) =>
       valueImports(join(root, file))
         .filter((specifier) => specifier.startsWith(".") || isAbsolute(specifier))
-        .filter((specifier) => {
-          const target = relative(source, resolve(dirname(join(root, file)), specifier));
+        .flatMap((specifier) => {
+          const resolved = resolve(dirname(join(root, file)), specifier);
 
-          return isInsideRelative(target, [sep]);
-        })
-        .map(
-          (specifier) =>
-            `${file} imports ${specifier}: a plugin imports the copy in its own directory, listed in tools/platform/consumers.ts and written by ${WRITE_COMMAND}; ${NEVER_A_COPY}`,
-        ),
+          if (isInsideRelative(relative(join(root, ownerOf(file)), resolved), [sep])) return [];
+          const target = relative(root, resolved).split(sep).join("/");
+
+          return [outsideImport(file, specifier, target)];
+        }),
     );
 }
 
@@ -198,14 +210,15 @@ export async function problemsIn(root: string, consumers: readonly Consumer[]): 
 
   return [
     ...manifestProblems(root, consumers),
-    ...placed(root, consumers).flatMap((consumer) => copyProblems(root, consumer)),
+    ...placed(root, consumers).flatMap((consumer) => copyProblems(root, consumer, files)),
     ...unlistedCopyDirs(files, consumers),
-    ...sourceImports(root, files, consumers),
+    ...outsideImports(root, files, consumers),
   ];
 }
 
-/** Writes each listed copy that differs or is missing, and removes what a copy holds beyond its list. */
+/** Writes each listed copy that differs or is missing, and removes what git lists there beyond the list. */
 export async function writeCopies(root: string, consumers: readonly Consumer[]): Promise<string[]> {
+  const files = await listedFiles(root);
   const written: string[] = [];
 
   for (const consumer of placed(root, consumers)) {
@@ -222,7 +235,7 @@ export async function writeCopies(root: string, consumers: readonly Consumer[]):
 
     const listed = new Set<string>(consumer.files);
 
-    for (const file of existsSync(dir) ? filesUnder(dir) : []) {
+    for (const file of heldBy(consumer, files)) {
       if (listed.has(file)) continue;
       rmSync(join(dir, file));
       written.push(`${consumer.dir}/${file} (removed)`);

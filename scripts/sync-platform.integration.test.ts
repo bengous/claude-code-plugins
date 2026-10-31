@@ -18,14 +18,21 @@ function write(path: string, text: string): void {
   writeFileSync(join(root, path), text);
 }
 
-/** A repository whose catalog lists `plug/`, beside `other/`, a directory no catalog names. */
+/** A repository whose catalog lists `plug/` and `peer/`, beside `other/`, a directory no catalog names. */
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "sync-platform-"));
   gitReadSync(["init", "-q"], { cwd: root, scrubGitEnv: true });
+  write(".gitignore", "*.tmp\n.DS_Store\n");
   write("tools/platform/pure.ts", "export const pure = 1;\n");
   write("tools/platform/node.ts", "export const node = 1;\n");
-  write(".claude-plugin/marketplace.json", JSON.stringify({ plugins: [{ source: "./plug" }] }));
+
+  write(
+    ".claude-plugin/marketplace.json",
+    JSON.stringify({ plugins: [{ source: "./plug" }, { source: "./peer" }] }),
+  );
+
   write("plug/hooks/register.ts", "export const register = 1;\n");
+  write("peer/x.ts", "export const x = 1;\n");
   write("other/x.ts", "export const x = 1;\n");
 });
 
@@ -73,6 +80,21 @@ describe("the check", () => {
     ]);
   });
 
+  test("refuses a copy of node.ts without the pure.ts it imports", async () => {
+    expect(await problems([{ dir: "plug/lib/platform", files: ["node.ts"] }])).toContain(
+      "plug/lib/platform: tools/platform/consumers.ts names its files once each, pure.ts alone or pure.ts and node.ts, which imports ./pure.ts",
+    );
+  });
+
+  test("leaves a file git ignores in a copy directory, and --write keeps it", async () => {
+    write("plug/lib/platform/.DS_Store", "finder\n");
+    write("plug/lib/platform/.pure.ts.4242.interrupted.tmp", "half\n");
+
+    expect(await writeCopies(root, [PLUG])).toEqual(["plug/lib/platform/pure.ts"]);
+    expect(await problems()).toEqual([]);
+    expect(readFileSync(join(root, "plug/lib/platform/.DS_Store"), "utf8")).toBe("finder\n");
+  });
+
   test("refuses a consumer outside <owner>/lib/platform or <owner>/src/platform", async () => {
     const [problem] = await problems([{ dir: "plug/hooks/platform", files: ["pure.ts"] }]);
 
@@ -99,6 +121,19 @@ describe("the check", () => {
       "plug/hooks/a.ts imports ../../tools/platform/pure.ts",
     ]);
     expect(found[1]).toContain("edit tools/platform/, never a copy");
+  });
+
+  test.each([
+    ["another plugin", "../../peer/x.ts"],
+    ["scripts/", "../../scripts/lib/run.ts"],
+    [".claude/", "../../.claude/hooks/checkout.ts"],
+  ])("refuses a plugin's import of %s, outside its directory", async (_, specifier) => {
+    await writeCopies(root, [PLUG]);
+    write("plug/hooks/a.ts", `import { x } from "${specifier}";\nx;\n`);
+
+    expect(await problems()).toEqual([
+      `plug/hooks/a.ts imports ${specifier}, outside plug/: a plugin stands alone once installed, so no import leaves its directory`,
+    ]);
   });
 
   test("leaves a type-only import, a copy's import and a directory no catalog names", async () => {

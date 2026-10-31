@@ -18,15 +18,18 @@ A mod runs in Claude Code's engine, which has no Node, no `process` and no `Bun`
 ## Copies
 
 - `consumers.ts` lists each copy: `dir` is `<owner>/lib/platform` or `<owner>/src/platform`, its
-  owner a directory at the root; `files` names `pure.ts`, `node.ts` or both.
+  owner a directory at the root; `files` names `pure.ts` alone, or `pure.ts` and `node.ts`, which
+  imports `./pure.ts`.
 - Edit this directory, never a copy, then run `bun ./scripts/sync-platform.ts --write`: it writes
-  each listed file that differs or is missing, and removes what a copy holds beyond its list.
+  each listed file that differs or is missing, and removes what git lists in a copy beyond its
+  list. A file git ignores there (a scratch `.tmp`, a `.DS_Store`) is left alone.
 - `bun ./scripts/sync-platform.ts`, the gate `platform-copies`, writes nothing and refuses:
   - a copy that differs from its source, byte for byte;
-  - a listed file a copy lacks, or a file it holds beyond its list;
-  - a consumer whose owner does not exist, or a `dir` of another form;
+  - a listed file a copy lacks, or a file git lists there beyond its list;
+  - a consumer whose owner does not exist, a `dir` of another form, or a list without `pure.ts`;
   - a `lib/platform/` or `src/platform/` directory `consumers.ts` does not list;
-  - a value import of `tools/platform/` from a catalog plugin or a consumer's owner
+  - a value import, from a catalog plugin or a consumer's owner, that resolves outside that
+    directory: into another plugin, `scripts/`, `.claude/` or `tools/platform/`
     (`Bun.Transpiler.scanImports`, so a type-only import passes).
 - The tests stay here and run against the source: a mod's kit collects every `*.test.ts` under its
   plugin, so no test is copied.
