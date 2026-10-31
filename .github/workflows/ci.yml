@@ -50,7 +50,7 @@ jobs:
       # The default key ignores the pinned version: a hit would restore another build, and an
       # exact hit is never saved again.
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
         with:
           cache_key: &claude-cache-key "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
@@ -202,7 +202,7 @@ jobs:
           fetch-depth: 0 # the merge-base with the pull request's base
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
         with:
           install_args: bun
 
@@ -235,7 +235,7 @@ jobs:
       - *pin-claude-code
 
       - name: Set up tools (bun, claude via mise)
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
         with:
           install_args: bun claude
           cache_key: *claude-cache-key
@@ -286,7 +286,7 @@ jobs:
           fetch-depth: 0 # the merge-base with the base
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
         with:
           install_args: bun
 
@@ -326,7 +326,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -375,7 +375,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
         with:
           install_args: bun
 
@@ -453,7 +453,7 @@ jobs:
 
       - name: Set up tools (bun via mise)
         continue-on-error: true
-        uses: jdx/mise-action@v5.2.2
+        uses: jdx/mise-action@v5.2.4
         with:
           install_args: bun
 
