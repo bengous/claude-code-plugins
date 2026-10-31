@@ -86,7 +86,8 @@ const openSection = (
     ? ""
     : `<h3>${s.words.openPoints}</h3>${open.map((o) => openPoint(s, o, state)).join("")}`;
 
-const flatLabel = (node: Node): string => esc(node.label.replaceAll("\n", " "));
+/** A node's label on one line, escaped. */
+export const flatLabel = (node: Node): string => esc(node.label.replaceAll("\n", " "));
 
 function chip(tree: Tree, id: string): string {
   const node = tree.nodes.get(id);

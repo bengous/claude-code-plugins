@@ -3,7 +3,7 @@ import type { Numbered } from "../model/journeys.ts";
 import { formAfter, isEntry, stepsOf } from "../model/journeys.ts";
 import type { Tree } from "../model/tree.ts";
 import { nodeOf } from "../model/tree.ts";
-import { ICONS } from "./panel.ts";
+import { ICONS, flatLabel } from "./panel.ts";
 import { esc } from "./svg.ts";
 
 // The ribbon of a journey played, over the foot of the stage (atlas.html's #ribbon): the whole
@@ -67,8 +67,6 @@ export const columnsOf = (journey: Journey): Column[] =>
         ];
   });
 
-const labelOf = (tree: Tree, id: string): string => nodeOf(tree, id).label.replaceAll("\n", " ");
-
 // Its number under the icon of an entry's nature; a stroke at its foot, forward or back, and
 // hatched under a condition (atlas.html); its tooltip the step over its ends' labels.
 function cell(tree: Tree, { n, step }: Numbered): string {
@@ -78,10 +76,10 @@ function cell(tree: Tree, { n, step }: Numbered): string {
     ...(step.when === undefined ? [] : ["when"]),
   ];
 
-  const title = `${n}. ${labelOf(tree, step.from)} → ${labelOf(tree, step.to)}`;
+  const title = `${n}. ${flatLabel(nodeOf(tree, step.from))} → ${flatLabel(nodeOf(tree, step.to))}`;
   const icon = isEntry(step) ? ICONS[step.kind] : "";
 
-  return `<button type="button" class="${marks.join(" ")}" data-step="${n}" title="${esc(title)}"><span class="ribbon-icon">${icon}</span><span>${n}</span></button>`;
+  return `<button type="button" class="${marks.join(" ")}" data-step="${n}" title="${title}"><span class="ribbon-icon">${icon}</span><span>${n}</span></button>`;
 }
 
 const span = ({ first, last }: Span): string => `data-first="${first}" data-last="${last}"`;

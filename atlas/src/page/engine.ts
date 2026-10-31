@@ -1420,9 +1420,28 @@ function stopPlayback(): void {
   markPlayback();
 }
 
-// A tick leaves the focus where it was: on the panel's ← → or leave buttons, their new copies
-// take it (keepingPanelFocus); the ribbon, written once per journey, keeps its own.
-const TICK_KEYS = ["data-nav", "data-leave"];
+// What render() rewrites, each with the keys its focus is found again by: the panel's ← → and
+// leave buttons, the breadcrumb's crumbs, the rows of the journeys' and the open points' lists.
+// The ribbon, written once per journey, keeps its own.
+const REWRITTEN = [
+  [panel, ["data-nav", "data-leave"]],
+  [crumbs, ["data-go"]],
+  [journeyList, ["data-journey"]],
+  [openList, ["data-go"]],
+] as const;
+
+// A step the playback shows, or a cell of the ribbon plays, leaves the focus where it was, on the
+// new copy of what held it, and scrolls nothing: on a phone, where the page scrolls, the map stays
+// in sight.
+function keepingFocusInPlace(move: () => void): void {
+  const active = document.activeElement;
+  const marks = REWRITTEN.flatMap(([root, keys]) => markOf(root, keys, active) ?? []);
+  move();
+
+  for (const mark of marks) {
+    refocus(mark);
+  }
+}
 
 function tick(): void {
   const played = journeyOf(tree, pageState.journey);
@@ -1435,7 +1454,7 @@ function tick(): void {
     return;
   }
 
-  keepingPanelFocus(TICK_KEYS, () => {
+  keepingFocusInPlace(() => {
     showStep(played.id, next);
   });
 
@@ -1456,7 +1475,7 @@ function togglePlayback(): void {
   const count = stepsOf(played).length;
 
   if (pageState.step === count) {
-    keepingPanelFocus(TICK_KEYS, () => {
+    keepingFocusInPlace(() => {
       showStep(played.id, 1);
     });
   }
@@ -1470,12 +1489,15 @@ function togglePlayback(): void {
 
 playButton.addEventListener("click", togglePlayback);
 
-// A cell of the ribbon plays its step; the ribbon, marked in place, keeps the focus.
+// A cell of the ribbon plays its step, the focus where it was: a click does not always move it to
+// the cell.
 ribbonSteps.addEventListener("click", (e) => {
   const cell = e.target instanceof Element ? e.target.closest("[data-step]") : null;
 
   if (cell instanceof HTMLElement) {
-    play(pageState.journey, Number(cell.dataset["step"]));
+    keepingFocusInPlace(() => {
+      play(pageState.journey, Number(cell.dataset["step"]));
+    });
   }
 });
 
