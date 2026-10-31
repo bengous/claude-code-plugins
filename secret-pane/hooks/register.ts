@@ -1,7 +1,8 @@
 import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from "claude-code";
 
+import { shellQuote } from "../lib/platform/pure.ts";
 import { type Found, type Host, needlesOf, scanChanges, scanTargets } from "./scan.ts";
-import { filled, FIXES, restoreCommand, shellQuote } from "./shell.ts";
+import { filled, FIXES, restoreCommand } from "./shell.ts";
 import {
   createVault,
   entered,

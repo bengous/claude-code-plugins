@@ -8,6 +8,7 @@
  * into history or send it out.
  */
 
+import { baseNameOf, shellQuote } from "../lib/platform/pure.ts";
 import { isInert, nameOf } from "./vault.ts";
 
 const TAG_WORD = /^'(\[secret-pane:[A-Za-z_][A-Za-z0-9_]*:[0-9a-f]{8}\])'$/u;
@@ -255,9 +256,7 @@ function lex(command: string): Lexed {
  * either slash, and a `.exe` dropped, the case folded (`Git.EXE` runs git).
  */
 function basename(word: string): string {
-  const name = word
-    .slice(Math.max(word.lastIndexOf("/"), word.lastIndexOf("\\")) + 1)
-    .toLowerCase();
+  const name = baseNameOf(word).toLowerCase();
 
   return name.endsWith(".exe") ? name.slice(0, -".exe".length) : name;
 }
@@ -699,11 +698,6 @@ export function invocations(command: string, program: Program): readonly Invocat
   collect(withoutLiteralBodies(command), program, [], false, found);
 
   return found;
-}
-
-/** A value as one single-quoted shell word, whatever it holds. */
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 export type Restoration =

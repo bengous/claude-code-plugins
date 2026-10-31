@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { FIXES, invocations, isLocal, restoreCommand, shellQuote } from "./shell.ts";
+import { shellQuote } from "../lib/platform/pure.ts";
+import { FIXES, invocations, isLocal, restoreCommand } from "./shell.ts";
 
 const TAG = "[secret-pane:PAT:0a1b2c3d]";
 

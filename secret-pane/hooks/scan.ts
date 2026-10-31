@@ -5,6 +5,7 @@
  * git prints the changes, and the mod searches them.
  */
 
+import { messageOf } from "../lib/platform/pure.ts";
 import { type Invocation, invocations, isLocal, parseInvocation, type Program } from "./shell.ts";
 
 /** The shortest line of a value searched for: shorter lines would match ordinary text. */
@@ -343,7 +344,7 @@ async function repositoryHits(
     try {
       isThere = await host.exists(target.dir);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
 
       return {
         kind: "failed",
@@ -370,7 +371,7 @@ async function repositoryHits(
     try {
       ran = await host.run(["git", ...SETTINGS, ...target.options, ...args], target.dir);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
 
       return {
         kind: "failed",
@@ -439,7 +440,7 @@ async function repositoryHits(
     try {
       text = await host.read(`${top}/${path}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
 
       return { kind: "failed", why: `${path} could not be read: ${message}`, isOutside: false };
     }
@@ -472,7 +473,7 @@ export async function scanChanges(
     try {
       text = (await host.exists(path)) ? await host.read(path) : null;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = messageOf(error);
 
       return { kind: "failed", why: `${path} could not be read: ${message}` };
     }
