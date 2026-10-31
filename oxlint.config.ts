@@ -77,6 +77,9 @@ export default defineConfig({
     "anti-slop/require-readable-spacing": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
 
+    "local/no-raw-git-spawn": "error",
+    "local/no-raw-rename": "error",
+
     // Off until the docs and comments it reports are rewritten.
     "local/no-frozen-facts": "off",
   },

@@ -67,8 +67,7 @@ export const REGISTRY: Registry = {
     },
     fa2b6c3a: {
       quote: "File, path and process code goes through the platform",
-      prose:
-        "oxlint.config.ts leaves local/no-raw-rename and local/no-raw-git-spawn off, and no rule sees quoting, errno, messages, path checks or in-place writes",
+      held: ["lint local/no-raw-rename", "lint local/no-raw-git-spawn", "gate platform-copies"],
     },
     c7b55ea9: {
       quote: "Ship sources, never compiled binaries. `bun` is the runtime.",
