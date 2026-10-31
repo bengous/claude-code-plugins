@@ -129,7 +129,7 @@ describe("private-sync hook", () => {
     expect(readlinkSync(join(project, ".claude/skills/demo-skill"))).toBe(
       "../../.private/skills/demo-skill",
     );
-    expect(readFileSync(excludeFile(), "utf8")).toEndWith("\n/.claude/skills/demo-skill\n");
+    expect(readFileSync(excludeFile(), "utf8").split("\n")).toContain("/.claude/skills/demo-skill");
     expect(await status(project)).toBe("");
   });
 
@@ -142,6 +142,18 @@ describe("private-sync hook", () => {
 
     expect([exitCode, stdout]).toEqual([0, ""]);
     expect(readFileSync(excludeFile(), "utf8")).toBe(exclude);
+  });
+
+  test("keeps the links out of git status on a branch whose .gitignore predates them", async () => {
+    write(project, ".gitignore", "plans/\n/.private/\n/.private.env\n");
+    await git(["add", "-A"], project);
+    await commit(["-m", "an older .gitignore"], project);
+    configure();
+
+    await runHook(project);
+
+    pointsTo(join(project, ".scratch"), join(privateDir(), "scratch"));
+    expect(await status(project)).toBe("");
   });
 
   test("links a linked worktree outside the main tree to the main checkout's clone", async () => {
@@ -201,7 +213,7 @@ describe("private-sync hook", () => {
     await runHook(project);
 
     expect(readFileSync(excludeFile(), "utf8")).toBe(
-      "# mine\n/local-thing\n/.claude/skills/demo-skill\n",
+      "# mine\n/local-thing\n/plans\n/.scratch\n/.claude/skills/demo-skill\n",
     );
   });
 

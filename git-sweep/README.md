@@ -30,7 +30,7 @@ An agent worktree is a direct child of `.claude/worktrees/` whose name starts wi
 What it deletes:
 
 - every local branch with a proof, unless a worktree it leaves stands on it;
-- a clean agent worktree on a proven branch, with the branch, when every ignored path it holds is one `DISPOSABLE_IGNORED` names: `node_modules/` and `__pycache__/` at any depth, `.stryker-tmp/`, `vellum/test-results/`, `flaky-reports/`, and the `tsconfig.json` and `.claude-plugin/types/` Claude Code writes at a plugin's root, or is a symbolic link, which the removal deletes without its target. The summary names them;
+- a clean agent worktree on a proven branch, with the branch, when every ignored path it holds is a symbolic link, which the removal deletes without its target, or one `DISPOSABLE_IGNORED` names: `node_modules/` and `__pycache__/` at any depth, `.stryker-tmp/`, `vellum/test-results/`, `flaky-reports/`, and the `tsconfig.json` and `.claude-plugin/types/` Claude Code writes at a plugin's root. The summary names them;
 - the registration of an agent worktree whose directory is gone.
 
 What it archives: an unproven agent branch, with no worktree or a clean agent worktree, whose last pull request was closed unmerged and whose last commit are both 14 days old or more (`CLOSED_PR_GRACE_DAYS`), or that has no pull request and no commit for 30 days (`NO_PR_IDLE_DAYS`). Without an `origin` remote no branch has a pull request; with one `gh` cannot read, nothing is archived. The branch tip is written to `refs/archive/<branch>` first, then the branch and its worktree go. Restore one with:

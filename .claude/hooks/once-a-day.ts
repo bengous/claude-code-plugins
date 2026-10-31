@@ -16,7 +16,7 @@ export function dayOf(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
+export function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
   return cause instanceof Error && "code" in cause;
 }
 

@@ -3,8 +3,8 @@
 /**
  * SessionStart hook — mounts the private repository that `.private.env`, in
  * the main checkout, names: clones it once into the main checkout's
- * `.private/`, adds each private skill's link to `<git common dir>/info/
- * exclude`, then links `plans`, `.scratch` and each private skill into the
+ * `.private/`, adds each link it makes to `<git common dir>/info/exclude`,
+ * then links `plans`, `.scratch` and each private skill into the
  * checkout the session starts in. Without `.private.env` it does nothing.
  * It never touches a path that exists already, whatever stands there.
  */
@@ -28,6 +28,7 @@ import { $ } from "bun";
 import { NO_PROMPT } from "./auto-sweep.ts";
 import { checkoutRoot, gitDiscoveryEnv } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
+import { isErrnoException } from "./once-a-day.ts";
 
 const CONFIG = ".private.env";
 
@@ -44,10 +45,6 @@ type SessionStartOutput = {
   systemMessage?: string;
   hookSpecificOutput?: { hookEventName: "SessionStart"; reloadSkills: true };
 };
-
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
-}
 
 async function repositoryOf(root: string): Promise<Repository> {
   const run = await $`git -C ${root} rev-parse --path-format=absolute --git-common-dir`
@@ -172,10 +169,8 @@ export async function sync(
   const cloned = !existsSync(privateDir) && (await clone(url, privateDir));
   const skills = skillNames(privateDir);
 
-  exclude(
-    commonDir,
-    skills.map((name) => `/.claude/skills/${name}`),
-  );
+  // A branch older than the .gitignore lines for these links would show them untracked.
+  exclude(commonDir, ["/plans", "/.scratch", ...skills.map((name) => `/.claude/skills/${name}`)]);
   link(join(root, "plans"), join(privateDir, "plans"));
   link(join(root, ".scratch"), join(privateDir, "scratch"));
   const skillsDir = join(root, ".claude", "skills");
