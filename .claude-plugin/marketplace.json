@@ -520,7 +520,7 @@
     {
       "name": "atlas",
       "description": "Interactive architecture maps in the browser: zones and bricks laid out by ELK, overview arrows routed by libavoid, typed data files checked by a script, and open points discussed in threads between you and the agent; /atlas:board serves a map's page beside your session and hands what you select there to the agent; /atlas:init draws a repository's first map, each claim citing its lines",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
