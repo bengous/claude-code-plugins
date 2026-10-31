@@ -21,6 +21,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { messageOf } from "../lib/platform/pure.ts";
 import { capturePlan } from "./capture-plan.ts";
 import type { HookPayload } from "./plan-comment.ts";
 import { parsePayload, planText, SAFE_ID, stripSessionLine } from "./plan-comment.ts";
@@ -101,14 +102,14 @@ if (import.meta.main) {
   try {
     reason = await gate(payload, plan, home);
   } catch (error) {
-    console.error(`gate-plan: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`gate-plan: ${messageOf(error)}`);
   }
 
   if (reason === null) {
     try {
       await capturePlan(payload, plan, home);
     } catch (error) {
-      console.error(`capture-plan: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`capture-plan: ${messageOf(error)}`);
     }
   } else {
     console.log(

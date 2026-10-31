@@ -7,7 +7,8 @@
 // line, and so is a run of modified files, so a branch of a hundred renames
 // stays a short tree: the shape of the change, not its file list.
 
-import { $ } from "bun";
+import { git as runGit } from "../lib/platform/node.ts";
+import { messageOf } from "../lib/platform/pure.ts";
 
 const MAX_LISTED_MODIFIED = 3;
 
@@ -410,11 +411,13 @@ export function treeDiff(snapshot: Snapshot): string[] {
 }
 
 async function git(...args: string[]): Promise<string> {
-  const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
+  const result = await runGit(args);
 
-  if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.trim()}`);
+  }
 
-  return stdout.toString();
+  return result.stdout;
 }
 
 // `--full-tree`: from a subdirectory, ls-tree would list that subtree with
@@ -463,7 +466,7 @@ if (import.meta.main) {
   try {
     process.exit(await main(Bun.argv.slice(2)));
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(messageOf(error));
     process.exit(1);
   }
 }

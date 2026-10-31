@@ -15,6 +15,9 @@ import { parseArgs as parseArgv } from "node:util";
 
 import { $, Glob } from "bun";
 
+import { GitError, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { messageOf } from "../lib/platform/pure.ts";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -119,7 +122,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   try {
     raw = parseRaw(argv);
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, error: messageOf(error) };
   }
 
   const { values, positionals } = raw;
@@ -187,17 +190,15 @@ function resolveInstall(install: Install, present: ReadonlySet<string>): string 
 type GitResult = { stdout: string; stderr: string; exitCode: number };
 
 async function git(...args: string[]): Promise<GitResult> {
-  const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
+  const result = await runGit(args);
 
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
+  if (result.kind !== "exited") throw new GitError(args, result);
+
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
-async function gitOk(...args: string[]): Promise<string> {
-  const result = await git(...args);
-
-  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-
-  return result.stdout;
+function gitOk(...args: string[]): Promise<string> {
+  return gitRead(args);
 }
 
 async function refExists(ref: string): Promise<boolean> {
@@ -371,7 +372,7 @@ if (import.meta.main) {
   try {
     result = await main(Bun.argv.slice(2));
   } catch (error) {
-    result = fail("unexpected-failure", error instanceof Error ? error.message : String(error));
+    result = fail("unexpected-failure", messageOf(error));
   }
 
   console.log(JSON.stringify(result));

@@ -4,6 +4,7 @@
 
 import { homedir } from "node:os";
 
+import { messageOf } from "../lib/platform/pure.ts";
 import {
   carriedPlan,
   isPrCreate,
@@ -45,7 +46,7 @@ if (import.meta.main) {
 
     await upsertPlanComment(cwd, pr, carried, payload.session_id);
   } catch (error) {
-    console.error(`attach-plan: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`attach-plan: ${messageOf(error)}`);
   }
 
   process.exit(0);

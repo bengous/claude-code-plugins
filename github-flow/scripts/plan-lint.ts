@@ -7,6 +7,8 @@
  * github-flow README under "Plan lint".
  */
 
+import { messageOf } from "../lib/platform/pure.ts";
+
 export type CheckId = "placeholder" | "open-question";
 
 export interface Finding {
@@ -258,9 +260,7 @@ if (import.meta.main) {
     try {
       text = await Bun.file(file).text();
     } catch (error) {
-      console.error(
-        `plan-lint: cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      console.error(`plan-lint: cannot read ${file}: ${messageOf(error)}`);
       process.exit(2);
     }
 

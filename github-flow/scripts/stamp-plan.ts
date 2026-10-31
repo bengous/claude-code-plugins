@@ -9,6 +9,7 @@
 
 import { homedir } from "node:os";
 
+import { messageOf } from "../lib/platform/pure.ts";
 import { parsePayload, stampedPlanWrite } from "./plan-comment.ts";
 
 if (import.meta.main) {
@@ -24,7 +25,7 @@ if (import.meta.main) {
       );
     }
   } catch (error) {
-    console.error(`stamp-plan: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`stamp-plan: ${messageOf(error)}`);
   }
 
   process.exit(0);
