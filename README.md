@@ -28,7 +28,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [claude-meta-tools](claude-meta-tools/) | 7.1.0 | Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) and aim them higher (ambition) |
 | [context-management](context-management/) | 2.0.3 | Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution |
 | [research-tools](research-tools/) | 1.2.4 | Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking |
-| [claude-settings-manager](claude-settings-manager/) | 1.1.3 | Manage Claude Code settings with JSONC support and schema extraction |
+| [claude-settings-manager](claude-settings-manager/) | 1.1.4 | Manage Claude Code settings with JSONC support and schema extraction |
 | [git-worktree](git-worktree/) | 1.2.2 | Git worktree helper with stack support for multi-agent orchestration |
 | [agents-bridge](agents-bridge/) | 1.12.3 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
 | [software-craft](software-craft/) | 3.0.2 | Opinionated design skills for software excellence: CLI design, system architecture, and more. Skills that push Claude toward intentional, high-quality output instead of generic patterns. |
