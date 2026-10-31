@@ -16,6 +16,8 @@ import { join, resolve } from "node:path";
 
 import { $ } from "bun";
 
+import { git as runGit } from "../../tools/platform/node.ts";
+
 const TRUNK = "dev";
 
 const MANIFEST = ".claude-plugin/plugin.json";
@@ -97,10 +99,10 @@ export function worktreePathFor(main: PluginDir, ref: string): string {
 }
 
 async function git(root: PluginDir, args: string[]): Promise<string> {
-  const result = await $`git -C ${root} ${args}`.nothrow().quiet();
+  const result = await runGit(["-C", root, ...args], { stdout: "buffer" });
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
   return result.stdout.toString();
@@ -108,9 +110,9 @@ async function git(root: PluginDir, args: string[]): Promise<string> {
 
 /** Git's own output, for the calls whose failure is an answer: no such path at that ref. */
 async function gitOrNull(root: PluginDir, args: string[]): Promise<string | null> {
-  const result = await $`git -C ${root} ${args}`.nothrow().quiet();
+  const result = await runGit(["-C", root, ...args], { stdout: "buffer" });
 
-  return result.exitCode === 0 ? result.stdout.toString() : null;
+  return result.kind === "exited" && result.code === 0 ? result.stdout.toString() : null;
 }
 
 function lines(output: string): string[] {

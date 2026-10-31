@@ -5,19 +5,18 @@
  * `scripts/renovate-agent.ts` are its runs.
  */
 
-import {
-  closeSync,
-  existsSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-  writeSync,
-} from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 
 import type { Subprocess } from "bun";
 
+import {
+  type BufferOutput,
+  type RunOptions,
+  renameSync,
+  runSync,
+  writeAtomicSync,
+} from "../../tools/platform/node.ts";
+import { isErrno, messageOf } from "../../tools/platform/pure.ts";
 import { tryLock, unlock } from "./flock.ts";
 import { pluginDirAt, readWorktrees } from "./plugin-sources.ts";
 
@@ -51,23 +50,32 @@ export interface ChildSlot {
   child: Subprocess | null;
 }
 
+/** `args` run to its end in `cwd`; a program the PATH lacks throws. */
+function spawned(args: readonly string[], cwd: string, stdin?: string): Result {
+  const [program, ...rest] = args;
+
+  if (program === undefined) throw new TypeError("cmd must not be empty");
+
+  const options: RunOptions & BufferOutput =
+    stdin === undefined ? { cwd, stdout: "buffer" } : { cwd, stdout: "buffer", stdin };
+
+  const result = runSync([program, ...rest], options);
+
+  if (result.kind === "missing") throw new Error(`Executable not found in $PATH: "${program}"`);
+
+  if (result.kind === "timedOut") {
+    throw new Error(`${program} timed out after ${result.timeoutMs} ms`);
+  }
+
+  return { code: result.code, out: result.stdout.toString(), err: result.stderr };
+}
+
 /** A command's result; a binary missing from PATH answers 127, as a shell does. */
 export function command(args: readonly string[], cwd: string): Result {
   try {
-    const result = Bun.spawnSync([...args], {
-      cwd,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+    return spawned(args, cwd);
   } catch (error) {
-    return {
-      code: 127,
-      out: "",
-      err: `${args[0]}: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    return { code: 127, out: "", err: `${args[0]}: ${messageOf(error)}` };
   }
 }
 
@@ -127,13 +135,7 @@ export function heldWork(path: string, carried?: () => boolean): string | null {
 
 /** Writes `content` beside `file`, then renames it into place, so a reader never meets it half-written. */
 export function writeWhole(file: string, content: string): void {
-  const draft = `${file}.${process.pid}`;
-  writeFileSync(draft, content);
-  renameSync(draft, file);
-}
-
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
+  writeAtomicSync(file, content);
 }
 
 /** The file's content, taken by one reader alone: renamed first, so a second reader finds none. */
@@ -143,7 +145,7 @@ export function takeFile(file: string): string | null {
   try {
     renameSync(file, taken);
   } catch (error) {
-    if (isErrnoException(error) && error.code === "ENOENT") return null;
+    if (isErrno(error, "ENOENT")) return null;
     throw error;
   }
 
@@ -221,14 +223,7 @@ export function promptFor(
 }
 
 function spawnProbe(cwd: string, args: readonly string[]): Result {
-  const result = Bun.spawnSync([...args], {
-    cwd,
-    stdin: new TextEncoder().encode("signing probe\n"),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+  return spawned(args, cwd, "signing probe\n");
 }
 
 /**
