@@ -1,9 +1,14 @@
+import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
+
+import type { CloudRow, PullState } from "../types";
 
 const PULL = "cloud-pull";
 
 /** Run as the whole prompt of the headless teleport: a slash command makes the CLI write the session without a model turn. */
 const MARK = "cloud-pull-mark";
+
+const PANE = "cloud-pull";
 
 const API = "https://api.anthropic.com/v1/sessions";
 
@@ -16,17 +21,22 @@ const API_HEADERS = {
   "Anthropic-Beta": "oauth-2025-04-20,ccr-byoc-2025-07-29",
 };
 
+const LIST_LIMIT = 50;
+
 const TELEPORT_TIMEOUT_MS = 5 * 60_000;
 
 const SESSION_ID = /^session_[A-Za-z0-9]+$/u;
 
-type CloudSession = {
-  id: string;
-  title: string;
-  model: string | undefined;
-  effort: string | undefined;
-  repoUrl: string;
-};
+const NO_ROWS: readonly CloudRow[] = [];
+
+const IDLE: PullState = { kind: "idle" };
+
+const sessions = atom({ plugin: "cloud-pull", key: "sessions" } as const, NO_ROWS);
+
+const pullState = atom({ plugin: "cloud-pull", key: "state" } as const, IDLE);
+
+/** A cloud session as the API answers it, before the list keeps those of this repository that run in Anthropic's cloud. */
+type ApiSession = CloudRow & { readonly environmentKind: string | null };
 
 type Pulled = {
   cloudSessionId: string;
@@ -65,30 +75,13 @@ function parsePulled(value: unknown): Pulled | undefined {
   };
 }
 
-const readPulled = async ($: EngineInterface, cwd: string) =>
-  parsePulled(await $.store.get(storeKey(cwd)));
-/* oxlint-enable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
-
-async function fetchCloudSession($: EngineInterface, id: string): Promise<CloudSession> {
-  const auth = await $.session.authorize();
-
-  if (auth === null) {
-    throw new Error("no claude.ai sign-in in this session: the cloud sessions API needs one");
+function parseSession(value: unknown): ApiSession | undefined {
+  if (!isObject(value)) {
+    return undefined;
   }
 
-  const response = await $.http.fetch(`${API}/${id}`, { headers: API_HEADERS, auth: auth.handle });
-
-  if (!response.ok) {
-    throw new Error(
-      `cloud sessions API answered ${response.status} for ${id}: ${response.text.slice(0, 300)}`,
-    );
-  }
-
-  const body: unknown = JSON.parse(response.text);
-
-  const context =
-    isObject(body) && isObject(body["session_context"]) ? body["session_context"] : {};
-
+  const id = textOf(value["id"]);
+  const context = isObject(value["session_context"]) ? value["session_context"] : {};
   const sources: unknown[] = Array.isArray(context["sources"]) ? context["sources"] : [];
 
   const repository = sources.find(
@@ -97,17 +90,70 @@ async function fetchCloudSession($: EngineInterface, id: string): Promise<CloudS
 
   const repoUrl = isObject(repository) ? textOf(repository["url"]) : undefined;
 
-  if (repoUrl === undefined) {
-    throw new Error(`cloud session ${id} has no git repository: nothing to check out locally`);
+  if (id === undefined || repoUrl === undefined) {
+    return undefined;
   }
 
   return {
     id,
-    title: (isObject(body) ? textOf(body["title"]) : undefined) ?? id,
-    model: textOf(context["model"]),
-    effort: textOf(context["effort_level"]),
+    title: textOf(value["title"]) ?? id,
+    status: textOf(value["session_status"]) ?? "unknown",
+    updatedAt: textOf(value["updated_at"]) ?? "",
     repoUrl,
+    model: textOf(context["model"]) ?? null,
+    effort: textOf(context["effort_level"]) ?? null,
+    environmentKind: textOf(value["environment_kind"]) ?? null,
   };
+}
+
+const parseSessions = (value: unknown): ApiSession[] => {
+  const data: unknown = isObject(value) ? value["data"] : undefined;
+
+  return Array.isArray(data) ? data.flatMap((one) => parseSession(one) ?? []) : [];
+};
+
+function localSessionId(output: string) {
+  const events: unknown = JSON.parse(output);
+  const last: unknown = Array.isArray(events) ? events.at(-1) : undefined;
+
+  return isObject(last) ? textOf(last["session_id"]) : undefined;
+}
+
+const readPulled = async ($: EngineInterface, cwd: string) =>
+  parsePulled(await $.store.get(storeKey(cwd)));
+/* oxlint-enable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
+
+async function callApi($: EngineInterface, path: string, method = "GET"): Promise<string> {
+  const auth = await $.session.authorize();
+
+  if (auth === null) {
+    throw new Error("no claude.ai sign-in in this session: the cloud sessions API needs one");
+  }
+
+  const init = { method, headers: API_HEADERS, auth: auth.handle };
+
+  const response = await $.http.fetch(
+    `${API}${path}`,
+    method === "GET" ? init : { ...init, body: "{}" },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `cloud sessions API answered ${response.status} for ${method} ${path}: ${response.text.slice(0, 300)}`,
+    );
+  }
+
+  return response.text;
+}
+
+async function fetchCloudSession($: EngineInterface, id: string): Promise<CloudRow> {
+  const session = parseSession(JSON.parse(await callApi($, `/${id}`)));
+
+  if (session === undefined) {
+    throw new Error(`cloud session ${id} has no git repository: nothing to check out locally`);
+  }
+
+  return session;
 }
 
 async function run(
@@ -133,32 +179,57 @@ const repoSlug = (url: string) =>
     .replace(/\.git$/u, "")
     .toLowerCase();
 
-async function pull($: EngineInterface, id: string): Promise<string> {
-  const cloud = await fetchCloudSession($, id);
+/** The main checkout of the repository this session runs in, and its origin as a comparable slug. */
+async function localRepo($: EngineInterface) {
   const cwd = await $.session.cwd();
-  const top = await run($, ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd);
-  const repo = top.replace(/\/\.git$/u, "");
-  const origin = await run($, ["git", "remote", "get-url", "origin"], repo);
 
-  if (repoSlug(origin) !== repoSlug(cloud.repoUrl)) {
+  const common = await run(
+    $,
+    ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    cwd,
+  );
+
+  const path = common.replace(/\/\.git$/u, "");
+  const origin = await run($, ["git", "remote", "get-url", "origin"], path);
+
+  return { path, origin, slug: repoSlug(origin) };
+}
+
+async function listCloudSessions($: EngineInterface): Promise<CloudRow[]> {
+  const repo = await localRepo($);
+  const all = parseSessions(JSON.parse(await callApi($, `?limit=${LIST_LIMIT}`)));
+
+  return all
+    .filter(
+      (session) =>
+        session.environmentKind === "anthropic_cloud" &&
+        session.status !== "archived" &&
+        repoSlug(session.repoUrl) === repo.slug,
+    )
+    .map(({ environmentKind: _kind, ...row }) => row)
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+async function pull($: EngineInterface, cloud: CloudRow): Promise<string> {
+  const repo = await localRepo($);
+
+  if (repo.slug !== repoSlug(cloud.repoUrl)) {
     throw new Error(
-      `this session's repository is ${origin}, the cloud session's is ${cloud.repoUrl}: run /cloud-pull from a session in that repository`,
+      `this session's repository is ${repo.origin}, the cloud session's is ${cloud.repoUrl}: run /cloud-pull from a session in that repository`,
     );
   }
 
-  const worktree = `${repo}/.claude/worktrees/cloud-${id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
-  await run($, ["git", "worktree", "add", "--detach", worktree], repo);
+  const worktree = `${repo.path}/.claude/worktrees/cloud-${cloud.id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
+  await run($, ["git", "worktree", "add", "--detach", worktree], repo.path);
 
   const output = await run(
     $,
-    ["claude", "--teleport", id, "-p", `/${MARK}`, "--output-format", "json"],
+    ["claude", "--teleport", cloud.id, "-p", `/${MARK}`, "--output-format", "json"],
     worktree,
     TELEPORT_TIMEOUT_MS,
   );
 
-  const events: unknown = JSON.parse(output);
-  const last: unknown = Array.isArray(events) ? events.at(-1) : undefined;
-  const localId = isObject(last) ? textOf(last["session_id"]) : undefined;
+  const localId = localSessionId(output);
 
   if (localId === undefined) {
     throw new Error("the teleport ended without a local session id");
@@ -167,16 +238,79 @@ async function pull($: EngineInterface, id: string): Promise<string> {
   const record: Pulled = {
     cloudSessionId: cloud.id,
     title: cloud.title,
-    model: cloud.model,
-    effort: cloud.effort,
+    model: cloud.model ?? undefined,
+    effort: cloud.effort ?? undefined,
     isAnnounced: false,
   };
 
   await $.store.set(storeKey(worktree), record);
   await run($, ["xdg-open", `claude://resume?session=${localId}`], worktree);
 
-  return `Opened "${cloud.title}" in Desktop, in ${worktree}.`;
+  return worktree;
 }
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- a caught value is `unknown` by the language: this reads it once, for the pane's message.
+const failure = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+async function refresh($: EngineInterface) {
+  await update($, pullState, (): PullState => ({ kind: "loading" }));
+
+  try {
+    const rows = await listCloudSessions($);
+    await update($, sessions, () => rows);
+    await update($, pullState, (): PullState => IDLE);
+  } catch (error) {
+    await update($, pullState, (): PullState => ({ kind: "error", text: failure(error) }));
+  }
+}
+
+async function pullFromPane($: EngineInterface, row: CloudRow) {
+  const state = await read($, pullState);
+
+  if (state.kind === "pulling") {
+    return;
+  }
+
+  await update($, pullState, (): PullState => ({ kind: "pulling", id: row.id, title: row.title }));
+
+  try {
+    const worktree = await pull($, row);
+    await update($, pullState, (): PullState => ({
+      kind: "opened",
+      id: row.id,
+      title: row.title,
+      worktree,
+    }));
+  } catch (error) {
+    await update($, pullState, (): PullState => ({ kind: "error", text: failure(error) }));
+  }
+}
+
+async function archive($: EngineInterface, id: string, title: string) {
+  try {
+    await callApi($, `/${id}/archive`, "POST");
+    await update($, sessions, (rows) => rows.filter((row) => row.id !== id));
+    await update($, pullState, (): PullState => ({ kind: "archived", title }));
+  } catch (error) {
+    await update($, pullState, (): PullState => ({ kind: "error", text: failure(error) }));
+  }
+}
+
+function age(iso: string, now: number) {
+  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
+
+  if (Number.isNaN(minutes)) {
+    return "";
+  }
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  return minutes < 24 * 60 ? `${Math.round(minutes / 60)}h` : `${Math.round(minutes / 1440)}d`;
+}
+
+const shortModel = (model: string | null) => (model ?? "model ?").replace(/^claude-/u, "");
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -193,8 +327,9 @@ export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     await $.command.register({
       name: PULL,
-      description: "Continue a cloud session here as a local Desktop session",
-      argumentHint: "<session_id>",
+      description:
+        "List this repository's cloud sessions, or continue one here as a local Desktop session",
+      argumentHint: "[session_id]",
     });
     await $.command.register({
       name: MARK,
@@ -254,16 +389,121 @@ export const register: Register = (on) => {
   on("command.run", { command: PULL }, async ($, e) => {
     const id = e.args.trim();
 
+    if (id === "") {
+      await $.ui.open({ id: PANE, title: "Cloud sessions" });
+      void refresh($);
+
+      return {};
+    }
+
     if (!SESSION_ID.test(id)) {
-      return { text: "Usage: /cloud-pull <session_id>, the id from claude.ai/code/<session_id>." };
+      return {
+        text: "Usage: /cloud-pull to list, or /cloud-pull <session_id> (the id in claude.ai/code/<session_id>).",
+      };
     }
 
     try {
-      return { text: await pull($, id) };
+      const cloud = await fetchCloudSession($, id);
+
+      return { text: `Opened "${cloud.title}" in Desktop, in ${await pull($, cloud)}.` };
     } catch (error) {
-      return {
-        text: `cloud-pull failed: ${error instanceof Error ? error.message : String(error)}`,
-      };
+      return { text: `cloud-pull failed: ${failure(error)}` };
     }
+  });
+
+  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e);
+    const rows = await read($, sessions);
+    const state = await read($, pullState);
+    const now = Date.now();
+    const isBusy = state.kind === "pulling" || state.kind === "loading";
+
+    const rowOf = (row: CloudRow) =>
+      Box({
+        key: row.id,
+        flexDirection: "column",
+        children: [
+          Text({ weight: "semibold", children: row.title }),
+          Text({
+            dimColor: true,
+            children: `${row.status} · ${age(row.updatedAt, now)} · ${shortModel(row.model)}${row.effort === null ? "" : ` ${row.effort}`}`,
+          }),
+          Box({
+            flexDirection: "row",
+            children: [
+              Button({
+                key: `open:${row.id}`,
+                label:
+                  state.kind === "pulling" && state.id === row.id ? "Opening…" : "Open locally",
+                variant: "primary",
+                onPress: () => {
+                  if (!isBusy) {
+                    void pullFromPane($, row);
+                  }
+                },
+              }),
+            ],
+          }),
+        ],
+      });
+
+    const outcome = () => {
+      switch (state.kind) {
+        case "pulling":
+          return [
+            Text({ dimColor: true, children: `Teleporting "${state.title}" into a new worktree…` }),
+          ];
+        case "opened":
+          return [
+            Text({ children: `✓ "${state.title}" is open in Desktop.` }),
+            Text({ dimColor: true, children: state.worktree }),
+            Text({ children: "Archive the cloud session?" }),
+            Box({
+              flexDirection: "row",
+              gap: 1,
+              children: [
+                Button({
+                  key: `archive:${state.id}`,
+                  label: "Archive",
+                  onPress: () => void archive($, state.id, state.title),
+                }),
+                Button({
+                  key: "keep",
+                  label: "Keep it",
+                  onPress: () => void update($, pullState, (): PullState => IDLE),
+                }),
+              ],
+            }),
+          ];
+        case "archived":
+          return [Text({ dimColor: true, children: `"${state.title}" archived in the cloud.` })];
+        case "error":
+          return [Text({ color: "error", children: state.text })];
+        case "idle":
+        case "loading":
+          return [];
+      }
+    };
+
+    return Box({
+      flexDirection: "column",
+      gap: 1,
+      children: [
+        Box({
+          flexDirection: "row",
+          gap: 1,
+          alignItems: "center",
+          children: [
+            Button({ key: "refresh", label: "Refresh", onPress: () => void refresh($) }),
+            state.kind === "loading" && Text({ dimColor: true, children: "Loading…" }),
+          ],
+        }),
+        rows.length === 0 &&
+          state.kind !== "loading" &&
+          Text({ dimColor: true, children: "No open cloud session for this repository." }),
+        ...rows.map((row) => rowOf(row)),
+        ...outcome(),
+      ],
+    });
   });
 };

@@ -9,5 +9,6 @@
   "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/cloud-pull",
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "MIT",
-  "keywords": ["cloud", "teleport", "desktop", "session", "mod", "function-hooks"]
+  "keywords": ["cloud", "teleport", "desktop", "session", "mod", "function-hooks"],
+  "types": "./types/index.d.ts"
 }
