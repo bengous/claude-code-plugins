@@ -38,6 +38,11 @@ const HUB_TITLE = "☁ Cloud sessions";
 
 const HUB_KEY = "hub";
 
+/** Nobody works in the hub: a message typed there by mistake should cost the least. */
+const HUB_MODEL = "claude-haiku-5-5";
+
+const HUB_MODEL_ATTEMPTS = 5;
+
 const SESSION_ID = /^session_[A-Za-z0-9]+$/u;
 
 const STEPS: readonly OpenStep[] = ["worktree", "teleport", "desktop"];
@@ -505,6 +510,32 @@ async function pull(
   return opened;
 }
 
+/**
+ * Puts the hub on the cheapest model through Desktop's own tool: an imported session takes Desktop's default model whatever `-p` ran on.
+ * Desktop may still be importing the session, so a refusal is tried again; the last one is said, never thrown: the hub works on any model.
+ */
+async function pinHubModel($: EngineInterface, sessionId: string): Promise<string> {
+  let reason = "";
+
+  for (let attempt = 0; attempt < HUB_MODEL_ATTEMPTS; attempt += 1) {
+    const done = await $.tool.call({
+      tool: "mcp__ccd_session_mgmt__set_session_model",
+      session_id: `local_${sessionId}`,
+      model: HUB_MODEL,
+      consent: `The user typed /cloud-pull hub, which puts the hub session "${HUB_TITLE}" on ${HUB_MODEL}.`,
+    });
+
+    if (!("deny" in done) && done.isError !== true) {
+      return "";
+    }
+
+    reason = ("deny" in done ? done.deny : done.text) ?? "no reason given";
+    await $.clock.sleep(1000);
+  }
+
+  return ` It runs on Desktop's default model: pick Haiku in its model menu (${reason.slice(0, 200)}).`;
+}
+
 /** Opens the computer's hub in Desktop, creating it first: beside this repository's clone, or in this folder outside a repository. */
 async function openHub($: EngineInterface): Promise<string> {
   const known = parseHub(await $.store.get(HUB_KEY));
@@ -512,7 +543,7 @@ async function openHub($: EngineInterface): Promise<string> {
   if (known !== undefined) {
     await openInDesktop($, resumeLink(known.sessionId, known.cwd), known.cwd, HUB_TITLE);
 
-    return `Opened the hub "${HUB_TITLE}" in Desktop.`;
+    return `Opened the hub "${HUB_TITLE}" in Desktop.${await pinHubModel($, known.sessionId)}`;
   }
 
   const repo = await $.session.repo();
@@ -535,7 +566,7 @@ async function openHub($: EngineInterface): Promise<string> {
   await $.store.set(HUB_KEY, hub);
   await openInDesktop($, resumeLink(sessionId, cwd), cwd, HUB_TITLE);
 
-  return `Created the hub "${HUB_TITLE}" in ${cwd} and opened it in Desktop. Move it to a sidebar section to keep it at hand.`;
+  return `Created the hub "${HUB_TITLE}" in ${cwd} and opened it in Desktop. Move it to a sidebar section to keep it at hand.${await pinHubModel($, sessionId)}`;
 }
 
 async function setRow($: EngineInterface, id: string, state: RowState | undefined) {

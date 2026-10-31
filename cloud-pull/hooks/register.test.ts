@@ -236,3 +236,64 @@ test("the band hides when a second prompt is sent", async ($, on) => {
 
   await band($, false);
 });
+
+const HUB_COMMAND = {
+  command: "cloud-pull",
+  args: "hub",
+  origin: { kind: "composer" },
+  presentation: { isFullscreen: false, columns: 98 },
+} as const;
+
+/** `/cloud-pull hub` with a hub on record: it reopens it, then asks Desktop for the hub's model, answered by `answer`. */
+async function reopenHub($: Engine, on: On, answer: { deny: string } | { isError: boolean }) {
+  const calls: { session_id: unknown; model: unknown; consent: unknown }[] = [];
+
+  on("process.run", (_$, e) => {
+    const stdout = e.argv[0] === "uname" ? "Linux" : "claude-desktop.desktop";
+
+    return {
+      value: {
+        exitCode: 0,
+        stdout,
+        stderr: "",
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+        stream: "stdout" as const,
+        text: stdout,
+      },
+    };
+  });
+  on("clock.sleep", () => ({ value: undefined }));
+  on("tool.call", { tool: "mcp__ccd_session_mgmt__set_session_model" }, (_$, e) => {
+    calls.push({ session_id: e["session_id"], model: e["model"], consent: e["consent"] });
+
+    if ("deny" in answer) {
+      return answer;
+    }
+
+    return answer.isError
+      ? { result: "no such session", text: "no such session", isError: true as const }
+      : { result: "ok", text: "ok" };
+  });
+  await start($, on, { ...REPO_SESSION, hub: { sessionId: HUB_ID, cwd: `${HOME}/Work` } });
+  const done = await $.command.run(HUB_COMMAND);
+
+  return { calls, text: "text" in done ? done.text : undefined };
+}
+
+test("/cloud-pull hub puts the hub on Haiku, the typed command as consent", async ($, on) => {
+  const { calls, text } = await reopenHub($, on, { isError: false });
+
+  expect(calls.length).toBe(1);
+  expect(calls[0]?.session_id).toBe(`local_${HUB_ID}`);
+  expect(calls[0]?.model).toBe("claude-haiku-5-5");
+  expect(String(calls[0]?.consent)).toContain("/cloud-pull hub");
+  expect(text).toBe(`Opened the hub "☁ Cloud sessions" in Desktop.`);
+});
+
+test("a refused model change still opens the hub, and says how to pick Haiku", async ($, on) => {
+  const { calls, text } = await reopenHub($, on, { deny: "classifier said no" });
+
+  expect(calls.length).toBe(5);
+  expect(text).toContain("pick Haiku in its model menu (classifier said no)");
+});
