@@ -55,6 +55,15 @@ const SOURCES = {
     "exec(`git -C ${root} fetch`, () => {});",
     'execSync("gitk");',
     'execSync("ls");',
+    "const args = '-s';",
+    'execSync("git status " + args);',
+    'execSync("ls " + args);',
+  ].join("\n"),
+  "scripts/shell-option.ts": [
+    'import { spawnSync } from "node:child_process";',
+    'spawnSync("git status", { shell: true });',
+    'spawnSync("git status", { shell: false });',
+    'spawnSync("ls", { shell: true });',
   ].join("\n"),
   "scripts/local-bun.ts": [
     "const Bun = { spawnSync: (argv: string[]) => argv };",
@@ -137,8 +146,12 @@ describe("no-raw-git-spawn", () => {
     expect(lines("scripts/asserted.ts")).toEqual([1, 2]);
   });
 
-  test("reports exec and execSync given a shell line that starts with git", () => {
-    expect(lines("scripts/shell-line.ts")).toEqual([3, 4]);
+  test("reports exec and execSync given a shell line that starts with git, concatenated or not", () => {
+    expect(lines("scripts/shell-line.ts")).toEqual([3, 4, 8]);
+  });
+
+  test("reports a spawner given a git line and a shell, and leaves shell: false", () => {
+    expect(lines("scripts/shell-option.ts")).toEqual([2]);
   });
 
   test("leaves a local binding named Bun", () => {

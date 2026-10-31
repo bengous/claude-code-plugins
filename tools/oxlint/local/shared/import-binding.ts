@@ -108,6 +108,16 @@ export function importOf(sourceCode: SourceCode, identifier: IdentifierNode): Im
   return null;
 }
 
+/** `node` past any `as` and `satisfies` around it. */
+export function unwrapTs(node: ESTree.Node): ESTree.Node {
+  let value = node;
+
+  while (value.type === "TSAsExpression" || value.type === "TSSatisfiesExpression")
+    value = value.expression;
+
+  return value;
+}
+
 /**
  * The value a `const` binding read by `identifier` is initialised with, past `as` and
  * `satisfies`; `null` for any other binding.
@@ -115,7 +125,7 @@ export function importOf(sourceCode: SourceCode, identifier: IdentifierNode): Im
 export function constValueOf(
   sourceCode: SourceCode,
   identifier: IdentifierNode,
-): ESTree.Expression | null {
+): ESTree.Node | null {
   const variable = referencedVariable(sourceCode, identifier);
   const [definition] = variable?.defs ?? [];
 
@@ -128,10 +138,7 @@ export function constValueOf(
   )
     return null;
 
-  let init = definition.node.init;
+  const { init } = definition.node;
 
-  while (init?.type === "TSAsExpression" || init?.type === "TSSatisfiesExpression")
-    init = init.expression;
-
-  return init ?? null;
+  return init === null ? null : unwrapTs(init);
 }

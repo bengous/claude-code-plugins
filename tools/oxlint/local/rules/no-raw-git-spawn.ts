@@ -1,7 +1,7 @@
 import type { ESTree, SourceCode } from "@oxlint/plugins";
 import { defineRule } from "@oxlint/plugins";
 
-import { constValueOf, importOf, isGlobalNamed } from "../shared/import-binding.ts";
+import { constValueOf, importOf, isGlobalNamed, unwrapTs } from "../shared/import-binding.ts";
 import { isPlatformExempt } from "../shared/platform-exempt.ts";
 
 const BUN_SPAWNS = new Set(["spawn", "spawnSync"]);
@@ -30,22 +30,46 @@ function propertyName(node: ESTree.MemberExpression): string | null {
 
 /** `node` past `as` and `satisfies`, or the `const` value it names. */
 function valueOf(sourceCode: SourceCode, node: ESTree.Node): ESTree.Node {
-  let value = node;
-
-  while (value.type === "TSAsExpression" || value.type === "TSSatisfiesExpression")
-    value = value.expression;
+  const value = unwrapTs(node);
 
   return value.type === "Identifier" ? (constValueOf(sourceCode, value) ?? value) : value;
 }
 
-/** A shell line that starts with `git`: a string, a template's head, or the `const` naming either. */
+/**
+ * A shell line that starts with `git`: a string, a template's head, a concatenation that starts
+ * with one, or the `const` naming any of these.
+ */
 function isGitLine(sourceCode: SourceCode, node: ESTree.Node | undefined): boolean {
   if (node === undefined) return false;
   const value = valueOf(sourceCode, node);
 
   if (value.type === "Literal") return GIT_LINE.test(String(value.value));
 
+  if (value.type === "BinaryExpression" && value.operator === "+")
+    return isGitLine(sourceCode, value.left);
+
   return value.type === "TemplateLiteral" && GIT_LINE.test(value.quasis[0]?.value.cooked ?? "");
+}
+
+/** Whether the options after a spawner's program ask for a shell, which reads the program as a line. */
+function runsInShell(sourceCode: SourceCode, args: readonly ESTree.Node[]): boolean {
+  return args.slice(1).some((arg) => {
+    const value = valueOf(sourceCode, arg);
+
+    return (
+      value.type === "ObjectExpression" &&
+      value.properties.some(
+        (property) =>
+          property.type === "Property" &&
+          !property.computed &&
+          property.key.type === "Identifier" &&
+          property.key.name === "shell" &&
+          property.value.type === "Literal" &&
+          property.value.value !== false &&
+          property.value.value !== null,
+      )
+    );
+  });
 }
 
 function isGitWord(sourceCode: SourceCode, node: ESTree.Node | null | undefined): boolean {
@@ -89,7 +113,6 @@ function isGitArgv(sourceCode: SourceCode, node: ESTree.Node | null | undefined)
   );
 }
 
-/** A spawner of `node:child_process` by its name: one that takes a program, one a shell line. */
 function nodeSpawner(name: string): Spawner | null {
   if (NODE_SPAWNS.has(name)) return "node";
 
@@ -144,7 +167,7 @@ export const noRawGitSpawnRule = defineRule({
     type: "problem",
     docs: {
       description:
-        "Disallow spawning git through Bun.spawn, bun's $ or node:child_process, a shell line included; use `git` or `gitRead` of the platform helpers.",
+        "Disallow spawning git through Bun.spawn, bun's $ or node:child_process, a line given to exec, execSync or a spawner with `shell` included; use `git` or `gitRead` of the platform helpers.",
     },
     messages: {
       rawGitSpawn:
@@ -164,7 +187,9 @@ export const noRawGitSpawnRule = defineRule({
           context.report({ node, messageId: "rawGitSpawn", data: { how: "Bun.spawn" } });
 
         if (
-          (spawner === "node" && isGitWord(sourceCode, first)) ||
+          (spawner === "node" &&
+            (isGitWord(sourceCode, first) ||
+              (runsInShell(sourceCode, node.arguments) && isGitLine(sourceCode, first)))) ||
           (spawner === "node shell" && isGitLine(sourceCode, first))
         )
           context.report({ node, messageId: "rawGitSpawn", data: { how: "node:child_process" } });
