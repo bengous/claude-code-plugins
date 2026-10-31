@@ -11,9 +11,11 @@
  *   playwright --job <name> <report.json>    reads the tests Playwright's own retry passed
  *   report <folder>    opens, reopens or comments on the issues, from every report under the folder
  *
- * The first three write `flaky-reports/<runner>.json` and exit as the suite's last run did. Each
- * report names the run's attempt, and a run already recorded in an issue is never recorded twice,
- * so a re-run of the workflow reports only what it found itself.
+ * The first three write `flaky-reports/<runner>.json` and exit as the suite's last run did; a
+ * retry given `--report <name>` after its job writes `flaky-reports/<name>.json`, so two suites of
+ * one runner in one job keep a report each. Each report names the run's attempt, and a run already
+ * recorded in an issue is never recorded twice, so a re-run of the workflow reports only what it
+ * found itself.
  */
 
 import { existsSync } from "node:fs";
@@ -675,6 +677,8 @@ export type Command =
       readonly kind: "retry";
       readonly runner: "bun" | "kit";
       readonly job: string;
+      /** The report's name, the runner's by default: a job that runs two suites of one runner names one. */
+      readonly report: string;
       readonly argv: readonly string[];
     }
   | { readonly kind: "playwright"; readonly job: string; readonly path: string }
@@ -691,13 +695,16 @@ export function parseArgs(args: readonly string[]): Command | null {
 
   const [first, second, third, ...extra] = rest;
 
-  if (extra.length > 0) return null;
-
   if (kind === "retry" && (first === "bun" || first === "kit") && second === "--job") {
-    return third !== undefined && argv.length > 0
-      ? { kind, runner: first, job: third, argv }
+    const [flag, reportName = first] = extra;
+    const named = extra.length === 0 || (flag === "--report" && extra.length === 2);
+
+    return third !== undefined && argv.length > 0 && named
+      ? { kind, runner: first, job: third, report: reportName, argv }
       : null;
   }
+
+  if (extra.length > 0) return null;
 
   if (kind === "playwright" && first === "--job" && second !== undefined && third !== undefined) {
     return argv.length === 0 ? { kind, job: second, path: third } : null;
@@ -706,7 +713,7 @@ export function parseArgs(args: readonly string[]): Command | null {
   return null;
 }
 
-const USAGE = `usage: bun ./scripts/flaky-report.ts retry <bun|kit> --job <name> -- <command...>
+const USAGE = `usage: bun ./scripts/flaky-report.ts retry <bun|kit> --job <name> [--report <name>] -- <command...>
        bun ./scripts/flaky-report.ts playwright --job <name> <report.json>
        bun ./scripts/flaky-report.ts report <folder>`;
 
@@ -720,7 +727,7 @@ if (import.meta.main) {
 
   switch (command.kind) {
     case "retry":
-      process.exit(await retryReported(command.runner, command.argv, command.job, command.runner));
+      process.exit(await retryReported(command.runner, command.argv, command.job, command.report));
       break;
 
     case "playwright": {

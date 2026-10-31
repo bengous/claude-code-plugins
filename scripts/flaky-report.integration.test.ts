@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -776,6 +776,7 @@ describe("parseArgs", () => {
       kind: "retry",
       runner: "bun",
       job: "win32",
+      report: "bun",
       argv: ["bun", "test", "vellum"],
     });
     expect(parseArgs(["playwright", "--job", "e2e (light-1440)", "r.json"])).toEqual({
@@ -789,10 +790,34 @@ describe("parseArgs", () => {
     });
   });
 
+  test("a retry's --report names its report, so two bun suites of one job keep one each", () => {
+    expect(
+      parseArgs([
+        "retry",
+        "bun",
+        "--job",
+        "win32",
+        "--report",
+        "bun-platform",
+        "--",
+        "bun",
+        "test",
+        "tools/platform",
+      ]),
+    ).toMatchObject({ kind: "retry", runner: "bun", job: "win32", report: "bun-platform" });
+  });
+
   test("refuses a retry with no command or no job, and an unknown runner", () => {
     expect(parseArgs(["retry", "bun", "--job", "win32"])).toBeNull();
     expect(parseArgs(["retry", "bun", "--", "bun", "test"])).toBeNull();
     expect(parseArgs(["retry", "jest", "--job", "x", "--", "jest"])).toBeNull();
+  });
+
+  test("refuses a retry's --report with no name, and an unknown flag", () => {
+    expect(parseArgs(["retry", "bun", "--job", "x", "--report", "--", "bun", "test"])).toBeNull();
+    expect(
+      parseArgs(["retry", "bun", "--job", "x", "--name", "y", "--", "bun", "test"]),
+    ).toBeNull();
   });
 });
 
@@ -856,6 +881,24 @@ test("stable", () => expect(1).toBe(1));
         ],
       },
     });
+  });
+
+  test("--report writes the report under its own name, beside the runner's", async () => {
+    writeFileSync(
+      join(dir, "sub", "stable.test.ts"),
+      `import { expect, test } from "bun:test";\ntest("stable", () => expect(1).toBe(1));\n`,
+    );
+    const script = join(ROOT, "scripts", "flaky-report.ts");
+    const bun = process.execPath;
+
+    await $`${bun} ${script} retry bun --job win32 --report bun-platform -- ${bun} test ./sub`
+      .cwd(dir)
+      .env(ENV)
+      .quiet();
+
+    expect(
+      readdirSync(join(dir, "flaky-reports")).filter((name) => name.endsWith(".json")),
+    ).toEqual(["bun-platform.json"]);
   });
 
   test("an afterAll that throws once is a flake, though the green rerun names no (unnamed) case", async () => {

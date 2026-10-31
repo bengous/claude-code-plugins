@@ -261,7 +261,7 @@ jobs:
       # The platform helpers every plugin copies: their rename retries a folder Windows holds,
       # which no other job can see.
       - name: Run tools/platform's suites
-        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --timeout=20000 tools/platform
+        run: bun ./scripts/flaky-report.ts retry bun --job win32 --report bun-platform -- bun test --timeout=20000 tools/platform
 
       # A name per attempt: a re-run keeps the first attempt's report beside its own.
       - name: Upload the flaky report
