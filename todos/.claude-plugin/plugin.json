@@ -1,6 +1,6 @@
 {
   "name": "todos",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Shows the repository's TODOs in a scrolling band above the prompt, newest first: TODO.md items, TODO/FIXME/HACK code comments dated with git blame, and the findings agents record with todos-finding for a batch review; a Mine filter, issue links, picks put in the prompt for Claude, and a toast when one is added",
   "author": {
     "name": "Augustin BENGOLEA",
