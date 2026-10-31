@@ -81,6 +81,10 @@ function isDirectory(absolute: string): boolean {
 }
 
 export function git(cwd: string, args: readonly string[]): string | null {
+  // FIXME: git runs with no timeout, so a git that never returns blocks the event loop and the hook's deadline never
+  // fires. That deadline does not exist yet where git runs (hook.ts calls checkoutOf before raced()), and a timeout
+  // read as null here would skip the lanes as if git had failed. Fix: pass the hook's Deadline down to every caller of
+  // git (some fifteen functions), run gitSync with its remaining time, and report a timeout as its own failure.
   const result = gitSync(args, { cwd });
 
   return result.kind === "exited" && result.code === 0 ? result.stdout : null;

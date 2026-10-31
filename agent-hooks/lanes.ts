@@ -179,6 +179,10 @@ async function runFixer(fixer: Fixer, context: FixContext): Promise<RunResult | 
     result.code === 0 &&
     result.stdout !== ""
   ) {
+    // FIXME: the fixer's output overwrites the file in place with no check that it still holds what was read for its
+    // stdin: an edit made to the user's source while the fixer ran is lost. A rename over it would turn a symlink into
+    // a file, drop the executable bit and break hard links, so the fix is not writeAtomic: keep the text read, read the
+    // file again just before this write, and skip the write when the two differ.
     writeFileSync(context.target.file, result.stdout);
   }
 
