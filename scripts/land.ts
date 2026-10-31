@@ -8,7 +8,7 @@
  *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types>
  *
  * Runs `origin/dev`'s copy of itself, on the arguments as given: after a
- * fetch, `scripts/` and `agent-hooks/` as `origin/dev` holds them are
+ * fetch, `scripts/`, `agent-hooks/` and `tools/` as `origin/dev` holds them are
  * extracted to a temporary directory and run there, so a branch that edits
  * the landing lands under the rule already on `dev`.
  *
@@ -104,8 +104,8 @@ const DEV_COPY = "LAND_DEV_COPY";
 /** Set in the environment of `origin/dev`'s copy: the directory the landing was asked from. */
 const LAND_CWD = "LAND_CWD";
 
-/** The directories `origin/dev`'s copy needs: this script, its imports, the profile's parser. */
-const DEV_COPY_PATHS = ["scripts", "agent-hooks"];
+/** The directories `origin/dev`'s copy needs: this script, its imports, the profile's parser, the platform helpers. */
+const DEV_COPY_PATHS = ["scripts", "agent-hooks", "tools"];
 
 const LANDABLE = /^(?:feature|fix|renovate)\/[\w./-]+$/u;
 

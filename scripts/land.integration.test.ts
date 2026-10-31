@@ -1087,11 +1087,11 @@ describe("land, a branch that touches a risky path", () => {
   });
 
   test("runs origin/dev's copy of the gate, so a branch whose land.ts skips it is still refused", () => {
-    for (const dir of ["scripts", "agent-hooks"]) {
+    for (const dir of ["scripts", "agent-hooks", "tools"]) {
       cpSync(join(import.meta.dir, "..", dir), join(other, dir), { recursive: true });
     }
 
-    git(other, "add", "scripts", "agent-hooks");
+    git(other, "add", "scripts", "agent-hooks", "tools");
     git(other, "commit", "--quiet", "-m", "the scripts");
     git(other, "push", "--quiet", "origin", "dev");
     git(work, "fetch", "--quiet", "origin");
