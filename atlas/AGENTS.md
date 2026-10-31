@@ -26,8 +26,11 @@ of its own.
 The plugin's root holds what Claude Code loads (`.claude-plugin/`, `hooks/`, `skills/`), what
 `cli.ts` copies or runs on a map folder (`template/`, `lint/`, `child.bunfig.toml`), the specs'
 `fixtures/`, and `src/`, where every module of the engine lives. A new module goes in the folder
-of its layer, never at a root, its spec beside it. `model/` imports nothing outside itself;
-`inventory/` imports nothing outside itself; `page/` and `commands/` import `model/`;
+of its layer, never at a root, its spec beside it. `platform/` is a leaf: a copy of
+`tools/platform/` that `bun ./scripts/sync-platform.ts --write` writes, never edited here, and
+that imports nothing of the plugin. `model/` imports nothing outside itself but `platform/`;
+`inventory/` imports nothing outside itself but `platform/`; `page/` and `commands/` import
+`model/`; the mod imports `platform/pure.ts` alone of it, since `node.ts` needs Node and Bun;
 `server/wire.ts` is the one module the page, `serve.ts`, `cli.ts` and the mod all import.
 
 ```
@@ -166,6 +169,11 @@ src/server/          what crosses processes
   coalesce.ts        one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.spec.ts)
   open.ts            hands an address to the desktop's browser, detached, for the mod (open.spec.ts)
+
+src/platform/        the repository's file, path and process helpers, a leaf: a copy of
+                     tools/platform/, never edited here, its tests kept at the source
+  pure.ts            quoting, errno, messages, lexical paths; no Node, no Bun: the mod may import it
+  node.ts            writes, renames, the lock, processes, git
 
 child.bunfig.toml    the empty Bun configuration bunFlags names
 template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes
