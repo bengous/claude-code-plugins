@@ -54,7 +54,6 @@ declare module "claude-code" {
       rows: readonly RowEntry[];
       opened: readonly OpenedEntry[];
       repoName: string;
-      isPaneOpen: boolean;
       /** This session is the computer's hub: it lists the cloud sessions of every repository. */
       isHub: boolean;
       /** The band stays hidden for this session: the person closed or used it, or the session is past its first prompt. */

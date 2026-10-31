@@ -73,6 +73,8 @@ const REPO_SESSION: World = {
 async function start($: Engine, on: On, world: World) {
   const store = new Map<string, unknown>(world.hub === undefined ? [] : [["hub", world.hub]]);
   const opens: boolean[] = [];
+  const isPlaced = world.isPlaced !== false;
+  let isOpen = false;
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("session.start", (_$, e) => ({ cwd: e.cwd }));
@@ -80,12 +82,21 @@ async function start($: Engine, on: On, world: World) {
   on("prompt.submit", (_$, e) => ({ text: e.text }));
   on("ui.open", () => {
     opens.push(true);
+    isOpen = true;
 
-    return {
-      value: world.isPlaced === false ? { isPlaced: false, reason: "narrow" } : { isPlaced: true },
-    };
+    return { value: isPlaced ? { isPlaced } : { isPlaced, reason: "narrow" } };
   });
-  on("ui.close", () => ({ value: undefined }));
+  on("ui.panes", () => ({
+    value: isOpen
+      ? [{ id: PLUGIN, title: "Cloud sessions", isShown: isPlaced, isFocused: false, isPlaced }]
+      : [],
+  }));
+  on("ui.close", () => {
+    isOpen = false;
+
+    return { value: undefined };
+  });
+  on("ui.invalidate", () => ({ value: undefined }));
   on("ui.log", () => ({ value: undefined }));
   on("ui.render", (engine, e) => engine.ui.resolve(e).Box({ key: "engine" }));
   on("env.get", (_$, e) => ({ value: e.name === "HOME" ? HOME : undefined }));

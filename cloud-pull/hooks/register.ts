@@ -66,8 +66,6 @@ const openedSessions = atom({ plugin: "cloud-pull", key: "opened" } as const, NO
 
 const repoName = atom({ plugin: "cloud-pull", key: "repoName" } as const, "");
 
-const isPaneOpen = atom({ plugin: "cloud-pull", key: "isPaneOpen" } as const, false);
-
 const isHub = atom({ plugin: "cloud-pull", key: "isHub" } as const, false);
 
 const isBandHidden = atom({ plugin: "cloud-pull", key: "isBandHidden" } as const, false);
@@ -576,10 +574,8 @@ async function refresh($: EngineInterface) {
   }
 }
 
-/** A pane the person did not ask for may wait undrawn on a narrow screen; the band stays up as its door until it is drawn. */
 async function openPane($: EngineInterface) {
-  const opened = await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
-  await update($, isPaneOpen, () => opened.isPlaced);
+  await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
   void refresh($);
 }
 
@@ -855,22 +851,24 @@ export const register: Register = (on) => {
   });
 
   on("ui.close", async ($, e, next) => {
+    const closed = await next(e);
+
     if (e.id === PANE) {
-      await update($, isPaneOpen, () => false);
+      $.ui.invalidate("ui.render");
     }
 
-    return next(e);
+    return closed;
   });
 
-  // One quiet door, while the pane is closed: always in the hub; in a repository, while it has cloud sessions, until its first prompt is answered, used or closed.
+  // One quiet door, while the pane is not drawn: always in the hub; in a repository, while it has cloud sessions, until its first prompt is answered, used or closed.
+  // The engine's record of the pane, not a value of the module's: an unasked pane can be placed after its open answered, as in the hub, once Desktop's surface attaches.
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const others = await next(e);
     const rows = await read($, sessions);
     const hub = await read($, isHub);
+    const isPaneDrawn = (await $.ui.panes()).some((pane) => pane.id === PANE && pane.isPlaced);
 
-    const isHidden = hub
-      ? await read($, isPaneOpen)
-      : rows.length === 0 || (await read($, isPaneOpen)) || (await read($, isBandHidden));
+    const isHidden = isPaneDrawn || (!hub && (rows.length === 0 || (await read($, isBandHidden))));
 
     if (isHidden) {
       return others;
@@ -921,6 +919,7 @@ export const register: Register = (on) => {
     const opened = await read($, openedSessions);
     const repo = await read($, repoName);
     const hub = await read($, isHub);
+
     const home = await $.env.get("HOME");
     const now = Date.now();
     const isLoading = list.kind === "loading";
