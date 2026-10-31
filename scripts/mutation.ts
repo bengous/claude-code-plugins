@@ -27,6 +27,7 @@ import type { Stryker } from "@stryker-mutator/core";
 import { $ } from "bun";
 
 import config from "../stryker.config.ts";
+import { GitError, git } from "../tools/platform/node.ts";
 import { type Base, baseOf, DEFAULT_BASE, type Env, mergeBaseWith } from "./affected.ts";
 
 export interface LineRange {
@@ -279,18 +280,30 @@ export async function changeSince(
   if (mergeBase.kind === "none") throw new Error(mergeBase.reason);
   const paths = modules.flatMap((module) => [module, testFileOf(module)]);
 
-  const diff =
-    await $`git diff -U0 --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ ${mergeBase.sha} -- ${paths}`
-      .cwd(repoRoot)
-      .quiet()
-      .text();
+  const args = [
+    "diff",
+    "-U0",
+    "--no-color",
+    "--no-ext-diff",
+    "--no-renames",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    mergeBase.sha,
+    "--",
+    ...paths,
+  ];
 
-  return { since: mergeBase.sha, hunks: hunksOf(diff) };
+  const diff = await git(args, { cwd: repoRoot });
+
+  if (diff.kind !== "exited" || diff.code !== 0) throw new GitError(args, diff);
+
+  return { since: mergeBase.sha, hunks: hunksOf(diff.stdout) };
 }
 
 /** The tree at `sha`, written to a directory of its own, which the caller removes. */
 export async function snapshotAt(repoRoot: string, sha: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "mutation-base-"));
+  // oxlint-disable-next-line local/no-raw-git-spawn -- a pipe from git archive into tar, which no argv runner expresses
   await $`git archive --format=tar ${sha} | tar -x -C ${dir}`.cwd(repoRoot).quiet();
 
   return dir;
@@ -352,7 +365,9 @@ export async function mutate(repoRoot: string, module: string): Promise<MutantRe
 }
 
 async function existsAt(repoRoot: string, sha: string, path: string): Promise<boolean> {
-  return (await $`git cat-file -e ${sha}:${path}`.cwd(repoRoot).nothrow().quiet()).exitCode === 0;
+  const found = await git(["cat-file", "-e", `${sha}:${path}`], { cwd: repoRoot });
+
+  return found.kind === "exited" && found.code === 0;
 }
 
 /** The pass over the module and its tests as they were at `sha`; `null` when either was missing. */

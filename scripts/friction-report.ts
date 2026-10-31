@@ -25,6 +25,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
+import { gitSync } from "../tools/platform/node.ts";
+import { messageOf } from "../tools/platform/pure.ts";
 import {
   type IsoWeek,
   landedIn,
@@ -608,7 +610,7 @@ export function lookupFlaky(cwd: string): Lookup<readonly FlakyIssue[]> {
       { cwd, stdout: "pipe", stderr: "pipe" },
     );
   } catch (error) {
-    return { kind: "failed", why: error instanceof Error ? error.message : String(error) };
+    return { kind: "failed", why: messageOf(error) };
   }
 
   if (result.exitCode !== 0) {
@@ -632,16 +634,20 @@ export function countCommits(subjects: readonly string[]): CommitCounts {
 }
 
 function headOf(cwd: string, ref: string): string {
-  const result = Bun.spawnSync(
-    ["git", "-C", cwd, "rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
-    { stdout: "pipe", stderr: "pipe" },
-  );
+  const result = gitSync([
+    "-C",
+    cwd,
+    "rev-parse",
+    "--verify",
+    "--end-of-options",
+    `${ref}^{commit}`,
+  ]);
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git rev-parse ${ref}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git rev-parse ${ref}: ${result.stderr.trim()}`);
   }
 
-  return result.stdout.toString().trim();
+  return result.stdout.trim();
 }
 
 function stamp(date: Date): string {
@@ -796,7 +802,7 @@ function parseCli(argv: readonly string[]): Cli {
       allowPositionals: false,
     }));
   } catch (error) {
-    return { kind: "usage", why: error instanceof Error ? error.message : String(error) };
+    return { kind: "usage", why: messageOf(error) };
   }
 
   const week = values.week === undefined ? null : parseWeek(values.week);
@@ -839,7 +845,7 @@ function main(argv: readonly string[]): number {
       commits: countCommits(landedIn(cwd, cli.ref, period).map((commit) => commit.subject)),
     };
   } catch (error) {
-    console.error(`friction-report: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`friction-report: ${messageOf(error)}`);
 
     return 1;
   }

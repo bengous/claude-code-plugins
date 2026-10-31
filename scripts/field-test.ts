@@ -27,6 +27,8 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
+import { git, gitRead } from "../tools/platform/node.ts";
+import { shellQuote } from "../tools/platform/pure.ts";
 import { installDependencies } from "./lib/plugin-sources.ts";
 
 const USAGE = [
@@ -327,10 +329,6 @@ export function claudeArgv(
   ];
 }
 
-function shellQuote(word: string): string {
-  return `'${word.replaceAll("'", "'\\''")}'`;
-}
-
 const scratchOf = (name: string) => join(tmpdir(), `field-test-${name}`);
 
 const target = (name: string) => `field-test-${name}`;
@@ -422,12 +420,10 @@ async function start(name: string, args: string[]): Promise<void> {
   if (values.ref !== undefined) {
     from = join(scratch, "source");
 
-    const added = await $`git -C ${ROOT} worktree add --detach ${from} ${values.ref}`
-      .nothrow()
-      .quiet();
+    const added = await git(["-C", ROOT, "worktree", "add", "--detach", from, values.ref]);
 
-    if (added.exitCode !== 0)
-      fail(`git worktree add ${values.ref}: ${added.stderr.toString().trim()}`);
+    if (added.kind !== "exited" || added.code !== 0)
+      fail(`git worktree add ${values.ref}: ${added.stderr.trim()}`);
   }
 
   const pluginDirs = plugins.map((plugin) => {
@@ -473,8 +469,8 @@ async function start(name: string, args: string[]): Promise<void> {
   await $`tmux new-session -d -s ${target(name)} -x ${values.width} -y ${values.height} -c ${work} ${command}`.quiet();
   await ready(name);
 
-  const commit = (await $`git -C ${from} log -1 --format=${"%h %s"}`.quiet().text()).trim();
-  const dirty = (await $`git -C ${from} status --porcelain`.quiet().text()).trim();
+  const commit = await gitRead(["-C", from, "log", "-1", "--format=%h %s"]);
+  const dirty = await gitRead(["-C", from, "status", "--porcelain"]);
 
   console.log(
     [
@@ -604,10 +600,10 @@ async function stop(name: string): Promise<void> {
   const source = join(scratch, "source");
 
   if (existsSync(source)) {
-    const unlinked = await $`git -C ${ROOT} worktree remove --force ${source}`.nothrow().quiet();
+    const unlinked = await git(["-C", ROOT, "worktree", "remove", "--force", source]);
 
-    if (unlinked.exitCode === 0) removed.push(`worktree ${source}`);
-    else failed.push(`git worktree remove ${source}: ${unlinked.stderr.toString().trim()}`);
+    if (unlinked.kind === "exited" && unlinked.code === 0) removed.push(`worktree ${source}`);
+    else failed.push(`git worktree remove ${source}: ${unlinked.stderr.trim()}`);
   }
 
   rmSync(scratch, { recursive: true, force: true });

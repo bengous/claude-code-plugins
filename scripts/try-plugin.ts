@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
+import { git, gitRead } from "../tools/platform/node.ts";
 import {
   type Manifest,
   type PluginDir,
@@ -152,11 +153,11 @@ async function materialize(main: PluginDir, ref: string, hasLocalBranch: boolean
 
   console.log(`creating worktree: ${path}`);
 
-  const added = await $`git -C ${main} worktree add ${path} ${ref}`.nothrow().quiet();
-  const dir = added.exitCode === 0 ? pluginDirAt(path) : null;
+  const added = await git(["-C", main, "worktree", "add", path, ref]);
+  const dir = added.kind === "exited" && added.code === 0 ? pluginDirAt(path) : null;
 
   // Git's exit code is 0, 128 or 255 depending on the case; its output is the message.
-  if (dir === null) fail(`${added.stdout.toString()}${added.stderr.toString()}`.trim(), 1);
+  if (dir === null) fail(`${added.stdout}${added.stderr}`.trim(), 1);
 
   if (!hasLocalBranch) console.log("warning: detached HEAD, no local branch for this ref");
 
@@ -222,8 +223,8 @@ async function survivors(checkout: PluginDir): Promise<string[]> {
 }
 
 async function header(checkout: PluginDir, plugins: PluginName[]): Promise<string[]> {
-  const commit = (await $`git -C ${checkout} log -1 --format=%h\ %s`.quiet().text()).trim();
-  const status = (await $`git -C ${checkout} status --porcelain`.quiet().text()).trim();
+  const commit = await gitRead(["-C", checkout, "log", "-1", "--format=%h %s"]);
+  const status = await gitRead(["-C", checkout, "status", "--porcelain"]);
 
   const installed = await installedVersions();
 
@@ -290,14 +291,18 @@ async function launch(
 
 /** The working tree holding `path`, and the repository it belongs to. */
 async function checkoutAt(path: string) {
-  const read =
-    await $`git -C ${path} rev-parse --path-format=absolute --show-toplevel --git-common-dir`
-      .nothrow()
-      .quiet();
+  const read = await git([
+    "-C",
+    path,
+    "rev-parse",
+    "--path-format=absolute",
+    "--show-toplevel",
+    "--git-common-dir",
+  ]);
 
-  if (read.exitCode !== 0) return null;
+  if (read.kind !== "exited" || read.code !== 0) return null;
 
-  const [top = "", repository = ""] = read.stdout.toString().split("\n");
+  const [top = "", repository = ""] = read.stdout.split("\n");
   const dir = pluginDirAt(top);
 
   return dir === null ? null : { dir, repository };
