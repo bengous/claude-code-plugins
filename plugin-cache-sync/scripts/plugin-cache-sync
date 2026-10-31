@@ -191,6 +191,10 @@ sync_plugin() {
   local git_sha timestamp tmp_json
   git_sha=$(git -C "$mkt_path" rev-parse HEAD 2>/dev/null || echo "unknown")
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+  # FIXME: the mktemp file lives under /tmp, so the mv below is a cross-filesystem copy, not the atomic replace
+  # the comment above claims; it also turns a symlinked installed_plugins.json into a plain file, and two syncs
+  # at once lose one entry. Make the temp file beside the resolved target (readlink -f), mv onto that target,
+  # and hold a flock on it around the jq read and the mv.
   tmp_json=$(mktemp)
 
   jq --arg key "$plugin_key" \
