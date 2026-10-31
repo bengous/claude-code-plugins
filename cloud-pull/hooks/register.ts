@@ -1,7 +1,16 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
-import type { CloudRow, PullState } from "../types";
+import type {
+  CloudRow,
+  ListState,
+  OpenStep,
+  Opened,
+  OpenedEntry,
+  Problem,
+  RowEntry,
+  RowState,
+} from "../types";
 
 const PULL = "cloud-pull";
 
@@ -24,17 +33,46 @@ const TELEPORT_TIMEOUT_MS = 5 * 60_000;
 
 const SESSION_ID = /^session_[A-Za-z0-9]+$/u;
 
+const STEPS: readonly OpenStep[] = ["worktree", "teleport", "desktop"];
+
+const STEP_LABEL: Readonly<Record<OpenStep, string>> = {
+  worktree: "Creating a worktree…",
+  teleport: "Copying the conversation…",
+  desktop: "Opening in Desktop…",
+};
+
+const IDLE: ListState = { kind: "idle" };
+
 const NO_ROWS: readonly CloudRow[] = [];
 
-const IDLE: PullState = { kind: "idle" };
+const NO_ROW_STATES: readonly RowEntry[] = [];
+
+const NONE_OPENED: readonly OpenedEntry[] = [];
 
 const sessions = atom({ plugin: "cloud-pull", key: "sessions" } as const, NO_ROWS);
 
-const pullState = atom({ plugin: "cloud-pull", key: "state" } as const, IDLE);
+const listState = atom({ plugin: "cloud-pull", key: "list" } as const, IDLE);
+
+const rowStates = atom({ plugin: "cloud-pull", key: "rows" } as const, NO_ROW_STATES);
+
+const openedSessions = atom({ plugin: "cloud-pull", key: "opened" } as const, NONE_OPENED);
+
+const repoName = atom({ plugin: "cloud-pull", key: "repoName" } as const, "");
+
+/** A failure the pane can explain: what failed, what to do about it, and the raw cause. */
+class Failure extends Error {
+  readonly problem: Problem;
+
+  constructor(problem: Problem) {
+    super(problem.detail === "" ? problem.headline : problem.detail);
+    this.problem = problem;
+  }
+}
 
 /** A cloud session as the API answers it, before the list keeps those of this repository that run in Anthropic's cloud. */
 type ApiSession = CloudRow & { readonly environmentKind: string | null };
 
+/** What a resumed session's start reads back: the cloud session it came from. */
 type Pulled = {
   cloudSessionId: string;
   title: string;
@@ -43,7 +81,9 @@ type Pulled = {
   isAnnounced: boolean;
 };
 
-const storeKey = (cwd: string) => `pulled:${cwd}`;
+const pulledKey = (cwd: string) => `pulled:${cwd}`;
+
+const openedKey = (cloudSessionId: string) => `opened:${cloudSessionId}`;
 
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- the cloud sessions API, the teleport's JSON output and the plugin store all hand untyped JSON: these readers ARE the boundary, and nothing past them sees it untyped. */
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -70,6 +110,20 @@ function parsePulled(value: unknown): Pulled | undefined {
     effort: textOf(value["effort"]),
     isAnnounced: value["isAnnounced"] === true,
   };
+}
+
+function parseOpened(value: unknown): Opened | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  const at = textOf(value["at"]);
+  const localSessionId = textOf(value["localSessionId"]);
+  const worktree = textOf(value["worktree"]);
+
+  return at === undefined || localSessionId === undefined || worktree === undefined
+    ? undefined
+    : { at, localSessionId, worktree };
 }
 
 function parseSession(value: unknown): ApiSession | undefined {
@@ -103,28 +157,74 @@ function parseSession(value: unknown): ApiSession | undefined {
   };
 }
 
-const parseSessions = (value: unknown): ApiSession[] => {
+function parseSessions(value: unknown): ApiSession[] {
   const data: unknown = isObject(value) ? value["data"] : undefined;
 
-  return Array.isArray(data) ? data.flatMap((one) => parseSession(one) ?? []) : [];
-};
+  if (!Array.isArray(data)) {
+    throw new Failure({
+      headline: "The cloud sessions API changed",
+      fix: "Its answer no longer has the shape cloud-pull reads. Check for a cloud-pull update.",
+      detail: "no `data` list in the answer of GET /v1/sessions",
+    });
+  }
 
-function localSessionId(output: string) {
+  return data.flatMap((one) => parseSession(one) ?? []);
+}
+
+/** The local session id the headless teleport wrote, from its JSON result; a failed run names why. */
+function teleportResult(output: string): string {
   const events: unknown = JSON.parse(output);
   const last: unknown = Array.isArray(events) ? events.at(-1) : undefined;
+  const localId = isObject(last) ? textOf(last["session_id"]) : undefined;
 
-  return isObject(last) ? textOf(last["session_id"]) : undefined;
+  if (!isObject(last) || last["is_error"] === true || localId === undefined) {
+    throw new Failure({
+      headline: "The teleport failed",
+      fix: "Try again; if it keeps failing, run claude --teleport in a terminal to see why.",
+      detail: isObject(last) ? (textOf(last["result"]) ?? output.slice(-300)) : output.slice(-300),
+    });
+  }
+
+  return localId;
 }
 
 const readPulled = async ($: EngineInterface, cwd: string) =>
-  parsePulled(await $.store.get(storeKey(cwd)));
+  parsePulled(await $.store.get(pulledKey(cwd)));
+
+const readOpened = async ($: EngineInterface, cloudSessionId: string) =>
+  parseOpened(await $.store.get(openedKey(cloudSessionId)));
+
+// A caught value is `unknown` by the language: this reads it once, as the pane's problem.
+const problemOf = (error: unknown): Problem =>
+  error instanceof Failure
+    ? error.problem
+    : {
+        headline: "Something went wrong",
+        fix: "",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+
+/** A `.catch` that names what failed and what to do, keeping the raw cause as the detail. */
+const explainAs =
+  (headline: string, fix: string) =>
+  (error: unknown): never => {
+    throw new Failure({
+      headline,
+      fix,
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  };
 /* oxlint-enable anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
 
 async function callApi($: EngineInterface, path: string, method = "GET"): Promise<string> {
   const auth = await $.session.authorize();
 
   if (auth === null) {
-    throw new Error("no claude.ai sign-in in this session: the cloud sessions API needs one");
+    throw new Failure({
+      headline: "Not signed in to claude.ai",
+      fix: "Run /login with your claude.ai account, then Refresh.",
+      detail: "this session has no first-party credential",
+    });
   }
 
   const init = { method, headers: API_HEADERS, auth: auth.handle };
@@ -135,27 +235,25 @@ async function callApi($: EngineInterface, path: string, method = "GET"): Promis
   );
 
   if (!response.ok) {
-    throw new Error(
-      `cloud sessions API answered ${response.status} for ${method} ${path}: ${response.text.slice(0, 300)}`,
-    );
+    throw new Failure({
+      headline:
+        response.status === 404
+          ? "The cloud sessions API refused the request"
+          : "claude.ai didn't answer",
+      fix:
+        response.status === 404
+          ? "The undocumented API cloud-pull uses may have changed. Check for a cloud-pull update."
+          : `claude.ai answered ${response.status}. Try again in a moment.`,
+      detail: `${method} /v1/sessions${path}: ${response.status} ${response.text.slice(0, 200)}`,
+    });
   }
 
   return response.text;
 }
 
-async function fetchCloudSession($: EngineInterface, id: string): Promise<CloudRow> {
-  const session = parseSession(JSON.parse(await callApi($, `/${id}`)));
-
-  if (session === undefined) {
-    throw new Error(`cloud session ${id} has no git repository: nothing to check out locally`);
-  }
-
-  return session;
-}
-
 async function run(
   $: EngineInterface,
-  argv: string[],
+  argv: readonly string[],
   cwd: string,
   timeoutMs?: number,
 ): Promise<string> {
@@ -170,30 +268,32 @@ async function run(
   return result.stdout.trim();
 }
 
-const repoSlug = (url: string) =>
-  url
-    .replace(/^git@github\.com:/u, "https://github.com/")
-    .replace(/\.git$/u, "")
-    .toLowerCase();
+/** `owner/name` of a GitHub remote in any of its spellings, lowercase; undefined for any other host. */
+function githubSlug(url: string): string | undefined {
+  const match = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/u.exec(url);
 
-/** The main checkout of the repository this session runs in, and its origin as a comparable slug. */
+  return match === null ? undefined : `${match[1]}/${match[2]}`.toLowerCase();
+}
+
+/** This session's repository: its main checkout and its GitHub slug. */
 async function localRepo($: EngineInterface) {
-  const cwd = await $.session.cwd();
+  const repo = await $.session.repo();
+  const slug = repo?.remote === null || repo === null ? undefined : githubSlug(repo.remote);
 
-  const common = await run(
-    $,
-    ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-    cwd,
-  );
+  if (repo === null || slug === undefined) {
+    throw new Failure({
+      headline: "This session isn't in a GitHub repository",
+      fix: "Run /cloud-pull from a session whose folder is a clone of the cloud session's repository.",
+      detail: repo === null ? "no git repository" : `origin is ${repo.remote ?? "missing"}`,
+    });
+  }
 
-  const path = common.replace(/\/\.git$/u, "");
-  const origin = await run($, ["git", "remote", "get-url", "origin"], path);
-
-  return { path, origin, slug: repoSlug(origin) };
+  return { root: repo.root, slug };
 }
 
 async function listCloudSessions($: EngineInterface): Promise<CloudRow[]> {
   const repo = await localRepo($);
+  await update($, repoName, () => repo.slug.split("/").at(-1) ?? repo.slug);
   const all = parseSessions(JSON.parse(await callApi($, `?limit=${LIST_LIMIT}`)));
 
   return all
@@ -201,24 +301,73 @@ async function listCloudSessions($: EngineInterface): Promise<CloudRow[]> {
       (session) =>
         session.environmentKind === "anthropic_cloud" &&
         session.status !== "archived" &&
-        repoSlug(session.repoUrl) === repo.slug,
+        githubSlug(session.repoUrl) === repo.slug,
     )
     .map(({ environmentKind: _kind, ...row }) => row)
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-async function pull($: EngineInterface, cloud: CloudRow): Promise<string> {
-  const repo = await localRepo($);
+/** Opens a `claude://` link in Claude Desktop with the platform's own opener. */
+async function openInDesktop($: EngineInterface, url: string, cwd: string, title: string) {
+  const fallback = `Open Desktop, type /resume and pick "${title}".`;
+  const uname = await $.process.run(["uname", "-s"], { cwd }).catch(() => {});
+  const system = uname?.exitCode === 0 ? uname.stdout.trim() : "Windows";
 
-  if (repo.slug !== repoSlug(cloud.repoUrl)) {
-    throw new Error(
-      `this session's repository is ${repo.origin}, the cloud session's is ${cloud.repoUrl}: run /cloud-pull from a session in that repository`,
-    );
+  if (system === "Darwin") {
+    await run($, ["open", url], cwd);
+
+    return;
   }
 
-  const worktree = `${repo.path}/.claude/worktrees/cloud-${cloud.id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
-  await run($, ["git", "worktree", "add", "--detach", worktree], repo.path);
+  if (system === "Windows") {
+    await run($, ["cmd", "/c", "start", "", url], cwd);
 
+    return;
+  }
+
+  // xdg-open exits 0 even when nothing handles the scheme: ask for the handler first, as the CLI's /desktop does.
+  const handler = await $.process
+    .run(["xdg-mime", "query", "default", "x-scheme-handler/claude"], { cwd })
+    .catch(() => {});
+
+  if (handler === undefined || handler.stdout.trim() === "") {
+    throw new Failure({
+      headline: "Claude Desktop isn't registered for claude:// links",
+      fix: fallback,
+      detail: "xdg-mime has no handler for x-scheme-handler/claude",
+    });
+  }
+
+  await run($, ["xdg-open", url], cwd).catch(
+    explainAs("Couldn't hand the session to Desktop", fallback),
+  );
+}
+
+const resumeLink = (localSessionId: string, cwd: string) =>
+  `claude://resume?session=${encodeURIComponent(localSessionId)}&cwd=${encodeURIComponent(cwd)}`;
+
+async function pull(
+  $: EngineInterface,
+  cloud: CloudRow,
+  onStep: (step: OpenStep) => Promise<void>,
+): Promise<Opened> {
+  await onStep("worktree");
+  const repo = await localRepo($);
+
+  if (repo.slug !== githubSlug(cloud.repoUrl)) {
+    throw new Failure({
+      headline: "This session is in another repository",
+      fix: `Run /cloud-pull from a session in ${cloud.repoUrl}.`,
+      detail: `this session's repository is ${repo.slug}`,
+    });
+  }
+
+  const worktree = `${repo.root}/.claude/worktrees/cloud-${cloud.id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
+  await run($, ["git", "worktree", "add", "--detach", worktree], repo.root).catch(
+    explainAs("Couldn't create a worktree", "Git refused; the detail below says why."),
+  );
+
+  await onStep("teleport");
   // /rename as the whole prompt: a slash command makes the CLI write the session without a model turn, and Desktop takes the name as the session's title.
   const rename = `/rename ${cloud.title.replaceAll(/\s+/gu, " ")}`;
 
@@ -227,15 +376,16 @@ async function pull($: EngineInterface, cloud: CloudRow): Promise<string> {
     ["claude", "--teleport", cloud.id, "-p", rename, "--output-format", "json"],
     worktree,
     TELEPORT_TIMEOUT_MS,
+  ).catch(
+    explainAs(
+      "The teleport failed",
+      "Try again; if it keeps failing, run claude --teleport in a terminal to see why.",
+    ),
   );
 
-  const localId = localSessionId(output);
+  const localSessionId = teleportResult(output);
 
-  if (localId === undefined) {
-    throw new Error("the teleport ended without a local session id");
-  }
-
-  const record: Pulled = {
+  const pulled: Pulled = {
     cloudSessionId: cloud.id,
     title: cloud.title,
     model: cloud.model ?? undefined,
@@ -243,74 +393,134 @@ async function pull($: EngineInterface, cloud: CloudRow): Promise<string> {
     isAnnounced: false,
   };
 
-  await $.store.set(storeKey(worktree), record);
-  await run($, ["xdg-open", `claude://resume?session=${localId}`], worktree);
+  await $.store.set(pulledKey(worktree), pulled);
 
-  return worktree;
+  await onStep("desktop");
+  await openInDesktop($, resumeLink(localSessionId, worktree), worktree, cloud.title);
+  const opened: Opened = { at: new Date().toISOString(), localSessionId, worktree };
+  await $.store.set(openedKey(cloud.id), opened);
+
+  return opened;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- a caught value is `unknown` by the language: this reads it once, for the pane's message.
-const failure = (error: unknown) => (error instanceof Error ? error.message : String(error));
+async function setRow($: EngineInterface, id: string, state: RowState | undefined) {
+  await update($, rowStates, (entries) => [
+    ...entries.filter((entry) => entry.id !== id),
+    ...(state === undefined ? [] : [{ id, state }]),
+  ]);
+}
+
+async function setOpened($: EngineInterface, id: string, opened: Opened) {
+  await update($, openedSessions, (entries) => [
+    ...entries.filter((entry) => entry.id !== id),
+    { id, opened },
+  ]);
+}
 
 async function refresh($: EngineInterface) {
-  await update($, pullState, (): PullState => ({ kind: "loading" }));
+  await update($, listState, (): ListState => ({ kind: "loading" }));
 
   try {
     const rows = await listCloudSessions($);
+
+    const opened = await Promise.all(
+      rows.map(async (row) => ({ id: row.id, opened: await readOpened($, row.id) })),
+    );
+
     await update($, sessions, () => rows);
-    await update($, pullState, (): PullState => IDLE);
+    await update($, openedSessions, () =>
+      opened.flatMap((entry) =>
+        entry.opened === undefined ? [] : [{ id: entry.id, opened: entry.opened }],
+      ),
+    );
+    await update($, listState, () => IDLE);
   } catch (error) {
-    await update($, pullState, (): PullState => ({ kind: "error", text: failure(error) }));
+    await update($, listState, (): ListState => ({ kind: "error", problem: problemOf(error) }));
   }
 }
 
-async function pullFromPane($: EngineInterface, row: CloudRow) {
-  const state = await read($, pullState);
+async function openRow($: EngineInterface, row: CloudRow) {
+  const states = await read($, rowStates);
 
-  if (state.kind === "pulling") {
+  if (states.some((entry) => entry.state.kind === "opening")) {
     return;
   }
 
-  await update($, pullState, (): PullState => ({ kind: "pulling", id: row.id, title: row.title }));
-
   try {
-    const worktree = await pull($, row);
-    await update($, pullState, (): PullState => ({
-      kind: "opened",
-      id: row.id,
-      title: row.title,
-      worktree,
-    }));
+    const opened = await pull($, row, (step) => setRow($, row.id, { kind: "opening", step }));
+    await setOpened($, row.id, opened);
+    await setRow($, row.id, { kind: "opened" });
   } catch (error) {
-    await update($, pullState, (): PullState => ({ kind: "error", text: failure(error) }));
+    await setRow($, row.id, { kind: "error", action: "open", problem: problemOf(error) });
   }
 }
 
-async function archive($: EngineInterface, id: string, title: string) {
+async function openAgain($: EngineInterface, row: CloudRow, opened: Opened) {
   try {
-    await callApi($, `/${id}/archive`, "POST");
-    await update($, sessions, (rows) => rows.filter((row) => row.id !== id));
-    await update($, pullState, (): PullState => ({ kind: "archived", title }));
+    await openInDesktop(
+      $,
+      resumeLink(opened.localSessionId, opened.worktree),
+      opened.worktree,
+      row.title,
+    );
   } catch (error) {
-    await update($, pullState, (): PullState => ({ kind: "error", text: failure(error) }));
+    await setRow($, row.id, { kind: "error", action: "open", problem: problemOf(error) });
   }
 }
 
-function age(iso: string, now: number) {
+async function archiveRow($: EngineInterface, row: CloudRow) {
+  try {
+    await callApi($, `/${row.id}/archive`, "POST");
+    await update($, sessions, (rows) => rows.filter((one) => one.id !== row.id));
+    await setRow($, row.id, undefined);
+    $.ui.toast(`Archived "${row.title}" in the cloud.`);
+  } catch (error) {
+    const problem = problemOf(error);
+
+    await setRow($, row.id, {
+      kind: "error",
+      action: "archive",
+      problem: {
+        ...problem,
+        headline: `Couldn't archive "${row.title}"`,
+        fix: problem.fix || "It is still on claude.ai. Try again.",
+      },
+    });
+  }
+}
+
+function ago(iso: string, now: number) {
   const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
 
   if (Number.isNaN(minutes)) {
     return "";
   }
 
-  if (minutes < 60) {
-    return `${minutes}m`;
+  if (minutes < 1) {
+    return "just now";
   }
 
-  return minutes < 24 * 60 ? `${Math.round(minutes / 60)}h` : `${Math.round(minutes / 1440)}d`;
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  return minutes < 24 * 60
+    ? `${Math.round(minutes / 60)}h ago`
+    : `${Math.round(minutes / 1440)}d ago`;
 }
 
-const shortModel = (model: string | null) => (model ?? "model ?").replace(/^claude-/u, "");
+/** `claude-haiku-5-5` and `high` read as Desktop writes them: `Haiku 5.5, high effort`. */
+function modelLabel(row: CloudRow) {
+  const parts = (row.model ?? "").replace(/^claude-/u, "").split("-");
+  const [family, ...version] = parts;
+
+  const model =
+    family === undefined || family === ""
+      ? "Model unknown"
+      : `${family.charAt(0).toUpperCase()}${family.slice(1)} ${version.join(".")}`.trim();
+
+  return row.effort === null ? model : `${model}, ${row.effort} effort`;
+}
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -320,7 +530,7 @@ const isEffort = (value: string | undefined): value is Effort =>
   value !== undefined && EFFORTS.includes(value);
 
 export const register: Register = (on) => {
-  /** The cloud session's effort, held on every request of a resumed session until the person picks one with /effort. */
+  /** The cloud session's effort, held on the main loop's requests of a resumed session until the person picks one with /effort. */
   let pinnedEffort: Effort | undefined;
   let isEffortShown = false;
 
@@ -345,16 +555,17 @@ export const register: Register = (on) => {
 
     if (!record.isAnnounced) {
       $.ui.log(
-        `☁️ → 💻 Continued from the cloud session "${record.title}" (${record.model ?? "model unknown"}, effort ${record.effort ?? "unknown"}). History copied by teleport; the cloud session is unchanged.`,
+        `☁️ → 💻 Continued from the cloud session "${record.title}" (${record.model ?? "model unknown"}, effort ${record.effort ?? "unknown"}). The history was copied; the cloud session is unchanged. Earlier prompts are not in the up-arrow history.`,
       );
-      await $.store.set(storeKey(e.cwd), { ...record, isAnnounced: true });
+      await $.store.set(pulledKey(e.cwd), { ...record, isAnnounced: true });
     }
 
     return result;
   });
 
   on("turn.step", async function* ($, e, next) {
-    if (pinnedEffort === undefined) {
+    // A subagent's request keeps the effort its own definition sets.
+    if (pinnedEffort === undefined || e.agentId !== undefined) {
       return yield* next(e);
     }
 
@@ -374,7 +585,7 @@ export const register: Register = (on) => {
     const record = await readPulled($, cwd);
 
     if (record !== undefined) {
-      await $.store.set(storeKey(cwd), { ...record, effort: undefined });
+      await $.store.set(pulledKey(cwd), { ...record, effort: undefined });
     }
 
     return next(e);
@@ -384,7 +595,7 @@ export const register: Register = (on) => {
     const id = e.args.trim();
 
     if (id === "") {
-      await $.ui.open({ id: PANE, title: "Cloud sessions" });
+      await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
       void refresh($);
 
       return {};
@@ -397,106 +608,271 @@ export const register: Register = (on) => {
     }
 
     try {
-      const cloud = await fetchCloudSession($, id);
+      const cloud = parseSessions(JSON.parse(`{"data":[${await callApi($, `/${id}`)}]}`)).at(0);
 
-      return { text: `Opened "${cloud.title}" in Desktop, in ${await pull($, cloud)}.` };
+      if (cloud === undefined) {
+        return { text: `cloud-pull: ${id} has no git repository, nothing to check out locally.` };
+      }
+
+      const opened = await pull($, cloud, async () => {});
+
+      return { text: `Opened "${cloud.title}" in Desktop, in ${opened.worktree}.` };
     } catch (error) {
-      return { text: `cloud-pull failed: ${failure(error)}` };
+      const problem = problemOf(error);
+
+      return { text: `cloud-pull: ${problem.headline}. ${problem.fix} (${problem.detail})` };
     }
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e);
+    const { Box, Text, Button, Link } = $.ui.resolve(e);
     const rows = await read($, sessions);
-    const state = await read($, pullState);
+    const list = await read($, listState);
+    const states = await read($, rowStates);
+    const opened = await read($, openedSessions);
+    const repo = await read($, repoName);
     const now = Date.now();
-    const isBusy = state.kind === "pulling" || state.kind === "loading";
+    const isLoading = list.kind === "loading";
+    const isOpening = states.some((entry) => entry.state.kind === "opening");
 
-    const rowOf = (row: CloudRow) =>
+    const problemBlock = (problem: Problem, actions: ReturnType<typeof Button>[]) =>
       Box({
-        key: row.id,
         flexDirection: "column",
+        gap: "xs",
         children: [
-          Text({ weight: "semibold", children: row.title }),
+          Text({ weight: "medium", color: "error", children: problem.headline }),
+          problem.fix !== "" && Text({ size: "footnote", children: problem.fix }),
           Text({
+            size: "caption",
+            mono: true,
             dimColor: true,
-            children: `${row.status} · ${age(row.updatedAt, now)} · ${shortModel(row.model)}${row.effort === null ? "" : ` ${row.effort}`}`,
+            wrap: "truncate-end",
+            children: problem.detail,
+          }),
+          Box({ flexDirection: "row", gap: "sm", children: actions }),
+        ],
+      });
+
+    const titleLine = (
+      row: CloudRow,
+      trailing: ReturnType<typeof Text> | ReturnType<typeof Button> | false,
+    ) =>
+      Box({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: "md",
+        children: [
+          Box({
+            flexGrow: 1,
+            flexShrink: 1,
+            children: [Text({ weight: "medium", wrap: "truncate-end", children: row.title })],
+          }),
+          trailing,
+        ],
+      });
+
+    const rowOf = (row: CloudRow) => {
+      const state = states.find((entry) => entry.id === row.id)?.state;
+      const done = opened.find((entry) => entry.id === row.id)?.opened;
+
+      const children = (() => {
+        switch (state?.kind) {
+          case "opening": {
+            const reached = STEPS.indexOf(state.step) + 1;
+
+            return [
+              titleLine(row, Text({ size: "footnote", dimColor: true, children: "Opening…" })),
+              Box({
+                flexDirection: "row",
+                gap: "sm",
+                children: [
+                  Text({ size: "footnote", color: "claude", children: "●".repeat(reached) }),
+                  Text({
+                    size: "footnote",
+                    dimColor: true,
+                    children: "○".repeat(STEPS.length - reached),
+                  }),
+                  Text({ size: "footnote", children: STEP_LABEL[state.step] }),
+                ],
+              }),
+            ];
+          }
+
+          case "opened":
+            return [
+              titleLine(row, false),
+              Text({
+                size: "footnote",
+                color: "success",
+                children: "✓ Opened in a new session on this computer",
+              }),
+              Text({
+                size: "footnote",
+                dimColor: true,
+                children: "Archive the cloud session? The local session has the full history.",
+              }),
+              Box({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: "sm",
+                children: [
+                  Button({
+                    key: `archive:${row.id}`,
+                    label: "Archive",
+                    variant: "primary",
+                    onPress: () => void archiveRow($, row),
+                  }),
+                  Button({
+                    key: `keep:${row.id}`,
+                    label: "Keep",
+                    variant: "secondary",
+                    onPress: () => void setRow($, row.id, undefined),
+                  }),
+                  Box({ flexGrow: 1 }),
+                  Link({ href: `https://claude.ai/code/${row.id}`, label: "View on claude.ai" }),
+                ],
+              }),
+              Text({
+                size: "caption",
+                dimColor: true,
+                children: `Didn't open? In Desktop, type /resume and pick "${row.title}".`,
+              }),
+            ];
+          case "error":
+            return [
+              titleLine(row, false),
+              problemBlock(state.problem, [
+                Button({
+                  key: `retry:${row.id}`,
+                  label: "Try again",
+                  variant: "secondary",
+                  onPress: () =>
+                    void (state.action === "open" ? openRow($, row) : archiveRow($, row)),
+                }),
+                Button({
+                  key: `dismiss:${row.id}`,
+                  label: "Dismiss",
+                  plain: true,
+                  dimColor: true,
+                  onPress: () => void setRow($, row.id, undefined),
+                }),
+              ]),
+            ];
+          case undefined:
+            return [
+              titleLine(
+                row,
+                Button({
+                  key: `open:${row.id}`,
+                  label: done === undefined ? "Open locally" : "Open again",
+                  variant: "secondary",
+                  dimColor: true,
+                  hover: { dimColor: false },
+                  onPress: () => {
+                    if (isOpening) {
+                      return;
+                    }
+
+                    void (done === undefined ? openRow($, row) : openAgain($, row, done));
+                  },
+                }),
+              ),
+              Box({
+                flexDirection: "row",
+                gap: "sm",
+                children: [
+                  row.status === "running" &&
+                    Text({ size: "footnote", color: "success", children: "Running" }),
+                  Text({ size: "footnote", dimColor: true, children: modelLabel(row) }),
+                  Text({
+                    size: "footnote",
+                    dimColor: true,
+                    tabular: true,
+                    children: ago(row.updatedAt, now),
+                  }),
+                  done !== undefined &&
+                    Text({
+                      size: "footnote",
+                      dimColor: true,
+                      children: `· opened here ${ago(done.at, now)}`,
+                    }),
+                ],
+              }),
+            ];
+        }
+      })();
+
+      return Box({ key: row.id, flexDirection: "column", gap: "xs", children });
+    };
+
+    const refreshButton = Button({
+      key: "refresh",
+      label: isLoading ? "Refreshing…" : "Refresh",
+      plain: true,
+      dimColor: true,
+      onPress: () => {
+        if (!isLoading) {
+          void refresh($);
+        }
+      },
+    });
+
+    if (isLoading && rows.length === 0) {
+      return Text({ size: "footnote", dimColor: true, children: "Loading cloud sessions…" });
+    }
+
+    if (list.kind !== "error" && rows.length === 0) {
+      return Box({
+        flexDirection: "column",
+        gap: "sm",
+        paddingY: "lg",
+        children: [
+          Text({ weight: "medium", children: `No cloud sessions for ${repo}` }),
+          Text({
+            size: "footnote",
+            dimColor: true,
+            children: "Sessions you start on claude.ai/code for this repository show up here.",
           }),
           Box({
             flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
             children: [
-              Button({
-                key: `open:${row.id}`,
-                label:
-                  state.kind === "pulling" && state.id === row.id ? "Opening…" : "Open locally",
-                variant: "primary",
-                onPress: () => {
-                  if (!isBusy) {
-                    void pullFromPane($, row);
-                  }
-                },
-              }),
+              Link({ href: "https://claude.ai/code", label: "Open claude.ai/code" }),
+              refreshButton,
             ],
           }),
         ],
       });
-
-    const outcome = () => {
-      switch (state.kind) {
-        case "pulling":
-          return [
-            Text({ dimColor: true, children: `Teleporting "${state.title}" into a new worktree…` }),
-          ];
-        case "opened":
-          return [
-            Text({ children: `✓ "${state.title}" is open in Desktop.` }),
-            Text({ dimColor: true, children: state.worktree }),
-            Text({ children: "Archive the cloud session?" }),
-            Box({
-              flexDirection: "row",
-              gap: 1,
-              children: [
-                Button({
-                  key: `archive:${state.id}`,
-                  label: "Archive",
-                  onPress: () => void archive($, state.id, state.title),
-                }),
-                Button({
-                  key: "keep",
-                  label: "Keep it",
-                  onPress: () => void update($, pullState, (): PullState => IDLE),
-                }),
-              ],
-            }),
-          ];
-        case "archived":
-          return [Text({ dimColor: true, children: `"${state.title}" archived in the cloud.` })];
-        case "error":
-          return [Text({ color: "error", children: state.text })];
-        case "idle":
-        case "loading":
-          return [];
-      }
-    };
+    }
 
     return Box({
       flexDirection: "column",
-      gap: 1,
+      gap: "md",
       children: [
         Box({
           flexDirection: "row",
-          gap: 1,
+          justifyContent: "space-between",
           alignItems: "center",
           children: [
-            Button({ key: "refresh", label: "Refresh", onPress: () => void refresh($) }),
-            state.kind === "loading" && Text({ dimColor: true, children: "Loading…" }),
+            Text({
+              size: "footnote",
+              dimColor: true,
+              children: `${rows.length} cloud session${rows.length === 1 ? "" : "s"} in ${repo}`,
+            }),
+            refreshButton,
           ],
         }),
-        rows.length === 0 &&
-          state.kind !== "loading" &&
-          Text({ dimColor: true, children: "No open cloud session for this repository." }),
+        list.kind === "error" &&
+          problemBlock(list.problem, [
+            Button({
+              key: "retry-list",
+              label: "Try again",
+              variant: "secondary",
+              onPress: () => void refresh($),
+            }),
+          ]),
         ...rows.map((row) => rowOf(row)),
-        ...outcome(),
       ],
     });
   });
