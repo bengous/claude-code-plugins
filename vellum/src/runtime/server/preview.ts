@@ -4,6 +4,7 @@ import { cpSync, existsSync, readdirSync, rmdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import { isErrno } from "../../platform/pure.ts";
 import type { FinalDir, WipDir } from "../../workshop/paths.ts";
 import { dateOf, parseWipDir } from "../../workshop/paths.ts";
 import { DRAFT_FILE, PLAN_FILE } from "../../workshop/workspace.ts";
@@ -58,13 +59,8 @@ function removeIfEmpty(path: string): void {
   try {
     if (readdirSync(path).length === 0) rmdirSync(path);
   } catch (cause) {
-    if (!isErrnoException(cause) || !["ENOENT", "ENOTEMPTY"].includes(cause.code ?? ""))
-      throw cause;
+    if (!isErrno(cause, "ENOENT", "ENOTEMPTY")) throw cause;
   }
-}
-
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
 }
 
 if (import.meta.main) {

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { isErrno } from "../../../platform/pure.ts";
 import { reviewServer } from "../../../review/server.ts";
 import type { FinalDir, ParseResult, WipDir } from "../../../workshop/paths.ts";
 import type { VellumBuild } from "../../../workshop/vellum-build.ts";
@@ -115,10 +116,6 @@ function extensionRoutes(context: ServerContext): ReadonlyMap<string, Route> {
       }),
     ),
   );
-}
-
-function isPortTaken(cause: unknown): boolean {
-  return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
 }
 
 /** What the directory cannot say: the approval a revived server starts on, read in the final directory. */
@@ -245,7 +242,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     try {
       return bind(options.port, options.token ?? crypto.randomUUID());
     } catch (cause) {
-      if (!isPortTaken(cause)) throw cause;
+      if (!isErrno(cause, "EADDRINUSE")) throw cause;
 
       // The stream's URL carries the token, so whoever took the port reads it from every tab
       // that reconnects: the kept token goes with the kept port.

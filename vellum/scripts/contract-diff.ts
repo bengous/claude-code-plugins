@@ -25,6 +25,8 @@ import { dirname, join, relative } from "node:path";
 
 import { diffWordsWithSpace } from "diff";
 
+import { gitSync } from "../src/platform/node.ts";
+
 type FileChange = {
   readonly status: "A" | "D" | "M" | "R";
   readonly from: string;
@@ -83,10 +85,10 @@ const SUITES = [
 ];
 
 function git(cwd: string, args: readonly string[]): string {
-  const run = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const run = gitSync(args, { cwd, stdout: "buffer" });
 
-  if (run.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${run.stderr.toString().trim()}`);
+  if (run.kind !== "exited" || run.code !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${run.stderr.trim()}`);
   }
 
   return run.stdout.toString();
@@ -155,15 +157,14 @@ function textsAt(
 ): TextAt {
   const names = objectsRead(changes, base, head, plugin);
 
-  const run = Bun.spawnSync(["git", "cat-file", "--batch"], {
+  const run = gitSync(["cat-file", "--batch"], {
     cwd,
-    stdin: new TextEncoder().encode(names.map((name) => `${name}\n`).join("")),
-    stdout: "pipe",
-    stderr: "pipe",
+    stdin: names.map((name) => `${name}\n`).join(""),
+    stdout: "buffer",
   });
 
-  if (run.exitCode !== 0) {
-    throw new Error(`git cat-file --batch failed: ${run.stderr.toString().trim()}`);
+  if (run.kind !== "exited" || run.code !== 0) {
+    throw new Error(`git cat-file --batch failed: ${run.stderr.trim()}`);
   }
 
   const texts = batchTexts(names, run.stdout);

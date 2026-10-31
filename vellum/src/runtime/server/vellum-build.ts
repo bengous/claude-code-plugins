@@ -2,6 +2,8 @@ import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { git } from "../../platform/node.ts";
+import { messageOf } from "../../platform/pure.ts";
 import type { ParseResult } from "../../workshop/paths.ts";
 import { installedCommit, vellumBuildOf } from "../../workshop/vellum-build.ts";
 import type { VellumBuild } from "../../workshop/vellum-build.ts";
@@ -11,15 +13,11 @@ export const PLUGIN_ROOT = resolve(import.meta.dir, "../../..");
 
 const MANIFEST = ".claude-plugin/plugin.json";
 
-function reason(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 async function readText(path: string): Promise<ParseResult<string>> {
   try {
     return { ok: true, value: await readFile(path, "utf8") };
   } catch (cause) {
-    return { ok: false, error: `${path}: ${reason(cause)}` };
+    return { ok: false, error: `${path}: ${messageOf(cause)}` };
   }
 }
 
@@ -95,33 +93,16 @@ async function installedSha(root: string): Promise<ParseResult<string>> {
     : { ok: true, value: latest.sha };
 }
 
-/** The server's environment but git's own variables: a `GIT_DIR` there would name its repository for any root. */
-function gitEnv(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(process.env).flatMap(([name, value]) =>
-      name.startsWith("GIT_") || value === undefined ? [] : [[name, value]],
-    ),
-  );
-}
-
-async function git(root: string, ...args: readonly string[]): Promise<ParseResult<string>> {
+/** Git's own variables are left out of the server's environment: a `GIT_DIR` there would name its repository for any root. */
+async function gitIn(root: string, ...args: readonly string[]): Promise<ParseResult<string>> {
   try {
-    const run = Bun.spawn(["git", "-C", root, ...args], {
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: gitEnv(),
-    });
+    const run = await git(["-C", root, ...args], { scrubGitEnv: true });
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(run.stdout).text(),
-      new Response(run.stderr).text(),
-      run.exited,
-    ]);
-
-    return exitCode === 0 ? { ok: true, value: stdout } : { ok: false, error: stderr.trim() };
+    return run.kind === "exited" && run.code === 0
+      ? { ok: true, value: run.stdout }
+      : { ok: false, error: run.stderr.trim() };
   } catch (cause) {
-    return { ok: false, error: reason(cause) };
+    return { ok: false, error: messageOf(cause) };
   }
 }
 
@@ -130,11 +111,11 @@ async function git(root: string, ...args: readonly string[]): Promise<ParseResul
  * root, a dotfiles one holding `~/.claude` included: its HEAD is not this plugin's commit.
  */
 async function gitHead(root: string): Promise<ParseResult<string>> {
-  const tracked = await git(root, "ls-files", "--error-unmatch", MANIFEST);
+  const tracked = await gitIn(root, "ls-files", "--error-unmatch", MANIFEST);
 
   if (!tracked.ok) return { ok: false, error: `${MANIFEST} is not tracked: ${tracked.error}` };
 
-  return await git(root, "rev-parse", "HEAD");
+  return await gitIn(root, "rev-parse", "HEAD");
 }
 
 /** Never throws: what fails is the answer of `GET /api/vellum-build`, never the server's start. */

@@ -4,12 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isHeld } from "./fs.ts";
+import { isHeld } from "../../platform/node.ts";
 import { readVellumBuild } from "./vellum-build.ts";
 
 const SHA = "0f9634d417d4307b2b8e3f63829899ea691bdd6e";
 
 const KEPT = process.env["CLAUDE_CONFIG_DIR"];
+
+const KEPT_PATH = process.env["PATH"];
 
 const bases: string[] = [];
 
@@ -35,6 +37,7 @@ async function remove(path: string): Promise<void> {
 afterEach(async () => {
   if (KEPT === undefined) delete process.env["CLAUDE_CONFIG_DIR"];
   else process.env["CLAUDE_CONFIG_DIR"] = KEPT;
+  process.env["PATH"] = KEPT_PATH;
 
   const failures: unknown[] = [];
 
@@ -133,5 +136,13 @@ describe("readVellumBuild", () => {
     );
 
     expect((await readVellumBuild(root)).ok).toBe(false);
+  });
+
+  test("with no git on the PATH, the commit reads as missing, and the read does not throw", async () => {
+    const { base, root } = installed(WITHOUT_SHA);
+    process.env["PATH"] = base;
+    const built = await readVellumBuild(root);
+
+    expect(!built.ok && built.error).toContain("is not tracked: git is not on the PATH");
   });
 });

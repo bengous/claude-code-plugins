@@ -1,8 +1,8 @@
 import { watch } from "node:fs";
-import { appendFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { appendFile, readdir, rm, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
-import { writeAtomic } from "../../platform/node.ts";
+import { isHeld, rename, writeAtomic } from "../../platform/node.ts";
 import { isErrno } from "../../platform/pure.ts";
 import { rewriteLinks } from "../../workshop/links.ts";
 import type { FinalDir, ParseResult, ProjectPath, Slug, WipDir } from "../../workshop/paths.ts";
@@ -31,35 +31,6 @@ const WATCH_SETTLE_MS = 100;
  * the answer. POSIX renames a held folder, and an `EPERM` there is a real refusal.
  */
 export const HELD_RETRY_MS = 3_000;
-
-const HELD_RETRY_STEP_MS = 100;
-
-const HELD_CODES: ReadonlySet<unknown> = new Set(["EBUSY", "EPERM", "EACCES"]);
-
-export function isHeld(cause: unknown): boolean {
-  return (
-    process.platform === "win32" &&
-    cause instanceof Error &&
-    "code" in cause &&
-    HELD_CODES.has(cause.code)
-  );
-}
-
-/** Renames `from` to `to`, again every `HELD_RETRY_STEP_MS` while Windows says a program holds it, for `heldRetryMs` at most. */
-async function renameHeld(from: string, to: string, heldRetryMs: number): Promise<void> {
-  const until = Date.now() + heldRetryMs;
-
-  for (;;) {
-    try {
-      await rename(from, to);
-
-      return;
-    } catch (cause) {
-      if (!isHeld(cause) || Date.now() >= until) throw cause;
-      await Bun.sleep(HELD_RETRY_STEP_MS);
-    }
-  }
-}
 
 export async function readWorkspace(
   project: string,
@@ -255,7 +226,7 @@ export async function finalize(
   }
 
   try {
-    await renameHeld(join(project, from), join(project, to), heldRetryMs);
+    await rename(join(project, from), join(project, to), { heldRetryMs });
   } catch (cause) {
     const why = isHeld(cause)
       ? `a program holds ${from} (a terminal, File Explorer, an editor or a background command open in it); close it, then Retry approval`

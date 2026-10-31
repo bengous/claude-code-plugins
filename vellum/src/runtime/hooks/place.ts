@@ -1,3 +1,4 @@
+import { isErrno } from "../../platform/pure.ts";
 import type { Host } from "./host.ts";
 import type { Landed, Platform } from "./lock.ts";
 import type { ProjectDir } from "./parse.ts";
@@ -26,9 +27,6 @@ const SEPARATORS = {
   windows: { last: /[\\/](?=[^\\/]*$)/u, trailing: /[\\/]+$/u },
 } as const;
 
-/** The engine ends its rejection of a missing path on the errno, and sets no `code`. */
-const NOT_THERE = / failed: ENOENT$/u;
-
 /**
  * What `stat` says of a path: where it lands, or that it is not there. `refused` is any other
  * rejection (another errno, a hook above), which says nothing of where the path lands.
@@ -42,9 +40,7 @@ async function asked(host: Host, path: string): Promise<Asked> {
   try {
     return { kind: "found", realPath: (await host.stat(path)).realPath };
   } catch (error) {
-    return error instanceof Error && NOT_THERE.test(error.message)
-      ? { kind: "missing" }
-      : { kind: "refused" };
+    return isErrno(error, "ENOENT") ? { kind: "missing" } : { kind: "refused" };
   }
 }
 
