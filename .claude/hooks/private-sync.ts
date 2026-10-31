@@ -3,9 +3,9 @@
 /**
  * SessionStart hook — mounts the private repository that `.private.env`, in
  * the main checkout, names: clones it once into the main checkout's
- * `.private/`, adds each link it makes to `<git common dir>/info/exclude`,
- * then links `plans`, `.scratch` and each private skill into the
- * checkout the session starts in. Without `.private.env` it does nothing.
+ * `.private/`, adds `/plans`, `/.scratch` and each private skill's path to
+ * `<git common dir>/info/exclude`, then links them into the checkout the
+ * session starts in. Without `.private.env` it does nothing.
  * It never touches a path that exists already, whatever stands there.
  */
 
