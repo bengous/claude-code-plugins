@@ -11,7 +11,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { $ } from "bun";
+import { GitError, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,19 +117,15 @@ const RS = "\u001E";
 async function git(
   ...args: string[]
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
+  const result = await runGit(args);
 
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
+  if (result.kind !== "exited") throw new GitError(args, result);
+
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
-async function gitOk(...args: string[]): Promise<string> {
-  const result = await git(...args);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-  }
-
-  return result.stdout;
+function gitOk(...args: string[]): Promise<string> {
+  return gitRead(args);
 }
 
 function fail(step: Phase, error: string, detail: string | null = null): Failure {
@@ -621,10 +618,6 @@ async function planMode(spec: string): Promise<Result> {
   };
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 /**
  * Message files live under the git directory, not in a temp dir: a conflict
  * pauses the rebase, and the `exec` lines that read them only run when the user
@@ -720,19 +713,14 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
 
   // GIT_EDITOR=true keeps squash and reword from opening an editor; the `exec`
   // lines set the final messages afterwards.
-  const run = await $`git rebase -i ${base}`
-    .env({
-      ...process.env,
-      GIT_EDITOR: "true",
-      GIT_SEQUENCE_EDITOR: `cp ${shellQuote(todoPath)}`,
-    })
-    .quiet()
-    .nothrow();
+  const run = await runGit(["rebase", "-i", base], {
+    env: { GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: `cp ${shellQuote(todoPath)}` },
+  });
 
   const state = await readState();
 
-  if (run.exitCode !== 0 || state.in_progress) {
-    return stopFailure("apply", state, run.stderr.toString().trim(), backupRef);
+  if (run.kind !== "exited" || run.code !== 0 || state.in_progress) {
+    return stopFailure("apply", state, run.stderr.trim(), backupRef);
   }
 
   await rm(dir, { recursive: true, force: true });
@@ -797,15 +785,14 @@ async function resumeMode(mode: "continue" | "skip"): Promise<Result> {
     }
   }
 
-  const run = await $`git rebase ${mode === "continue" ? "--continue" : "--skip"}`
-    .env({ ...process.env, GIT_EDITOR: "true" })
-    .quiet()
-    .nothrow();
+  const run = await runGit(["rebase", mode === "continue" ? "--continue" : "--skip"], {
+    env: { GIT_EDITOR: "true" },
+  });
 
   const after = await readState();
 
-  if (run.exitCode !== 0 || after.in_progress) {
-    return stopFailure(mode, after, run.stderr.toString().trim(), backupRef);
+  if (run.kind !== "exited" || run.code !== 0 || after.in_progress) {
+    return stopFailure(mode, after, run.stderr.trim(), backupRef);
   }
 
   await rm(await messageDir(), { recursive: true, force: true });
@@ -921,11 +908,7 @@ if (import.meta.main) {
   try {
     result = await main();
   } catch (error) {
-    result = fail(
-      "validate",
-      "unexpected-failure",
-      error instanceof Error ? error.message : String(error),
-    );
+    result = fail("validate", "unexpected-failure", messageOf(error));
   }
 
   console.log(JSON.stringify(result));

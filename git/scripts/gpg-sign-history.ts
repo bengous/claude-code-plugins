@@ -12,7 +12,8 @@
 
 import { existsSync } from "node:fs";
 
-import { $ } from "bun";
+import { GitError, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -156,33 +157,23 @@ const decoder = new TextDecoder();
 async function git(
   ...args: string[]
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
+  const result = await runGit(args);
 
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
+  if (result.kind !== "exited") throw new GitError(args, result);
+
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
-async function gitOk(...args: string[]): Promise<string> {
-  const result = await git(...args);
-
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-  }
-
-  return result.stdout;
+function gitOk(...args: string[]): Promise<string> {
+  return gitRead(args);
 }
 
-/** A process fed raw bytes: commit messages are bytes, not necessarily UTF-8 text. */
+/** The signing program, fed raw bytes; a program that cannot start throws. */
 async function spawn(
   argv: string[],
   input: Uint8Array,
-  env: Record<string, string> = {},
 ): Promise<{ stdout: Uint8Array; stderr: string; exitCode: number }> {
-  const proc = Bun.spawn(argv, {
-    stdin: input,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, ...env },
-  });
+  const proc = Bun.spawn(argv, { stdin: input, stdout: "pipe", stderr: "pipe" });
 
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).arrayBuffer(),
@@ -195,10 +186,6 @@ async function spawn(
 
 function fail(step: Phase, error: string, detail: string | null = null): Failure {
   return { ok: false, step, error, detail, unlock: null, backup_ref: null, checks: null };
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function iso(epoch: number): string {
@@ -290,9 +277,16 @@ async function readCommits(hashes: string[]): Promise<Map<string, RawCommit>> {
   const commits = new Map<string, RawCommit>();
 
   if (hashes.length === 0) return commits;
-  const run = await spawn(["git", "cat-file", "--batch"], encoder.encode(`${hashes.join("\n")}\n`));
 
-  if (run.exitCode !== 0) throw new Error(`git cat-file --batch failed: ${run.stderr}`);
+  const run = await runGit(["cat-file", "--batch"], {
+    stdin: `${hashes.join("\n")}\n`,
+    stdout: "buffer",
+  });
+
+  if (run.kind !== "exited" || run.code !== 0) {
+    throw new Error(`git cat-file --batch failed: ${run.stderr.trim()}`);
+  }
+
   const out = run.stdout;
   let offset = 0;
 
@@ -444,7 +438,7 @@ async function preflight(config: Signing): Promise<Readiness> {
       ready: false,
       ...config,
       error: "signing-failed",
-      detail: error instanceof Error ? error.message : String(error),
+      detail: messageOf(error),
       unlock: null,
     };
   }
@@ -469,20 +463,23 @@ async function signedAt(hash: string): Promise<number | null> {
 
 /** One commit recreated: git reads the old commit's author and committer date from the environment. */
 async function recreate(commit: RawCommit, parents: string[]): Promise<string> {
-  const argv = ["git", "commit-tree", commit.tree, ...parents.flatMap((p) => ["-p", p]), "-S"];
+  const args = ["commit-tree", commit.tree, ...parents.flatMap((p) => ["-p", p]), "-S"];
 
-  const run = await spawn(argv, commit.message, {
-    GIT_AUTHOR_NAME: commit.author.name,
-    GIT_AUTHOR_EMAIL: commit.author.email,
-    GIT_AUTHOR_DATE: `@${commit.author.date}`,
-    GIT_COMMITTER_DATE: `@${commit.committer.date}`,
+  const run = await runGit(args, {
+    stdin: commit.message,
+    env: {
+      GIT_AUTHOR_NAME: commit.author.name,
+      GIT_AUTHOR_EMAIL: commit.author.email,
+      GIT_AUTHOR_DATE: `@${commit.author.date}`,
+      GIT_COMMITTER_DATE: `@${commit.committer.date}`,
+    },
   });
 
-  if (run.exitCode !== 0) {
-    throw new Error(`git commit-tree for ${commit.hash} failed: ${run.stderr}`);
+  if (run.kind !== "exited" || run.code !== 0) {
+    throw new Error(`git commit-tree for ${commit.hash} failed: ${run.stderr.trim()}`);
   }
 
-  return decoder.decode(run.stdout).trim();
+  return run.stdout.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -492,16 +489,16 @@ async function recreate(commit: RawCommit, parents: string[]): Promise<string> {
 async function badSignatures(hashes: string[]): Promise<string[]> {
   if (hashes.length === 0) return [];
 
-  const run = await spawn(
-    ["git", "log", "--no-walk=unsorted", "--stdin", "--format=%H %G?"],
-    encoder.encode(`${hashes.join("\n")}\n`),
-  );
+  const run = await runGit(["log", "--no-walk=unsorted", "--stdin", "--format=%H %G?"], {
+    stdin: `${hashes.join("\n")}\n`,
+  });
 
-  if (run.exitCode !== 0) throw new Error(`git log --format=%G? failed: ${run.stderr}`);
+  if (run.kind !== "exited" || run.code !== 0) {
+    throw new Error(`git log --format=%G? failed: ${run.stderr.trim()}`);
+  }
 
   const verdicts = new Map(
-    decoder
-      .decode(run.stdout)
+    run.stdout
       .split("\n")
       .filter(Boolean)
       .map((line) => {
@@ -788,9 +785,7 @@ async function applyMode(): Promise<Result> {
       replaced.set(hash, await recreate(commit, parents));
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-
-    return fail("apply", "signing-failed", `${detail}\n\nThe branch did not move.`);
+    return fail("apply", "signing-failed", `${messageOf(error)}\n\nThe branch did not move.`);
   }
 
   const newHead = replaced.get(head) ?? head;
@@ -897,11 +892,7 @@ if (import.meta.main) {
   try {
     result = await main();
   } catch (error) {
-    result = fail(
-      "validate",
-      "unexpected-failure",
-      error instanceof Error ? error.message : String(error),
-    );
+    result = fail("validate", "unexpected-failure", messageOf(error));
   }
 
   console.log(JSON.stringify(result));
