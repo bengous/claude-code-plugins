@@ -16,6 +16,8 @@
 
 import { posix } from "node:path";
 
+import { gitSync } from "../tools/platform/node.ts";
+import { messageOf } from "../tools/platform/pure.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 
 const CATALOG = ".claude-plugin/marketplace.json";
@@ -102,14 +104,14 @@ interface Release {
 }
 
 function spawnGit(repo: PluginDir, args: readonly string[]) {
-  return Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" });
+  return gitSync(["-C", repo, ...args], { stdout: "buffer" });
 }
 
 function git(repo: PluginDir, args: readonly string[]): string {
   const result = spawnGit(repo, args);
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
   return result.stdout.toString();
@@ -124,7 +126,9 @@ export function commitAt(repo: PluginDir, ref: string): CommitId {
     `${ref}^{commit}`,
   ]);
 
-  if (result.exitCode !== 0) throw new Error(`no commit ${JSON.stringify(ref)} in ${repo}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`no commit ${JSON.stringify(ref)} in ${repo}`);
+  }
 
   // SAFETY: the brand states git resolved the ref to a commit the repository holds, checked above.
   return result.stdout.toString().trim() as CommitId;
@@ -301,12 +305,10 @@ function releasesIn(pushed: readonly PushedRef[]): readonly Release[] {
 }
 
 function repositoryAt(cwd: string): PluginDir {
-  const result = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const result = gitSync(["-C", cwd, "rev-parse", "--show-toplevel"]);
 
-  const root = result.exitCode === 0 ? pluginDirAt(result.stdout.toString().trim()) : null;
+  const root =
+    result.kind === "exited" && result.code === 0 ? pluginDirAt(result.stdout.trim()) : null;
 
   if (root === null) throw new Error(`not in a git working tree: ${cwd}`);
 
@@ -356,7 +358,7 @@ if (import.meta.main) {
       }
     }
   } catch (error) {
-    console.error(`check-plugin-bumps: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`check-plugin-bumps: ${messageOf(error)}`);
     process.exitCode = 1;
   }
 }

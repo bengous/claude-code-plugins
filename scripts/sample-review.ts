@@ -25,6 +25,8 @@
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 
+import { gitSync } from "../tools/platform/node.ts";
+import { messageOf } from "../tools/platform/pure.ts";
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 
 const DEFAULT_COUNT = 3;
@@ -204,14 +206,14 @@ export function sessionOf(body: string): string | null {
 }
 
 function git(cwd: string, args: readonly string[], input = ""): string {
-  const result = Bun.spawnSync(["git", "-c", "core.quotePath=false", "-C", cwd, ...args], {
-    stdin: Buffer.from(input),
-    stdout: "pipe",
-    stderr: "pipe",
+  const result = gitSync(["-C", cwd, ...args], {
+    config: ["core.quotePath=false"],
+    stdin: input,
+    stdout: "buffer",
   });
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
   return result.stdout.toString();
@@ -316,7 +318,7 @@ export function lookupSession(cwd: string, sha: string): SessionLookup {
       },
     );
   } catch (error) {
-    return { kind: "failed", why: error instanceof Error ? error.message : String(error) };
+    return { kind: "failed", why: messageOf(error) };
   }
 
   if (result.exitCode !== 0) {
@@ -404,7 +406,7 @@ function parseCli(argv: readonly string[]): Cli {
       allowPositionals: false,
     }));
   } catch (error) {
-    return { kind: "usage", why: error instanceof Error ? error.message : String(error) };
+    return { kind: "usage", why: messageOf(error) };
   }
 
   const week = values.week === undefined ? null : parseWeek(values.week);
@@ -438,7 +440,7 @@ function main(argv: readonly string[]): number {
   try {
     found = sample(cwd, cli.ref, period, cli.count);
   } catch (error) {
-    console.error(`sample-review: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`sample-review: ${messageOf(error)}`);
 
     return 1;
   }

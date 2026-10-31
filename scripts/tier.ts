@@ -21,8 +21,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { messageOf } from "../agent-hooks/errors.ts";
 import { isRecord, stringField } from "../agent-hooks/json.ts";
+import { type BufferOutput, type GitOptions, gitSync } from "../tools/platform/node.ts";
+import { messageOf } from "../tools/platform/pure.ts";
 import { withoutSessionIdentity } from "./lib/session-env.ts";
 import { BASE, short } from "./review-verdict.ts";
 import { VERSION_BUMP } from "./sample-review.ts";
@@ -143,16 +144,17 @@ function git(
   args: readonly string[],
   { env, stdin }: { env?: Readonly<Record<string, string>>; stdin?: string } = {},
 ): string {
-  const result = Bun.spawnSync(["git", ...args], {
-    cwd,
-    env: { ...process.env, ...env },
-    stdin: stdin === undefined ? null : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const overlay = env ?? {};
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  const options: GitOptions & BufferOutput =
+    stdin === undefined
+      ? { cwd, env: overlay, stdout: "buffer" }
+      : { cwd, env: overlay, stdin, stdout: "buffer" };
+
+  const result = gitSync(args, options);
+
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
   return result.stdout.toString();

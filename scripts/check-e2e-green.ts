@@ -15,6 +15,9 @@
  * `.claude/rules/hook-ladder.md` says why.
  */
 
+import { gitSync } from "../tools/platform/node.ts";
+import { messageOf } from "../tools/platform/pure.ts";
+
 const DEV = "refs/heads/dev";
 
 const CHECK = "e2e";
@@ -159,21 +162,27 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
 }
 
 function spawnGit(args: readonly string[]) {
-  return Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  return gitSync(args, { stdout: "buffer" });
 }
 
 function git(args: readonly string[]): string {
   const result = spawnGit(args);
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
   return result.stdout.toString();
 }
 
+function hasCommit(oid: string): boolean {
+  const result = spawnGit(["cat-file", "-e", `${oid}^{commit}`]);
+
+  return result.kind === "exited" && result.code === 0;
+}
+
 function changedPaths({ local, remote }: PushToDev): readonly string[] {
-  if (remote !== null && spawnGit(["cat-file", "-e", `${remote}^{commit}`]).exitCode !== 0) {
+  if (remote !== null && !hasCommit(remote)) {
     throw new Error(
       `${DEV} is at ${remote} on the remote, a commit this repository does not have: fetch origin first`,
     );
@@ -252,7 +261,7 @@ if (import.meta.main) {
       process.exitCode = 1;
     }
   } catch (error) {
-    console.error(`check-e2e-green: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`check-e2e-green: ${messageOf(error)}`);
     process.exitCode = 1;
   }
 }
