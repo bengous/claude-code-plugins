@@ -4,16 +4,15 @@
  * Lefthook pre-commit hook — blocks direct commits to protected branches.
  */
 
+import { gitSync } from "../../tools/platform/node.ts";
+
 const PROTECTED_BRANCHES: ReadonlySet<string> = new Set(["main", "master"]);
 
 if (process.env["MAIN_BYPASS"] === "1") process.exit(0);
 
-const head = Bun.spawnSync(["git", "symbolic-ref", "--short", "HEAD"], {
-  stdout: "pipe",
-  stderr: "pipe",
-});
+const head = gitSync(["symbolic-ref", "--short", "HEAD"]);
 
-const branch = head.exitCode === 0 ? head.stdout.toString().trim() : null;
+const branch = head.kind === "exited" && head.code === 0 ? head.stdout.trim() : null;
 
 if (branch !== null && PROTECTED_BRANCHES.has(branch)) {
   console.error(`\nERROR: Direct commits to '${branch}' are blocked.`);
