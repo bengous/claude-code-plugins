@@ -28,7 +28,7 @@ import { parseArgs } from "node:util";
 import { $ } from "bun";
 
 import { git, gitRead } from "../tools/platform/node.ts";
-import { shellQuote } from "../tools/platform/pure.ts";
+import { messageOf, shellQuote } from "../tools/platform/pure.ts";
 import { installDependencies } from "./lib/plugin-sources.ts";
 
 const USAGE = [
@@ -578,6 +578,17 @@ async function messages(name: string, args: string[]): Promise<void> {
   );
 }
 
+/** Why `git worktree remove` left `source` in place, a git that does not start included; null once it is gone. */
+async function worktreeLeft(source: string): Promise<string | null> {
+  try {
+    const unlinked = await git(["-C", ROOT, "worktree", "remove", "--force", source]);
+
+    return unlinked.kind === "exited" && unlinked.code === 0 ? null : unlinked.stderr.trim();
+  } catch (error) {
+    return messageOf(error);
+  }
+}
+
 async function stop(name: string): Promise<void> {
   const scratch = scratchOf(name);
 
@@ -600,10 +611,10 @@ async function stop(name: string): Promise<void> {
   const source = join(scratch, "source");
 
   if (existsSync(source)) {
-    const unlinked = await git(["-C", ROOT, "worktree", "remove", "--force", source]);
+    const why = await worktreeLeft(source);
 
-    if (unlinked.kind === "exited" && unlinked.code === 0) removed.push(`worktree ${source}`);
-    else failed.push(`git worktree remove ${source}: ${unlinked.stderr.trim()}`);
+    if (why === null) removed.push(`worktree ${source}`);
+    else failed.push(`git worktree remove ${source}: ${why}`);
   }
 
   rmSync(scratch, { recursive: true, force: true });
