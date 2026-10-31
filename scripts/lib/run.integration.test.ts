@@ -1,0 +1,26 @@
+import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+
+import { run } from "./run.ts";
+
+describe("run", () => {
+  test("answers whether the command exited 0, its stdout as bytes and trimmed, its stderr trimmed", () => {
+    const result = run(["sh", "-c", "printf ' out \\n'; printf ' err \\n' >&2; exit 3"], tmpdir());
+
+    expect(result.ok).toBe(false);
+    expect(new TextDecoder().decode(result.raw)).toBe(" out \n");
+    expect([result.out, result.err]).toEqual(["out", "err"]);
+  });
+
+  test("feeds stdin to the command", () => {
+    const result = run(["cat"], tmpdir(), new TextEncoder().encode("fed\n"));
+
+    expect([result.ok, result.out]).toEqual([true, "fed"]);
+  });
+
+  test("throws for a program the PATH lacks, naming it", () => {
+    expect(() => run(["no-such-program-on-the-path"], tmpdir())).toThrow(
+      'Executable not found in $PATH: "no-such-program-on-the-path"',
+    );
+  });
+});
