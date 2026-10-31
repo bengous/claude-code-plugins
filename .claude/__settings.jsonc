@@ -61,6 +61,12 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
+          },
+          {
+            // A first run clones the private repository .private.env names.
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/private-sync.ts\"",
+            "timeout": 60
           }
         ]
       }

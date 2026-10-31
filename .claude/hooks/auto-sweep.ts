@@ -21,7 +21,7 @@ const SCRIPT = join(import.meta.dir, "../../git-sweep/scripts/auto-sweep.ts");
 
 const BASE = "dev";
 
-const NO_PROMPT = {
+export const NO_PROMPT = {
   GIT_TERMINAL_PROMPT: "0",
   SSH_ASKPASS_REQUIRE: "never",
   GH_PROMPT_DISABLED: "1",

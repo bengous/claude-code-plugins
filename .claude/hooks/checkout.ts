@@ -27,7 +27,7 @@ let discoveryEnv: Promise<Record<string, string | undefined>> | undefined;
  * with them, every directory reads as a checkout rooted at itself. `LC_ALL=C`
  * keeps the "not a git repository" message matchable.
  */
-function gitDiscoveryEnv(): Promise<Record<string, string | undefined>> {
+export function gitDiscoveryEnv(): Promise<Record<string, string | undefined>> {
   discoveryEnv ??= $`git rev-parse --local-env-vars`.text().then((names) => {
     const pinning = new Set(names.split("\n"));
     const kept = Object.entries(process.env).filter(([name]) => !pinning.has(name));

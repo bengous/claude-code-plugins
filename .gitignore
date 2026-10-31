@@ -4,7 +4,13 @@
 .claude/exports/
 .claude/rebase/
 .t-plan/
-plans/
+# A directory, or the link .claude/hooks/private-sync.ts makes into the private repository
+plans
+
+# The private repository nested in the project, the file that names it, and the link into its scratch/
+/.private/
+/.private.env
+/.scratch
 
 # Node/Bun
 node_modules/
