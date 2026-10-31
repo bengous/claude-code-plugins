@@ -1,3 +1,4 @@
+import { baseNameOf, dirNameOf, messageOf } from "../lib/platform/pure.ts";
 import type { Finding, Todo } from "../types/index.d.ts";
 import { findingIdOf, FINDINGS_DIR, parseRecord } from "./findings.ts";
 import {
@@ -70,19 +71,19 @@ export async function repoRoot(host: Host, cwd: string): Promise<string | null> 
  * path or a Windows path with backslashes still lands on the repository-relative path.
  */
 export async function locate(host: Host, filePath: string): Promise<Located | null> {
-  const slash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  const directory = dirNameOf(filePath);
 
-  if (slash < 0) return null;
+  if (directory === null) return null;
 
   const run = await host
-    .run(["git", "rev-parse", "--show-toplevel", "--show-prefix"], filePath.slice(0, slash) || "/")
+    .run(["git", "rev-parse", "--show-toplevel", "--show-prefix"], directory)
     .catch(() => null);
 
   const [root, prefix] = run?.exitCode === 0 ? run.stdout.split("\n") : [];
 
   if (root === undefined || root === "" || prefix === undefined) return null;
 
-  return { root, path: `${prefix}${filePath.slice(slash + 1)}` };
+  return { root, path: `${prefix}${baseNameOf(filePath)}` };
 }
 
 export async function isExcludedPath(host: Host, root: string, path: string): Promise<boolean> {
@@ -146,7 +147,7 @@ async function blame(
   } catch (error) {
     return {
       isOk: false,
-      error: `git blame ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      error: `git blame ${path}: ${messageOf(error)}`,
     };
   }
 
@@ -237,7 +238,7 @@ export async function readFindings(host: Host, root: string): Promise<Buffered> 
 
         return {
           kind: "broken",
-          error: `finding ${path}: ${error instanceof Error ? error.message : String(error)}`,
+          error: `finding ${path}: ${messageOf(error)}`,
         };
       }
     }),
@@ -256,7 +257,7 @@ async function readFindingsOrFailure(host: Host, root: string): Promise<Buffered
   try {
     return await readFindings(host, root);
   } catch (error) {
-    return { findings: [], failures: [error instanceof Error ? error.message : String(error)] };
+    return { findings: [], failures: [messageOf(error)] };
   }
 }
 

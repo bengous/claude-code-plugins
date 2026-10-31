@@ -1,6 +1,7 @@
 import type { EngineInterface, PluginOptions, Register } from "claude-code";
 import { atom, read, update } from "claude-code";
 
+import { baseNameOf, messageOf } from "../lib/platform/pure.ts";
 import type { Finding, Todo, TodoScan } from "../types/index.d.ts";
 import { COMMAND as FINDING_COMMAND, isPlainFindingCommand } from "./findings.ts";
 import {
@@ -86,10 +87,6 @@ function settingsOf(options: PluginOptions): Settings {
     markers: parseMarkers(String(options.markers ?? DEFAULT_MARKERS.join(","))),
     mineOnly: options.mine_only === true,
   };
-}
-
-function messageOf(error: Error | string): string {
-  return error instanceof Error ? error.message : error;
 }
 
 function hostOf($: EngineInterface): Host {
@@ -195,7 +192,7 @@ async function refreshOrToast(
   try {
     await refresh($, settings, cwd, reveal);
   } catch (error) {
-    $.ui.toast(messageOf(error instanceof Error ? error : String(error)));
+    $.ui.toast(messageOf(error));
   }
 }
 
@@ -234,7 +231,7 @@ async function announceNewFindings(
 
     if (toast !== "") $.ui.toast(toast);
   } catch (error) {
-    $.ui.toast(messageOf(error instanceof Error ? error : String(error)));
+    $.ui.toast(messageOf(error));
   }
 }
 
@@ -303,9 +300,7 @@ export const register: Register = (on, options) => {
         description: "Show this repository's TODOs above the prompt, newest first",
       });
     } catch (error) {
-      $.ui.toast(
-        `/${COMMAND} is not available: ${messageOf(error instanceof Error ? error : String(error))}`,
-      );
+      $.ui.toast(`/${COMMAND} is not available: ${messageOf(error)}`);
     }
 
     await update($, isMineOnly, () => settings.mineOnly);
@@ -338,7 +333,7 @@ export const register: Register = (on, options) => {
 
       return { text: countText(scan, await read($, isMineOnly)) };
     } catch (error) {
-      return { text: messageOf(error instanceof Error ? error : String(error)) };
+      return { text: messageOf(error) };
     }
   });
 
@@ -346,9 +341,7 @@ export const register: Register = (on, options) => {
     if (e.tool !== "Edit" && e.tool !== "Write") return next(e);
     const written = e.tool === "Write" ? e.content : e.new_string;
 
-    const name = e.file_path.slice(
-      Math.max(e.file_path.lastIndexOf("/"), e.file_path.lastIndexOf("\\")) + 1,
-    );
+    const name = baseNameOf(e.file_path);
 
     if (name !== LIST_FILE && !settings.markers.some((marker) => written.includes(marker)))
       return next(e);

@@ -1,5 +1,5 @@
-import { existsSync, linkSync, mkdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, realpathSync, unlinkSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 
 import {
   COMMAND,
@@ -9,6 +9,8 @@ import {
   formatRecord,
   parseTarget,
 } from "../hooks/findings.ts";
+import { createExclusiveSync, gitSync } from "../lib/platform/node.ts";
+import { isErrno, isInsideRelative, messageOf } from "../lib/platform/pure.ts";
 
 const USAGE = `Usage:
   ${COMMAND} [--security] <path>[:<line>] <why>   record a finding unrelated to your task, for the user to review in batch
@@ -27,31 +29,25 @@ class UsageError extends Error {}
 
 const ENOENT = "ENOENT";
 
-const EEXIST = "EEXIST";
-
 const ID_DRAWS = 5;
 
-function hasCode(error: Error, code: string): boolean {
-  return "code" in error && error.code === code;
-}
-
 function repoOf(cwd: string): Repo {
-  const revParse = Bun.spawnSync(
-    ["git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"],
-    { cwd, stdout: "pipe", stderr: "pipe" },
+  const revParse = gitSync(
+    ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"],
+    { cwd },
   );
 
-  const [top, commonDir] = revParse.stdout.toString().trim().split("\n");
+  const [top, commonDir] = revParse.stdout.trim().split("\n");
 
-  if (revParse.exitCode !== 0 || top === undefined || commonDir === undefined)
-    throw new Error(`${cwd} is not inside a git work tree: ${revParse.stderr.toString().trim()}`);
+  if (
+    revParse.kind !== "exited" ||
+    revParse.code !== 0 ||
+    top === undefined ||
+    commonDir === undefined
+  )
+    throw new Error(`${cwd} is not inside a git work tree: ${revParse.stderr.trim()}`);
 
   return { top: realpathSync(top), buffer: join(commonDir, FINDINGS_DIR) };
-}
-
-/** Whether a path relative to the repository's root stays under it: `..env` does, `../x` does not. */
-function isInside(fromRoot: string): boolean {
-  return fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
 }
 
 export function randomId(): string {
@@ -64,19 +60,8 @@ export function randomId(): string {
 function place(buffer: string, text: string, nextId: () => string): string {
   for (let draw = 0; draw < ID_DRAWS; draw += 1) {
     const id = nextId();
-    const staged = join(buffer, `.${id}.${process.pid}.tmp`);
 
-    writeFileSync(staged, text);
-
-    try {
-      linkSync(staged, join(buffer, `${id}.json`));
-
-      return id;
-    } catch (error) {
-      if (!(error instanceof Error && hasCode(error, EEXIST))) throw error;
-    } finally {
-      unlinkSync(staged);
-    }
+    if (createExclusiveSync(join(buffer, `${id}.json`), text)) return id;
   }
 
   throw new Error(`no free finding id in ${buffer} after ${ID_DRAWS} draws`);
@@ -99,7 +84,8 @@ function record(args: readonly string[], cwd: string, now: Date, nextId: () => s
   const repo = repoOf(cwd);
   const inside = relative(repo.top, realpathSync(absolute));
 
-  if (!isInside(inside)) throw new Error(`${rawPath} is outside the repository at ${repo.top}`);
+  if (!isInsideRelative(inside, [sep]))
+    throw new Error(`${rawPath} is outside the repository at ${repo.top}`);
   const path = inside === "" ? "." : inside.split(sep).join("/");
 
   mkdirSync(repo.buffer, { recursive: true });
@@ -130,7 +116,7 @@ function close(ids: readonly string[], cwd: string): Outcome {
       unlinkSync(join(buffer, `${id}.json`));
       closed.push(id);
     } catch (error) {
-      if (!(error instanceof Error && hasCode(error, ENOENT))) throw error;
+      if (!isErrno(error, ENOENT)) throw error;
       missing.push(id);
     }
   }
@@ -168,7 +154,7 @@ export function run(
     return {
       exitCode: 1,
       stdout: "",
-      stderr: `${COMMAND}: ${error instanceof Error ? error.message : String(error)}\n`,
+      stderr: `${COMMAND}: ${messageOf(error)}\n`,
     };
   }
 }
