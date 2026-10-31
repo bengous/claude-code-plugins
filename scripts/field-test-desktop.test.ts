@@ -2,11 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import {
   claudeWindows,
+  confirmationOf,
+  isOnTarget,
   keyArgs,
   linkOf,
+  logParts,
   newSessionLink,
+  parseCursor,
   pickWindow,
   pointerTarget,
+  scaleOf,
+  wholeNumber,
 } from "./field-test-desktop.ts";
 
 /** `hyprctl clients -j` as it printed the main window, a popped-out session and a browser. */
@@ -76,6 +82,95 @@ describe("linkOf", () => {
     expect(linkOf("claude://code/new")).toBe("claude://code/new");
     expect(linkOf("https://claude.ai")).toBeUndefined();
   });
+
+  test("takes an uppercase uuid and sends it lowercase", () => {
+    expect(linkOf("F407E488-6B88-45BC-8785-922532401DE4")).toBe(
+      "claude://resume?session=f407e488-6b88-45bc-8785-922532401de4",
+    );
+  });
+});
+
+describe("confirmationOf", () => {
+  test("matches both of Desktop's import lines for a uuid", () => {
+    const expected = confirmationOf("f407e488-6b88-45bc-8785-922532401de4");
+
+    expect(
+      "Resume deep link: importing CLI session f407e488-6b88-45bc-8785-922532401de4",
+    ).toContain(expected ?? "");
+    expect(
+      "CLI session f407e488-6b88-45bc-8785-922532401de4 already imported as local_f407e488",
+    ).toContain(expected ?? "");
+  });
+
+  test("names the focus line for a Desktop session, nothing for a bare link", () => {
+    expect(confirmationOf("local_abc")).toBe("setFocusedSession: sessionId=local_abc");
+    expect(confirmationOf("claude://code/new")).toBeUndefined();
+  });
+});
+
+describe("wholeNumber", () => {
+  test("reads decimal digits alone", () => {
+    expect(wholeNumber("375")).toBe(375);
+    expect(wholeNumber("0")).toBe(0);
+  });
+
+  test("refuses the empty string, signs, decimals and words", () => {
+    for (const text of ["", "-3", "1.5", "12abc", "<mark>", undefined]) {
+      expect(wholeNumber(text)).toBeUndefined();
+    }
+  });
+});
+
+describe("parseCursor", () => {
+  test("reads hyprctl cursorpos", () => {
+    expect(parseCursor("2448, 1326\n")).toEqual({ x: 2448, y: 1326 });
+  });
+
+  test("refuses an error or a notice", () => {
+    expect(parseCursor("error: no such dispatcher")).toBeUndefined();
+    expect(parseCursor("")).toBeUndefined();
+  });
+});
+
+describe("scaleOf", () => {
+  test("derives the screen pixels per ydotool unit on each axis", () => {
+    expect(scaleOf({ x: 200, y: 200 }, { x: 400, y: 400 })).toEqual({ x: 2, y: 2 });
+  });
+
+  test("refuses a move that landed at the origin", () => {
+    expect(scaleOf({ x: 200, y: 200 }, { x: 0, y: 400 })).toBeUndefined();
+  });
+});
+
+describe("isOnTarget", () => {
+  test("holds within two pixels on both axes", () => {
+    expect(isOnTarget({ x: 377, y: 1324 }, { x: 377, y: 1325 })).toBe(true);
+  });
+
+  test("fails when only the vertical axis is off", () => {
+    expect(isOnTarget({ x: 377, y: 1439 }, { x: 377, y: 1325 })).toBe(false);
+  });
+});
+
+describe("logParts", () => {
+  const current = { file: "main.log", offset: 0, size: 900 };
+  const rotated = { file: "main1.log", offset: 0, size: 5000 };
+
+  test("reads the current log from the mark", () => {
+    expect(logParts(400, current, rotated)).toEqual([{ file: "main.log", offset: 400 }]);
+  });
+
+  test("after a rotation, reads the rest of the old log, then the new one whole", () => {
+    expect(logParts(4000, current, rotated)).toEqual([
+      { file: "main1.log", offset: 4000 },
+      { file: "main.log", offset: 0 },
+    ]);
+  });
+
+  test("refuses a mark older than both logs", () => {
+    expect(logParts(9000, current, rotated)).toBeUndefined();
+    expect(logParts(4000, current, undefined)).toBeUndefined();
+  });
 });
 
 describe("newSessionLink", () => {
@@ -91,12 +186,16 @@ describe("newSessionLink", () => {
 });
 
 describe("pointerTarget", () => {
-  test("adds the window's origin and halves the sum for ydotool", () => {
+  test("adds the window's origin and divides by the measured scale", () => {
     const [, popped] = claudeWindows(CLIENTS);
 
     if (popped === undefined) throw new Error("fixture lost its popped-out window");
 
-    expect(pointerTarget(popped, { x: 375, y: 590 })).toEqual({ x: 189, y: 663 });
+    expect(pointerTarget(popped, { x: 375, y: 590 }, { x: 2, y: 2 })).toEqual({ x: 189, y: 663 });
+    expect(pointerTarget(popped, { x: 375, y: 590 }, { x: 1, y: 1.5 })).toEqual({
+      x: 377,
+      y: 883,
+    });
   });
 });
 

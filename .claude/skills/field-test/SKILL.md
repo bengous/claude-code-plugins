@@ -44,7 +44,7 @@ Done when every observable of step 2 is checked on the change.
 
 ## 5. Report and stop
 
-Report a table, one row per observable, with the text read on each side, and name what the run did not check (see "Desktop and mobile" in the reference). Then `stop` each session: it removes the tmux session, the `--ref` worktree, the scratch directory and Claude Code's data for it.
+Report a table, one row per observable, with the text read on each side, and name what the run did not check (see "Desktop and mobile" in the reference). Then `stop` each session: it removes the tmux session, the `--ref` worktree, the scratch directory and Claude Code's data for it. A Desktop run has no `stop`: undo the install and list what it left, as "Install and clean up" in references/desktop.md says.
 
 | Observable | Base (`<base>`) | Change |
 |---|---|---|
@@ -67,18 +67,18 @@ bun ./scripts/field-test.ts stop griller-base
 
 `start` takes `--model` (default `sonnet`), `--width` and `--height` (default 220 × 50), and `--cwd <dir>` to run in a directory you prepared, whose Claude Code data `stop` then leaves alone.
 
-In Claude Desktop (Desktop runs an installed plugin, not `--plugin-dir`: install the change as references/desktop.md says, then start a new session for each edit):
+In Claude Desktop (Desktop runs an installed plugin, not `--plugin-dir`: install the change and undo it after the run as "Install and clean up" in references/desktop.md says, and start a new session for each edit):
 
 ```bash
-bun ./scripts/field-test-desktop.ts mark                                 # Desktop's log line count, for log --since
-bun ./scripts/field-test-desktop.ts open <cli session uuid>              # import and show; local_<id> shows a Desktop session
+bun ./scripts/field-test-desktop.ts mark                                 # a byte offset into Desktop's log, for log --since
+bun ./scripts/field-test-desktop.ts open <cli session uuid>              # import and show, confirmed by Desktop's log; local_<id> shows a Desktop session
 bun ./scripts/field-test-desktop.ts new --folder <dir> --prompt "<text>" # the new-session page, prompt box filled
 bun ./scripts/field-test-desktop.ts windows                              # Desktop's windows, their workspace and geometry
-bun ./scripts/field-test-desktop.ts shot <file.png> --half               # capture the main window; --window <title> for a popped-out one
-bun ./scripts/field-test-desktop.ts click <x> <y>                        # full-size window coordinates; focuses the window first
+bun ./scripts/field-test-desktop.ts shot --half                          # capture the main window into a new temporary directory; prints the file
+bun ./scripts/field-test-desktop.ts click <x> <y>                        # full-size window coordinates; refuses when the pointer misses
 bun ./scripts/field-test-desktop.ts key Enter                            # Escape Backspace Tab Enter Up Down End
-bun ./scripts/field-test-desktop.ts log --since <mark> --grep "Warming"  # what Desktop did since the mark
+bun ./scripts/field-test-desktop.ts log --since <mark> --grep "Warming"  # what Desktop wrote since the mark
 bun ./scripts/field-test-desktop.ts process <cli session uuid>           # does a Claude Code process run it
 ```
 
-`click` and `key` move the person's pointer and type on their screen: ask before the first one in a session.
+`shot`, `click` and `key` take `--window <title>` for a popped-out session; `shot` refuses a window on a workspace the screen does not show unless `--focus`. `click` and `key` move the person's pointer and type on their screen: ask before the first one in a session.
