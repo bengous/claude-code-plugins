@@ -1,6 +1,8 @@
-import { lstat, mkdir, readdir, readFile, rename, rm, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
 
+import { writeAtomic } from "../lib/platform/node.ts";
+import { isErrno } from "../lib/platform/pure.ts";
 import type { Delivery, Outcome } from "../shared/wire.ts";
 import { parseDelivery } from "./parse.ts";
 
@@ -75,14 +77,8 @@ function parseSettled(text: string): Delivery[] {
   }
 }
 
-async function writeWhole(file: string, data: string | Uint8Array): Promise<void> {
-  const draft = `${file}.tmp`;
-  await writeFile(draft, data);
-  await rename(draft, file);
-}
-
 function isMissing(cause: unknown): boolean {
-  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+  return isErrno(cause, "ENOENT");
 }
 
 /**
@@ -172,17 +168,17 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
 
       const last = Number.parseInt(kept, 10);
       const next = Math.max(Number.isNaN(last) ? 0 : last, after) + 1;
-      await writeWhole(seqFile, `${next}\n`);
+      await writeAtomic(seqFile, `${next}\n`);
 
       return next;
     },
     keepPending: async (pending) => {
       await mkdir(pendingDir, { recursive: true });
-      await writeWhole(join(pendingDir, `${pending.seq}.json`), JSON.stringify(pending));
+      await writeAtomic(join(pendingDir, `${pending.seq}.json`), JSON.stringify(pending));
     },
     settle: async (delivery) => {
       const others = (await settled()).filter((one) => one.seq !== delivery.seq);
-      await writeWhole(settledFile, JSON.stringify([...others, delivery].slice(-SETTLED_KEPT)));
+      await writeAtomic(settledFile, JSON.stringify([...others, delivery].slice(-SETTLED_KEPT)));
       await rm(join(pendingDir, `${delivery.seq}.json`), { force: true });
     },
     pending: async () => {
@@ -209,7 +205,7 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
     keepImage: async (png) => {
       const id = crypto.randomUUID();
       await mkdir(imagesDir, { recursive: true });
-      await writeWhole(imagePath(id), png);
+      await writeAtomic(imagePath(id), png);
 
       return id;
     },
