@@ -5,9 +5,6 @@ import type { CloudRow, PullState } from "../types";
 
 const PULL = "cloud-pull";
 
-/** Run as the whole prompt of the headless teleport: a slash command makes the CLI write the session without a model turn. */
-const MARK = "cloud-pull-mark";
-
 const PANE = "cloud-pull";
 
 const API = "https://api.anthropic.com/v1/sessions";
@@ -222,9 +219,12 @@ async function pull($: EngineInterface, cloud: CloudRow): Promise<string> {
   const worktree = `${repo.path}/.claude/worktrees/cloud-${cloud.id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
   await run($, ["git", "worktree", "add", "--detach", worktree], repo.path);
 
+  // /rename as the whole prompt: a slash command makes the CLI write the session without a model turn, and Desktop takes the name as the session's title.
+  const rename = `/rename ${cloud.title.replaceAll(/\s+/gu, " ")}`;
+
   const output = await run(
     $,
-    ["claude", "--teleport", cloud.id, "-p", `/${MARK}`, "--output-format", "json"],
+    ["claude", "--teleport", cloud.id, "-p", rename, "--output-format", "json"],
     worktree,
     TELEPORT_TIMEOUT_MS,
   );
@@ -331,10 +331,6 @@ export const register: Register = (on) => {
         "List this repository's cloud sessions, or continue one here as a local Desktop session",
       argumentHint: "[session_id]",
     });
-    await $.command.register({
-      name: MARK,
-      description: "Used by /cloud-pull while it teleports; shows nothing",
-    });
     const result = await next(e);
     // The headless teleport starts in the same worktree, before /cloud-pull writes the record: it finds none.
     const record = await readPulled($, e.cwd);
@@ -383,8 +379,6 @@ export const register: Register = (on) => {
 
     return next(e);
   });
-
-  on("command.run", { command: MARK }, () => ({}));
 
   on("command.run", { command: PULL }, async ($, e) => {
     const id = e.args.trim();
