@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { isRecord, stringField } from "../agent-hooks/json.ts";
+import { gitSync } from "../tools/platform/node.ts";
+import { messageOf } from "../tools/platform/pure.ts";
 import {
   CHANGELOG,
   changelogVerdict,
@@ -125,10 +127,10 @@ export interface Sealed {
 }
 
 function git(repo: string, args: readonly string[]): string {
-  const result = Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "pipe", stderr: "pipe" });
+  const result = gitSync(["-C", repo, ...args], { stdout: "buffer" });
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
   return result.stdout.toString();
@@ -442,9 +444,7 @@ async function judge(change: PluginChange, codeLevel: Level): Promise<Judgement>
   try {
     return judgementOf(stdout, wantsBody);
   } catch (error) {
-    throw new Error(`${change.name}: ${error instanceof Error ? error.message : String(error)}`, {
-      cause: error,
-    });
+    throw new Error(`${change.name}: ${messageOf(error)}`, { cause: error });
   }
 }
 

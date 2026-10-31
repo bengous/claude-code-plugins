@@ -174,7 +174,7 @@ function refuseOnOrigin(ref: string) {
   chmodSync(hook, 0o755);
 }
 
-/** The real lefthook `sync-versions` job and its script, installed in the fixture, with a README table to sync. */
+/** The real lefthook `sync-versions` job, its script and what it imports, installed in the fixture, with a README table to sync. */
 function installSyncVersions() {
   const real = parse(readFileSync(join(import.meta.dir, "..", "lefthook.yml"), "utf8"));
 
@@ -193,6 +193,15 @@ function installSyncVersions() {
     join(import.meta.dir, "lib", "marketplace-validation.ts"),
     join(repo, "scripts", "lib", "marketplace-validation.ts"),
   );
+  mkdirSync(join(repo, "tools", "platform"), { recursive: true });
+
+  for (const file of ["pure.ts", "node.ts"]) {
+    copyFileSync(
+      join(import.meta.dir, "..", "tools", "platform", file),
+      join(repo, "tools", "platform", file),
+    );
+  }
+
   catalog(
     { name: "vellum", source: "./vellum", version: "0.1.0" },
     { name: "other", source: "./other", version: "1.0.0" },

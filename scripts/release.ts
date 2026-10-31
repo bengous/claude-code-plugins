@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { styleText } from "node:util";
 
+import { messageOf } from "../tools/platform/pure.ts";
 import {
   CHANGELOG,
   notesSince,
@@ -45,6 +46,7 @@ import {
 } from "./check-plugin-bumps.ts";
 import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
+import { run as command } from "./lib/run.ts";
 import {
   type JudgeEvent,
   JUDGE_MODEL,
@@ -152,19 +154,13 @@ interface Run {
 }
 
 function run(cmd: readonly string[], cwd: string, stdin?: string): Run {
-  const result = Bun.spawnSync([...cmd], {
+  const result = command(
+    cmd,
     cwd,
-    env: process.env,
-    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+    stdin === undefined ? undefined : new TextEncoder().encode(stdin),
+  );
 
-  return {
-    ok: result.exitCode === 0,
-    out: result.stdout.toString(),
-    err: result.stderr.toString().trim(),
-  };
+  return { ok: result.ok, out: Buffer.from(result.raw).toString(), err: result.err };
 }
 
 function git(cwd: string, args: readonly string[]): string {
@@ -534,7 +530,7 @@ export async function ship(
   } catch (error) {
     if (!onDev) throw error;
 
-    const why = error instanceof Error ? error.message : String(error);
+    const why = messageOf(error);
 
     return { kind: "after-bumps", head, why: `waiting for its push run of CI failed: ${why}` };
   }
@@ -918,7 +914,7 @@ if (import.meta.main) {
       process.exitCode = exit;
     }
   } catch (error) {
-    const message = `release: ${error instanceof Error ? error.message : String(error)}`;
+    const message = `release: ${messageOf(error)}`;
 
     console.error(styleText("red", message, { stream: process.stderr }));
     process.exitCode = 1;

@@ -12,11 +12,9 @@
  */
 
 import { existsSync } from "node:fs";
-import { rename } from "node:fs/promises";
 import { join } from "node:path";
 
-import { $ } from "bun";
-
+import { git, gitRead, writeAtomic } from "../tools/platform/node.ts";
 import {
   extractDescriptionFromReadme,
   extractVersionFromReadme,
@@ -27,14 +25,14 @@ import {
   type PluginJson,
 } from "./lib/marketplace-validation";
 
-const repoRootResult = await $`git rev-parse --show-toplevel`.nothrow().quiet();
+const repoRootResult = await git(["rev-parse", "--show-toplevel"]);
 
-if (repoRootResult.exitCode !== 0) {
+if (repoRootResult.kind !== "exited" || repoRootResult.code !== 0) {
   console.error("Error: Not in a git repository");
   process.exit(2);
 }
 
-const repoRoot = repoRootResult.text().trim();
+const repoRoot = repoRootResult.stdout.trim();
 
 const marketplaceFile = join(repoRoot, ".claude-plugin/marketplace.json");
 
@@ -131,26 +129,20 @@ if (refusals.length > 0) {
   process.exit(1);
 }
 
-async function atomicWrite(path: string, content: string): Promise<void> {
-  const tmp = `${path}.tmp`;
-  await Bun.write(tmp, content);
-  await rename(tmp, path);
-}
-
 const toStage: string[] = [];
 
 if (marketplaceChanged) {
-  await atomicWrite(marketplaceFile, JSON.stringify(marketplace, null, 2) + "\n");
+  await writeAtomic(marketplaceFile, JSON.stringify(marketplace, null, 2) + "\n", { mkdir: true });
   toStage.push(marketplaceFile);
 }
 
 if (newReadme !== readmeContent) {
-  await atomicWrite(readmeFile, newReadme);
+  await writeAtomic(readmeFile, newReadme, { mkdir: true });
   toStage.push(readmeFile);
 }
 
 if (toStage.length > 0) {
-  await $`git add ${toStage}`.quiet();
+  await gitRead(["add", ...toStage]);
   console.log("Synced from plugin.json:");
 
   for (const c of changes) console.log(`  ${c}`);
