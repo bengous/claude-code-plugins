@@ -217,6 +217,7 @@ export type Adopted = { readonly path: string; readonly warnings: readonly strin
  * the map is switched, a draft that cannot be removed is a warning.
  */
 export function adoptDraft(dir: string, name: string): Adopted {
+  // FIXME: adopt replaces threads.json without the lock appendReply holds (THREADS_LOCK), so a reply that lands between the hash check and the moves is moved aside with the map's copy and lost, and one that read threads.json before the switch writes the map's old threads back over the draft's; hold withLock on THREADS_LOCK from the hash check to the last move, which makes adoptDraft async.
   const path = existingDraft(dir, name);
   const base = baseOf(path);
   const live = unchanged(() => hashesOf(dir));

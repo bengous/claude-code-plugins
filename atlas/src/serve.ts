@@ -6,7 +6,13 @@ import { parseArgs } from "node:util";
 
 import type { BuildArtifact, BunPlugin, Server } from "bun";
 
-import { CONFIG_FILE, MAP_FILE, THREADS_FILE, readFolderLine } from "./model/folder.ts";
+import {
+  CONFIG_FILE,
+  MAP_FILE,
+  THREADS_FILE,
+  isThreadsFile,
+  readFolderLine,
+} from "./model/folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./model/threads.ts";
 import { coalesced } from "./server/coalesce.ts";
 import type { Sources } from "./server/source.ts";
@@ -291,10 +297,11 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 
 const rebuildSoon = coalesced(rebuild);
 
-// threads.json changes on every reply, and the page reads it again by itself. An event on the
-// watched folder itself, moved or deleted, comes with no file name (Bun 1.4.3): it rebuilds.
+// threads.json changes on every reply, and the page reads it again by itself; so do the lock and
+// the scratch file a reply writes beside it. An event on the watched folder itself, moved or
+// deleted, comes with no file name (Bun 1.4.3): it rebuilds.
 function changed(file: string | null | undefined): void {
-  if (basename(file ?? "") === THREADS_FILE) {
+  if (isThreadsFile(basename(file ?? ""))) {
     return;
   }
 

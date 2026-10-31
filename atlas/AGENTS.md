@@ -112,7 +112,10 @@ src/commands/        what cli.ts does to a map folder
                      words, and threads, and reports the open points; with the Config's sources,
                      each cited file, read once as serve.ts reads it but for the size cap, and its
                      lines, or the missing root in one line (check.spec.ts)
-  reply.ts           adds an entry to a thread of a map folder (reply.spec.ts)
+  reply.ts           adds an entry to a thread of a map folder, holding a lock beside threads.json
+                     that serve.ts's watch ignores, as it ignores the scratch file the write
+                     renames into place (reply.spec.ts; reply.integration.spec.ts, replies at once
+                     from several processes)
   drafts.ts          a map folder's data files, and its drafts: made, adopted, dropped
 
 src/inventory/       what a repository holds, as JSON, model-free, for /atlas:init

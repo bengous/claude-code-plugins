@@ -424,6 +424,34 @@ describe("serve.ts", () => {
   );
 
   test(
+    "a reply builds nothing either, though it writes a lock and a scratch file beside threads.json",
+    async () => {
+      await onOwnServer(async (folder, own) => {
+        const replied = await fetch(`${own.base}/${THREADS_FILE}`, {
+          method: "POST",
+          headers: {
+            origin: own.base,
+            "content-type": "application/json",
+            [TOKEN_HEADER]: token((await page(own)).html),
+          },
+          body: JSON.stringify({ id: "backup-restore-untested", text: "A restore was tried." }),
+        });
+
+        expect(replied.status).toBe(200);
+
+        await Bun.sleep(1000);
+        saveAsOneEvent(join(folder, MAP_FILE), original.replace("Nightly backup", "Weekly backup"));
+        const build = await within(own.log.next(isBuild), "build");
+
+        expect(build).toContain("reload sent");
+
+        await reloadedTo((p) => p.script.includes("Weekly backup"), own);
+      });
+    },
+    WAIT_MS * 3,
+  );
+
+  test(
     "a missing map.ts is named without a position it does not have",
     async () => {
       served().events.skip();

@@ -19,6 +19,16 @@ export const CONFIG_FILE = "atlas.config.ts";
 
 export const THREADS_FILE = "threads.json";
 
+/** The lock a reply holds beside threads.json while it reads and rewrites it (commands/reply.ts). */
+export const THREADS_LOCK = `.${THREADS_FILE}.lock`;
+
+/** threads.json's scratch files, as writeAtomic names them: `.<base>.<pid>.<uuid>.tmp`. */
+const THREADS_SCRATCH = /^\.threads\.json\.\d+\.[\da-f-]+\.tmp$/u;
+
+/** Whether a file name is threads.json, or what a reply leaves beside it for a moment: its lock, its scratch files. */
+export const isThreadsFile = (name: string): boolean =>
+  name === THREADS_FILE || name === THREADS_LOCK || THREADS_SCRATCH.test(name);
+
 /** The folder of a map folder that holds its drafts, `drafts/<name>`, each a map folder of its own. */
 export const DRAFTS = "drafts";
 
