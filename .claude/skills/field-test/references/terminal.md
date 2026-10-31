@@ -28,7 +28,7 @@ What `scripts/field-test.ts` relies on, and what a field test can and cannot see
 
 ## Desktop and mobile
 
-The drive covers the terminal. The kit pins the desktop tree (`$.ui.mount({ surface: "desktop" })`); the desktop paint needs the person. `claude --desktop --resume <session id>` opens a session in the Claude Desktop app (`claude --help`); whether a session started with `--plugin-dir` draws its mod there is not measured. Say in the report which surfaces the run did not see.
+This drive covers the terminal. The kit pins the desktop tree (`$.ui.mount({ surface: "desktop" })`). Desktop's paint is driven by `scripts/field-test-desktop.ts` on Linux with Hyprland: [desktop.md](desktop.md). `claude --desktop` refuses Linux. Mobile is not driven. Say in the report which surfaces the run did not see.
 
 ## Agents and cost
 
