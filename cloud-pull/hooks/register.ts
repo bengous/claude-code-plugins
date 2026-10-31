@@ -347,8 +347,20 @@ const isMainCheckout = ($: EngineInterface, path: string) =>
 
 /** The main checkout of each GitHub repository Claude Code has run in on this computer; worktrees and vanished folders are skipped. */
 async function localClones($: EngineInterface): Promise<Map<string, string>> {
-  const home = (await $.env.get("CLAUDE_CONFIG_DIR")) ?? (await $.env.get("HOME"));
-  const config = `${home ?? "~"}/.claude.json`;
+  const home =
+    (await $.env.get("CLAUDE_CONFIG_DIR")) ??
+    (await $.env.get("HOME")) ??
+    (await $.env.get("USERPROFILE"));
+
+  if (home === undefined) {
+    throw new Failure({
+      headline: "Couldn't find Claude Code's configuration",
+      fix: "Set HOME, or CLAUDE_CONFIG_DIR, in the environment Claude Code runs in.",
+      detail: "CLAUDE_CONFIG_DIR, HOME and USERPROFILE are all unset",
+    });
+  }
+
+  const config = `${home}/.claude.json`;
 
   const index = parseRepoPaths(
     JSON.parse(
@@ -510,11 +522,19 @@ async function pull(
   return opened;
 }
 
+const byHand = (why: string) =>
+  ` It runs on Desktop's default model: pick Haiku in its model menu (${why.slice(0, 200)}).`;
+
 /**
  * Puts the hub on the cheapest model through Desktop's own tool: an imported session takes Desktop's default model whatever `-p` ran on.
- * Desktop may still be importing the session, so a refusal is tried again; the last one is said, never thrown: the hub works on any model.
+ * The tool exists only in a session Desktop runs. An error is tried again, Desktop may still be importing the session; a refusal is the person's or the classifier's, never asked twice.
+ * The outcome is said, never thrown: the hub works on any model.
  */
 async function pinHubModel($: EngineInterface, sessionId: string): Promise<string> {
+  if (!(await $.session.surfaces()).includes("desktop")) {
+    return byHand("only a session in Desktop can set it");
+  }
+
   let reason = "";
 
   for (let attempt = 0; attempt < HUB_MODEL_ATTEMPTS; attempt += 1) {
@@ -525,15 +545,19 @@ async function pinHubModel($: EngineInterface, sessionId: string): Promise<strin
       consent: `The user typed /cloud-pull hub, which puts the hub session "${HUB_TITLE}" on ${HUB_MODEL}.`,
     });
 
-    if (!("deny" in done) && done.isError !== true) {
+    if (done.deny !== undefined) {
+      return byHand(done.deny);
+    }
+
+    if (done.isError !== true) {
       return "";
     }
 
-    reason = ("deny" in done ? done.deny : done.text) ?? "no reason given";
+    reason = done.text ?? "no reason given";
     await $.clock.sleep(1000);
   }
 
-  return ` It runs on Desktop's default model: pick Haiku in its model menu (${reason.slice(0, 200)}).`;
+  return byHand(reason);
 }
 
 /** Opens the computer's hub in Desktop, creating it first: beside this repository's clone, or in this folder outside a repository. */
@@ -760,12 +784,15 @@ export const register: Register = (on) => {
       return result;
     }
 
-    // A session past its first prompt is busy with its own task: the band leaves it alone.
+    // A session past its first prompt is busy with its own task: the band leaves it alone, and its rows are not looked up.
     if ((await $.session.turns()) > 1) {
       await update($, isBandHidden, () => true);
     }
 
-    void detectCloudSessions($);
+    if (!(await read($, isBandHidden))) {
+      void detectCloudSessions($);
+    }
+
     const record = await readPulled($, e.cwd);
 
     if (record === undefined) {
@@ -795,11 +822,19 @@ export const register: Register = (on) => {
     return next(e);
   });
 
+  // A /clear or a /resume puts another session in the process and raises no `session.start`; `$.session.id()` names the new one only once this event is over.
   on("classic.SessionStart", async ($, e, next) => {
     const started = await next(e);
 
     if (e.source === "clear") {
       await update($, isBandHidden, () => false);
+    }
+
+    // A resumed session goes on with its own work, and its turns cannot be counted yet: the band stays away.
+    if (e.source === "resume") {
+      const hub = parseHub(await $.store.get(HUB_KEY));
+      await update($, isHub, () => hub?.sessionId === e.session_id);
+      await update($, isBandHidden, () => true);
     }
 
     return started;

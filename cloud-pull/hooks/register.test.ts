@@ -61,6 +61,8 @@ type World = {
   readonly hub?: { sessionId: string; cwd: string };
   /** False stands for a screen too narrow to draw the pane. */
   readonly isPlaced?: boolean;
+  /** The surfaces attached; Desktop when absent. */
+  readonly surfaces?: readonly ("terminal" | "desktop")[];
 };
 
 const REPO_SESSION: World = {
@@ -73,6 +75,7 @@ const REPO_SESSION: World = {
 async function start($: Engine, on: On, world: World) {
   const store = new Map<string, unknown>(world.hub === undefined ? [] : [["hub", world.hub]]);
   const opens: boolean[] = [];
+  const runs: { argv: readonly string[]; cwd: string | undefined }[] = [];
   const isPlaced = world.isPlaced !== false;
   let isOpen = false;
 
@@ -107,14 +110,46 @@ async function start($: Engine, on: On, world: World) {
     return { value: undefined };
   });
   on("session.id", () => ({ value: world.session }));
+  on("session.surfaces", () => ({ value: world.surfaces ?? ["desktop"] }));
+  on("process.run", (_$, e) => {
+    runs.push({ argv: e.argv, cwd: e.init?.cwd });
+
+    const stdout =
+      e.argv[0] === "uname"
+        ? "Linux"
+        : e.argv[0] === "claude"
+          ? JSON.stringify([{ is_error: false, session_id: "local-copy" }])
+          : "claude-desktop.desktop";
+
+    return {
+      value: {
+        exitCode: 0,
+        stdout,
+        stderr: "",
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+        stream: "stdout" as const,
+        text: stdout,
+      },
+    };
+  });
   on("session.turns", () => ({ value: world.turns }));
   on("session.repo", () => ({
     value: world.repo === null ? null : { ...world.repo, internal: false, name: null },
   }));
   on("session.authorize", () => ({ value: { handle: "credential", kind: "bearer" as const } }));
-  on("http.fetch", () => ({
-    value: { ok: true, status: 200, text: JSON.stringify({ data: SESSIONS }), headers: {} },
-  }));
+  on("http.fetch", (_$, e) => {
+    const one = SESSIONS.find((session) => e.url.endsWith(`/${session.id}`));
+
+    return {
+      value: {
+        ok: true,
+        status: 200,
+        text: JSON.stringify(one ?? { data: SESSIONS }),
+        headers: {},
+      },
+    };
+  });
   on("fs.read", (_$, e) =>
     e.path === `${HOME}/.claude.json`
       ? {
@@ -141,11 +176,26 @@ async function start($: Engine, on: On, world: World) {
     isInteractive: true,
   });
 
-  return { opens };
+  return { opens, runs };
 }
 
 async function texts(ui: { findAll: (query: { type: string }) => Promise<{ text: string }[]> }) {
   return (await ui.findAll({ type: "Text" })).map((element) => element.text);
+}
+
+/** The hub's pane loads its list after `session.start` returns; a test of the hub waits for it, so no lookup outlives the test. */
+async function hubListed($: Engine) {
+  for (let tries = 0; tries < 50; tries += 1) {
+    const ui = await $.ui.mount(PANE);
+    const isListed = (await texts(ui)).includes("3 cloud sessions");
+    await ui.unmount();
+
+    if (isListed) {
+      return;
+    }
+  }
+
+  throw new Error("the hub's pane never listed the sessions");
 }
 
 /** The plugin's lookups run after `session.start` returns; this waits for the band to reflect them. */
@@ -245,24 +295,14 @@ const HUB_COMMAND = {
 } as const;
 
 /** `/cloud-pull hub` with a hub on record: it reopens it, then asks Desktop for the hub's model, answered by `answer`. */
-async function reopenHub($: Engine, on: On, answer: { deny: string } | { isError: boolean }) {
+async function reopenHub(
+  $: Engine,
+  on: On,
+  answer: { deny: string } | { isError: boolean },
+  surfaces: World["surfaces"] = ["desktop"],
+) {
   const calls: { session_id: unknown; model: unknown; consent: unknown }[] = [];
 
-  on("process.run", (_$, e) => {
-    const stdout = e.argv[0] === "uname" ? "Linux" : "claude-desktop.desktop";
-
-    return {
-      value: {
-        exitCode: 0,
-        stdout,
-        stderr: "",
-        isStdoutTruncated: false,
-        isStderrTruncated: false,
-        stream: "stdout" as const,
-        text: stdout,
-      },
-    };
-  });
   on("clock.sleep", () => ({ value: undefined }));
   on("tool.call", { tool: "mcp__ccd_session_mgmt__set_session_model" }, (_$, e) => {
     calls.push({ session_id: e["session_id"], model: e["model"], consent: e["consent"] });
@@ -275,7 +315,11 @@ async function reopenHub($: Engine, on: On, answer: { deny: string } | { isError
       ? { result: "no such session", text: "no such session", isError: true as const }
       : { result: "ok", text: "ok" };
   });
-  await start($, on, { ...REPO_SESSION, hub: { sessionId: HUB_ID, cwd: `${HOME}/Work` } });
+  await start($, on, {
+    ...REPO_SESSION,
+    hub: { sessionId: HUB_ID, cwd: `${HOME}/Work` },
+    surfaces,
+  });
   const done = await $.command.run(HUB_COMMAND);
 
   return { calls, text: "text" in done ? done.text : undefined };
@@ -291,9 +335,66 @@ test("/cloud-pull hub puts the hub on Haiku, the typed command as consent", asyn
   expect(text).toBe(`Opened the hub "☁ Cloud sessions" in Desktop.`);
 });
 
-test("a refused model change still opens the hub, and says how to pick Haiku", async ($, on) => {
+test("a refused model change is asked once, still opens the hub, and says how to pick Haiku", async ($, on) => {
   const { calls, text } = await reopenHub($, on, { deny: "classifier said no" });
 
-  expect(calls.length).toBe(5);
+  expect(calls.length).toBe(1);
   expect(text).toContain("pick Haiku in its model menu (classifier said no)");
+});
+
+test("a model change that errors, Desktop still importing, is tried again", async ($, on) => {
+  const { calls, text } = await reopenHub($, on, { isError: true });
+
+  expect(calls.length).toBe(5);
+  expect(text).toContain("pick Haiku in its model menu (no such session)");
+});
+
+test("outside Desktop, /cloud-pull hub opens the hub and asks nothing of Desktop's tools", async ($, on) => {
+  const { calls, text } = await reopenHub($, on, { isError: false }, ["terminal"]);
+
+  expect(calls.length).toBe(0);
+  expect(text).toContain("only a session in Desktop can set it");
+});
+
+const pullCommand = (id: string) => ({ ...HUB_COMMAND, args: id });
+
+test("from the hub, /cloud-pull <id> opens the session in its own repository's clone", async ($, on) => {
+  const { runs } = await start($, on, {
+    session: HUB_ID,
+    turns: 0,
+    repo: null,
+    hub: { sessionId: HUB_ID, cwd: `${HOME}/Work` },
+  });
+
+  await hubListed($);
+  const done = await $.command.run(pullCommand("session_a1"));
+  const worktree = runs.find((one) => one.argv[1] === "worktree");
+
+  expect(worktree?.cwd).toBe(`${HOME}/Work/app`);
+  expect(String(worktree?.argv[4])).toStartWith(`${HOME}/Work/app/.claude/worktrees/cloud-`);
+  expect("text" in done ? done.text : "").toStartWith(`Opened "Fix the login" in Desktop`);
+});
+
+test("from the hub, a repository with no clone here is said, and nothing is created", async ($, on) => {
+  const { runs } = await start($, on, {
+    session: HUB_ID,
+    turns: 0,
+    repo: null,
+    hub: { sessionId: HUB_ID, cwd: `${HOME}/Work` },
+  });
+
+  await hubListed($);
+  const done = await $.command.run(pullCommand("session_b2"));
+
+  expect(runs.some((one) => one.argv[0] === "git")).toBe(false);
+  expect("text" in done ? done.text : "").toContain("me/site isn't cloned on this computer");
+});
+
+test("from a repository, a session of another repository is sent there", async ($, on) => {
+  await start($, on, REPO_SESSION);
+  const done = await $.command.run(pullCommand("session_b2"));
+
+  expect("text" in done ? done.text : "").toBe(
+    "cloud-pull: session_b2 is in https://github.com/me/site; run it from a session there.",
+  );
 });
