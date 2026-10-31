@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { Argv } from "./node.ts";
-import { git, GitError, gitRead, gitReadSync, gitSync, run, runSync } from "./node.ts";
+import { git, GitError, gitRead, gitSync, run, runSync } from "./node.ts";
 
 const BUN = process.execPath;
 
@@ -288,6 +288,12 @@ describe("runSync", () => {
   });
 });
 
+function setUp(args: readonly string[]): void {
+  const result = gitSync(args, { cwd: dir });
+
+  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
+}
+
 /** A repository in `dir` holding one commit of `file`. */
 function repo(): string {
   for (const args of [
@@ -296,12 +302,12 @@ function repo(): string {
     ["config", "user.name", "T"],
     ["config", "commit.gpgsign", "false"],
   ]) {
-    gitReadSync(args, { cwd: dir });
+    setUp(args);
   }
 
   writeFileSync(join(dir, "file"), new Uint8Array([0, 255, 10]));
-  gitReadSync(["add", "file"], { cwd: dir });
-  gitReadSync(["commit", "-q", "-m", "one"], { cwd: dir });
+  setUp(["add", "file"]);
+  setUp(["commit", "-q", "-m", "one"]);
 
   return dir;
 }
@@ -394,15 +400,14 @@ describe("git and gitSync", () => {
   });
 });
 
-describe("gitRead and gitReadSync", () => {
-  test("answer stdout trimmed", async () => {
+describe("gitRead", () => {
+  test("answers stdout trimmed", async () => {
     const cwd = repo();
 
     expect(await gitRead(["log", "-1", "--format=%s"], { cwd })).toBe("one");
-    expect(gitReadSync(["log", "-1", "--format=%s"], { cwd })).toBe("one");
   });
 
-  test("throw a GitError naming the command, the exit code and git's stderr", async () => {
+  test("throws a GitError naming the command, the exit code and git's stderr", async () => {
     const cwd = repo();
 
     const failure: unknown = await gitRead(["rev-parse", "--verify", "nope"], { cwd }).catch(
@@ -413,7 +418,6 @@ describe("gitRead and gitReadSync", () => {
     expect(failure instanceof Error ? failure.message : "").toBe(
       "git rev-parse --verify nope failed (exit 128): fatal: Needed a single revision",
     );
-    expect(() => gitReadSync(["rev-parse", "--verify", "nope"], { cwd })).toThrow(GitError);
   });
 });
 

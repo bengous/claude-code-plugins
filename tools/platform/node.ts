@@ -570,7 +570,3 @@ export async function gitRead(
 ): Promise<string> {
   return readOf(args, await git(args, options));
 }
-
-export function gitReadSync(args: readonly string[], options: GitReadOptions = {}): string {
-  return readOf(args, gitSync(args, options));
-}

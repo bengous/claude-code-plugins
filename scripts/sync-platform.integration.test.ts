@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { Consumer } from "../tools/platform/consumers.ts";
-import { gitReadSync, run } from "../tools/platform/node.ts";
+import { gitSync, run } from "../tools/platform/node.ts";
 import { problemsIn, WRITE_COMMAND, writeCopies } from "./sync-platform.ts";
 
 const REPO = join(import.meta.dir, "..");
@@ -30,7 +30,7 @@ function write(path: string, text: string): void {
 /** A repository whose catalog lists `plug/` and `peer/`, beside `other/`, a directory no catalog names. */
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "sync-platform-"));
-  gitReadSync(["init", "-q"], { cwd: root, scrubGitEnv: true });
+  expect(gitSync(["init", "-q"], { cwd: root, scrubGitEnv: true })).toMatchObject({ code: 0 });
   write(".gitignore", "*.tmp\n.DS_Store\n");
   write("tools/platform/pure.ts", "export const pure = 1;\n");
   write("tools/platform/node.ts", "export const node = 1;\n");
