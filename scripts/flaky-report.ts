@@ -34,7 +34,9 @@ const MAX_FAILURE = 2000;
 
 const MAX_TITLE = 200;
 
-export type Runner = "bun" | "kit" | "e2e";
+const RUNNERS = ["bun", "kit", "e2e"] as const;
+
+export type Runner = (typeof RUNNERS)[number];
 
 export interface Flake {
   readonly id: string;
@@ -686,8 +688,11 @@ export type Command =
 
 const REPORT_NAME = /^[\w-]+$/u;
 
-/** The names the commands write without `--report`: a named report never takes one of them. */
-const DEFAULT_REPORTS: ReadonlySet<string> = new Set(["bun", "kit", "e2e"]);
+/**
+ * The names the commands write without `--report`, each its runner's: a named report never takes
+ * one of them, in any case, since a file system that folds case would write it over.
+ */
+const DEFAULT_REPORTS: ReadonlySet<string> = new Set(RUNNERS);
 
 export function parseArgs(args: readonly string[]): Command | null {
   const separator = args.indexOf("--");
@@ -708,7 +713,7 @@ export function parseArgs(args: readonly string[]): Command | null {
       extra.length === 0 ||
       (flag === "--report" &&
         extra.length === 2 &&
-        !DEFAULT_REPORTS.has(reportName) &&
+        !DEFAULT_REPORTS.has(reportName.toLowerCase()) &&
         REPORT_NAME.test(reportName));
 
     return third !== undefined && argv.length > 0 && named
