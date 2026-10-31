@@ -7,8 +7,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { $ } from "bun";
-
+import { GitError, git } from "../tools/platform/node.ts";
 import { CHANGELOG, changelogVerdict, versionCommits } from "./changelog.ts";
 import { commitAt, sourceDirOf, type Version } from "./check-plugin-bumps.ts";
 import {
@@ -57,14 +56,14 @@ const report = (result: ValidationResult) => {
 };
 
 // Get repo root
-const repoRootResult = await $`git rev-parse --show-toplevel`.nothrow().quiet();
+const repoRootResult = await git(["rev-parse", "--show-toplevel"]);
 
-if (repoRootResult.exitCode !== 0) {
+if (repoRootResult.kind !== "exited" || repoRootResult.code !== 0) {
   console.error("Error: Not in a git repository");
   process.exit(2);
 }
 
-const repoRoot = repoRootResult.text().trim();
+const repoRoot = repoRootResult.stdout.trim();
 
 const marketplaceFile = join(repoRoot, ".claude-plugin/marketplace.json");
 
@@ -92,7 +91,13 @@ try {
 
 // Shipped plugin code, listed once and filtered per plugin below. Only what git
 // tracks ships, so an untracked scratch file is not the marketplace's problem.
-const trackedFiles = (await $`git ls-files -z`.quiet().text()).split("\0").filter(Boolean);
+const listing = ["ls-files", "-z"];
+
+const listed = await git(listing);
+
+if (listed.kind !== "exited" || listed.code !== 0) throw new GitError(listing, listed);
+
+const trackedFiles = listed.stdout.split("\0").filter(Boolean);
 
 const SHIPPED_TEXT_EXTENSIONS = [
   ".ts",

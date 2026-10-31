@@ -8,8 +8,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { $ } from "bun";
-
+import { git, gitRead } from "../tools/platform/node.ts";
 import { checkKeys, classifyComponent, validateFrontmatter } from "./lib/frontmatter-validation";
 import { workingTreeFiles } from "./lib/working-tree-files.ts";
 
@@ -27,14 +26,14 @@ const BOLD = isTTY ? "\u001B[1m" : "";
 const RESET = isTTY ? "\u001B[0m" : "";
 
 // Get repo root
-const repoRootResult = await $`git rev-parse --show-toplevel`.nothrow().quiet();
+const repoRootResult = await git(["rev-parse", "--show-toplevel"]);
 
-if (repoRootResult.exitCode !== 0) {
+if (repoRootResult.kind !== "exited" || repoRootResult.code !== 0) {
   console.error("Error: Not in a git repository");
   process.exit(2);
 }
 
-const repoRoot = repoRootResult.text().trim();
+const repoRoot = repoRootResult.stdout.trim();
 
 // File source: `--all` validates every plugin markdown file of the working
 // tree, untracked ones included (CI, Stop, pre-push); default validates only
@@ -43,9 +42,7 @@ const checkAll = process.argv.includes("--all");
 
 const candidates = checkAll
   ? await workingTreeFiles()
-  : (await $`git diff --cached --name-only --diff-filter=ACMR`.quiet())
-      .text()
-      .trim()
+  : (await gitRead(["diff", "--cached", "--name-only", "--diff-filter=ACMR"]))
       .split("\n")
       .filter(Boolean);
 

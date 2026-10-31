@@ -25,8 +25,7 @@ import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { $ } from "bun";
-
+import { GitError, git } from "../tools/platform/node.ts";
 import { retryReported } from "./flaky-report.ts";
 import { TYPES_DIR } from "./lib/claude-code-types-paths.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
@@ -138,16 +137,27 @@ export async function baseOf(explicit: string | undefined, env: Env): Promise<Ba
 
 /** HEAD's merge-base with `ref`, the commit a change is measured from. */
 export async function mergeBaseWith(repoRoot: string, ref: string): Promise<MergeBase> {
-  const found = await $`git merge-base HEAD ${ref}`.cwd(repoRoot).nothrow().quiet();
+  const found = await git(["merge-base", "HEAD", ref], { cwd: repoRoot });
 
-  if (found.exitCode === 0) return { kind: "found", sha: found.stdout.toString().trim() };
-  const why = found.stderr.toString().trim();
+  if (found.kind === "exited" && found.code === 0) {
+    return { kind: "found", sha: found.stdout.trim() };
+  }
+
+  const why = found.stderr.trim();
 
   return { kind: "none", reason: `no merge-base with ${ref}${why === "" ? "" : `: ${why}`}` };
 }
 
 function nulSeparated(text: string): string[] {
   return text.split("\0").filter((path) => path !== "");
+}
+
+async function listed(repoRoot: string, args: readonly string[]): Promise<string[]> {
+  const result = await git(args, { cwd: repoRoot });
+
+  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
+
+  return nulSeparated(result.stdout);
 }
 
 export async function currentScope(
@@ -165,17 +175,10 @@ export async function currentScope(
   if (mergeBase.kind === "none") return { kind: "all", reason: mergeBase.reason };
   const since = mergeBase.sha;
 
-  const changed = await $`git diff --name-only --no-renames -z ${since}`
-    .cwd(repoRoot)
-    .quiet()
-    .text();
+  const changed = await listed(repoRoot, ["diff", "--name-only", "--no-renames", "-z", since]);
+  const untracked = await listed(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]);
 
-  const untracked = await $`git ls-files --others --exclude-standard -z`
-    .cwd(repoRoot)
-    .quiet()
-    .text();
-
-  return scopeOf([...nulSeparated(changed), ...nulSeparated(untracked)]);
+  return scopeOf([...changed, ...untracked]);
 }
 
 /** The hooks-module plugins whose kits the scope runs, in catalog order. */
@@ -275,12 +278,15 @@ export async function suitesOf(repoRoot: string): Promise<Suites> {
 
   const ignored = bunfig.default.test?.pathIgnorePatterns ?? [];
 
-  const listed = await $`git ls-files --cached --others --exclude-standard -z`
-    .cwd(repoRoot)
-    .quiet()
-    .text();
+  const files = await listed(repoRoot, [
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "-z",
+  ]);
 
-  const tests = nulSeparated(listed).filter(
+  const tests = files.filter(
     (path) =>
       TEST_FILE.test(path) &&
       !ignored.some((glob) => new Bun.Glob(glob).match(path)) &&

@@ -25,10 +25,10 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { $ } from "bun";
 import { parse } from "yaml";
 
 import config from "../oxlint.config.ts";
+import { GitError, git } from "../tools/platform/node.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 export interface JsonObject {
@@ -514,7 +514,12 @@ if (import.meta.main) {
 
   const vendoredRoot = join(repoRoot, "tools/oxlint");
 
-  const tracked = (await $`git ls-files tools/oxlint/anti-slop`.cwd(repoRoot).quiet().text())
+  const listing = ["ls-files", "tools/oxlint/anti-slop"];
+  const listed = await git(listing, { cwd: repoRoot });
+
+  if (listed.kind !== "exited" || listed.code !== 0) throw new GitError(listing, listed);
+
+  const tracked = listed.stdout
     .split("\n")
     .filter(Boolean)
     .map((path) => path.slice("tools/oxlint/".length))

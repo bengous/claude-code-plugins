@@ -13,6 +13,8 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
+import { GitError, git } from "../tools/platform/node.ts";
+
 /** What `tsconfig.json` leaves out on purpose; anything else tracked must be type-checked. */
 const LEFT_OUT = /^(?:archive|tools\/oxlint\/anti-slop)\//u;
 
@@ -34,7 +36,11 @@ export function uncovered(
 
 if (import.meta.main) {
   const root = join(import.meta.dir, "..");
-  const tracked = (await $`git ls-files '*.ts' '*.tsx'`.cwd(root).text()).split("\n");
+  const listing = ["ls-files", "*.ts", "*.tsx"];
+  const listed = await git(listing, { cwd: root });
+
+  if (listed.kind !== "exited" || listed.code !== 0) throw new GitError(listing, listed);
+  const tracked = listed.stdout.split("\n");
 
   // SAFETY: tsgo prints the resolved tsconfig.json as JSON, `files` listing paths relative to it.
   const { files } = (await $`bun x tsgo --showConfig`.cwd(root).json()) as ShownConfig;
