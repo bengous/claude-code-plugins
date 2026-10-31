@@ -137,12 +137,15 @@ export type LockOptions = {
 
 const LOCK_HOLDER = /^(\d+) (\S+)$/u;
 
-async function heldLockError(lockFile: string, timeoutMs: number): Promise<Error> {
-  const text = await readFile(lockFile, "utf8").catch((cause: unknown) => {
-    if (isErrno(cause, "ENOENT")) return "";
+/** What the lock file holds; `null` when there is none to read, its holder having let go. */
+function lockText(lockFile: string): Promise<string | null> {
+  return readFile(lockFile, "utf8").catch((cause: unknown) => {
+    if (isErrno(cause, "ENOENT")) return null;
     throw cause;
   });
+}
 
+function heldLockError(lockFile: string, timeoutMs: number, text: string): Error {
   const [, pid, since] = LOCK_HOLDER.exec(text.trim()) ?? [];
   const age = since === undefined ? Number.NaN : Date.now() - Date.parse(since);
   const holder = pid === undefined ? "an unknown holder" : `pid ${pid}`;
@@ -153,10 +156,13 @@ async function heldLockError(lockFile: string, timeoutMs: number): Promise<Error
   );
 }
 
-/** Creates the lock file with this process's pid and the date; `false` when another holds it. */
+/**
+ * Creates the lock file with this process's pid and the date; `false` when another holds it, or,
+ * on Windows, while the file a holder removes is still pending deletion (`isHeld`).
+ */
 async function tryLock(lockFile: string): Promise<boolean> {
   const handle = await open(lockFile, "wx").catch((cause: unknown) => {
-    if (isErrno(cause, "EEXIST")) return null;
+    if (isErrno(cause, "EEXIST") || isHeld(cause)) return null;
     throw cause;
   });
 
@@ -186,10 +192,17 @@ export async function withLock<T>(
   fn: () => Promise<T>,
   options: LockOptions,
 ): Promise<T> {
-  const until = Date.now() + options.timeoutMs;
+  const until = performance.now() + options.timeoutMs;
 
   while (!(await tryLock(lockFile))) {
-    if (Date.now() >= until) throw await heldLockError(lockFile, options.timeoutMs);
+    if (performance.now() >= until) {
+      const text = await lockText(lockFile);
+
+      // A holder that let go between the last try and this read: one more try, then the error.
+      if (text === null && (await tryLock(lockFile))) break;
+      throw heldLockError(lockFile, options.timeoutMs, text ?? "");
+    }
+
     await Bun.sleep(LOCK_POLL_MS);
   }
 
@@ -284,6 +297,9 @@ function reading(stream: ReadableStream<Uint8Array>): Reading {
     }
   })();
 
+  // A read that fails while the child runs is read where the output is awaited; until then it must not end the process as unhandled.
+  bytes.catch(() => null);
+
   return { bytes, cancel: () => reader.cancel() };
 }
 
@@ -311,7 +327,7 @@ async function graced(stdout: Reading, stderr: Reading): Promise<readonly [Buffe
   }
 }
 
-/** Text output as `Response.text()` reads it, which `agent-hooks/exec.ts` used: UTF-8, a leading BOM dropped. */
+/** Text output as `Response.text()` reads it: UTF-8, a leading BOM dropped. */
 const UTF8 = new TextDecoder();
 
 async function spawnAsync<Out>(
@@ -326,7 +342,7 @@ async function spawnAsync<Out>(
   }
 
   let proc: Bun.Subprocess<"ignore" | Response, "pipe", "pipe">;
-  const started = Date.now();
+  const started = performance.now();
 
   try {
     proc = Bun.spawn([...argv], {
@@ -346,7 +362,7 @@ async function spawnAsync<Out>(
 
   const pipes = [reading(proc.stdout), reading(proc.stderr)] as const;
   const code = await proc.exited;
-  const lasted = Date.now() - started;
+  const lasted = performance.now() - started;
   // A killed shell leaves its children holding the pipes: wait for the output only as long as the grace period.
   const output = await graced(...pipes);
   const stdout = output === null ? empty : read(output[0]);

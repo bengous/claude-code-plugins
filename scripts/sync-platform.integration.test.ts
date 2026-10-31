@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   copyFileSync,
   lstatSync,
@@ -26,6 +26,17 @@ function write(path: string, text: string): void {
   mkdirSync(dirname(join(root, path)), { recursive: true });
   writeFileSync(join(root, path), text);
 }
+
+const KEPT_GIT_ENV = Object.entries(process.env).filter(([name]) => name.startsWith("GIT_"));
+
+/** A pre-push hook or a linked worktree exports `GIT_DIR`, which would point the gate's git at the pushing repository. */
+beforeAll(() => {
+  for (const [name] of KEPT_GIT_ENV) delete process.env[name];
+});
+
+afterAll(() => {
+  for (const [name, value] of KEPT_GIT_ENV) process.env[name] = value;
+});
 
 /** A repository whose catalog lists `plug/` and `peer/`, beside `other/`, a directory no catalog names. */
 beforeEach(() => {

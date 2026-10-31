@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -277,6 +278,18 @@ describe("withLock", () => {
     expect(message).toMatch(/ for 6\d{4} ms; if no such process runs, remove the lock file$/u);
     expect(readFileSync(lock, "utf8")).toBe(`4242 ${since}\n`);
   });
+
+  test.if(!WINDOWS)(
+    "a lock that reads as gone at the deadline yet cannot be taken throws once tried again",
+    async () => {
+      const lock = join(dir, "x.lock");
+      symlinkSync(join(dir, "nowhere"), lock);
+
+      await expect(withLock(lock, () => Promise.resolve(), { timeoutMs: 50 })).rejects.toThrow(
+        "by an unknown holder;",
+      );
+    },
+  );
 
   test("a lock file it cannot read names an unknown holder", async () => {
     const lock = join(dir, "x.lock");
