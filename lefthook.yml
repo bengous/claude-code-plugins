@@ -106,6 +106,7 @@ pre-commit:
       glob:
         - "vellum/hooks/*"
         - "vellum/src/runtime/hooks/*"
+        - "vellum/src/platform/*"
         - "vellum/.claude-plugin/*"
       run: claude plugin validate vellum
     # The kit runs from the plugin root: it loads the module
@@ -114,47 +115,56 @@ pre-commit:
       glob:
         - "vellum/hooks/*"
         - "vellum/src/runtime/hooks/**"
+        - "vellum/src/platform/*"
       run: claude plugin test vellum
     - name: validate-todos
       glob:
         - "todos/hooks/*"
+        - "todos/lib/platform/*"
         - "todos/.claude-plugin/*"
         - "todos/types/*"
       run: claude plugin validate todos
     - name: test-todos
       glob:
         - "todos/hooks/*"
+        - "todos/lib/platform/*"
       run: claude plugin test todos
     - name: validate-secret-pane
       glob:
         - "secret-pane/hooks/*"
+        - "secret-pane/lib/platform/*"
         - "secret-pane/.claude-plugin/*"
       run: claude plugin validate secret-pane
     - name: test-secret-pane
       glob:
         - "secret-pane/hooks/*"
+        - "secret-pane/lib/platform/*"
       run: claude plugin test secret-pane
     - name: validate-pinpoint
       glob:
         - "pinpoint/hooks/*"
         - "pinpoint/shared/*"
+        - "pinpoint/lib/platform/*"
         - "pinpoint/.claude-plugin/*"
       run: claude plugin validate pinpoint
     - name: test-pinpoint
       glob:
         - "pinpoint/hooks/*"
         - "pinpoint/shared/*"
+        - "pinpoint/lib/platform/*"
       run: claude plugin test pinpoint
     - name: validate-atlas
       glob:
         - "atlas/hooks/*"
         - "atlas/src/server/wire.ts"
+        - "atlas/src/platform/*"
         - "atlas/.claude-plugin/*"
       run: claude plugin validate atlas
     - name: test-atlas
       glob:
         - "atlas/hooks/*"
         - "atlas/src/server/wire.ts"
+        - "atlas/src/platform/*"
       run: claude plugin test atlas
     - name: validate-griller
       glob:

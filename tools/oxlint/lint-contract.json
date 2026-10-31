@@ -70,6 +70,14 @@
     },
     {
       "files": [
+        "vellum/src/platform/**"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    },
+    {
+      "files": [
         "vellum/src/runtime/page/state.ts",
         "vellum/src/runtime/server/queue.ts",
         "vellum/src/runtime/hooks/register.ts",
