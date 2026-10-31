@@ -124,6 +124,12 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     difference: null,
   },
   {
+    gate: "platform-copies",
+    lefthook: "bun ./scripts/sync-platform.ts",
+    ci: "bun ./scripts/sync-platform.ts",
+    difference: null,
+  },
+  {
     gate: "validate-marketplace",
     lefthook: "./scripts/validate-marketplace.ts",
     ci: "bun ./scripts/validate-marketplace.ts",

@@ -34,7 +34,7 @@ pre-commit:
         - ".claude/rules/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
-    # The eight gates below run over the whole repo, not the staged subset: each
+    # The nine gates below run over the whole repo, not the staged subset: each
     # takes well under a second, and CI then replays the exact same commands.
     - name: lint-config
       glob:
@@ -96,6 +96,14 @@ pre-commit:
     # .claude/rule-registry.ts that names it.
     - name: rule-registry
       run: bun ./scripts/check-rule-registry.ts
+    - name: platform-copies
+      glob:
+        - "tools/platform/**"
+        - "*/lib/platform/**"
+        - "vellum/src/platform/**"
+        - "atlas/src/platform/**"
+        - "scripts/sync-platform.ts"
+      run: bun ./scripts/sync-platform.ts
     # The engine reads the hooks module's source and reports what it hooks and
     # calls.
     - name: validate-vellum

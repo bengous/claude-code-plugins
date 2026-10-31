@@ -83,7 +83,7 @@ jobs:
       - name: Run test suites
         run: bun ./scripts/affected.ts test --retry validate
 
-      # The eight gates below are the same commands the pre-commit jobs run, so a
+      # The nine gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
       - name: Check lint configuration
         run: bun ./scripts/check-lint-config.ts
@@ -108,6 +108,9 @@ jobs:
 
       - name: Check that each rule names its control
         run: bun ./scripts/check-rule-registry.ts
+
+      - name: Check that every copy of tools/platform matches its source
+        run: bun ./scripts/sync-platform.ts
 
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.
@@ -210,9 +213,10 @@ jobs:
         id: scope
         run: bun ./scripts/affected.ts github-output
 
-  # Vellum on Windows: its `bun:test` suites and the hooks module's kit, where Linux misses what
-  # Windows refuses (a folder a process holds cannot be renamed). A pull request that does not
-  # reach `vellum/` skips it: `main` does not require `win32` today
+  # Vellum on Windows: its `bun:test` suites and the hooks module's kit, then `tools/platform`'s
+  # suites, where Linux misses what Windows refuses (a folder a process holds cannot be renamed).
+  # A pull request that does not reach `vellum/` skips it, unless it reaches everything, as a
+  # change to `tools/` does: `main` does not require `win32` today
   # (`docs/repo-ops/protections.md`), and a pull request's run is named `win32 (scoped)`, a name
   # no ruleset requires. `always()` runs it on a push or a dispatch, where `scope` is skipped. The
   # repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is not run here.
@@ -253,6 +257,11 @@ jobs:
 
       - name: Test the vellum hooks module
         run: bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
+
+      # The platform helpers every plugin copies: their rename retries a folder Windows holds,
+      # which no other job can see.
+      - name: Run tools/platform's suites
+        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --timeout=20000 tools/platform
 
       # A name per attempt: a re-run keeps the first attempt's report beside its own.
       - name: Upload the flaky report
