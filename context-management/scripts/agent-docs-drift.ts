@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 import { basename } from "node:path";
 
+import { gitSync } from "../lib/platform/node.ts";
+import { messageOf } from "../lib/platform/pure.ts";
+
 const DOC_SET = [
   "CLAUDE.md",
   ".claude/CLAUDE.md",
@@ -253,13 +256,13 @@ function render({ baseline, docFiles, commits }: Report): string {
 }
 
 function git(cwd: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const result = gitSync(args, { cwd });
 
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString().trim()}`);
+  if (result.kind !== "exited" || result.code !== 0) {
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
   }
 
-  return result.stdout.toString();
+  return result.stdout;
 }
 
 function collect(cwd: string): Report {
@@ -305,7 +308,7 @@ if (import.meta.main) {
   try {
     process.stdout.write(render(collect(process.cwd())));
   } catch (error) {
-    console.error(`agent-docs-drift: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`agent-docs-drift: ${messageOf(error)}`);
     process.exit(1);
   }
 }
