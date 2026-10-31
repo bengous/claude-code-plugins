@@ -78,7 +78,11 @@
     too, and a button that leaves the journey for the place it started
     from, as Escape or a click on the empty sheet does once the view is
     back at its fit; a click on an arrow does nothing, and any other move
-    leaves it from the step's view.
+    leaves it from the step's view. While it plays, a ribbon over the foot
+    of the stage shows it whole, the view fitted above it: a column per
+    section, a cell per step, which a click plays, the data's forms under
+    the cells, and a button that plays the steps one after another, as
+    Space does.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -298,16 +302,17 @@ body {
 /* The controls wrap within the stage rather than run past its edge; engine.ts hands the cards their bottom (--controls-bottom). */
 .controls { position: absolute; top: 10px; left: 10px; max-width: calc(100% - 20px); display: flex; flex-wrap: wrap; gap: 6px; }
 .controls button { white-space: nowrap; }
-.controls button, .panel .nav button, .panel .leave button, .chip {
+.controls button, .panel .nav button, .panel .leave button, .ribbon-play, .chip {
   font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em;
   color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
   padding: 4px 10px; cursor: pointer; line-height: 1.2;
 }
-.controls button:hover, .panel .nav button:hover, .panel .leave button:hover, .chip:hover { border-color: var(--accent); color: var(--accent); }
+.controls button:hover, .panel .nav button:hover, .panel .leave button:hover, .ribbon-play:hover, .chip:hover { border-color: var(--accent); color: var(--accent); }
 button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Above the ribbon on a journey: engine.ts writes its height (--ribbon-height). */
 .legend {
-  position: absolute; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 14px;
+  position: absolute; left: 10px; bottom: calc(10px + var(--ribbon-height, 0px)); display: flex; flex-wrap: wrap; gap: 4px 14px;
   background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 10px; font-size: 12px; color: var(--ink-2); max-width: calc(100% - 20px);
 }
@@ -364,6 +369,43 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
   max-width: calc(100% - 440px); text-align: right;
   background: color-mix(in srgb, var(--sheet) 85%, transparent); padding: 2px 6px; border-radius: 3px;
 }
+/* The ribbon of a journey played (ribbon.ts, engine.ts): over the foot of the stage, its whole width, so the drawing keeps its size; the view fits above it.
+   A column per section, as wide as its count of steps (--n), a cell per step at least 22 px wide, the steps scrolling sideways past that; the play button on the right. */
+.ribbon {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 10px; background: var(--sheet); border-top: 1px solid var(--line);
+}
+.ribbon[hidden] { display: none; }
+/* Its padding keeps a cell's focus ring in sight as the steps scroll. */
+.ribbon-steps { flex: 1; min-width: 0; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: thin; padding: 4px; margin: -4px; }
+.ribbon-section { flex: var(--n) 1 0; min-width: calc(var(--n) * 24px - 2px); }
+.ribbon-label {
+  margin: 0 0 4px; font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; line-height: 1.2;
+  color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ribbon-section.current .ribbon-label { color: var(--ink); }
+.ribbon-cells, .ribbon-forms { display: grid; grid-template-columns: repeat(var(--n), minmax(22px, 1fr)); gap: 2px; }
+/* A cell: its number under an entry's icon, a stroke at its foot (forward or back), hatched under a condition, tinted once played, full while shown. */
+.ribbon-cell {
+  height: 40px; padding: 3px 0 0; border: 0; border-radius: 2px; cursor: pointer;
+  display: grid; grid-template-rows: 16px 1fr; justify-items: center;
+  font-family: var(--f-mono); font-size: 10.5px; line-height: 1; color: var(--ink-3);
+  background-color: var(--surface); box-shadow: inset 0 -2px var(--accent);
+}
+.ribbon-cell.back { box-shadow: inset 0 -2px var(--back); }
+.ribbon-cell.when { background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--line) 60%, transparent) 4px 7px); }
+.ribbon-cell .ribbon-icon { color: var(--ink-2); }
+.ribbon-cell.past { color: var(--ink-2); background-color: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.ribbon-cell[aria-current="step"] { background: var(--ink); color: var(--sheet); }
+.ribbon-cell[aria-current="step"] .ribbon-icon { color: var(--sheet); }
+/* The data row: each form over the cells of the steps it holds, the one the step shown holds lit. */
+.ribbon-forms { margin-top: 3px; min-height: 19px; }
+.ribbon-form {
+  min-width: 0; padding: 2px 4px; font-family: var(--f-mono); font-size: 11px; line-height: 14px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-top: 1px solid var(--line);
+}
+.ribbon-form.current { color: var(--ink); border-top-color: var(--ink); }
+.ribbon-play { flex: none; }
 
 .panel {
   min-width: 0; min-height: 0; overflow-y: auto;
@@ -610,6 +652,11 @@ svg text.illegible { visibility: hidden; }
     <p class="hint" id="hint"></p>
     <!-- legend.ts writes one line per arrow kind or node mark the map uses: a new kind adds its line there. -->
     <div class="legend" id="legend"></div>
+    <!-- A journey played, whole: ribbon.ts writes its steps, engine.ts their marks and the button's word. -->
+    <nav class="ribbon" id="ribbon" hidden>
+      <div class="ribbon-steps" id="ribbon-steps"></div>
+      <button type="button" class="ribbon-play" id="btn-play" aria-pressed="false"></button>
+    </nav>
   </section>
   <aside class="panel" id="panel" aria-live="polite"></aside>
 </main>

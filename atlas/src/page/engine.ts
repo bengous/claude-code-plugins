@@ -17,7 +17,7 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
-import type { Step } from "../model/atlas.ts";
+import type { Journey, Step } from "../model/atlas.ts";
 import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
@@ -63,6 +63,8 @@ import {
   renderPanel,
   renderViewer,
 } from "./panel.ts";
+import type { Span } from "./ribbon.ts";
+import { cellMark, covers, ribbonHtml } from "./ribbon.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
@@ -115,6 +117,14 @@ const stepper = byId("phases", HTMLDivElement);
 const journeysButton = byId("btn-journeys", HTMLButtonElement);
 
 const journeyList = byId("journey-list", HTMLElement);
+
+const stageBox = byId("stage", HTMLElement);
+
+const ribbon = byId("ribbon", HTMLElement);
+
+const ribbonSteps = byId("ribbon-steps", HTMLDivElement);
+
+const playButton = byId("btn-play", HTMLButtonElement);
 
 // The journeys the header's menu plays: each the root declares with a step, the first of an id.
 const journeys = (tree.map.root.journeys ?? []).filter((j) => journeyOf(tree, j.id) === j);
@@ -193,7 +203,7 @@ function dressPage(): void {
   openButton.textContent = words.openPoints;
   openList.setAttribute("aria-label", words.openPoints);
   crumbs.setAttribute("aria-label", words.position);
-  byId("stage", HTMLElement).setAttribute("aria-label", words.stage);
+  stageBox.setAttribute("aria-label", words.stage);
   svg.setAttribute("aria-label", words.mapLabel(settings.title));
   byId("btn-home", HTMLButtonElement).textContent = words.home;
   byId("btn-fit", HTMLButtonElement).textContent = words.fitButton;
@@ -226,6 +236,8 @@ function dressPage(): void {
     journeysButton.textContent = words.journeysButton;
     journeysButton.title = words.journeysTitle;
     journeyList.setAttribute("aria-label", words.journeysButton);
+    ribbon.setAttribute("aria-label", words.ribbonLabel);
+    playButton.textContent = words.play;
   }
 }
 
@@ -291,16 +303,33 @@ function aspect(): number {
   return r.width > 0 && r.height > 0 ? r.width / r.height : 1.4;
 }
 
+// The share of the drawing area's height above the ribbon, which floats over its foot on a
+// journey and leaves its size alone: 1 off a journey.
+function aboveRibbon(): number {
+  if (ribbon.hidden) {
+    return 1;
+  }
+
+  const area = svg.getBoundingClientRect();
+  const covered = area.bottom - ribbon.getBoundingClientRect().top;
+
+  return covered > 0 && covered < area.height ? 1 - covered / area.height : 1;
+}
+
+// A view fits the drawing area above the ribbon: the rect fits that area's aspect, then runs on
+// under the ribbon, at the element's.
 function fit(r: Rect, pad: number): Rect {
   const a = aspect();
+  const share = aboveRibbon();
+  const above = a / share;
   const w = r.w + 2 * pad;
   const h = r.h + 2 * pad;
 
-  if (w / h < a) {
-    return { x: r.x - pad - (h * a - w) / 2, y: r.y - pad, w: h * a, h };
+  if (w / h < above) {
+    return { x: r.x - pad - (h * above - w) / 2, y: r.y - pad, w: h * above, h: h / share };
   }
 
-  return { x: r.x - pad, y: r.y - pad - (w / a - h) / 2, w, h: w / a };
+  return { x: r.x - pad, y: r.y - pad - (w / above - h) / 2, w, h: w / a };
 }
 
 function drawn(key: Key): Drawn {
@@ -898,7 +927,7 @@ function renderLegend(key: Key): void {
 const controls = byId("controls", HTMLDivElement);
 
 new ResizeObserver(() => {
-  byId("stage", HTMLElement).style.setProperty(
+  stageBox.style.setProperty(
     "--controls-bottom",
     `${controls.offsetTop + controls.offsetHeight}px`,
   );
@@ -1050,6 +1079,93 @@ function renderPhase(): void {
   }
 }
 
+// The journey the ribbon was written for, and the step its marks show; null off a journey.
+let ribbonShown: { readonly journey: Journey; readonly step: number } | null = null;
+
+const spanOf = (e: HTMLElement): Span => ({
+  first: Number(e.dataset["first"]),
+  last: Number(e.dataset["last"]),
+});
+
+function markRibbon(step: number): void {
+  for (const e of ribbonSteps.querySelectorAll("[data-step]")) {
+    if (e instanceof HTMLElement) {
+      const mark = cellMark(Number(e.dataset["step"]), step);
+      e.classList.toggle("past", mark === "past");
+
+      if (mark === "current") {
+        e.setAttribute("aria-current", "step");
+      } else {
+        e.removeAttribute("aria-current");
+      }
+    }
+  }
+
+  for (const e of ribbonSteps.querySelectorAll("[data-first]")) {
+    if (e instanceof HTMLElement) {
+      e.classList.toggle("current", covers(spanOf(e), step));
+    }
+  }
+}
+
+// The ribbon alone scrolls, not the page, so the step shown's cell is in its sight, inside the
+// padding that keeps its focus ring in sight too.
+function showCell(step: number): void {
+  const cell = ribbonSteps.querySelector(`[data-step="${step}"]`);
+
+  if (cell === null) {
+    return;
+  }
+
+  const box = ribbonSteps.getBoundingClientRect();
+  const { paddingLeft, paddingRight } = getComputedStyle(ribbonSteps);
+  const left = box.left + Number.parseFloat(paddingLeft);
+  const right = box.right - Number.parseFloat(paddingRight);
+  const r = cell.getBoundingClientRect();
+
+  if (r.left < left) {
+    ribbonSteps.scrollLeft -= Math.ceil(left - r.left);
+  } else if (r.right > right) {
+    ribbonSteps.scrollLeft += Math.ceil(r.right - right);
+  }
+}
+
+// On a journey, the ribbon shows it whole: written once per journey (ribbonHtml), its marks set in
+// place at each step, so the focus stays where it was, and the step's cell scrolled into sight.
+function renderRibbon(played: Journey | null, step: number): void {
+  ribbon.hidden = played === null;
+
+  if (played === null) {
+    ribbonShown = null;
+    ribbonSteps.replaceChildren();
+
+    return;
+  }
+
+  const written = ribbonShown?.journey === played;
+
+  if (!written) {
+    ribbonSteps.innerHTML = ribbonHtml(tree, played);
+  }
+
+  if (!written || ribbonShown?.step !== step) {
+    markRibbon(step);
+    showCell(step);
+  }
+
+  ribbonShown = { journey: played, step };
+}
+
+// The ribbon floats over the drawing area, whose size it leaves alone: as it shows, hides or
+// changes height, the view fits above it again, and the legend rises above it.
+new ResizeObserver(() => {
+  stageBox.style.setProperty("--ribbon-height", `${ribbon.offsetHeight}px`);
+
+  if (cam?.kind === "idle") {
+    jumpTo(cam.image.space);
+  }
+}).observe(ribbon);
+
 // serve.ts prints each selection, with the map's own label, for the agent's session (wire.ts); a
 // page reloaded on a #id posts it again, so a revived server's session hears it too.
 let toldSelection: string | null = null;
@@ -1128,6 +1244,7 @@ function render(): void {
   renderPhase();
   renderLegend(key);
   renderMode(key);
+  renderRibbon(played, pageState.step);
   // Keeps the place and its parameters in the URL's fragment so a link reopens the same view.
   const { fragment } = pageState;
 
@@ -1214,8 +1331,10 @@ async function settle(): Promise<void> {
 }
 
 // Every input becomes a navigation event: the place changes, the panel follows, the camera heads
-// to the view once it is drawn. On a journey, the event is read in its step's view, and leaves it.
+// to the view once it is drawn. On a journey, the event is read in its step's view, and leaves it,
+// its playback stopped.
 function send(ev: PlaceEvent): void {
+  stopPlayback();
   const from = here();
   const next = navigate(tree, from, ev);
   params = paramsAfter(scope, from, next, params);
@@ -1225,14 +1344,21 @@ function send(ev: PlaceEvent): void {
   settle().catch(fail);
 }
 
-// Plays a journey's step, picked from the menu (its first), a panel button or an arrow key; the
-// reader's place and mode stay where the journey started, which leaving returns to. The step shows
-// as a drawing, the cards being unable to show its arrow (renderMode), and a phase picked stays.
-function play(journey: string | null, step: number): void {
+// Shows a journey's step; the reader's place and mode stay where the journey started, which
+// leaving returns to. The step shows as a drawing, the cards being unable to show its arrow
+// (renderMode), and a phase picked stays.
+function showStep(journey: string | null, step: number): void {
   params = { ...params, journey, step };
   viewer = null;
   render();
   settle().catch(fail);
+}
+
+// The reader plays a journey's step, picked from the menu (its first), a panel button, an arrow
+// key or a cell of the ribbon, or leaves the journey: its playback stops.
+function play(journey: string | null, step: number): void {
+  stopPlayback();
+  showStep(journey, step);
 }
 
 const leave = (): void => {
@@ -1258,8 +1384,10 @@ const NAV_KEYS = ["data-nav"];
 // panel of the place it started from, not to its reply fields, where Escape and the arrows type.
 const LEAVE_KEYS = ["data-leave", "data-cite", "data-go"];
 
-// The step before or after the one shown, while there is one.
+// The step before or after the one shown, while there is one; past either end, the playback stops
+// all the same.
 function stepBy(delta: number): void {
+  stopPlayback();
   const played = journeyOf(tree, pageState.journey);
   const next = pageState.step + delta;
 
@@ -1267,6 +1395,89 @@ function stepBy(delta: number): void {
     play(played.id, next);
   }
 }
+
+// The ribbon's play button plays the journey on from the step shown, a step every PLAY_MS, and
+// stops at its last; pressed on the last, it starts again from the first. A step the reader plays,
+// a fragment typed into the address bar and a move stop it; a phase picked does not.
+const PLAY_MS = 2000;
+
+let playback: ReturnType<typeof setInterval> | undefined;
+
+// The button's word changes its width, and the steps' sight with it.
+function markPlayback(): void {
+  const on = playback !== undefined;
+  playButton.textContent = on ? words.pause : words.play;
+  playButton.setAttribute("aria-pressed", String(on));
+
+  if (ribbonShown !== null) {
+    showCell(ribbonShown.step);
+  }
+}
+
+function stopPlayback(): void {
+  clearInterval(playback);
+  playback = undefined;
+  markPlayback();
+}
+
+// A tick leaves the focus where it was: on the panel's ← → or leave buttons, their new copies
+// take it (keepingPanelFocus); the ribbon, written once per journey, keeps its own.
+const TICK_KEYS = ["data-nav", "data-leave"];
+
+function tick(): void {
+  const played = journeyOf(tree, pageState.journey);
+  const count = played === null ? 0 : stepsOf(played).length;
+  const next = pageState.step + 1;
+
+  if (played === null || next > count) {
+    stopPlayback();
+
+    return;
+  }
+
+  keepingPanelFocus(TICK_KEYS, () => {
+    showStep(played.id, next);
+  });
+
+  if (next === count) {
+    stopPlayback();
+  }
+}
+
+function togglePlayback(): void {
+  const played = journeyOf(tree, pageState.journey);
+
+  if (played === null || playback !== undefined) {
+    stopPlayback();
+
+    return;
+  }
+
+  const count = stepsOf(played).length;
+
+  if (pageState.step === count) {
+    keepingPanelFocus(TICK_KEYS, () => {
+      showStep(played.id, 1);
+    });
+  }
+
+  if (pageState.step < count) {
+    playback = setInterval(tick, PLAY_MS);
+  }
+
+  markPlayback();
+}
+
+playButton.addEventListener("click", togglePlayback);
+
+// A cell of the ribbon plays its step; the ribbon, marked in place, keeps the focus.
+ribbonSteps.addEventListener("click", (e) => {
+  const cell = e.target instanceof Element ? e.target.closest("[data-step]") : null;
+
+  if (cell instanceof HTMLElement) {
+    play(pageState.journey, Number(cell.dataset["step"]));
+  }
+});
 
 // The header's lists, each with the button that opens it under itself (atlas.html).
 const lists = [
@@ -1692,17 +1903,21 @@ function backOut(): void {
   }
 }
 
-// On a journey, the arrow keys press the panel's ← → buttons.
+// On a journey, the arrow keys press the panel's ← → buttons, and Space the ribbon's play button,
+// but where the focus is on what Space presses itself.
 const ARROWS = new Map([
   ["ArrowLeft", -1],
   ["ArrowRight", 1],
 ]);
+
+const SPACE_PRESSES = "input, textarea, button, .hit";
 
 document.addEventListener("keydown", (e) => {
   const typing = e.target instanceof HTMLInputElement;
   const listing = openList.matches(":popover-open") || journeyList.matches(":popover-open");
   const delta = ARROWS.get(e.key);
   const modified = e.altKey || e.ctrlKey || e.metaKey || e.shiftKey;
+  const pressing = e.target instanceof Element && e.target.closest(SPACE_PRESSES) !== null;
 
   if (typing || listing) {
     return;
@@ -1715,12 +1930,19 @@ document.addEventListener("keydown", (e) => {
     keepingPanelFocus(NAV_KEYS, () => {
       stepBy(delta);
     });
+  } else if (e.key === " " && !modified && !pressing && pageState.journey !== null) {
+    e.preventDefault();
+
+    if (!e.repeat) {
+      togglePlayback();
+    }
   }
 });
 
 // render() writes the fragment with replaceState, which fires no hashchange: this is a fragment
-// typed into the address bar.
+// typed into the address bar. It stops a journey's playback.
 addEventListener("hashchange", () => {
+  stopPlayback();
   place = placeOfHash(tree, location.hash);
   params = paramsOfHash(scope, location.hash);
   viewer = null;
@@ -1810,10 +2032,14 @@ const FACES = [
   '400 12px "IBM Plex Mono"',
 ];
 
+// A journey's texts, and the ribbon's numbers and words.
 const journeyText = (): string[] =>
   journeys.flatMap((journey) => [
+    words.play,
+    words.pause,
     ...journey.sections.map((section) => section.label),
-    ...stepsOf(journey).flatMap(({ step }) => [
+    ...stepsOf(journey).flatMap(({ n, step }) => [
+      String(n),
       step.trigger ?? "",
       step.carries ?? "",
       step.when ?? "",

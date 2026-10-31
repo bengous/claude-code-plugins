@@ -172,6 +172,8 @@ src/page/            what runs in the browser
                      an HTML field reaches the page, its citations as markers; the viewer of a
                      citation's lines; the cards' table; a journey's step and the journeys' menu
                      (panel.spec.ts)
+  ribbon.ts          the ribbon of a journey played: a column per section, a cell per step and
+                     its marks, the data's forms in a row under the cells (ribbon.spec.ts)
   measure.ts         sizes text: one scale for every view
   geometry.ts        rects, points and similarities
   svg.ts             SVG building blocks
@@ -328,6 +330,17 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   journey, which shows each step as a drawing; one started from the cards keeps `mode=cards` in
   the fragment and shows the cards again once left for where it started. A phase picked stays; the step's arrow, when it comes
   after that phase, keeps its dots but not their fading. A map without journeys has no menu.
+- On a journey, a ribbon over the foot of the stage shows it whole (`ribbon.ts`): a column per
+  section with a step, as wide as its count of steps; a cell per step, at least 22 px wide, marked
+  as an entry, a return, a condition, played or shown, which a click plays; under the cells, each
+  form of the data (`formAfter`) over the steps it holds. Past the cells' minimum it scrolls
+  sideways, the step shown's cell kept in sight. Written once per journey and marked in place at
+  each step, it keeps the focus. It floats, leaving the drawing area's size alone: the fit frames
+  the view above it and the legend rises above it, again each time its height moves (its
+  `ResizeObserver`). Its play button, which Space presses too unless the focus is on a text field,
+  a button or a `.hit`, plays a step every 2 s up to the last, from the first when pressed there; a
+  step the reader plays (← →, a cell, the menu), a fragment typed or leaving stops it, a phase
+  picked does not.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. On a journey, both leave it for the place it started from, a click on an arrow or
   its label does nothing, and any other move leaves it from the step's view.

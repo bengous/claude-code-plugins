@@ -41,6 +41,10 @@ export type Words = {
   readonly previousStep: string;
   readonly nextStep: string;
   readonly leaveJourney: string;
+  /** The ribbon of a journey played: its name, and its button that plays the steps, then pauses. */
+  readonly ribbonLabel: string;
+  readonly play: string;
+  readonly pause: string;
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -102,6 +106,9 @@ const fr: Words = {
   previousStep: "← Précédente",
   nextStep: "Suivante →",
   leaveJourney: "Quitter le parcours",
+  ribbonLabel: "Étapes du parcours",
+  play: "Lire",
+  pause: "Pause",
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -186,6 +193,9 @@ const en: Words = {
   previousStep: "← Previous",
   nextStep: "Next →",
   leaveJourney: "Leave the journey",
+  ribbonLabel: "Journey steps",
+  play: "Play",
+  pause: "Pause",
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,

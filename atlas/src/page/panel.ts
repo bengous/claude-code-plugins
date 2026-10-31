@@ -289,7 +289,8 @@ const CLOCK =
 const PERSON =
   '<svg class="glyph" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="4.3" r="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.4 12.6c.6-2.6 2.4-4 4.6-4s4 1.4 4.6 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
-const ICONS: Readonly<Record<EntryStep["kind"], string>> = { auto: CLOCK, manual: PERSON };
+/** The icon of an entry's nature, in the panel and the ribbon. */
+export const ICONS: Readonly<Record<EntryStep["kind"], string>> = { auto: CLOCK, manual: PERSON };
 
 const entryBox = (s: Settings, step: Step): string =>
   isEntry(step)
