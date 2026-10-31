@@ -1,6 +1,6 @@
-import type { AtlasMap } from "./atlas.d.ts";
+import type { AtlasMap, Filled } from "./atlas.d.ts";
 
-export default {
+const map = {
   root: {
     kicker: "a sample map",
     title: "Bookshop",
@@ -207,4 +207,6 @@ export default {
     { from: "orders", to: "email", label: "confirmation", tags: ["account", "order"] },
     { from: "backup", to: "db", label: "pg_dump each night", kind: "dash" },
   ],
-} satisfies AtlasMap;
+} as const satisfies AtlasMap;
+
+export default map satisfies Filled<typeof map>;

@@ -1,6 +1,6 @@
-import type { AtlasMap } from "./atlas.d.ts";
+import type { AtlasMap, Filled } from "./atlas.d.ts";
 
-export default {
+const map = {
   root: {
     title: "New map",
     children: [
@@ -22,4 +22,6 @@ export default {
     ],
   },
   links: [],
-} satisfies AtlasMap;
+} as const satisfies AtlasMap;
+
+export default map satisfies Filled<typeof map>;

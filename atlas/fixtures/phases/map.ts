@@ -1,6 +1,6 @@
-import type { AtlasMap } from "../../src/model/atlas.ts";
+import type { AtlasMap, Filled } from "../../src/model/atlas.ts";
 
-export default {
+const map = {
   root: {
     title: "Phased shop",
     lead: "A shop built in three work phases: MVP sells books, Payments takes cards and bills, Growth adds search, refunds and analytics. A phase picked in the header dims what comes after it.",
@@ -167,4 +167,6 @@ export default {
     { from: "pages", to: "bestsellers", label: "shows" },
     { from: "arrivals", to: "bestsellers", label: "ranks" },
   ],
-} satisfies AtlasMap;
+} as const satisfies AtlasMap;
+
+export default map satisfies Filled<typeof map>;

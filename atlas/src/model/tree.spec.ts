@@ -51,14 +51,16 @@ type Unchecked = {
   readonly sections?: unknown;
 };
 
-const unchecked = (journey: Unchecked): AtlasMap => {
+const uncheckedJourneys = (given: readonly (Unchecked | null)[] | Unchecked): AtlasMap => {
   const map = journeyed([]);
-  // SAFETY: a journey in the format before sections, or a section whose steps is no list, as a
-  // map folder's data can hold once it skips its typecheck.
-  const journeys = [journey as Journey];
+  // SAFETY: journeys of any shape, a journey in the format before sections among them, as a map
+  // folder's data can hold once it skips its typecheck.
+  const journeys = given as readonly Journey[];
 
   return { ...map, root: { ...map.root, journeys } };
 };
+
+const unchecked = (journey: Unchecked): AtlasMap => uncheckedJourneys([journey]);
 
 const refusal = (map: AtlasMap): string => {
   try {
@@ -227,6 +229,51 @@ describe("treeOf", () => {
       }),
       "journey walk: section 2: steps is not a list",
     ],
+    [
+      "journeys that are no list",
+      uncheckedJourneys({ id: "walk", label: "Walk", sections: [] }),
+      "journeys is not a list",
+    ],
+    [
+      "a journey that is no object",
+      uncheckedJourneys([{ id: "walk", label: "Walk", sections: [] }, null]),
+      "journey 2 is not an object",
+    ],
+    [
+      "a journey's step that is no object",
+      unchecked({
+        id: "walk",
+        label: "Walk",
+        sections: [{ label: "Out", steps: [go("b", "c"), null] }],
+      }),
+      "journey walk: step 2 (Out) is not an object",
+    ],
+    [
+      "a journey's section that is no object",
+      unchecked({ id: "walk", label: "Walk", sections: [{ label: "Out", steps: [] }, null] }),
+      "journey walk: section 2 is not an object",
+    ],
+    [
+      "a journey's section without a label",
+      unchecked({ id: "walk", label: "Walk", sections: [{ steps: [go("b", "c")] }] }),
+      "journey walk: section 1: label is not text",
+    ],
+    [
+      "a journey's section whose label is no text",
+      unchecked({ id: "walk", label: "Walk", sections: [{ label: 3, steps: [go("b", "c")] }] }),
+      "journey walk: section 1: label is not text",
+    ],
+    ...(["trigger", "kind", "carries", "when", "note"] as const).map(
+      (field): [string, AtlasMap, string] => [
+        `a journey's step whose ${field} is no text`,
+        unchecked({
+          id: "walk",
+          label: "Walk",
+          sections: [{ label: "Out", steps: [go("b", "c"), { from: "c", to: "b", [field]: 1 }] }],
+        }),
+        `journey walk: step 2 (Out), c → b: ${field} is not text`,
+      ],
+    ),
   ])("refuses %s", (_, map, message) => {
     expect(refusal(map)).toBe(message);
   });

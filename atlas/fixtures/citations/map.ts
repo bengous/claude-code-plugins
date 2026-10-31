@@ -1,6 +1,6 @@
-import type { AtlasMap } from "../../src/model/atlas.ts";
+import type { AtlasMap, Filled } from "../../src/model/atlas.ts";
 
-export default {
+const map = {
   root: {
     title: "Shop",
     lead: "A shop in Go: one process serves the routes and takes the orders <cite>cmd/shop/main.go:15-24</cite>, PostgreSQL keeps the books and the orders <cite>db/schema.sql:1-12</cite>, and a mail service sends the confirmations <cite>orders/mail.go:22-41</cite>.",
@@ -96,4 +96,6 @@ export default {
     { from: "orders", to: "db", label: "SQL" },
     { from: "mailer", to: "mail", label: "HTTPS" },
   ],
-} satisfies AtlasMap;
+} as const satisfies AtlasMap;
+
+export default map satisfies Filled<typeof map>;

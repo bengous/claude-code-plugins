@@ -32,8 +32,8 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //   - a journey whose id is not unique or not kebab-case, that has no section, with a section
 //     without a label or without a step, or with a step that is not an entry and does not start
 //     at a node its section has reached (reachedBefore in journeys.ts), a section that does not
-//     open on an entry, an entry whose trigger is empty, or a step that no link joins directly,
-//     the other way for a step with back (joins);
+//     open on an entry, an entry whose trigger is empty, a step whose carries or when is empty,
+//     or a step that no link joins directly, the other way for a step with back (joins);
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
 //   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
@@ -160,6 +160,14 @@ function checkStep(tree: Tree, section: Section, index: number, step: Step, at: 
 
   if (entry && step.trigger.trim() === "") {
     errors.push(`${at}: an entry's trigger names what sets it off`);
+  }
+
+  if (step.carries?.trim() === "") {
+    errors.push(`${at}: a step's carries names the data's form`);
+  }
+
+  if (step.when?.trim() === "") {
+    errors.push(`${at}: a step's when names its condition`);
   }
 
   if (index > 0 && !entry && !reachedBefore(section, index).has(step.from)) {

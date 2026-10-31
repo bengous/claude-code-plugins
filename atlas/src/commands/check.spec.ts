@@ -297,6 +297,24 @@ describe("validate", () => {
     ]);
   });
 
+  test("a step whose carries or when names nothing is refused", () => {
+    const blank = walk("blank", {
+      label: "Order",
+      steps: [
+        { ...entry("browser", "proxy"), carries: "", when: "the shop is open" },
+        { from: "proxy", to: "web", carries: "a request", when: " " },
+        { from: "web", to: "orders", carries: "  ", when: "" },
+      ],
+    });
+
+    expect(errorsOf(withJourneys([blank]))).toEqual([
+      "journey blank: step 1 (Order), browser → proxy: a step's carries names the data's form",
+      "journey blank: step 2 (Order), proxy → web: a step's when names its condition",
+      "journey blank: step 3 (Order), web → orders: a step's carries names the data's form",
+      "journey blank: step 3 (Order), web → orders: a step's when names its condition",
+    ]);
+  });
+
   test("a step back follows a link set from its to to its from; one with its ends swapped by mistake is refused", () => {
     const back = walk("back", {
       label: "Round trip",

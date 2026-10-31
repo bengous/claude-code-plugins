@@ -1,6 +1,6 @@
-import type { AtlasMap } from "../../src/model/atlas.ts";
+import type { AtlasMap, Filled } from "../../src/model/atlas.ts";
 
-export default {
+const map = {
   root: {
     title: "Bands",
     lead: "A shop read top to bottom: each view places its ranked nodes in bands, rank by rank.",
@@ -145,4 +145,6 @@ export default {
     { from: "db", to: "cache", label: "warms" },
     { from: "metrics", to: "gateway", label: "probes" },
   ],
-} satisfies AtlasMap;
+} as const satisfies AtlasMap;
+
+export default map satisfies Filled<typeof map>;

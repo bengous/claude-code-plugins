@@ -192,9 +192,32 @@ describe("check", () => {
     expect(run.stderr).toBe("check: tsgo failed\n");
   });
 
+  test("refuses a journey's empty carries twice: tsgo through Filled on a map written as const, and the map's own check", async () => {
+    const dir = sampleCopy();
+
+    await edit(
+      join(dir, "map.ts"),
+      "\n    children: [",
+      '\n    journeys: [{ id: "visit", label: "Visit", sections: [{ label: "Open", steps: [{ from: "browser", to: "proxy", trigger: "Open the shop", kind: "manual", carries: "" }] }] }],\n    children: [',
+    );
+
+    expect(cli("fmt", dir).code).toBe(0);
+
+    const run = cli("check", dir);
+
+    expect(run.code).toBe(1);
+    expect(failedReport(run.stdout, "map")).toBe(
+      "journey visit: step 1 (Open), browser → proxy: a step's carries names the data's form\n",
+    );
+    expect(failedReport(run.stdout, "tsgo")).toContain(
+      `Type '""' is not assignable to type 'never'`,
+    );
+    expect(run.stderr).toBe("check: map, tsgo failed\n");
+  });
+
   test("reports a lint and a format violation", async () => {
     const dir = sampleCopy();
-    await edit(join(dir, "map.ts"), "\nexport default", "\nconst unused = 1;\n\nexport default");
+    await edit(join(dir, "map.ts"), "\nconst map", "\nconst unused = 1;\n\nconst map");
     await edit(join(dir, "atlas.config.ts"), "palette: {", "palette:   {");
     const run = cli("check", dir);
 
@@ -302,7 +325,7 @@ describe("check", () => {
 
   test("--open reports a map that does not load, and a missing threads.json, in one line", async () => {
     const broken = sampleCopy();
-    await edit(join(broken, "map.ts"), "export default {", "export default { ;");
+    await edit(join(broken, "map.ts"), "const map = {", "const map = { ;");
     const run = cli("check", broken, "--open");
 
     expect(run.code).toBe(1);
@@ -521,7 +544,7 @@ describe("reply", () => {
 
   test("reports a map that does not load in one line", async () => {
     const dir = sampleCopy();
-    await edit(join(dir, "map.ts"), "export default {", "export default { ;");
+    await edit(join(dir, "map.ts"), "const map = {", "const map = { ;");
     const run = cli("reply", dir, "backup-restore-untested", "--as", "agent", "x");
 
     expect(run.code).toBe(1);
@@ -557,7 +580,7 @@ describe("draft", () => {
     const path = join(dir, "drafts", "broken");
     cli("draft", dir, "broken");
     await edit(join(path, "map.ts"), 'label: "Part"', "label: 42");
-    await edit(join(path, "map.ts"), "\nexport default", "\nconst unused = 1;\n\nexport default");
+    await edit(join(path, "map.ts"), "\nconst map", "\nconst unused = 1;\n\nconst map");
     await edit(join(path, "atlas.config.ts"), "palette: {", "palette:   {");
 
     expect(cli("check", dir).code).toBe(0);

@@ -54,12 +54,12 @@ export const node = {
       src: "path/to/file.ts",
     },
   ],
-} satisfies Node;
+} as const satisfies Node;
 
 export const links = [
   // path/to/file.ts:58
   { from: "{branch id}-part", to: "another-branch", label: "what moves" },
-] satisfies readonly Link[];
+] as const satisfies readonly Link[];
 ```
 
 - Every id is kebab-case and starts with `{branch id}-`, but the branch's own: ids are unique on

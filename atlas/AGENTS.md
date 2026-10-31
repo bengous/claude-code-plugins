@@ -21,7 +21,12 @@ copy of `atlas.ts` its data imports its types from, and `tsconfig.json`, a copy 
 template's. It needs no `package.json`: its data imports types only. Its data files are its `.ts`
 files but `atlas.d.ts`, in sub-folders too: a large map keeps each branch in `parts/<branch>.ts`,
 which exports its `node` and its `links` with types from `../atlas.d.ts`, and `map.ts` assembles
-them (parts.integration.spec.ts holds check, fmt and the page's bundle to it). Its drafts sit in
+them (parts.integration.spec.ts holds check, fmt and the page's bundle to it). `map.ts` writes
+its map `const map = { … } as const satisfies AtlasMap;` and exports it
+`export default map satisfies Filled<typeof map>;`: from the literal types `as const` keeps,
+`Filled` (atlas.ts) makes tsgo refuse a journey's empty text, which check refuses too; a part
+writes its `node` and its `links` `as const satisfies` their types. The template, the sample and
+the fixtures written as literals do so. Its drafts sit in
 `drafts/<name>/`, which its check leaves out; each holds a copy of the map's own files, a map folder
 of its own.
 
@@ -51,7 +56,8 @@ src/parts.integration.spec.ts    a map assembled from parts/*.ts through check, 
 src/model/           the map and what is read from it, pure or Node-only, no browser
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, Journey (a
                      path of the root's, in sections of steps, a step per link), AtlasMap (the
-                     root and every link),
+                     root and every link), Filled (a map written as const, its journeys' texts
+                     that check holds named refused empty),
                      Config (title, language, palette, pins, packing ratio, reading direction,
                      tags, legend labels, panel headings, step words, sources root, work
                      phases); the source of a map's atlas.d.ts
@@ -314,12 +320,12 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   `draw.ts`), over the phase's label too; a step `back` lights it in `--back`, heads included,
   and the legend adds its line. The panel shows the journey's label, the step's section and its
   place in the journey, the step's `carries` or the label of the link it follows over its ends,
-  an entry's trigger under the icon of its nature, the step's direction, the data's form once it
-  is done (`formAfter`) and its condition, and its note, with ← → buttons, which the arrow keys
-  press too, and under them a button that leaves the journey for the place it started from
-  (`renderJourney` in `panel.ts`). The mode switch hides on a journey, which shows each step as a
-  drawing; one started from the cards keeps `mode=cards` in the fragment and shows the cards
-  again once left for where it started. A phase picked stays; the step's arrow, when it comes
+  for an entry the icon of its nature beside its trigger and the word of its nature, the step's
+  direction, the data's form once it is done (`formAfter`) and its condition, and its note, with
+  ← → buttons, which the arrow keys press too, and under them a button that leaves the journey
+  for the place it started from (`renderJourney` in `panel.ts`). The mode switch hides on a
+  journey, which shows each step as a drawing; one started from the cards keeps `mode=cards` in
+  the fragment and shows the cards again once left for where it started. A phase picked stays; the step's arrow, when it comes
   after that phase, keeps its dots but not their fading. A map without journeys has no menu.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
   empty sheet. On a journey, both leave it for the place it started from, a click on an arrow or

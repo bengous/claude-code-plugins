@@ -106,12 +106,16 @@ export function ghostIn(tree: Tree, container: string | null, id: string): strin
 export const itemIn = (tree: Tree, container: string | null, id: string): string | null =>
   liftIn(tree, container, id) ?? ghostIn(tree, container, id);
 
+const STEP_TEXTS = ["trigger", "kind", "carries", "when", "note"] as const;
+
 /**
  * Indexes a map, and refuses what its views cannot show: an empty id, two nodes with one id, an
  * empty `children`, a `kind` or a side "both" on a container, an outside node below the root or without
  * a side, a side on a node inside, a rank that is not an integer from 0, a coupling or a link to
- * an unknown node, a link whose one end holds the other, a journey whose `sections`, or a section
- * whose `steps`, is not a list, and a journey's step to or from an unknown node.
+ * an unknown node, a link whose one end holds the other, a `journeys`, a journey's `sections` or a
+ * section's `steps` that is not a list, a journey, a section or a step that is not an object, a
+ * section whose `label` is not text, and a journey's step to or from an unknown node, or whose
+ * `trigger`, `kind`, `carries`, `when` or `note`, given, is not text.
  */
 export function treeOf(map: AtlasMap): Tree {
   const nodes = new Map<string, Node>();
@@ -215,29 +219,69 @@ export function treeOf(map: AtlasMap): Tree {
     }
   }
 
-  for (const { id, sections } of map.root.journeys ?? []) {
+  /* oxlint-disable anti-slop/no-runtime-typeof -- the loop below IS the boundary parser of a map's journeys, which check and the page read before tsgo runs, if it ever does: a map's data may hold any shape there, and what crashes them is refused here. */
+  const journeys = map.root.journeys ?? [];
+
+  if (!Array.isArray(journeys)) {
+    refuse("journeys is not a list");
+  }
+
+  for (const [j, journey] of journeys.entries()) {
+    if (typeof journey !== "object" || journey === null) {
+      refuse(`journey ${j + 1} is not an object`);
+    }
+
+    const { id, sections } = journey;
+
     if (!Array.isArray(sections)) {
       refuse(`journey ${id}: sections is not a list`);
     }
 
     let n = 0;
 
-    for (const [i, { label, steps }] of sections.entries()) {
-      if (!Array.isArray(steps)) {
-        refuse(`journey ${id}: section ${i + 1}: steps is not a list`);
+    for (const [i, section] of sections.entries()) {
+      const where = `journey ${id}: section ${i + 1}`;
+
+      if (typeof section !== "object" || section === null) {
+        refuse(`${where} is not an object`);
       }
 
-      for (const { from, to } of steps) {
+      const { label, steps } = section;
+
+      if (typeof label !== "string") {
+        refuse(`${where}: label is not text`);
+      }
+
+      if (!Array.isArray(steps)) {
+        refuse(`${where}: steps is not a list`);
+      }
+
+      for (const step of steps) {
         n += 1;
 
-        for (const end of [from, to]) {
+        if (typeof step !== "object" || step === null) {
+          refuse(`journey ${id}: step ${n} (${label}) is not an object`);
+        }
+
+        const at = `journey ${id}: step ${n} (${label}), ${step.from} → ${step.to}`;
+
+        for (const end of [step.from, step.to]) {
           if (!nodes.has(end)) {
-            refuse(`journey ${id}: step ${n} (${label}), ${from} → ${to}: no node ${end}`);
+            refuse(`${at}: no node ${end}`);
+          }
+        }
+
+        for (const field of STEP_TEXTS) {
+          const value: unknown = step[field];
+
+          if (value !== undefined && typeof value !== "string") {
+            refuse(`${at}: ${field} is not text`);
           }
         }
       }
     }
   }
+  /* oxlint-enable anti-slop/no-runtime-typeof */
 
   return tree;
 }

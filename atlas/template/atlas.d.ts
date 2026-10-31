@@ -206,6 +206,49 @@ export type Link = {
 /** A map: the root of its tree and every link, wherever their ends sit in the tree. */
 export type AtlasMap = { readonly root: Root; readonly links: readonly Link[] };
 
+type NonEmpty<S> = S extends "" ? never : S;
+
+type FilledStep<S> = {
+  readonly [K in keyof S]: K extends "trigger" | "carries" | "when" ? NonEmpty<S[K]> : S[K];
+};
+
+type FilledSteps<A> = { readonly [I in keyof A]: FilledStep<A[I]> };
+
+type FilledSection<S> = {
+  readonly [K in keyof S]: K extends "label"
+    ? NonEmpty<S[K]>
+    : K extends "steps"
+      ? FilledSteps<S[K]>
+      : S[K];
+};
+
+type FilledSections<A> = { readonly [I in keyof A]: FilledSection<A[I]> };
+
+type FilledJourney<J> = {
+  readonly [K in keyof J]: K extends "sections" ? FilledSections<J[K]> : J[K];
+};
+
+type FilledJourneys<A> = { readonly [I in keyof A]: FilledJourney<A[I]> };
+
+type FilledRoot<R> = {
+  readonly [K in keyof R]: K extends "journeys" ? FilledJourneys<R[K]> : R[K];
+};
+
+/**
+ * A map whose journeys name what `atlas check` holds named, so the typecheck refuses an empty
+ * text, its path in the error: a section's `label`, a step's `trigger`, `carries` and `when`, each
+ * the literal "" turned into `never`. It reads the literal types of a map written `as const`, the
+ * way a map.ts writes it:
+ *
+ *     const map = { … } as const satisfies AtlasMap;
+ *
+ *     export default map satisfies Filled<typeof map>;
+ *
+ * Without `as const` every text is a `string`, and nothing is refused. Every other field stays as
+ * it is; text of spaces alone passes, and `atlas check` refuses it.
+ */
+export type Filled<T> = { readonly [K in keyof T]: K extends "root" ? FilledRoot<T[K]> : T[K] };
+
 /** The language of the page's own words: its headings, buttons, legend and errors. */
 export type Lang = "fr" | "en";
 

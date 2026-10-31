@@ -78,10 +78,12 @@ writes the files. Write each part as returned, under `parts/` in the map folder.
 
 ## 5. Assemble
 
-Write `map.ts`: it imports each part's `node` and `links` (types from `./atlas.d.ts` with
-`import type`), and exports, `satisfies AtlasMap`, a root with `title`, a `lead` (what the system
-does, cited), `facts` from the inventory (languages, runtime, how it ships; plain text, as the
-panel shows a fact's markup as written), the branches in the
+Write `map.ts`: it imports each part's `node` and `links`, and `AtlasMap` and `Filled` from
+`./atlas.d.ts` with `import type`; it writes the map as `const map = { … } as const satisfies
+AtlasMap;` and ends with `export default map satisfies Filled<typeof map>;`, as the template's
+`map.ts` does, so the typecheck refuses a journey's empty text. The map holds a root with
+`title`, a `lead` (what the system does, cited), `facts` from the inventory (languages, runtime,
+how it ships; plain text, as the panel shows a fact's markup as written), the branches in the
 agreed order, then the outside nodes, which `map.ts` holds itself (`outside: true`, `side`,
 `color: "outside"`); and every part's links. Then:
 

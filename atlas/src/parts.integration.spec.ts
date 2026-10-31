@@ -50,23 +50,25 @@ const part = (branch: string, label: string, linkTo: string): string =>
     `      children: [{ id: "${branch}-leaf", label: "Leaf", sub: "src/leaf.ts", color: "system" }],`,
     "    },",
     "  ],",
-    "} satisfies Node;",
+    "} as const satisfies Node;",
     "",
     "export const links = [",
     `  { from: "${branch}-leaf", to: "${linkTo}-leaf", label: "calls" },`,
-    "] satisfies readonly Link[];",
+    "] as const satisfies readonly Link[];",
     "",
   ].join("\n");
 
 const MAP = [
-  'import type { AtlasMap } from "./atlas.d.ts";',
+  'import type { AtlasMap, Filled } from "./atlas.d.ts";',
   'import { links as coreLinks, node as core } from "./parts/core.ts";',
   'import { links as edgeLinks, node as edge } from "./parts/edge.ts";',
   "",
-  "export default {",
+  "const map = {",
   '  root: { title: "Parts", children: [core, edge] },',
   "  links: [...coreLinks, ...edgeLinks],",
-  "} satisfies AtlasMap;",
+  "} as const satisfies AtlasMap;",
+  "",
+  "export default map satisfies Filled<typeof map>;",
   "",
 ].join("\n");
 
