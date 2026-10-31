@@ -156,7 +156,7 @@ export const REGISTRY: Registry = {
       quote: "`--fix` applies the fixes oxlint rates safe, never",
       prose: "oxlint rates its own fixes, and no repo check reads the rating",
     },
-    b0298a8f: {
+    "1466363d": {
       quote: "The tools run from the checkout of the project's repository",
       held: ["test .claude/hooks/format-on-edit.integration.test.ts"],
     },

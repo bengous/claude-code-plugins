@@ -37,7 +37,7 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   Run from the project on a file under `.claude/worktrees/<agent>/`, oxlint
   loads that worktree's `oxlint.config.ts` as a nested config and fails on
   the second `anti-slop` registration (#84). A file of another repository,
-  the private `plans/` nested in the project or one a symlink in it points
+  the private `.private/` nested in the project or one a symlink in it points
   to, is not rewritten.
 - Per-edit cost, measured on 2026-09-14 with hyperfine on `stop-gates.ts`
   (124 lines, clean), oxlint 1.82.0, oxfmt 0.67.0, 16 threads: 309 ms, the

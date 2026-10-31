@@ -1,7 +1,7 @@
 /**
  * Which checkout of the project's repository a directory belongs to. The
  * project and its worktrees share one git common dir; another repository,
- * such as the private `plans/` nested in the project, has its own.
+ * such as the private `.private/` nested in the project, has its own.
  */
 
 import { realpath } from "node:fs/promises";
