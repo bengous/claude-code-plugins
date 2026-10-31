@@ -32,6 +32,7 @@ import {
 } from "../../scripts/claude-code-types.ts";
 import { commonDirOf, runState, takeFile } from "../../scripts/lib/headless-run.ts";
 import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
+import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 
@@ -107,10 +108,7 @@ async function sessionLines(rawInput: string): Promise<string[]> {
 
     return launched === null ? lines : [...lines, launched];
   } catch (error) {
-    return [
-      ...lines,
-      `Claude Code types: the session check failed: ${error instanceof Error ? error.message : String(error)}`,
-    ];
+    return [...lines, `Claude Code types: the session check failed: ${messageOf(error)}`];
   }
 }
 
@@ -122,7 +120,7 @@ if (import.meta.main) {
   } catch (error) {
     // Claude Code shows the first stderr line of a failed hook, and an
     // uncaught throw makes that line a Bun source frame.
-    console.error(`claude-code-types: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`claude-code-types: ${messageOf(error)}`);
     process.exit(HOOK_EXIT.ERROR);
   }
 }

@@ -16,10 +16,12 @@
  */
 
 import { realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative as relativeTo, sep } from "node:path";
+import { basename, dirname, join, relative as relativeTo, sep } from "node:path";
 
 import { $ } from "bun";
 
+import { GitError, git } from "../../tools/platform/node.ts";
+import { isInsideRelative } from "../../tools/platform/pure.ts";
 import { placeOf } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 
@@ -56,9 +58,7 @@ export function parseHookInput(raw: string): HookInput | null {
 export function toRepoRelative(filePath: string, repoRoot: string): string | null {
   const relative = relativeTo(repoRoot, filePath);
 
-  const outside = relative === ".." || relative.startsWith(`..${sep}`) || isAbsolute(relative);
-
-  return outside ? null : relative;
+  return isInsideRelative(relative, [sep]) ? relative : null;
 }
 
 /** The tools that rewrite the file, in the order they run. */
@@ -175,17 +175,16 @@ if (import.meta.main) {
   if (current !== before) {
     // stdin carries mode 100644, so an executable file differs by mode alone:
     // the exit code cannot stand in for the content comparison above.
-    const diff =
-      await $`git diff --no-index --no-color --no-ext-diff - ${relative} < ${new Blob([before])}`
-        .cwd(root)
-        .nothrow()
-        .quiet();
+    const args = ["diff", "--no-index", "--no-color", "--no-ext-diff", "-", relative];
+    const diff = await git(args, { cwd: root, stdin: before });
 
-    if (diff.exitCode !== GIT_DIFF_FILES_DIFFER) {
-      throw new Error(`git diff --no-index exited ${diff.exitCode}: ${diff.stderr.toString()}`);
+    if (diff.kind !== "exited") throw new GitError(args, diff);
+
+    if (diff.code !== GIT_DIFF_FILES_DIFFER) {
+      throw new Error(`git diff --no-index exited ${diff.code}: ${diff.stderr}`);
     }
 
-    const hunks = diffHunks(diff.stdout.toString());
+    const hunks = diffHunks(diff.stdout);
     const tools = [...rewrote].join(" and ");
     context.push(`${tools} rewrote \`${inProject}\`; it now reads as this diff:\n${hunks}`);
   }

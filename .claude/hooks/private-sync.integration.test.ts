@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { commit, git } from "./git-fixture.ts";
+import { commit, git } from "./git.fixture.ts";
 
 const HOOK = join(import.meta.dir, "private-sync.ts");
 

@@ -15,7 +15,7 @@ import { $ } from "bun";
 
 import { diffHunks, parseHookInput, rewritersFor, toRepoRelative } from "./format-on-edit.ts";
 import type { Rewriter } from "./format-on-edit.ts";
-import { commit, git } from "./git-fixture.ts";
+import { commit, git } from "./git.fixture.ts";
 
 describe("parseHookInput", () => {
   test("returns null on invalid JSON", () => {

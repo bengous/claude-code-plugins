@@ -7,7 +7,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { $ } from "bun";
+import { gitRead } from "../../tools/platform/node.ts";
+import { isErrno } from "../../tools/platform/pure.ts";
 
 const pad = (value: number): string => String(value).padStart(2, "0");
 
@@ -16,26 +17,27 @@ export function dayOf(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-export function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
-}
-
 function lastDay(file: string): string | null {
   try {
     return readFileSync(file, "utf8").trim();
   } catch (error) {
-    if (isErrnoException(error) && error.code === "ENOENT") return null;
+    if (isErrno(error, "ENOENT")) return null;
     throw error;
   }
 }
 
 /** The common dir when `root` is the main worktree, null in a linked one. */
 export async function mainCommonDir(root: string): Promise<string | null> {
-  const [gitDir, commonDir] = (
-    await $`git -C ${root} rev-parse --path-format=absolute --git-dir --git-common-dir`.text()
-  )
-    .trim()
-    .split("\n");
+  const dirs = await gitRead([
+    "-C",
+    root,
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-dir",
+    "--git-common-dir",
+  ]);
+
+  const [gitDir, commonDir] = dirs.split("\n");
 
   if (gitDir === undefined || commonDir === undefined) {
     throw new Error(`git rev-parse in ${root} printed no git dir and common dir`);

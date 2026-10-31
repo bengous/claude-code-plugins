@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { runState, takeFile } from "../../scripts/lib/headless-run.ts";
 import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
 import { reportLines, type StatePaths, statePaths } from "../../scripts/renovate-agent.ts";
+import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 import { claimToday, mainCommonDir } from "./once-a-day.ts";
@@ -85,7 +86,7 @@ if (import.meta.main) {
   } catch (error) {
     // Claude Code shows the first stderr line of a failed hook, and an
     // uncaught throw makes that line a Bun source frame.
-    console.error(`renovate-agent: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`renovate-agent: ${messageOf(error)}`);
     process.exit(HOOK_EXIT.ERROR);
   }
 }

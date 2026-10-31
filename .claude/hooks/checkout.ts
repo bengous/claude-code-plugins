@@ -7,7 +7,7 @@
 import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { $ } from "bun";
+import { type EnvOverlay, GitError, git, gitRead } from "../../tools/platform/node.ts";
 
 export type Place =
   | { kind: "checkout"; root: string }
@@ -19,44 +19,47 @@ interface Repository {
   commonDir: string;
 }
 
-let discoveryEnv: Promise<Record<string, string | undefined>> | undefined;
+let discoveryEnv: Promise<EnvOverlay> | undefined;
 
 /**
- * The hook's environment without the variables that pin git to one
- * repository, such as `GIT_DIR` exported by a git hook up the process tree:
- * with them, every directory reads as a checkout rooted at itself. `LC_ALL=C`
- * keeps the "not a git repository" message matchable.
+ * The variables that pin git to one repository, such as `GIT_DIR` exported by
+ * a git hook up the process tree, each named `undefined`: laid over the hook's
+ * environment, it removes them. With them, every directory reads as a checkout
+ * rooted at itself.
  */
-export function gitDiscoveryEnv(): Promise<Record<string, string | undefined>> {
-  discoveryEnv ??= $`git rev-parse --local-env-vars`.text().then((names) => {
-    const pinning = new Set(names.split("\n"));
-    const kept = Object.entries(process.env).filter(([name]) => !pinning.has(name));
-
-    return { ...Object.fromEntries(kept), LC_ALL: "C" };
-  });
+export function gitDiscoveryEnv(): Promise<EnvOverlay> {
+  discoveryEnv ??= gitRead(["rev-parse", "--local-env-vars"]).then((names) =>
+    Object.fromEntries(names.split("\n").map((name) => [name, undefined])),
+  );
 
   return discoveryEnv;
 }
 
 async function repositoryAt(dir: string): Promise<Repository | null> {
-  const run =
-    await $`git -C ${dir} rev-parse --path-format=absolute --show-toplevel --git-common-dir`
-      .env(await gitDiscoveryEnv())
-      .nothrow()
-      .quiet();
+  const args = [
+    "-C",
+    dir,
+    "rev-parse",
+    "--path-format=absolute",
+    "--show-toplevel",
+    "--git-common-dir",
+  ];
 
-  if (run.exitCode !== 0) {
-    const stderr = run.stderr.toString();
+  // `LC_ALL=C` keeps the "not a git repository" message matchable.
+  const run = await git(args, { env: await gitDiscoveryEnv(), cLocale: true });
 
-    if (stderr.includes("not a git repository")) return null;
+  if (run.kind !== "exited") throw new GitError(args, run);
 
-    throw new Error(`git rev-parse in ${dir} exited ${run.exitCode}: ${stderr.trim()}`);
+  if (run.code !== 0) {
+    if (run.stderr.includes("not a git repository")) return null;
+
+    throw new Error(`git rev-parse in ${dir} exited ${run.code}: ${run.stderr.trim()}`);
   }
 
-  const [toplevel, commonDir] = run.text().trim().split("\n");
+  const [toplevel, commonDir] = run.stdout.trim().split("\n");
 
   if (toplevel === undefined || commonDir === undefined) {
-    throw new Error(`git rev-parse in ${dir} printed no toplevel and common dir: ${run.text()}`);
+    throw new Error(`git rev-parse in ${dir} printed no toplevel and common dir: ${run.stdout}`);
   }
 
   return { toplevel, commonDir: await realpath(commonDir) };

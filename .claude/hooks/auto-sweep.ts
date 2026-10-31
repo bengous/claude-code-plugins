@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync, closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 
+import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 import { claimToday, mainCommonDir } from "./once-a-day.ts";
@@ -84,7 +85,7 @@ if (import.meta.main) {
   } catch (error) {
     // Claude Code shows the first stderr line of a failed hook, and an
     // uncaught throw makes that line a Bun source frame.
-    console.error(`auto-sweep: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`auto-sweep: ${messageOf(error)}`);
     process.exit(HOOK_EXIT.ERROR);
   }
 }

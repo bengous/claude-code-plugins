@@ -17,18 +17,16 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
-  renameSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
-import { $ } from "bun";
-
+import { GitError, git, renameSync } from "../../tools/platform/node.ts";
+import { isErrno, messageOf } from "../../tools/platform/pure.ts";
 import { NO_PROMPT } from "./auto-sweep.ts";
 import { checkoutRoot, gitDiscoveryEnv } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
-import { isErrnoException } from "./once-a-day.ts";
 
 const CONFIG = ".private.env";
 
@@ -47,18 +45,16 @@ type SessionStartOutput = {
 };
 
 async function repositoryOf(root: string): Promise<Repository> {
-  const run = await $`git -C ${root} rev-parse --path-format=absolute --git-common-dir`
-    .env(await gitDiscoveryEnv())
-    .nothrow()
-    .quiet();
+  const args = ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"];
+  const run = await git(args, { env: await gitDiscoveryEnv(), cLocale: true });
 
-  if (run.exitCode !== 0) {
-    throw new Error(
-      `git rev-parse in ${root} exited ${run.exitCode}: ${run.stderr.toString().trim()}`,
-    );
+  if (run.kind !== "exited") throw new GitError(args, run);
+
+  if (run.code !== 0) {
+    throw new Error(`git rev-parse in ${root} exited ${run.code}: ${run.stderr.trim()}`);
   }
 
-  const commonDir = realpathSync(run.text().trim());
+  const commonDir = realpathSync(run.stdout.trim());
 
   return { main: dirname(commonDir), commonDir };
 }
@@ -85,19 +81,18 @@ function privateRepo(main: string): string | null {
  */
 async function clone(url: string, into: string): Promise<boolean> {
   const staging = `${into}.tmp-${process.pid}`;
+  const args = ["clone", "--quiet", url, staging];
 
-  const proc = Bun.spawn(["git", "clone", "--quiet", url, staging], {
-    stdin: "ignore",
-    stdout: "ignore",
-    stderr: "pipe",
+  const run = await git(args, {
     env: { ...(await gitDiscoveryEnv()), ...CLONE_ENV },
+    cLocale: true,
   });
 
-  const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  if (run.kind !== "exited") throw new GitError(args, run);
 
-  if (exitCode !== 0) {
+  if (run.code !== 0) {
     rmSync(staging, { recursive: true, force: true });
-    const [first = `exit ${exitCode}`] = stderr.trim().split("\n");
+    const [first = `exit ${run.code}`] = run.stderr.trim().split("\n");
 
     throw new Error(`cloning ${CONFIG}'s repository into ${into} failed: ${first}`);
   }
@@ -109,9 +104,7 @@ async function clone(url: string, into: string): Promise<boolean> {
   } catch (error) {
     rmSync(staging, { recursive: true, force: true });
 
-    if (isErrnoException(error) && (error.code === "ENOTEMPTY" || error.code === "EEXIST")) {
-      return false;
-    }
+    if (isErrno(error, "ENOTEMPTY", "EEXIST")) return false;
 
     throw error;
   }
@@ -148,7 +141,7 @@ function link(path: string, target: string): boolean {
 
     return true;
   } catch (error) {
-    if (isErrnoException(error) && error.code === "EEXIST") return false;
+    if (isErrno(error, "EEXIST")) return false;
     throw error;
   }
 }
@@ -205,7 +198,7 @@ if (import.meta.main) {
   } catch (error) {
     // Claude Code shows the first stderr line of a failed hook, and an
     // uncaught throw makes that line a Bun source frame.
-    console.error(`private-sync: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`private-sync: ${messageOf(error)}`);
     process.exit(HOOK_EXIT.ERROR);
   }
 }
