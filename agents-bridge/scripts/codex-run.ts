@@ -20,13 +20,15 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
-  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+
+import { type GitResult, gitSync, writeAtomicSync } from "../lib/platform/node.ts";
+import { isErrno, messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -522,10 +524,7 @@ function readCallerSchema(path: string, mode: Mode): CallerSchema {
 // ---------------------------------------------------------------------------
 
 function writeJson(path: string, value: RunConfig | TurnSpec | TurnResult): void {
-  const temporary = `${path}.${process.pid}.tmp`;
-
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
-  renameSync(temporary, path);
+  writeAtomicSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 const turnDirOf = (runDir: string, turn: number): string => join(runDir, `turn-${turn}`);
@@ -610,9 +609,9 @@ function killGroup(pid: number): string | null {
 
     return null;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ESRCH") return null;
+    if (isErrno(error, "ESRCH")) return null;
 
-    return `cannot stop codex's process group ${pid}: ${error instanceof Error ? error.message : String(error)}`;
+    return `cannot stop codex's process group ${pid}: ${messageOf(error)}`;
   }
 }
 
@@ -676,13 +675,23 @@ function validateModel(model: string, effort: string | null): void {
 }
 
 function gitDirs(cwd: string): string[] {
-  const result = spawnSync(
-    "git",
-    ["-C", cwd, "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir"],
-    { encoding: "utf8" },
-  );
+  const notInRepository = `--git-write: ${cwd} is not in a git repository`;
+  let result: GitResult;
 
-  if (result.status !== 0) throw new UsageError(`--git-write: ${cwd} is not in a git repository`);
+  try {
+    result = gitSync([
+      "-C",
+      cwd,
+      "rev-parse",
+      "--path-format=absolute",
+      "--absolute-git-dir",
+      "--git-common-dir",
+    ]);
+  } catch (cause) {
+    throw new UsageError(notInRepository, { cause });
+  }
+
+  if (result.kind !== "exited" || result.code !== 0) throw new UsageError(notInRepository);
 
   return result.stdout.split("\n").filter((line) => line !== "");
 }
@@ -698,8 +707,6 @@ function stopFoundGroup(pgid: number, ownGroup: number): string | null {
 
   return killGroup(pgid);
 }
-
-const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
 
 // With the supervisor dead no codex can start for this turn any more, and every codex
 // command line names the turn's own -o file (buildCodexArgs): it identifies codex's group.
@@ -1243,9 +1250,7 @@ function commandModels(): number {
   } catch (error) {
     // The codex skill injects this output when it loads, and a failing injected
     // command aborts the whole skill: report the failure as text instead.
-    process.stdout.write(
-      `(model catalog unavailable: ${error instanceof Error ? error.message : String(error)})\n`,
-    );
+    process.stdout.write(`(model catalog unavailable: ${messageOf(error)})\n`);
   }
 
   return 0;
@@ -1304,7 +1309,7 @@ if (import.meta.main) {
     // parseArgs reports an unknown or malformed flag as a TypeError with a code.
     const usage = error instanceof UsageError || (error instanceof TypeError && "code" in error);
 
-    process.stderr.write(`codex-run: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`codex-run: ${messageOf(error)}\n`);
 
     if (usage) process.stderr.write(`${USAGE}\n`);
 

@@ -794,6 +794,27 @@ describe("codex-run CLI", () => {
     expect(codexCalls(h)[0]?.cwd).toBe(repo);
   });
 
+  test("--git-write outside a repository, or with no git to run, is a usage error", async () => {
+    const h = harness();
+    const plain = join(h.root, "plain");
+    const bunOnly = join(h.root, "bun-only");
+
+    mkdirSync(plain);
+    mkdirSync(bunOnly);
+    symlinkSync(process.execPath, join(bunOnly, "bun"));
+
+    const start = ["start", h.runDir, "--prompt-file", h.prompt, "-C", plain, "--git-write"];
+    const outside = await cli(h, start);
+    const noGit = await cli(h, start, { PATH: bunOnly });
+
+    for (const out of [outside, noGit]) {
+      expect(out.code).toBe(2);
+      expect(out.stderr).toContain(`--git-write: ${plain} is not in a git repository`);
+    }
+
+    expect(existsSync(join(h.runDir, "run.json"))).toBe(false);
+  });
+
   test("--codex-version pins the CLI for every turn of the run", async () => {
     const h = harness();
 
