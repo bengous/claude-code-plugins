@@ -287,9 +287,13 @@ function reading(stream: ReadableStream<Uint8Array>): Reading {
   return { bytes, cancel: () => reader.cancel() };
 }
 
-/** Both pipes' bytes, or `null` once `OUTPUT_GRACE_MS` passed, both pipes then let go of. */
+/**
+ * Both pipes' bytes, or `null` once `OUTPUT_GRACE_MS` passed. Unless both were read whole, a read
+ * that failed included, both pipes are let go of.
+ */
 async function graced(stdout: Reading, stderr: Reading): Promise<readonly [Buffer, Buffer] | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let read = false;
 
   const grace = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), OUTPUT_GRACE_MS);
@@ -297,15 +301,17 @@ async function graced(stdout: Reading, stderr: Reading): Promise<readonly [Buffe
 
   try {
     const output = await Promise.race([Promise.all([stdout.bytes, stderr.bytes]), grace]);
-
-    if (output === null) await Promise.all([stdout.cancel(), stderr.cancel()]);
+    read = output !== null;
 
     return output;
   } finally {
     clearTimeout(timer);
+
+    if (!read) await Promise.allSettled([stdout.cancel(), stderr.cancel()]);
   }
 }
 
+/** Text output as `Response.text()` reads it, which `agent-hooks/exec.ts` used: UTF-8, a leading BOM dropped. */
 const UTF8 = new TextDecoder();
 
 async function spawnAsync<Out>(
@@ -320,6 +326,7 @@ async function spawnAsync<Out>(
   }
 
   let proc: Bun.Subprocess<"ignore" | Response, "pipe", "pipe">;
+  const started = Date.now();
 
   try {
     proc = Bun.spawn([...argv], {
@@ -339,13 +346,16 @@ async function spawnAsync<Out>(
 
   const pipes = [reading(proc.stdout), reading(proc.stderr)] as const;
   const code = await proc.exited;
+  const lasted = Date.now() - started;
   // A killed shell leaves its children holding the pipes: wait for the output only as long as the grace period.
   const output = await graced(...pipes);
   const stdout = output === null ? empty : read(output[0]);
   const stderr = output === null ? "" : UTF8.decode(output[1]);
 
-  // An async Subprocess carries no timeout flag, so the kill signal we asked for is the only evidence Bun cut it short.
-  return options.timeoutMs !== undefined && proc.signalCode === "SIGKILL"
+  // An async Subprocess carries no timeout flag: the kill signal we asked for, once the timeout passed, is the only evidence Bun cut it short.
+  return options.timeoutMs !== undefined &&
+    proc.signalCode === "SIGKILL" &&
+    lasted >= options.timeoutMs
     ? { kind: "timedOut", timeoutMs: options.timeoutMs, stdout, stderr }
     : { kind: "exited", code, stdout, stderr };
 }
@@ -380,7 +390,7 @@ function spawnSync<Out>(
   }
 
   const stdout = read(result.stdout);
-  const stderr = result.stderr.toString();
+  const stderr = UTF8.decode(result.stderr);
 
   if (options.timeoutMs !== undefined && result.exitedDueToTimeout === true) {
     return { kind: "timedOut", timeoutMs: options.timeoutMs, stdout, stderr };
@@ -398,16 +408,22 @@ const sameName =
     ? (a: string, b: string): boolean => a.toUpperCase() === b.toUpperCase()
     : (a: string, b: string): boolean => a === b;
 
-/** `base` with `overlay` laid over it: a value sets its variable, `undefined` removes it. */
+/**
+ * `base` with `overlay` laid over it, entry by entry: a value sets its variable, `undefined`
+ * removes it, and each entry replaces every variable of the same name before it, the overlay's own.
+ */
 function overlaid(base: Env, overlay: EnvOverlay = {}): Env {
-  const names = Object.keys(overlay);
   const env = new Map<string, string>();
 
   for (const [name, value] of Object.entries(base)) {
-    if (value !== undefined && !names.some((laid) => sameName(laid, name))) env.set(name, value);
+    if (value !== undefined) env.set(name, value);
   }
 
   for (const [name, value] of Object.entries(overlay)) {
+    for (const laid of env.keys()) {
+      if (sameName(laid, name)) env.delete(laid);
+    }
+
     if (value !== undefined) env.set(name, value);
   }
 
@@ -427,16 +443,16 @@ function spawnAsyncAs(
 function spawnSyncAs(argv: Argv, options: RunOptions, env: Env): RunResult<string | Buffer> {
   return options.stdout === "buffer"
     ? spawnSync(argv, options, env, (bytes) => bytes, Buffer.alloc(0))
-    : spawnSync(argv, options, env, (bytes) => bytes.toString(), "");
+    : spawnSync(argv, options, env, (bytes) => UTF8.decode(bytes), "");
 }
 
 /**
  * Runs `argv` to its end, its output captured: `exited` with its code, `timedOut` when
  * `timeoutMs` passed and the process was killed (`SIGKILL`), `missing` when the program is not on
  * the PATH. Any other failure to start (a missing `cwd`, a path to no program) is thrown. After
- * the exit, the output is waited for `OUTPUT_GRACE_MS` at most, then answered empty and its pipes
- * let go of: a killed shell's children may hold them. The environment is this process's, `env`
- * laid over it.
+ * the exit, the output is waited for `OUTPUT_GRACE_MS` at most, then its pipes are let go of: a
+ * killed shell's children may hold them. Past the grace, stdout and stderr are both empty, even
+ * when one pipe had delivered its bytes. The environment is this process's, `env` laid over it.
  */
 export function run(argv: Argv, options: RunOptions & BufferOutput): Promise<RunResult<Buffer>>;
 export function run(argv: Argv, options?: RunOptions & TextOutput): Promise<RunResult>;

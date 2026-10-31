@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -39,7 +39,7 @@ function bun(script: string): Argv {
 
 /**
  * How long, in ms, a bun process that imports `run` stays alive once `call` returned: what the
- * call left running, a timer or a pipe read, holds its event loop.
+ * call left running, a timer or a pipe read, holds its event loop. A call that throws fails here.
  */
 async function lingeringAfter(call: string): Promise<number> {
   const script = [
@@ -51,7 +51,10 @@ async function lingeringAfter(call: string): Promise<number> {
 
   const result = await run(bun(script));
 
-  return result.kind === "exited" ? Number(result.stdout) : Number.NaN;
+  if (result.kind !== "exited" || result.code !== 0 || !/^\d+$/u.test(result.stdout))
+    throw new Error(`the probe reported no time: ${JSON.stringify(result)}`);
+
+  return Number(result.stdout);
 }
 
 describe("run", () => {
@@ -130,6 +133,12 @@ describe("run", () => {
       expect(result.kind === "exited" ? JSON.parse(result.stdout) : null).toEqual([
         ["platform_test_x", "2"],
       ]);
+
+      const twice = await run(print, { env: { platform_test_x: "2", PLATFORM_TEST_X: "3" } });
+
+      expect(twice.kind === "exited" ? JSON.parse(twice.stdout) : null).toEqual([
+        ["PLATFORM_TEST_X", "3"],
+      ]);
     },
   );
 
@@ -140,17 +149,36 @@ describe("run", () => {
   });
 
   test("the pipes a child's child holds are let go of once the grace period passes", async () => {
-    const holder = JSON.stringify([BUN, "-e", "await Bun.sleep(4000)"]);
+    const holder = JSON.stringify([BUN, "-e", "await Bun.sleep(6000)"]);
+    const spawned = join(dir, "holder-spawned");
 
+    // The parent's output is dropped past the grace, so the holder's start is told by a file.
     const parent = bun(
-      `Bun.spawn(${holder}, { stdout: "inherit", stderr: "inherit" }); await Bun.sleep(10000)`,
+      `Bun.spawn(${holder}, { stdout: "inherit", stderr: "inherit" }); await Bun.write(${JSON.stringify(spawned)}, "1"); await Bun.sleep(10000)`,
     );
 
     const lingered = await lingeringAfter(
-      `await run(${JSON.stringify(parent)}, { timeoutMs: 500 })`,
+      `await run(${JSON.stringify(parent)}, { timeoutMs: 2000 })`,
     );
 
+    expect(existsSync(spawned)).toBe(true);
     expect(lingered).toBeLessThan(1000);
+  });
+
+  test.if(process.platform !== "win32")(
+    "a SIGKILL from outside before timeoutMs is an exit, not a timeout",
+    async () => {
+      expect(
+        await run(bun(`process.kill(process.pid, "SIGKILL")`), { timeoutMs: 10_000 }),
+      ).toMatchObject({ kind: "exited", code: 137 });
+    },
+  );
+
+  test("a leading BOM is dropped from text output, by run and runSync alike", async () => {
+    const bom = bun("process.stdout.write(new Uint8Array([0xef, 0xbb, 0xbf, 0x68, 0x69]))");
+
+    expect(await run(bom)).toMatchObject({ kind: "exited", stdout: "hi" });
+    expect(runSync(bom)).toMatchObject({ kind: "exited", stdout: "hi" });
   });
 
   test("a timeout answers timedOut, with the output printed before the kill", async () => {
