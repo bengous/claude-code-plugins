@@ -686,6 +686,9 @@ export type Command =
 
 const REPORT_NAME = /^[\w-]+$/u;
 
+/** The names the commands write without `--report`: a named report never takes one of them. */
+const DEFAULT_REPORTS: ReadonlySet<string> = new Set(["bun", "kit", "e2e"]);
+
 export function parseArgs(args: readonly string[]): Command | null {
   const separator = args.indexOf("--");
   const [kind, ...rest] = separator === -1 ? args : args.slice(0, separator);
@@ -700,12 +703,12 @@ export function parseArgs(args: readonly string[]): Command | null {
   if (kind === "retry" && (first === "bun" || first === "kit") && second === "--job") {
     const [flag, reportName = first] = extra;
 
-    // A name of its own: one beside the runner's, and a file name, never a path out of the folder.
+    // A name of its own: none another command writes by default, and a file name, never a path out of the folder.
     const named =
       extra.length === 0 ||
       (flag === "--report" &&
         extra.length === 2 &&
-        reportName !== first &&
+        !DEFAULT_REPORTS.has(reportName) &&
         REPORT_NAME.test(reportName));
 
     return third !== undefined && argv.length > 0 && named

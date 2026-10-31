@@ -816,7 +816,7 @@ describe("parseArgs", () => {
   test("refuses a retry's --report with no name, and an unknown flag", () => {
     expect(parseArgs(["retry", "bun", "--job", "x", "--report", "--", "bun", "test"])).toBeNull();
 
-    for (const name of ["", "../x", "a/b", "a.json", "bun"]) {
+    for (const name of ["", "../x", "a/b", "a.json", "bun", "kit", "e2e"]) {
       expect(
         parseArgs(["retry", "bun", "--job", "x", "--report", name, "--", "bun", "test"]),
       ).toBeNull();
