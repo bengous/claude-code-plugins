@@ -24,8 +24,9 @@ A mod runs in Claude Code's engine, which has no Node, no `process` and no `Bun`
   each listed file that differs or is missing, and removes what git lists in a copy beyond its
   list. A file git ignores there (a scratch `.tmp`, a `.DS_Store`) is left alone.
 - `bun ./scripts/sync-platform.ts`, the gate `platform-copies`, writes nothing and refuses:
-  - a copy that differs from its source, byte for byte;
-  - a listed file a copy lacks, or a file git lists there beyond its list;
+  - a copy that differs from its source, byte for byte, or is a symbolic link, which a plugin
+    installed alone loses;
+  - a listed file a copy lacks or git ignores, or a file git lists there beyond its list;
   - a consumer whose owner does not exist, a `dir` of another form, or a list without `pure.ts`;
   - a `lib/platform/` or `src/platform/` directory `consumers.ts` does not list;
   - a value import, from a catalog plugin or a consumer's owner, that resolves outside that

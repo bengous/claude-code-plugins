@@ -684,6 +684,8 @@ export type Command =
   | { readonly kind: "playwright"; readonly job: string; readonly path: string }
   | { readonly kind: "report"; readonly folder: string };
 
+const REPORT_NAME = /^[\w-]+$/u;
+
 export function parseArgs(args: readonly string[]): Command | null {
   const separator = args.indexOf("--");
   const [kind, ...rest] = separator === -1 ? args : args.slice(0, separator);
@@ -697,7 +699,14 @@ export function parseArgs(args: readonly string[]): Command | null {
 
   if (kind === "retry" && (first === "bun" || first === "kit") && second === "--job") {
     const [flag, reportName = first] = extra;
-    const named = extra.length === 0 || (flag === "--report" && extra.length === 2);
+
+    // A name of its own: one beside the runner's, and a file name, never a path out of the folder.
+    const named =
+      extra.length === 0 ||
+      (flag === "--report" &&
+        extra.length === 2 &&
+        reportName !== first &&
+        REPORT_NAME.test(reportName));
 
     return third !== undefined && argv.length > 0 && named
       ? { kind, runner: first, job: third, report: reportName, argv }

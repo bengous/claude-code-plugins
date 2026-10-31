@@ -13,7 +13,7 @@
  * directory. A copy holds what git lists there: an ignored file is neither refused nor removed.
  */
 
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, rmSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
 import type { Consumer } from "../tools/platform/consumers.ts";
@@ -44,7 +44,6 @@ const LOADERS = new Map<string, "ts" | "tsx" | "js" | "jsx">([
 
 type Catalog = { readonly plugins: readonly { readonly source: string }[] };
 
-/** The directory at the root a path lies in; `""` for a file at the root. */
 const ownerOf = (path: string): string => path.slice(0, Math.max(0, path.indexOf("/")));
 
 /** The files git sees under `root`, tracked or new and not ignored, that are on disk. */
@@ -59,7 +58,6 @@ async function listedFiles(root: string): Promise<string[]> {
     .filter((path) => path !== "" && !path.startsWith("archive/") && existsSync(join(root, path)));
 }
 
-/** What git lists in a copy directory, relative to it. */
 function heldBy(consumer: Consumer, files: readonly string[]): string[] {
   const prefix = `${consumer.dir}/`;
 
@@ -105,21 +103,34 @@ function placed(root: string, consumers: readonly Consumer[]): readonly Consumer
   );
 }
 
+/** Whether `copy` is a file holding exactly `source`'s bytes: a link to it is not, once installed. */
+function isExactCopy(copy: string, source: string): boolean {
+  return !lstatSync(copy).isSymbolicLink() && readFileSync(copy).equals(readFileSync(source));
+}
+
 function copyProblems(root: string, consumer: Consumer, files: readonly string[]): string[] {
   const dir = join(root, consumer.dir);
   const listed = new Set<string>(consumer.files);
+  const held = heldBy(consumer, files);
 
   const missingOrDiffering = consumer.files.flatMap((file) => {
     const copy = join(dir, file);
+    const where = `${consumer.dir}/${file}`;
 
-    if (!existsSync(copy)) return [`${consumer.dir}/${file} is missing: run ${WRITE_COMMAND}`];
+    if (!existsSync(copy)) return [`${where} is missing: run ${WRITE_COMMAND}`];
+
+    if (lstatSync(copy).isSymbolicLink())
+      return [`${where} is a symbolic link, which a plugin installed alone loses: ${NEVER_A_COPY}`];
+
+    if (!held.includes(file))
+      return [`${where} is ignored by git, so no commit carries it: unignore it`];
 
     return readFileSync(copy).equals(readFileSync(join(root, SOURCE_DIR, file)))
       ? []
-      : [`${consumer.dir}/${file} differs from ${SOURCE_DIR}/${file}: ${NEVER_A_COPY}`];
+      : [`${where} differs from ${SOURCE_DIR}/${file}: ${NEVER_A_COPY}`];
   });
 
-  const extra = heldBy(consumer, files)
+  const extra = held
     .filter((file) => !listed.has(file))
     .map(
       (file) =>
@@ -225,11 +236,11 @@ export async function writeCopies(root: string, consumers: readonly Consumer[]):
     const dir = join(root, consumer.dir);
 
     for (const file of consumer.files) {
-      const content = readFileSync(join(root, SOURCE_DIR, file));
+      const source = join(root, SOURCE_DIR, file);
       const copy = join(dir, file);
 
-      if (existsSync(copy) && readFileSync(copy).equals(content)) continue;
-      await writeAtomic(copy, content, { mkdir: true });
+      if (existsSync(copy) && isExactCopy(copy, source)) continue;
+      await writeAtomic(copy, readFileSync(source), { mkdir: true });
       written.push(`${consumer.dir}/${file}`);
     }
 

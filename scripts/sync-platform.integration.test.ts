@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -93,6 +102,27 @@ describe("the check", () => {
     expect(await writeCopies(root, [PLUG])).toEqual(["plug/lib/platform/pure.ts"]);
     expect(await problems()).toEqual([]);
     expect(readFileSync(join(root, "plug/lib/platform/.DS_Store"), "utf8")).toBe("finder\n");
+  });
+
+  test("refuses a listed copy git ignores, which no commit carries", async () => {
+    write(".gitignore", "plug/lib/platform/pure.ts\n");
+    await writeCopies(root, [PLUG]);
+
+    expect(await problems()).toEqual([
+      "plug/lib/platform/pure.ts is ignored by git, so no commit carries it: unignore it",
+    ]);
+  });
+
+  test("refuses a copy that is a link to its source, and --write puts a file in its place", async () => {
+    mkdirSync(join(root, "plug/lib/platform"), { recursive: true });
+    symlinkSync(join(root, "tools/platform/pure.ts"), join(root, "plug/lib/platform/pure.ts"));
+
+    expect(await problems()).toEqual([
+      `plug/lib/platform/pure.ts is a symbolic link, which a plugin installed alone loses: edit tools/platform/, never a copy, then run ${WRITE_COMMAND}`,
+    ]);
+    expect(await writeCopies(root, [PLUG])).toEqual(["plug/lib/platform/pure.ts"]);
+    expect(lstatSync(join(root, "plug/lib/platform/pure.ts")).isSymbolicLink()).toBe(false);
+    expect(await problems()).toEqual([]);
   });
 
   test("refuses a consumer outside <owner>/lib/platform or <owner>/src/platform", async () => {
