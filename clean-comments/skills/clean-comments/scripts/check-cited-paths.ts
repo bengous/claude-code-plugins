@@ -15,7 +15,9 @@
 // --root for that one).
 
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
+
+import { isUnder } from "../../../lib/platform/pure.ts";
 
 const DEFAULT_EXT =
   "ts,tsx,js,jsx,mjs,cjs,astro,vue,svelte,py,go,rs,java,rb,php,c,h,cpp,cs,swift,kt";
@@ -309,7 +311,7 @@ function ancestors(file: string): string[] {
   const out: string[] = [];
   let dir = resolve(join(file, ".."));
 
-  while (dir.startsWith(opts.repoRoot) && dir !== opts.repoRoot) {
+  while (isUnder(opts.repoRoot, dir, sep)) {
     out.push(dir);
     dir = resolve(join(dir, ".."));
   }
