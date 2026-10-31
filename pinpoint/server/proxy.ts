@@ -1,3 +1,5 @@
+import { messageOf } from "../lib/platform/pure.ts";
+
 /**
  * The target app, served through the session's server: its pages come with the overlay, every
  * other answer passes as the app gave it, and its WebSockets (Vite's hot reload among them) are
@@ -240,7 +242,7 @@ export async function forward(
       ? withOverlay(answer, overlay)
       : answer;
   } catch (cause) {
-    const why = cause instanceof Error ? cause.message : String(cause);
+    const why = messageOf(cause);
 
     return new Response(`pinpoint: the app at ${target.origin} does not answer: ${why}`, {
       status: 502,

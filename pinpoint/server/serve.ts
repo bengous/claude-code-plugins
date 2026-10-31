@@ -1,3 +1,4 @@
+import { isErrno } from "../lib/platform/pure.ts";
 import { addressOn, targetOf } from "../shared/target.ts";
 import type { BatchAccepted, ImageAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { type Found, pickPage, probe } from "./apps.ts";
@@ -102,7 +103,7 @@ function locationOf(url: URL): string {
 }
 
 function isPortTaken(cause: unknown): boolean {
-  return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
+  return isErrno(cause, "EADDRINUSE");
 }
 
 type Bound = { readonly server: Bun.Server<Relay>; readonly token: string };
