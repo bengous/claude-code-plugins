@@ -1,6 +1,6 @@
 {
   "name": "git-sweep",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "description": "Git branch and worktree cleanup that proves a branch is contained before deleting it and reports what it kept and why: an interactive sweep that asks first, and an unattended one that frees finished agent worktrees and archives abandoned agent branches under refs/archive/",
   "author": {
     "name": "Augustin BENGOLEA",
