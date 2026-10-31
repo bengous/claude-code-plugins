@@ -4,8 +4,10 @@
 // Consumed by the git-sweep skill (apply phase, fed by the audit phase).
 
 import { existsSync } from "node:fs";
-import { rename, unlink } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 
+import { writeAtomic } from "../lib/platform/node.ts";
+import { messageOf } from "../lib/platform/pure.ts";
 import { git, localRef } from "./git.ts";
 import { type CleanupManifest, type KeptEntry, parseHandoff, parseManifest } from "./manifest.ts";
 import { buildProtectedSet, originHeadTarget, readProtectionConfig } from "./sweep-config.ts";
@@ -369,18 +371,17 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
       // Partial run: rewrite the hand-off so it describes only what is left.
       // Replaying the original would re-attempt already-completed deletions and
       // could never reach a clean state.
-      const tmp = `${consumePath}.tmp`;
-
       try {
-        await Bun.write(tmp, JSON.stringify({ manifest: remaining, kept }, null, 2));
-        await rename(tmp, consumePath);
+        await writeAtomic(consumePath, JSON.stringify({ manifest: remaining, kept }, null, 2), {
+          mkdir: true,
+        });
         result.manifest_remaining = { path: consumePath, operations: countOperations(remaining) };
       } catch (err) {
         result.operations.push({
           type: "manifest-rewrite",
           target: consumePath,
           success: false,
-          error: `could not rewrite manifest file: ${err instanceof Error ? err.message : String(err)}`,
+          error: `could not rewrite manifest file: ${messageOf(err)}`,
         });
         result.summary.failed += 1;
       }

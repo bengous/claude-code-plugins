@@ -4,9 +4,10 @@
 // Emits structured JSON for the git-sweep skill (audit phase, feeding git-clean-apply).
 
 import { existsSync } from "node:fs";
-import { rename } from "node:fs/promises";
 import { join } from "node:path";
 
+import { writeAtomic } from "../lib/platform/node.ts";
+import { messageOf } from "../lib/platform/pure.ts";
 import {
   type Kept,
   type Placement,
@@ -506,7 +507,7 @@ async function scanRemote(input: ScanInput): Promise<RemoteScan> {
 // ---------------------------------------------------------------------------
 
 // Persist {manifest, kept} (read from stdin) to a fixed repo-scoped file so the
-// hand-off to the apply phase survives context compaction. Atomic: tmp + rename.
+// hand-off to the apply phase survives context compaction.
 async function saveManifest(): Promise<SaveResult> {
   const raw = await Bun.stdin.text();
   let parsed: unknown;
@@ -528,9 +529,7 @@ async function saveManifest(): Promise<SaveResult> {
   }
 
   const path = join(gitDir.stdout, "git-sweep-manifest.json");
-  const tmp = `${path}.tmp`;
-  await Bun.write(tmp, JSON.stringify(handoff, null, 2));
-  await rename(tmp, path);
+  await writeAtomic(path, JSON.stringify(handoff, null, 2), { mkdir: true });
 
   return { ok: true, path };
 }
@@ -711,7 +710,7 @@ async function main(): Promise<AuditResult | SaveResult> {
 
     return {
       ok: false,
-      error: `internal error: ${err instanceof Error ? err.message : String(err)}`,
+      error: `internal error: ${messageOf(err)}`,
       step: "internal",
     };
   }

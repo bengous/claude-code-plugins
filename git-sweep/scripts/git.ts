@@ -1,37 +1,29 @@
 // The one git runner of both scripts, and the ref type every git call that
 // names a branch takes.
 
-import { $ } from "bun";
+import { GitError, git as runGit, gitRead as readGit } from "../lib/platform/node.ts";
+
+export { GitError };
 
 export type GitResult = { stdout: string; stderr: string; exitCode: number };
 
-export class GitError extends Error {
-  constructor(args: readonly string[], result: GitResult) {
-    super(`git ${args.join(" ")} failed (exit ${result.exitCode}): ${result.stderr}`);
-    this.name = "GitError";
-  }
-}
+// git translates the messages the scripts parse (`[would prune]`,
+// `remote ref does not exist`); LC_ALL=C pins them.
+const C_LOCALE = { cLocale: true } as const;
 
 // For a command whose exit code is the answer (is-ancestor, --verify, config).
 export async function git(...args: string[]): Promise<GitResult> {
-  // git translates the messages the scripts parse (`[would prune]`,
-  // `remote ref does not exist`); LC_ALL=C pins them.
-  const { stdout, stderr, exitCode } = await $`git ${args}`
-    .env({ ...process.env, LC_ALL: "C" })
-    .quiet()
-    .nothrow();
+  const result = await runGit(args, C_LOCALE);
 
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
+  if (result.kind !== "exited") throw new GitError(args, result);
+
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
 // For a command that must succeed: a failure is an environment problem the
 // caller cannot answer, so it throws with the command attached.
-export async function gitRead(...args: string[]): Promise<string> {
-  const result = await git(...args);
-
-  if (result.exitCode !== 0) throw new GitError(args, result);
-
-  return result.stdout;
+export function gitRead(...args: string[]): Promise<string> {
+  return readGit(args, C_LOCALE);
 }
 
 export const LOCAL_REFS = "refs/heads/";
