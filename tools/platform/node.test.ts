@@ -229,16 +229,21 @@ describe("withLock", () => {
   test("a second holder waits for the first to let go", async () => {
     const lock = join(dir, "x.lock");
     const order: string[] = [];
+    const entered = Promise.withResolvers<void>();
 
     const slow = withLock(
       lock,
       async () => {
         order.push("first in");
+        entered.resolve();
         await Bun.sleep(200);
         order.push("first out");
       },
       { timeoutMs: 1000 },
     );
+
+    // Two creations started together race for the lock: the second asks once the first holds it.
+    await entered.promise;
 
     const fast = withLock(
       lock,
