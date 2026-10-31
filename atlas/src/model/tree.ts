@@ -110,8 +110,8 @@ export const itemIn = (tree: Tree, container: string | null, id: string): string
  * Indexes a map, and refuses what its views cannot show: an empty id, two nodes with one id, an
  * empty `children`, a `kind` or a side "both" on a container, an outside node below the root or without
  * a side, a side on a node inside, a rank that is not an integer from 0, a coupling or a link to
- * an unknown node, a link whose one end holds the other, and a journey's step to or from an
- * unknown node.
+ * an unknown node, a link whose one end holds the other, a journey whose `sections`, or a section
+ * whose `steps`, is not a list, and a journey's step to or from an unknown node.
  */
 export function treeOf(map: AtlasMap): Tree {
   const nodes = new Map<string, Node>();
@@ -215,11 +215,25 @@ export function treeOf(map: AtlasMap): Tree {
     }
   }
 
-  for (const { id, steps } of map.root.journeys ?? []) {
-    for (const [i, { from, to }] of steps.entries()) {
-      for (const end of [from, to]) {
-        if (!nodes.has(end)) {
-          refuse(`journey ${id}: step ${i + 1}, ${from} → ${to}: no node ${end}`);
+  for (const { id, sections } of map.root.journeys ?? []) {
+    if (!Array.isArray(sections)) {
+      refuse(`journey ${id}: sections is not a list`);
+    }
+
+    let n = 0;
+
+    for (const [i, { label, steps }] of sections.entries()) {
+      if (!Array.isArray(steps)) {
+        refuse(`journey ${id}: section ${i + 1}: steps is not a list`);
+      }
+
+      for (const { from, to } of steps) {
+        n += 1;
+
+        for (const end of [from, to]) {
+          if (!nodes.has(end)) {
+            refuse(`journey ${id}: step ${n} (${label}), ${from} → ${to}: no node ${end}`);
+          }
         }
       }
     }

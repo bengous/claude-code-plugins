@@ -1,7 +1,16 @@
 import type { LegendKey } from "../model/atlas.ts";
 import { esc } from "./svg.ts";
 
-const ORDER: readonly LegendKey[] = ["flow", "dash", "deny", "coupled", "outside", "open", "later"];
+const ORDER: readonly LegendKey[] = [
+  "flow",
+  "back",
+  "dash",
+  "deny",
+  "coupled",
+  "outside",
+  "open",
+  "later",
+];
 
 const line = (stroke: string, dash = ""): string =>
   `<svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="${stroke}" stroke-width="2"${dash}/></svg>`;
@@ -11,6 +20,7 @@ const mark = (figure: string): string =>
 
 const GLYPH: Readonly<Record<LegendKey, string>> = {
   flow: line("var(--ink-3)"),
+  back: line("var(--back)"),
   dash: line("var(--ink-3)", ` stroke-dasharray="5 4"`),
   deny: line("var(--deny)"),
   coupled: mark(

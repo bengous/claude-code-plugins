@@ -109,9 +109,9 @@ export type View = {
   /**
    * The legend lines the view uses: the kinds its arrows draw, the marks its boxes and ghosts
    * carry, and "coupled" when selecting one of them outlines another; "later" is the phase
-   * picked's (`dimsIn` in phases.ts).
+   * picked's (`dimsIn` in phases.ts), "back" the journey's step shown.
    */
-  readonly legend: Readonly<Record<Exclude<LegendKey, "later">, boolean>>;
+  readonly legend: Readonly<Record<Exclude<LegendKey, "later" | "back">, boolean>>;
 };
 
 const LABELS_SHOWN = 2;

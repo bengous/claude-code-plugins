@@ -24,10 +24,25 @@ describe("legendKeys", () => {
     ]);
   });
 
+  test("a journey's step back has its line right after the plain flow's, when the page says one is shown", () => {
+    const { legend } = viewOf(deep, "B");
+
+    expect(legendKeys({ ...legend, back: true })).toEqual([
+      "flow",
+      "back",
+      "dash",
+      "deny",
+      "coupled",
+      "open",
+    ]);
+    expect(legendKeys({ ...legend, back: false })).toEqual(legendKeys(legend));
+  });
+
   test("a view using nothing the legend explains has no line", () => {
     expect(
       legendKeys({
         flow: false,
+        back: false,
         dash: false,
         deny: false,
         coupled: false,
@@ -59,6 +74,18 @@ describe("legendHtml", () => {
         '<span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--deny)" stroke-width="2"/></svg>&lt;refused&gt;</span>',
         '<span><svg viewBox="0 0 26 12" aria-hidden="true" style="height:12px"><circle cx="13" cy="6" r="4.5" fill="var(--open)"/></svg>open point</span>',
       ].join(""),
+    );
+  });
+
+  test("the line of a step back, in the colour of a return, in both languages", () => {
+    const glyph =
+      '<span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--back)" stroke-width="2"/></svg>';
+
+    expect(legendHtml(["back"], WORDS.fr.legend)).toBe(
+      `${glyph}retour : la donnée revient le long du lien</span>`,
+    );
+    expect(legendHtml(["back"], WORDS.en.legend)).toBe(
+      `${glyph}return: the data comes back along the link</span>`,
     );
   });
 

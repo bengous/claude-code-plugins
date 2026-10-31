@@ -2,8 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP, randomMap } from "../../fixtures/trees.ts";
-import type { Journey, Step } from "./atlas.ts";
-import { joins, journeyOf, stepLights, stepView } from "./journeys.ts";
+import type { Journey, Section, Step } from "./atlas.ts";
+import {
+  formAfter,
+  isEntry,
+  joins,
+  journeyOf,
+  reachedBefore,
+  stepLights,
+  stepView,
+  stepsOf,
+} from "./journeys.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, holds, itemIn, liftIn, treeOf } from "./tree.ts";
 import { showsIn, viewOf } from "./view.ts";
@@ -125,6 +134,10 @@ describe("stepLights", () => {
     expect(view.arrows.filter((a) => stepLights(deep, a, back))).toEqual([]);
   });
 
+  test("a step back lights the arrow of the link it follows, drawn the link's way", () => {
+    expect(lit(deep, { from: "a2", to: "a1", back: true })).toEqual(["a1 → a2"]);
+  });
+
   test.each(MAPS)(
     "%s: every link, as a step, lights one arrow, between what stands for its ends",
     (_, tree) => {
@@ -152,15 +165,106 @@ describe("joins and journeyOf", () => {
     expect(joins({ from: "a", to: "c", label: "l" }, step("a", "b"))).toBe(false);
   });
 
-  test("a journey the root declares with a step, by id; none for another id or an empty one", () => {
-    const walk: Journey = { id: "walk", label: "Walk", steps: [step("a1", "a2")] };
-    const empty: Journey = { id: "empty", label: "Empty", steps: [] };
-    const tree = treeOf({ ...DEEP, root: { ...DEEP.root, journeys: [walk, empty] } });
+  test("a step back follows a link set from its to to its from, never one set its own way", () => {
+    const back: Step = { from: "b", to: "a", back: true };
+
+    expect(joins({ from: "a", to: "b", label: "l" }, back)).toBe(true);
+    expect(joins({ from: "a", to: "b", label: "l", two: true }, back)).toBe(true);
+    expect(joins({ from: "b", to: "a", label: "l" }, back)).toBe(false);
+    expect(joins({ from: "b", to: "a", label: "l", two: true }, back)).toBe(false);
+  });
+
+  test("a journey the root declares with a step in any section, by id; none for another id or one without a step", () => {
+    const walk: Journey = {
+      id: "walk",
+      label: "Walk",
+      sections: [
+        { label: "Nothing yet", steps: [] },
+        { label: "Walk", steps: [step("a1", "a2")] },
+      ],
+    };
+
+    const empty: Journey = { id: "empty", label: "Empty", sections: [{ label: "E", steps: [] }] };
+    const bare: Journey = { id: "bare", label: "Bare", sections: [] };
+    const tree = treeOf({ ...DEEP, root: { ...DEEP.root, journeys: [walk, empty, bare] } });
 
     expect(journeyOf(tree, "walk")).toBe(walk);
     expect(journeyOf(tree, "empty")).toBeNull();
+    expect(journeyOf(tree, "bare")).toBeNull();
     expect(journeyOf(tree, "nowhere")).toBeNull();
     expect(journeyOf(tree, null)).toBeNull();
     expect(journeyOf(deep, "walk")).toBeNull();
+  });
+});
+
+const PAYING: Section = {
+  label: "Pay",
+  steps: [
+    { from: "cart", to: "pricing", trigger: "Check out", kind: "manual", carries: "the cart" },
+    { from: "pricing", to: "payment" },
+    { from: "payment", to: "bank", carries: "a charge" },
+    { from: "bank", to: "payment", back: true },
+  ],
+};
+
+const CONFIRMING: Section = {
+  label: "Confirm",
+  steps: [
+    { from: "db", to: "outbox", trigger: "Every minute", kind: "auto" },
+    { from: "outbox", to: "mailer", carries: "a confirmation" },
+  ],
+};
+
+const PAY: Journey = {
+  id: "pay",
+  label: "Pay",
+  sections: [PAYING, { label: "Wait", steps: [] }, CONFIRMING],
+};
+
+describe("a journey's steps", () => {
+  test("are numbered from 1 across the sections, each with its section, numbered from 1", () => {
+    expect(
+      stepsOf(PAY).map(({ n, s, section, step: at }) => [n, s, section.label, at.from]),
+    ).toEqual([
+      [1, 1, "Pay", "cart"],
+      [2, 1, "Pay", "pricing"],
+      [3, 1, "Pay", "payment"],
+      [4, 1, "Pay", "bank"],
+      [5, 3, "Confirm", "db"],
+      [6, 3, "Confirm", "outbox"],
+    ]);
+  });
+
+  test("an entry carries a trigger and a kind; a step with only one of them is none", () => {
+    // SAFETY: a trigger without a kind, as a map folder's data can hold once it skips its typecheck.
+    const half = { from: "a", to: "b", trigger: "Go" } as Step;
+
+    expect(stepsOf(PAY).map(({ step: at }) => isEntry(at))).toEqual([
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+    ]);
+    expect(isEntry(half)).toBe(false);
+  });
+
+  test("a section has reached the ends of its steps before the one asked, none of another's", () => {
+    expect([...reachedBefore(PAYING, 0)]).toEqual([]);
+    expect([...reachedBefore(PAYING, 2)]).toEqual(["cart", "pricing", "payment"]);
+    expect([...reachedBefore(CONFIRMING, 1)]).toEqual(["db", "outbox"]);
+  });
+
+  test("the data's form after a step: the last carries from its section's start to it, none before or in another section", () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map((n) => formAfter(PAY, n))).toEqual([
+      "the cart",
+      "the cart",
+      "a charge",
+      "a charge",
+      null,
+      "a confirmation",
+      null,
+    ]);
   });
 });

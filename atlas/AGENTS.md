@@ -50,7 +50,8 @@ src/parts.integration.spec.ts    a map assembled from parts/*.ts through check, 
 
 src/model/           the map and what is read from it, pure or Node-only, no browser
   atlas.ts           the format of a map, types only: Node (a tree, `children`), Link, Journey (a
-                     path of the root's, a step per link), AtlasMap (the root and every link),
+                     path of the root's, in sections of steps, a step per link), AtlasMap (the
+                     root and every link),
                      Config (title, language, palette, pins, packing ratio, reading direction,
                      tags, legend labels, panel headings, step words, sources root, work
                      phases); the source of a map's atlas.d.ts
@@ -93,10 +94,12 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      are, a link without a phase once an end is, an arrow once every link it
                      stands for is; the label of an arrow that stays, from its lit links;
                      whether a view draws something dimmed (phases.spec.ts)
-  journeys.ts        a journey's steps: the link a step follows (joins), the view it opens, the
-                     deepest that shows both its ends with one a child there, else their lowest
-                     common container's (stepView), and the arrow it lights there, lifted or not
-                     (stepLights) (journeys.spec.ts)
+  journeys.ts        a journey's steps: numbered across its sections (stepsOf), an entry
+                     (isEntry), the nodes a section has reached (reachedBefore), the data's form
+                     after a step (formAfter), the link a step follows (joins), the view it
+                     opens, the deepest that shows both its ends with one a child there, else
+                     their lowest common container's (stepView), and the arrow it lights there,
+                     lifted or not (stepLights) (journeys.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
@@ -110,8 +113,9 @@ src/commands/        what cli.ts does to a map folder
   check.ts           validates a map folder: what drawable.ts refuses, then a brief on a leaf, a
                      rank on an outside node, the root's tour, see/seams/traps ids on every panel,
                      a <cite> that reads as no citation, tags and phases against the Config's,
-                     journeys' ids and steps against the links, open points against its step
-                     words, and threads, and reports the open points; with the Config's sources,
+                     journeys' ids, sections, entries, reach and steps against the links, open
+                     points against its step words, and threads, and reports the open points;
+                     with the Config's sources,
                      each cited file, read once as serve.ts reads it but for the size cap, and its
                      lines, or the missing root in one line (check.spec.ts)
   reply.ts           adds an entry to a thread of a map folder, holding a lock beside threads.json
@@ -194,8 +198,10 @@ fixtures/deep/       a map folder five levels deep, the specs' DEEP, to look at 
                      its repo/, its sources root;
                      fixtures/phases/ a shop built in three work phases, its header's stepper,
                      to look at;
-                     fixtures/journeys/ a bookshop with two journeys, its header's menu, to
-                     play, Data's cards to start one from, and a step after the phase MVP;
+                     fixtures/journeys/ a bookshop with three journeys, its header's menu, to
+                     play, one in two sections with entries, a return, a condition and the
+                     data's forms, Data's cards to start one from, and a step after the phase
+                     MVP;
                      the six import the plugin's own types and carry no generated files
 fixtures/trees.ts    a map five levels deep, and seeded random maps, for the specs
 hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
@@ -300,14 +306,19 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   arrow that stays names only the links that do not fade (`labelAt`), in the spot its whole label
   took, shortened as a placed label is when it does not fit. The panel shows a node's phase under
   its own heading. The phase stays as the reader moves. A map without phases has no stepper.
-- With the root's `journeys`, the header shows a menu, a row per journey. Picking one plays it
-  from its first step: each step opens the deepest view that shows both its ends with one a child
-  there, else their lowest common container's (`stepView` in `journeys.ts`), its arrow hot and
-  the others dimmed, nothing selected. The panel shows the journey's label, the step's place in
-  it, the label of the link it follows over its ends, and its note, with ← → buttons, which the
-  arrow keys press too, and under them a button that leaves the journey for the place it started
-  from (`renderJourney` in `panel.ts`). The mode switch hides on a journey, which shows each step
-  as a drawing; one started from the cards keeps `mode=cards` in the fragment and shows the cards
+- With the root's `journeys`, the header shows a menu, a row per journey and its count of steps,
+  numbered across its sections. Picking one plays it from its first step: each step opens the
+  deepest view that shows both its ends with one a child there, else their lowest common
+  container's (`stepView` in `journeys.ts`), its arrow hot and the others dimmed, nothing
+  selected. The hot arrow shows the step's `carries` in place of its label (`relabel` in
+  `draw.ts`), over the phase's label too; a step `back` lights it in `--back`, heads included,
+  and the legend adds its line. The panel shows the journey's label, the step's section and its
+  place in the journey, the step's `carries` or the label of the link it follows over its ends,
+  an entry's trigger under the icon of its nature, the step's direction, the data's form once it
+  is done (`formAfter`) and its condition, and its note, with ← → buttons, which the arrow keys
+  press too, and under them a button that leaves the journey for the place it started from
+  (`renderJourney` in `panel.ts`). The mode switch hides on a journey, which shows each step as a
+  drawing; one started from the cards keeps `mode=cards` in the fragment and shows the cards
   again once left for where it started. A phase picked stays; the step's arrow, when it comes
   after that phase, keeps its dots but not their fading. A map without journeys has no menu.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the

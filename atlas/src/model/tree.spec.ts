@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Node, Step } from "./atlas.ts";
+import type { AtlasMap, Journey, Node, Section, Step } from "./atlas.ts";
 import {
   TreeError,
   chainOf,
@@ -33,13 +33,31 @@ const mapOf = (children: readonly Node[], links: AtlasMap["links"] = []): AtlasM
   links,
 });
 
-const journeyed = (steps: readonly Step[]): AtlasMap => {
+const journeyed = (sections: readonly Section[]): AtlasMap => {
   const map = mapOf(
     [card("a", { children: [card("b"), card("c")] })],
     [{ from: "b", to: "c", label: "x" }],
   );
 
-  return { ...map, root: { ...map.root, journeys: [{ id: "walk", label: "Walk", steps }] } };
+  return { ...map, root: { ...map.root, journeys: [{ id: "walk", label: "Walk", sections }] } };
+};
+
+const go = (from: string, to: string): Step => ({ from, to, trigger: "Go", kind: "manual" });
+
+type Unchecked = {
+  readonly id: string;
+  readonly label: string;
+  readonly steps?: unknown;
+  readonly sections?: unknown;
+};
+
+const unchecked = (journey: Unchecked): AtlasMap => {
+  const map = journeyed([]);
+  // SAFETY: a journey in the format before sections, or a section whose steps is no list, as a
+  // map folder's data can hold once it skips its typecheck.
+  const journeys = [journey as Journey];
+
+  return { ...map, root: { ...map.root, journeys } };
 };
 
 const refusal = (map: AtlasMap): string => {
@@ -181,16 +199,33 @@ describe("treeOf", () => {
     ],
     [
       "a journey's step from an unknown node",
-      journeyed([{ from: "nowhere", to: "b" }]),
-      "journey walk: step 1, nowhere → b: no node nowhere",
+      journeyed([{ label: "Walk", steps: [go("nowhere", "b")] }]),
+      "journey walk: step 1 (Walk), nowhere → b: no node nowhere",
     ],
     [
-      "a journey's later step to an unknown node",
+      "a journey's later step to an unknown node, numbered across the sections",
       journeyed([
-        { from: "b", to: "c" },
-        { from: "c", to: "gone" },
+        { label: "Out", steps: [go("b", "c")] },
+        { label: "Back", steps: [go("c", "b"), { from: "b", to: "gone" }] },
       ]),
-      "journey walk: step 2, c → gone: no node gone",
+      "journey walk: step 3 (Back), b → gone: no node gone",
+    ],
+    [
+      "a journey in the format before sections",
+      unchecked({ id: "walk", label: "Walk", steps: [{ from: "b", to: "c" }] }),
+      "journey walk: sections is not a list",
+    ],
+    [
+      "a journey's section whose steps is no list",
+      unchecked({
+        id: "walk",
+        label: "Walk",
+        sections: [
+          { label: "Out", steps: [go("b", "c")] },
+          { label: "Back", steps: { from: "c", to: "b" } },
+        ],
+      }),
+      "journey walk: section 2: steps is not a list",
     ],
   ])("refuses %s", (_, map, message) => {
     expect(refusal(map)).toBe(message);

@@ -1,8 +1,8 @@
-import type { AtlasMap, Config, Link, Node, Panel } from "../model/atlas.ts";
+import type { AtlasMap, Config, Link, Node, Panel, Section, Step } from "../model/atlas.ts";
 import { citationText, citedLines, mapBrokenCitations, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { sourcesRootOf } from "../model/folder.ts";
-import { joins } from "../model/journeys.ts";
+import { isEntry, joins, reachedBefore } from "../model/journeys.ts";
 import { MarkupError } from "../model/markup.ts";
 import { ConfigError } from "../model/settings.ts";
 import type { Settings } from "../model/settings.ts";
@@ -29,9 +29,11 @@ import { TreeError, isLeaf } from "../model/tree.ts";
 //     arrow between boxes, whose tags are its leaf links';
 //   - a node's or a link's `phase` that the Config's `phases` do not list, or any phase when they
 //     list none;
-//   - a journey whose id is not unique or not kebab-case, that has no step, or with a step that
-//     does not start where the one before ends, or that no link joins directly (joins in
-//     journeys.ts);
+//   - a journey whose id is not unique or not kebab-case, that has no section, with a section
+//     without a label or without a step, or with a step that is not an entry and does not start
+//     at a node its section has reached (reachedBefore in journeys.ts), a section that does not
+//     open on an entry, an entry whose trigger is empty, or a step that no link joins directly,
+//     the other way for a step with back (joins);
 //   - an open point whose id is not unique or not kebab-case, or whose text matches one of the
 //     Config's `stepWords`: an open point describes a state;
 //   - a thread of threads.json under an unknown open id, or with a `who` outside the enumeration;
@@ -148,29 +150,65 @@ function checkId(seen: Set<string>, id: string, where: string, again: string): s
   return KEBAB.test(id) ? errors : [...errors, `${where}: the id must be kebab-case`];
 }
 
+function checkStep(tree: Tree, section: Section, index: number, step: Step, at: string): string[] {
+  const entry = isEntry(step);
+  const errors: string[] = [];
+
+  if (index === 0 && !entry) {
+    errors.push(`${at}: a section opens with an entry, a step with a trigger and a kind`);
+  }
+
+  if (entry && step.trigger.trim() === "") {
+    errors.push(`${at}: an entry's trigger names what sets it off`);
+  }
+
+  if (index > 0 && !entry && !reachedBefore(section, index).has(step.from)) {
+    errors.push(
+      `${at}: starts at ${step.from}, which its section has not reached; a step starts where its section has been, or is an entry`,
+    );
+  }
+
+  if (!tree.map.links.some((link) => joins(link, step))) {
+    errors.push(
+      step.back === true
+        ? `${at}: no link of the map runs from ${step.to} to ${step.from}; a step with back follows a link the other way`
+        : `${at}: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way`,
+    );
+  }
+
+  return errors;
+}
+
 function checkJourneys(tree: Tree, errors: string[]): void {
   const ids = new Set<string>();
 
-  for (const { id, steps } of tree.map.root.journeys ?? []) {
-    const where = `journey ${id}`;
-    errors.push(...checkId(ids, id, where, "a second journey has this id"));
+  for (const journey of tree.map.root.journeys ?? []) {
+    const where = `journey ${journey.id}`;
+    errors.push(...checkId(ids, journey.id, where, "a second journey has this id"));
 
-    if (steps.length === 0) {
-      errors.push(`${where}: no step; a journey follows one link at least`);
+    if (journey.sections.length === 0) {
+      errors.push(`${where}: no section; a journey has one section at least`);
     }
 
-    for (const [i, step] of steps.entries()) {
-      const at = `${where}: step ${i + 1}, ${step.from} → ${step.to}`;
-      const before = steps[i - 1];
+    let n = 0;
 
-      if (before !== undefined && before.to !== step.from) {
-        errors.push(`${at}: starts at ${step.from}, not at ${before.to}, where step ${i} ends`);
+    for (const [i, section] of journey.sections.entries()) {
+      const { label, steps } = section;
+
+      if (label.trim() === "") {
+        errors.push(`${where}: section ${i + 1}: no label`);
       }
 
-      if (!tree.map.links.some((link) => joins(link, step))) {
+      if (steps.length === 0) {
         errors.push(
-          `${at}: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way`,
+          `${where}: section ${i + 1} (${label}): no step; a section has one step at least`,
         );
+      }
+
+      for (const [index, step] of steps.entries()) {
+        n += 1;
+        const at = `${where}: step ${n} (${label}), ${step.from} → ${step.to}`;
+        errors.push(...checkStep(tree, section, index, step, at));
       }
     }
   }

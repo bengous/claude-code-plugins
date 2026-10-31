@@ -3,38 +3,93 @@ import type { AtlasMap } from "../../src/model/atlas.ts";
 export default {
   root: {
     title: "Journeys",
-    lead: "A bookshop whose root declares two journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow. Data's leaves have cards, to start a journey from them, and the arrow of Place an order's step 7 comes after the phase MVP.",
+    lead: "A bookshop whose root declares three journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow. Pay and confirm runs in two sections, each opened by an entry, and carries its data's form along its steps, one of them a return from the card network and one under a condition. Data's leaves have cards, to start a journey from them, and the arrow of Place an order's step 7 comes after the phase MVP.",
     journeys: [
       {
         id: "place-order",
         label: "Place an order",
-        steps: [
+        sections: [
           {
-            from: "reader",
-            to: "proxy",
-            note: "The reader's browser opens the shop over HTTPS.",
+            label: "Order",
+            steps: [
+              {
+                from: "reader",
+                to: "proxy",
+                trigger: "Open the shop",
+                kind: "manual",
+                note: "The reader's browser opens the shop over HTTPS.",
+              },
+              {
+                from: "proxy",
+                to: "routes",
+                note: "The proxy ends TLS and forwards the request to the application.",
+              },
+              { from: "routes", to: "cart", note: "The route adds the book to the cart." },
+              { from: "cart", to: "pricing", note: "Checking out hands the cart to the pricing." },
+              {
+                from: "pricing",
+                to: "payment",
+                note: "The total, taxes included, goes to payment.",
+              },
+              { from: "payment", to: "db", note: "A captured payment writes the order." },
+              { from: "db", to: "outbox", note: "The order row queues its confirmation." },
+              {
+                from: "outbox",
+                to: "mailer",
+                note: "The outbox hands the mail to the mail service.",
+              },
+            ],
           },
-          {
-            from: "proxy",
-            to: "routes",
-            note: "The proxy ends TLS and forwards the request to the application.",
-          },
-          { from: "routes", to: "cart", note: "The route adds the book to the cart." },
-          { from: "cart", to: "pricing", note: "Checking out hands the cart to the pricing." },
-          { from: "pricing", to: "payment", note: "The total, taxes included, goes to payment." },
-          { from: "payment", to: "db", note: "A captured payment writes the order." },
-          { from: "db", to: "outbox", note: "The order row queues its confirmation." },
-          { from: "outbox", to: "mailer", note: "The outbox hands the mail to the mail service." },
         ],
       },
       {
         id: "sign-in",
         label: "Sign in",
-        steps: [
-          { from: "reader", to: "proxy" },
-          { from: "proxy", to: "routes" },
-          { from: "routes", to: "session", note: "The sign-in form posts to the session." },
-          { from: "session", to: "db", note: "The session row is written, then read back." },
+        sections: [
+          {
+            label: "Sign in",
+            steps: [
+              { from: "reader", to: "proxy", trigger: "Sign in", kind: "manual" },
+              { from: "proxy", to: "routes" },
+              { from: "routes", to: "session", note: "The sign-in form posts to the session." },
+              { from: "session", to: "db", note: "The session row is written, then read back." },
+            ],
+          },
+        ],
+      },
+      {
+        id: "pay-and-confirm",
+        label: "Pay and confirm",
+        sections: [
+          {
+            label: "Pay",
+            steps: [
+              {
+                from: "cart",
+                to: "pricing",
+                trigger: "Check out",
+                kind: "manual",
+                carries: "the cart",
+              },
+              { from: "pricing", to: "payment", carries: "the total, taxes included" },
+              { from: "payment", to: "bank", carries: "a charge" },
+              { from: "bank", to: "payment", back: true, carries: "an authorisation" },
+              { from: "payment", to: "db", carries: "the order", when: "the card is accepted" },
+            ],
+          },
+          {
+            label: "Confirm",
+            steps: [
+              {
+                from: "db",
+                to: "outbox",
+                trigger: "Every minute",
+                kind: "auto",
+                carries: "orders placed",
+              },
+              { from: "outbox", to: "mailer", carries: "a confirmation" },
+            ],
+          },
         ],
       },
     ],

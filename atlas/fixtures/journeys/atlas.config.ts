@@ -2,7 +2,7 @@ import type { Config } from "../../src/model/atlas.ts";
 
 export default {
   title: "Journeys",
-  subtitle: "A bookshop with two journeys; the header's Parcours menu plays one.",
+  subtitle: "A bookshop with three journeys; the header's Parcours menu plays one.",
   lang: "fr",
   phases: ["MVP", "v2"],
   palette: {

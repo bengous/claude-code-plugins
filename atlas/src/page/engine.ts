@@ -22,7 +22,7 @@ import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import { journeyOf, stepLights } from "../model/journeys.ts";
+import { journeyOf, stepLights, stepsOf } from "../model/journeys.ts";
 import type { Mode, PageState, Params, Place, PlaceEvent, Scope } from "../model/navigation.ts";
 import {
   DEFAULTS,
@@ -787,7 +787,10 @@ function moveTo(key: Key, from: Key): void {
 }
 
 // Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
-// lifted to the view's items; a journey's step, which selects nothing, lights its own arrow.
+// lifted to the view's items; a journey's step, which selects nothing, lights its own arrow, in
+// the colour of a return for a step back, named by the step's `carries` in place of its label.
+// The label is set after dimView's, so it stays when the phase changes on a journey, and the
+// phase's comes back once the journey is left.
 function highlight(d: Drawn, p: Place, step: Step | null): void {
   const selected = p.selected;
   const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
@@ -805,9 +808,14 @@ function highlight(d: Drawn, p: Place, step: Step | null): void {
         ? selected !== null && lights(tree, e.arrow, selected)
         : stepLights(tree, e.arrow, step);
 
+    const back = hot && step?.back === true;
+    const carries = hot ? step?.carries : undefined;
     e.g.classList.toggle("hot", hot);
     e.g.classList.toggle("step", hot && step !== null);
-    const m = hot ? "url(#arr-hot)" : e.marker;
+    e.g.classList.toggle("back", back);
+    relabel(e, d.mode, carries ?? labelAt(tree, dimmed, e.arrow));
+    const lit = back ? "url(#arr-back)" : "url(#arr-hot)";
+    const m = hot ? lit : e.marker;
     e.path.setAttribute("marker-end", m);
 
     if (e.arrow.two) {
@@ -880,7 +888,8 @@ svg.addEventListener("focusout", () => {
 
 function renderLegend(key: Key): void {
   const view = viewOf(tree, key);
-  const keys = legendKeys({ ...view.legend, later: dimsIn(dimmed, view) });
+  const back = stepShown(scope, params)?.back === true;
+  const keys = legendKeys({ ...view.legend, back, later: dimsIn(dimmed, view) });
   legend.innerHTML = legendHtml(keys, settings.legend);
   legend.classList.toggle("empty", keys.length === 0);
 }
@@ -1031,6 +1040,12 @@ function renderPhase(): void {
 
     for (const { drawn: d } of st.held.values()) {
       dimView(d);
+    }
+
+    const shownView = heldOf(st, openOf(here()));
+
+    if (shownView !== null) {
+      highlight(shownView, here(), stepShown(scope, params));
     }
   }
 }
@@ -1248,7 +1263,7 @@ function stepBy(delta: number): void {
   const played = journeyOf(tree, pageState.journey);
   const next = pageState.step + delta;
 
-  if (played !== null && next >= 1 && next <= played.steps.length) {
+  if (played !== null && next >= 1 && next <= stepsOf(played).length) {
     play(played.id, next);
   }
 }
@@ -1795,12 +1810,24 @@ const FACES = [
   '400 12px "IBM Plex Mono"',
 ];
 
+const journeyText = (): string[] =>
+  journeys.flatMap((journey) => [
+    ...journey.sections.map((section) => section.label),
+    ...stepsOf(journey).flatMap(({ step }) => [
+      step.trigger ?? "",
+      step.carries ?? "",
+      step.when ?? "",
+      step.note ?? "",
+    ]),
+  ]);
+
 const shownText = (): string =>
   [
     ...new Set(
       [
         ...[...tree.nodes.values()].flatMap((n) => [n.label, n.label.toUpperCase(), n.sub]),
         ...tree.map.links.map((l) => l.label),
+        ...journeyText(),
       ].join(""),
     ),
   ].join("");

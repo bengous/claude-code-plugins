@@ -4,8 +4,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import JOURNEYS_CONFIG from "../../fixtures/journeys/atlas.config.ts";
+import JOURNEYS_MAP from "../../fixtures/journeys/map.ts";
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Config, Journey, Lang, Link, Node } from "../model/atlas.ts";
+import type { AtlasMap, Config, Journey, Lang, Link, Node, Section, Step } from "../model/atlas.ts";
 import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { THREADS_FILE, loadFolder } from "../model/folder.ts";
@@ -15,6 +17,8 @@ import { treeOf } from "../model/tree.ts";
 import { checkCitations, checkMap, validate } from "./check.ts";
 
 const SAMPLE = join(import.meta.dir, "..", "..", "fixtures", "sample");
+
+const JOURNEYS = join(import.meta.dir, "..", "..", "fixtures", "journeys");
 
 const { map: MAP, config: CONFIG } = await loadFolder(SAMPLE);
 
@@ -50,6 +54,15 @@ const withOpen = (id: string, text: string): AtlasMap =>
 
 const errorsOf = (map: AtlasMap, settings = SETTINGS): string[] =>
   validate(treeOf(map), settings, {});
+
+const entry = (from: string, to: string, trigger = "Open the shop"): Step => ({
+  from,
+  to,
+  trigger,
+  kind: "manual",
+});
+
+const walk = (id: string, ...sections: Section[]): Journey => ({ id, label: id, sections });
 
 describe("validate", () => {
   test("the sample is valid, and so is a map five levels deep", () => {
@@ -168,81 +181,136 @@ describe("validate", () => {
     root: { ...map.root, journeys },
   });
 
-  const CHECKOUT: Journey = {
-    id: "checkout",
+  const CHECKOUT: Journey = walk("checkout", {
     label: "Checkout",
     steps: [
-      { from: "browser", to: "proxy", note: "The reader opens the shop." },
+      { ...entry("browser", "proxy"), note: "The reader opens the shop." },
       { from: "proxy", to: "web" },
       { from: "web", to: "orders" },
       { from: "orders", to: "db" },
     ],
-  };
+  });
 
   const DEEP_SETTINGS = settingsOf({ ...CONFIG, tags: { names: ["t1"], outside: "optional" } });
 
-  test("a journey whose steps each follow a link, from where the one before ends, passes", () => {
+  const NO_LINK =
+    "no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way";
+
+  test("a journey whose steps each follow a link, from a node its section reached, passes", () => {
     expect(errorsOf(withJourneys([CHECKOUT]))).toEqual([]);
 
-    const across: Journey = {
-      id: "across-depths",
+    const across = walk("across-depths", {
       label: "Across depths",
       steps: [
-        { from: "a1", to: "a3" },
+        entry("a1", "a3"),
         { from: "a3", to: "a6" },
         { from: "a6", to: "X" },
         { from: "X", to: "a2" },
       ],
-    };
+    });
 
     expect(errorsOf(withJourneys([across], DEEP), DEEP_SETTINGS)).toEqual([]);
   });
 
   test("a step follows a two-headed link either way, a one-way link only its own way", () => {
-    const back: Journey = { id: "back", label: "Back", steps: [{ from: "B", to: "A" }] };
+    const twoWays = walk("two-ways", { label: "Back", steps: [entry("B", "A")] });
+    const upstream = walk("upstream", { label: "Up", steps: [entry("proxy", "browser")] });
 
-    const upstream: Journey = {
-      id: "upstream",
-      label: "Upstream",
-      steps: [{ from: "proxy", to: "browser" }],
-    };
-
-    expect(errorsOf(withJourneys([back], DEEP), DEEP_SETTINGS)).toEqual([]);
+    expect(errorsOf(withJourneys([twoWays], DEEP), DEEP_SETTINGS)).toEqual([]);
     expect(errorsOf(withJourneys([upstream]))).toEqual([
-      "journey upstream: step 1, proxy → browser: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way",
+      `journey upstream: step 1 (Up), proxy → browser: ${NO_LINK}`,
     ]);
   });
 
   test("a step joined only through a pair a view lifts from deeper links is refused", () => {
     // The root's view draws server → email from app → email; the storage's draws app → db, a
     // ghost to a card, from orders → db.
-    const boxes: Journey = {
-      id: "boxes",
-      label: "Boxes",
-      steps: [{ from: "server", to: "email" }],
-    };
-
-    const ghost: Journey = { id: "ghost", label: "Ghost", steps: [{ from: "app", to: "db" }] };
+    const boxes = walk("boxes", { label: "Boxes", steps: [entry("server", "email")] });
+    const ghost = walk("ghost", { label: "Ghost", steps: [entry("app", "db")] });
 
     expect(errorsOf(withJourneys([boxes, ghost]))).toEqual([
-      "journey boxes: step 1, server → email: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way",
-      "journey ghost: step 1, app → db: no link of the map joins them; a step follows a link from its from to its to, or a two-headed one either way",
+      `journey boxes: step 1 (Boxes), server → email: ${NO_LINK}`,
+      `journey ghost: step 1 (Ghost), app → db: ${NO_LINK}`,
     ]);
   });
 
-  test("a step that does not start where the one before ends is refused", () => {
-    const broken: Journey = {
-      id: "broken",
-      label: "Broken",
+  test("a step starts at any node its section reached, or anywhere as an entry", () => {
+    const branches = walk("branches", {
+      label: "Browse then buy",
       steps: [
-        { from: "browser", to: "proxy" },
+        entry("browser", "proxy"),
+        { from: "proxy", to: "web" },
+        { from: "web", to: "catalog" },
         { from: "web", to: "orders" },
-        { from: "orders", to: "db" },
+        { from: "catalog", to: "db" },
+        entry("app", "email", "Every night"),
       ],
-    };
+    });
 
-    expect(errorsOf(withJourneys([broken]))).toEqual([
-      "journey broken: step 2, web → orders: starts at web, not at proxy, where step 1 ends",
+    expect(errorsOf(withJourneys([branches]))).toEqual([]);
+  });
+
+  test("a step that is no entry and starts at a node its section has not reached is refused, a section reaching nothing of another's", () => {
+    const jumps = walk(
+      "jumps",
+      {
+        label: "Order",
+        steps: [entry("browser", "proxy"), { from: "web", to: "orders" }],
+      },
+      {
+        label: "Store",
+        steps: [entry("orders", "db"), { from: "proxy", to: "web" }],
+      },
+    );
+
+    expect(errorsOf(withJourneys([jumps]))).toEqual([
+      "journey jumps: step 2 (Order), web → orders: starts at web, which its section has not reached; a step starts where its section has been, or is an entry",
+      "journey jumps: step 4 (Store), proxy → web: starts at proxy, which its section has not reached; a step starts where its section has been, or is an entry",
+    ]);
+  });
+
+  test("a section that does not open on an entry is refused, and only for that", () => {
+    const opened = walk(
+      "opened",
+      { label: "Order", steps: [entry("browser", "proxy")] },
+      { label: "Store", steps: [{ from: "orders", to: "db" }] },
+    );
+
+    expect(errorsOf(withJourneys([opened]))).toEqual([
+      "journey opened: step 2 (Store), orders → db: a section opens with an entry, a step with a trigger and a kind",
+    ]);
+  });
+
+  test("an entry whose trigger names nothing is refused", () => {
+    const silent = walk("silent", {
+      label: "Order",
+      steps: [
+        entry("browser", "proxy", ""),
+        { from: "proxy", to: "web" },
+        entry("web", "orders", " "),
+      ],
+    });
+
+    expect(errorsOf(withJourneys([silent]))).toEqual([
+      "journey silent: step 1 (Order), browser → proxy: an entry's trigger names what sets it off",
+      "journey silent: step 3 (Order), web → orders: an entry's trigger names what sets it off",
+    ]);
+  });
+
+  test("a step back follows a link set from its to to its from; one with its ends swapped by mistake is refused", () => {
+    const back = walk("back", {
+      label: "Round trip",
+      steps: [entry("browser", "proxy"), { from: "proxy", to: "browser", back: true }],
+    });
+
+    const swapped = walk("swapped", {
+      label: "Round trip",
+      steps: [entry("browser", "proxy"), { from: "browser", to: "proxy", back: true }],
+    });
+
+    expect(errorsOf(withJourneys([back]))).toEqual([]);
+    expect(errorsOf(withJourneys([swapped]))).toEqual([
+      "journey swapped: step 2 (Round trip), browser → proxy: no link of the map runs from proxy to browser; a step with back follows a link the other way",
     ]);
   });
 
@@ -255,9 +323,20 @@ describe("validate", () => {
     ]);
   });
 
-  test("a journey with no step is refused", () => {
-    expect(errorsOf(withJourneys([{ id: "empty", label: "Empty", steps: [] }]))).toEqual([
-      "journey empty: no step; a journey follows one link at least",
+  test("a journey with no section, a section without a label or without a step, is refused", () => {
+    const empty = walk("empty");
+
+    const hollow = walk(
+      "hollow",
+      { label: "Order", steps: [entry("browser", "proxy")] },
+      { label: " ", steps: [entry("web", "orders")] },
+      { label: "Store", steps: [] },
+    );
+
+    expect(errorsOf(withJourneys([empty, hollow]))).toEqual([
+      "journey empty: no section; a journey has one section at least",
+      "journey hollow: section 2: no label",
+      "journey hollow: section 3 (Store): no step; a section has one step at least",
     ]);
   });
 
@@ -377,18 +456,44 @@ describe("checkMap", () => {
     ).toEqual(["node web: a second node has this id"]);
   });
 
-  test("a journey's step on an unknown node is refused, naming the journey and the step", () => {
-    const broken = {
+  test("a journey's step on an unknown node is refused, naming the journey, the step and its section", () => {
+    const broken: AtlasMap = {
       ...MAP,
       root: {
         ...MAP.root,
-        journeys: [{ id: "broken", label: "Broken", steps: [{ from: "nowhere", to: "proxy" }] }],
+        journeys: [
+          {
+            id: "broken",
+            label: "Broken",
+            sections: [{ label: "Order", steps: [{ from: "nowhere", to: "proxy" }] }],
+          },
+        ],
       },
     };
 
     expect(checkMap(broken, CONFIG, THREADS)).toEqual([
-      "journey broken: step 1, nowhere → proxy: no node nowhere",
+      "journey broken: step 1 (Order), nowhere → proxy: no node nowhere",
     ]);
+  });
+
+  test("a journey in the format before sections is refused, not thrown", () => {
+    const old: Pick<Journey, "id" | "label"> & { readonly steps?: readonly Step[] } = {
+      id: "old",
+      label: "Old",
+      steps: [{ from: "browser", to: "proxy" }],
+    };
+
+    // SAFETY: a journey without sections, as a map folder's data holds before its typecheck runs.
+    const journeys = [old as Journey];
+    const map: AtlasMap = { ...MAP, root: { ...MAP.root, journeys } };
+
+    expect(checkMap(map, CONFIG, THREADS)).toEqual(["journey old: sections is not a list"]);
+  });
+
+  test("the journeys fixture is valid: its three journeys, their entries, a return, a condition", async () => {
+    const threads: unknown = await Bun.file(join(JOURNEYS, THREADS_FILE)).json();
+
+    expect(checkMap(JOURNEYS_MAP, JOURNEYS_CONFIG, threads)).toEqual([]);
   });
 
   test("a language the dictionary does not hold is refused", () => {

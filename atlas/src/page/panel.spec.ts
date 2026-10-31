@@ -570,38 +570,139 @@ describe("the cards", () => {
 const CHECKOUT: Journey = {
   id: "checkout",
   label: "Checkout",
-  steps: [
-    { from: "browser", to: "proxy", note: "The reader opens the shop." },
-    { from: "proxy", to: "web" },
-    { from: "web", to: "orders", note: "The form posts the cart." },
-    { from: "orders", to: "db" },
+  sections: [
+    {
+      label: "Visit",
+      steps: [
+        {
+          from: "browser",
+          to: "proxy",
+          trigger: "Open the shop",
+          kind: "manual",
+          note: "The reader opens the shop.",
+        },
+        { from: "proxy", to: "web" },
+      ],
+    },
+    {
+      label: "Order",
+      steps: [
+        {
+          from: "web",
+          to: "orders",
+          trigger: "Every minute",
+          kind: "auto",
+          carries: "the cart",
+          when: "the cart holds a book",
+          note: "The form posts the cart.",
+        },
+        { from: "orders", to: "db" },
+      ],
+    },
   ],
 };
 
-const journeyPanel = (journey: Journey, step: number, avoidError: string | null = null): string => {
+const journeyPanel = (
+  journey: Journey,
+  step: number,
+  avoidError: string | null = null,
+  settings: Settings = settingsOf(CONFIG),
+): string => {
   const panel = { innerHTML: "", scrollTop: 7 };
-  renderJourney(settingsOf(CONFIG), TREE, panel, journey, step, avoidError);
+  renderJourney(settings, TREE, panel, journey, step, avoidError);
 
   expect(panel.scrollTop).toBe(0);
 
   return panel.innerHTML;
 };
 
+const CLOCK_MARK = '<circle cx="7" cy="7" r="5.6"';
+
+const PERSON_MARK = '<circle cx="7" cy="4.3" r="2.5"';
+
 describe("a journey in the panel", () => {
-  test("its label, the step's place in it, the arrow's label and ends, the note, the steps around", () => {
+  test("its eight parts in order: label, section, place, arrow, entry, facts, note, buttons", () => {
     const html = journeyPanel(CHECKOUT, 3);
 
-    expect(html).toContain('<h2><span class="swatch"></span>Checkout</h2>');
-    expect(html).toContain('<p class="journey-step">Étape 3 sur 4</p>');
-    expect(html).toContain(
-      '<span class="journey-label">checkout</span><span class="journey-ends">Web routes → Orders</span>',
-    );
-    expect(html).toContain('<p class="lead">The form posts the cart.</p>');
-    expect(html).toContain(
+    const parts = [
+      '<p class="kicker">Parcours</p><h2><span class="swatch"></span>Checkout</h2>',
+      '<p class="journey-section">Section 2 sur 2 : Order</p>',
+      '<p class="journey-step">Étape 3 sur 4</p>',
+      '<span class="journey-label">the cart</span><span class="journey-ends">Web routes → Orders</span>',
+      '<div class="journey-entry"><svg class="glyph"',
+      '<p class="journey-trigger">Every minute</p><p class="journey-kind">Automatique</p></div></div>',
+      '<dl class="journey-facts"><dt>Sens</dt><dd>Aller, dans le sens du lien</dd><dt>Donnée</dt><dd><span class="journey-data">the cart</span></dd><dt>Condition</dt><dd>si the cart holds a book</dd></dl>',
+      '<p class="lead">The form posts the cart.</p>',
       '<button type="button" data-nav="previous" data-step="2">← Précédente</button>',
+      '<button type="button" data-nav="next" data-step="4">Suivante →</button>',
+      '<div class="leave"><button type="button" data-leave>Quitter le parcours</button></div>',
+    ];
+
+    const at = parts.map((part) => html.indexOf(part));
+
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect(at).toEqual(at.toSorted((a, b) => a - b));
+    expect(html).toContain(CLOCK_MARK);
+    expect(html).not.toContain(PERSON_MARK);
+  });
+
+  test("a step without carries names its link; the data's form is the last carries of its section", () => {
+    const html = journeyPanel(CHECKOUT, 4);
+
+    expect(html).toContain(
+      '<span class="journey-label">SQL orders</span><span class="journey-ends">Orders → Database</span>',
+    );
+    expect(html).not.toContain("journey-entry");
+    expect(html).toContain(
+      '<dl class="journey-facts"><dt>Sens</dt><dd>Aller, dans le sens du lien</dd><dt>Donnée</dt><dd><span class="journey-data">the cart</span></dd></dl>',
+    );
+  });
+
+  test("a person's action shows its icon; a section's first step has no data before its carries", () => {
+    const html = journeyPanel(CHECKOUT, 1);
+
+    expect(html).toContain('<p class="journey-section">Section 1 sur 2 : Visit</p>');
+    expect(html).toContain(PERSON_MARK);
+    expect(html).toContain(
+      '<p class="journey-trigger">Open the shop</p><p class="journey-kind">Action d\'une personne</p>',
     );
     expect(html).toContain(
-      '<button type="button" data-nav="next" data-step="4">Suivante →</button>',
+      '<dl class="journey-facts"><dt>Sens</dt><dd>Aller, dans le sens du lien</dd></dl>',
+    );
+  });
+
+  test("a step back reads as a return, along the link declared the other way", () => {
+    const back: Journey = {
+      id: "back",
+      label: "Back",
+      sections: [
+        {
+          label: "Round trip",
+          steps: [
+            { from: "browser", to: "proxy", trigger: "Open the shop", kind: "manual" },
+            { from: "proxy", to: "browser", back: true, carries: "a page" },
+          ],
+        },
+      ],
+    };
+
+    const html = journeyPanel(back, 2);
+
+    expect(html).toContain(
+      '<span class="journey-label">a page</span><span class="journey-ends">Reverse proxy → Browser</span>',
+    );
+    expect(html).toContain(
+      "<dt>Sens</dt><dd>Retour, le long du lien déclaré dans l'autre sens</dd>",
+    );
+  });
+
+  test("its words in English", () => {
+    const html = journeyPanel(CHECKOUT, 3, null, settingsOf({ ...CONFIG, lang: "en" }));
+
+    expect(html).toContain('<p class="journey-section">Section 2 of 2: Order</p>');
+    expect(html).toContain('<p class="journey-kind">Automatic</p>');
+    expect(html).toContain(
+      '<dt>Direction</dt><dd>Forward, along the link</dd><dt>Data</dt><dd><span class="journey-data">the cart</span></dd><dt>Condition</dt><dd>if the cart holds a book</dd>',
     );
   });
 
@@ -637,7 +738,12 @@ describe("a journey in the panel", () => {
       links: [...MAP.links, { from: "orders", to: "catalog", label: "stock", two: true }],
     };
 
-    const back: Journey = { id: "back", label: "Back", steps: [{ from: "catalog", to: "orders" }] };
+    const back: Journey = {
+      id: "back",
+      label: "Back",
+      sections: [{ label: "Stock", steps: [{ from: "catalog", to: "orders" }] }],
+    };
+
     const panel = { innerHTML: "", scrollTop: 0 };
     renderJourney(settingsOf(CONFIG), treeOf(map), panel, back, 1, null);
 
@@ -646,24 +752,44 @@ describe("a journey in the panel", () => {
     );
   });
 
-  test("a label and a note, plain text, show as written and run nothing", async () => {
+  test("its texts, plain text, show as written and run nothing", async () => {
     const hostile = '<img src=x onerror="alert(1)"><code>x</code>';
 
     const journey: Journey = {
       id: "hostile",
       label: hostile,
-      steps: [{ from: "browser", to: "proxy", note: hostile }],
+      sections: [
+        {
+          label: hostile,
+          steps: [
+            {
+              from: "browser",
+              to: "proxy",
+              trigger: hostile,
+              kind: "manual",
+              carries: hostile,
+              when: hostile,
+              note: hostile,
+            },
+          ],
+        },
+      ],
     };
 
     const html = journeyPanel(journey, 1);
 
     expect(await elementsWith(html, "img, code")).toBe(0);
-    expect(html).toContain("&lt;img src=x onerror=");
+    expect(html.split("&lt;img src=x onerror=")).toHaveLength(8);
     expect(journeysHtml(settingsOf(CONFIG), [journey], null)).toContain("&lt;img src=x");
   });
 
-  test("the menu lists each journey with its count of steps, the one played current", () => {
-    const walk: Journey = { id: "walk", label: "Walk", steps: [{ from: "web", to: "orders" }] };
+  test("the menu lists each journey with its count of steps across its sections, the one played current", () => {
+    const walk: Journey = {
+      id: "walk",
+      label: "Walk",
+      sections: [{ label: "Walk", steps: [{ from: "web", to: "orders" }] }],
+    };
+
     const html = journeysHtml(settingsOf(CONFIG), [CHECKOUT, walk], "walk");
 
     expect(html).toBe(

@@ -66,15 +66,19 @@
     the links that do not fade. The panel shows a node's phase. The phase
     stays in the link as the reader moves.
   - A map whose root declares `journeys` gets a menu in the header, a row
-    per journey. Picking one plays it step by step: each step opens the
-    deepest view that shows both its ends, one of them a child there, else
-    the view of their lowest common container, lights its arrow and dims
-    the others. The panel shows the journey, the step's place in it, the
-    arrow's label, the step's note and ← → buttons, which the arrow keys
-    press too, and a button that leaves the journey for the place it
-    started from, as Escape or a click on the empty sheet does once the
-    view is back at its fit; a click on an arrow does nothing, and any
-    other move leaves it from the step's view.
+    per journey. Picking one plays it step by step, numbered across its
+    sections: each step opens the deepest view that shows both its ends,
+    one of them a child there, else the view of their lowest common
+    container, lights its arrow, named by the step's `carries` when it has
+    one, and dims the others; a step `back` lights it in the colour of a
+    return, and the legend says so. The panel shows the journey, the
+    step's section and its place in the journey, the arrow's label, an
+    entry's trigger and nature, the step's direction, the data's form and
+    its condition, its note and ← → buttons, which the arrow keys press
+    too, and a button that leaves the journey for the place it started
+    from, as Escape or a click on the empty sheet does once the view is
+    back at its fit; a click on an arrow does nothing, and any other move
+    leaves it from the step's view.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -168,6 +172,7 @@
   --grid: rgba(24, 34, 47, 0.06);
   --grid-major: rgba(24, 34, 47, 0.10);
   --accent: #2d5fc4;
+  --back: #0f766e;
   --ok: #1e7a4c;
   --deny: #b83246;
   --open: #c2410c;
@@ -179,14 +184,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0d131b; --sheet: #121a24; --surface: #18222f; --ink: #e2e8ef; --ink-2: #a3b0c0; --ink-3: #75839a;
     --line: #2f3d50; --grid: rgba(226, 232, 239, 0.04); --grid-major: rgba(226, 232, 239, 0.08);
-    --accent: #7fa6f5; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
+    --accent: #7fa6f5; --back: #5ee0d0; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0d131b; --sheet: #121a24; --surface: #18222f; --ink: #e2e8ef; --ink-2: #a3b0c0; --ink-3: #75839a;
   --line: #2f3d50; --grid: rgba(226, 232, 239, 0.04); --grid-major: rgba(226, 232, 239, 0.08);
-  --accent: #7fa6f5; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
+  --accent: #7fa6f5; --back: #5ee0d0; --ok: #5cc28d; --deny: #f07a8b; --open: #fb923c;
   color-scheme: dark;
 }
 
@@ -451,7 +456,8 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel .src { font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); margin-top: 16px; overflow-wrap: anywhere; }
 .panel .nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
 .panel .nav button:disabled { color: var(--ink-3); border-color: var(--line); cursor: default; }
-/* A journey's step (panel.ts): its place in the journey, then the label of the arrow it lights over its ends. */
+/* A journey's step (panel.ts): its section and its place in the journey, the label of the arrow it lights over its ends, an entry's trigger, then its direction, the data's form and its condition. */
+.panel .journey-section { font-family: var(--f-display); font-weight: 600; font-size: 17px; letter-spacing: 0.04em; color: var(--ink); margin: 0; }
 .panel .journey-step { font-family: var(--f-display); font-weight: 600; font-size: 17px; letter-spacing: 0.04em; color: var(--ink-2); margin: 0 0 12px; }
 .panel .journey-arrow {
   display: flex; flex-direction: column; gap: 2px; margin: 0 0 12px; padding: 8px 10px;
@@ -459,6 +465,14 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 }
 .panel .journey-label { font-family: var(--f-mono); font-size: 14px; color: var(--accent); }
 .panel .journey-ends { font-family: var(--f-display); font-weight: 600; font-size: 16px; letter-spacing: 0.02em; color: var(--ink); }
+.panel .journey-entry { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; background: var(--surface); border-left: 3px solid var(--ink); }
+.panel .journey-entry svg { flex: none; margin-top: 4px; }
+.panel .journey-entry p { margin: 0; }
+.panel .journey-kind { font-size: 13px; color: var(--ink-2); }
+.panel .journey-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0 0 12px; font-size: 14px; }
+.panel .journey-facts dt { color: var(--ink-2); }
+.panel .journey-facts dd { margin: 0; overflow-wrap: anywhere; }
+.panel .journey-data { font-family: var(--f-mono); font-size: 13px; }
 .panel .leave { margin-top: 10px; }
 
 /* SVG. Sizes are in world units, so text grows with the zoom. measure.ts measures the text
@@ -538,6 +552,10 @@ svg text.illegible { visibility: hidden; }
 .arrowhead { fill: var(--ink-3); }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
+/* The arrow a journey's step follows back (engine.ts): the colour of a return, its heads where the link puts them. */
+.flow.hot.back path { stroke: var(--back); }
+.flow.hot.back .flow-label { fill: var(--back); }
+.arrowhead.back { fill: var(--back); }
 
 /* A node or an arrow that comes after the phase picked (phases.ts, engine.ts), and its legend line: faded and dotted over every other state, after them here, a pattern apart from the dashes of kind "off", of outside nodes and of couplings. */
 .box.later, .card.later, .chip.later, .ghost.later { opacity: 0.4; }

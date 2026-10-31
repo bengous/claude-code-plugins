@@ -109,31 +109,54 @@ export type Node = Panel & {
   readonly children?: readonly Node[];
 };
 
-/**
- * One step of a journey: a link of the map set directly between `from` and `to`, from its `from`
- * to its `to`, or either way along one with `two` (`atlas check`; an arrow a view lifts from links
- * between nodes below them does not count); an end that names no node is refused wherever the map
- * is loaded. The page shows it in the deepest view that shows both its ends and draws its arrow,
- * else in their lowest common container's view, its lifted arrow lit.
- */
-export type Step = {
+type StepBase = {
   readonly from: string;
   readonly to: string;
   /** What happens along it, in a sentence or two: plain text, shown as written. */
   readonly note?: string;
+  /** The form the data has once the step is done, a few words: plain text, shown as written. */
+  readonly carries?: string;
+  /** It follows a link declared from `to` to `from`: the data comes back along it. */
+  readonly back?: true;
+  /** The condition under which the step happens, a few words: plain text, shown as written. */
+  readonly when?: string;
+};
+
+/** What sets the step off: a person's action or a rule of the system. */
+type Entry = { readonly trigger: string; readonly kind: "manual" | "auto" };
+
+/**
+ * One step of a journey, numbered from 1 across its sections. Without `back`, it follows a link of
+ * the map set directly between `from` and `to`, from its `from` to its `to`, or either way along
+ * one with `two`; with `back`, a link set from its `to` to its `from` (`atlas check`; an arrow a
+ * view lifts from links between nodes below them does not count). A step with `trigger` and `kind`
+ * is an entry, its trigger naming what sets it off; any other starts at a node its section has
+ * reached, an end of a step before it in that section (`atlas check`). An end that names no node is
+ * refused wherever the map is loaded. The page shows it in the deepest view that shows both its
+ * ends and draws its arrow, else in their lowest common container's view, its lifted arrow lit.
+ */
+export type Step = StepBase & (Entry | { readonly trigger?: never; readonly kind?: never });
+
+export type Section = {
+  /** Its name in the panel and the ribbon, a few words: plain text, shown as written. */
+  readonly label: string;
+  /** One step at least; the first is an entry (`atlas check`). */
+  readonly steps: readonly Step[];
 };
 
 /**
- * The path of one action across the map, step by step: the header's menu lists it, and picking it
- * plays its steps. Its `id` is kebab-case and unique among the journeys, and names it in the
- * page's URL; it has one step at least, and each step starts where the one before ends
+ * The path of a piece of data across the map, from each of its triggers to its arrival: the
+ * header's menu lists it, and picking it plays its steps, numbered from 1 across its sections. Its
+ * `id` is kebab-case and unique among the journeys, and names it in the page's URL; it has one
+ * section at least, each with a label and one step at least, which opens on an entry
  * (`atlas check`).
  */
 export type Journey = {
   readonly id: string;
   /** Its name in the menu and the panel, a few words: plain text, shown as written. */
   readonly label: string;
-  readonly steps: readonly Step[];
+  /** One section at least (`atlas check`). */
+  readonly sections: readonly Section[];
 };
 
 /** The top of the tree: the root view's panel and the nodes that view shows. */
@@ -195,11 +218,20 @@ export type Lang = "fr" | "en";
 export type Swatch = { readonly light: string; readonly dark: string };
 
 /**
- * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`), a node mark (coupled to
- * the selected node, outside, carrying an open point), or `later`, what comes after the work
- * phase picked. The legend shows the lines the open view uses.
+ * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`), `back`, the arrow a
+ * journey's step follows back, a node mark (coupled to the selected node, outside, carrying an
+ * open point), or `later`, what comes after the work phase picked. The legend shows the lines the
+ * open view uses.
  */
-export type LegendKey = "flow" | "dash" | "deny" | "coupled" | "outside" | "open" | "later";
+export type LegendKey =
+  | "flow"
+  | "back"
+  | "dash"
+  | "deny"
+  | "coupled"
+  | "outside"
+  | "open"
+  | "later";
 
 /**
  * A heading of the panel, by the section it heads: `io`, `swap`, `extend`, `pitfalls`, `seams`,

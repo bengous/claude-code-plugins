@@ -1,8 +1,9 @@
-import type { Journey, Node, OpenPoint, Pair, Panel, PanelHeading } from "../model/atlas.ts";
+import type { Journey, Node, OpenPoint, Pair, Panel, PanelHeading, Step } from "../model/atlas.ts";
 import type { Cards } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationText, citedLines, withCitations } from "../model/citations.ts";
-import { joins } from "../model/journeys.ts";
+import type { EntryStep } from "../model/journeys.ts";
+import { formAfter, isEntry, joins, stepsOf } from "../model/journeys.ts";
 import { keptMarkup } from "../model/markup.ts";
 import type { Place } from "../model/navigation.ts";
 import type { Crumb } from "../model/navigation.ts";
@@ -282,11 +283,41 @@ export function renderPanel(
   panel.scrollTop = 0;
 }
 
+const CLOCK =
+  '<svg class="glyph" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7 3.8V7l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+const PERSON =
+  '<svg class="glyph" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="4.3" r="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.4 12.6c.6-2.6 2.4-4 4.6-4s4 1.4 4.6 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+const ICONS: Readonly<Record<EntryStep["kind"], string>> = { auto: CLOCK, manual: PERSON };
+
+const entryBox = (s: Settings, step: Step): string =>
+  isEntry(step)
+    ? `<div class="journey-entry">${ICONS[step.kind]}<div><p class="journey-trigger">${esc(step.trigger)}</p><p class="journey-kind">${s.words.entryKind[step.kind]}</p></div></div>`
+    : "";
+
+function stepFacts(s: Settings, step: Step, form: string | null): string {
+  const facts: Pair[] = [
+    [s.words.direction, step.back === true ? s.words.back : s.words.forward],
+    ...(form === null
+      ? []
+      : [[s.words.data, `<span class="journey-data">${esc(form)}</span>`] as const]),
+    ...(step.when === undefined
+      ? []
+      : [[s.words.condition, s.words.when(esc(step.when))] as const]),
+  ];
+
+  return `<dl class="journey-facts">${facts.map(([term, value]) => `<dt>${term}</dt><dd>${value}</dd>`).join("")}</dl>`;
+}
+
 /**
- * A journey's step, 1 to its count, in place of the panel's fields: the journey's label, the
- * step's place in it, the label of the link it follows (joins) over its ends' labels, its note,
- * the buttons to the steps before and after it, disabled past either end, and under them the one
- * that leaves the journey. The labels and the note are plain text, shown as written.
+ * A journey's step, 1 to its count across the sections, in place of the panel's fields, in this
+ * order: the journey's label; its section, numbered, and its label; the step's place in the
+ * journey; the step's `carries`, else the label of the link it follows (joins), over its ends'
+ * labels; for an entry, the icon of its nature, its trigger and the word of its nature; its
+ * direction, the data's form once it is done (formAfter) and its condition; its note; the buttons
+ * to the steps before and after it, disabled past either end, and under them the one that leaves
+ * the journey. The journey's texts are plain text, shown as written.
  */
 export function renderJourney(
   s: Settings,
@@ -296,18 +327,20 @@ export function renderJourney(
   step: number,
   avoidError: string | null,
 ): void {
-  const shown = journey.steps[step - 1];
+  const steps = stepsOf(journey);
+  const shown = steps[step - 1];
 
   if (shown === undefined) {
-    throw new RangeError(`journey ${journey.id}: no step ${step} of ${journey.steps.length}`);
+    throw new RangeError(`journey ${journey.id}: no step ${step} of ${steps.length}`);
   }
 
-  const label = tree.map.links.find((link) => joins(link, shown))?.label;
-
-  const ends = [shown.from, shown.to].map((id) => flatLabel(nodeOf(tree, id))).join(" → ");
+  const at = shown.step;
+  const label = at.carries ?? tree.map.links.find((link) => joins(link, at))?.label;
+  const ends = [at.from, at.to].map((id) => flatLabel(nodeOf(tree, id))).join(" → ");
+  const section = s.words.sectionOf(shown.s, journey.sections.length, esc(shown.section.label));
 
   const button = (nav: Nav, to: number, text: string): string =>
-    to >= 1 && to <= journey.steps.length
+    to >= 1 && to <= steps.length
       ? `<button type="button" data-nav="${nav}" data-step="${to}">${text}</button>`
       : `<button type="button" data-nav="${nav}" disabled>${text}</button>`;
 
@@ -315,11 +348,14 @@ export function renderJourney(
     `<div class="journey" style="--zc: var(--accent)">`,
     `<p class="kicker">${s.words.journeysButton}</p>`,
     `<h2><span class="swatch"></span>${esc(journey.label)}</h2>`,
-    `<p class="journey-step">${s.words.stepOf(step, journey.steps.length)}</p>`,
+    `<p class="journey-section">${section}</p>`,
+    `<p class="journey-step">${s.words.stepOf(step, steps.length)}</p>`,
     `<p class="journey-arrow">`,
     label === undefined ? "" : `<span class="journey-label">${esc(label)}</span>`,
     `<span class="journey-ends">${ends}</span></p>`,
-    shown.note === undefined ? "" : `<p class="lead">${esc(shown.note)}</p>`,
+    entryBox(s, at),
+    stepFacts(s, at, formAfter(journey, step)),
+    at.note === undefined ? "" : `<p class="lead">${esc(at.note)}</p>`,
     arrowsMissing(s, avoidError),
     `<div class="nav">${button("previous", step - 1, s.words.previousStep)}${button("next", step + 1, s.words.nextStep)}</div>`,
     `<div class="leave"><button type="button" data-leave>${s.words.leaveJourney}</button></div>`,
@@ -337,7 +373,7 @@ export function journeysHtml(
   const rows = journeys.map((journey) => {
     const current = journey.id === played ? ' aria-current="true"' : "";
 
-    return `<li><button type="button" class="journey-row" data-journey="${esc(journey.id)}"${current}><span>${esc(journey.label)}</span><span class="journey-count">${s.words.stepCount(journey.steps.length)}</span></button></li>`;
+    return `<li><button type="button" class="journey-row" data-journey="${esc(journey.id)}"${current}><span>${esc(journey.label)}</span><span class="journey-count">${s.words.stepCount(stepsOf(journey).length)}</span></button></li>`;
   });
 
   return `<h2>${s.words.journeysButton}</h2><ul>${rows.join("")}</ul>`;

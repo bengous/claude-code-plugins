@@ -1,6 +1,6 @@
 import type { Journey, Step } from "./atlas.ts";
 import { cardsOf } from "./cards.ts";
-import { journeyOf, stepView } from "./journeys.ts";
+import { journeyOf, stepView, stepsOf } from "./journeys.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, nodeOf } from "./tree.ts";
 import { showsIn, viewOf } from "./view.ts";
@@ -188,7 +188,7 @@ function playedOf(tree: Tree, params: Params): { journey: Journey; step: number 
   }
 
   const { step } = params;
-  const fits = Number.isInteger(step) && step >= 1 && step <= journey.steps.length;
+  const fits = Number.isInteger(step) && step >= 1 && step <= stepsOf(journey).length;
 
   return { journey, step: fits ? step : DEFAULTS.step };
 }
@@ -211,7 +211,7 @@ function shownAt({ tree, phases }: Scope, place: Place, params: Params): Params 
 export function stepShown(scope: Scope, params: Params): Step | null {
   const played = playedOf(scope.tree, params);
 
-  return played?.journey.steps[played.step - 1] ?? null;
+  return played === null ? null : (stepsOf(played.journey)[played.step - 1]?.step ?? null);
 }
 
 /**

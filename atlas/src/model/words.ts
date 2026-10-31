@@ -25,10 +25,19 @@ export type Words = {
   readonly journeysTitle: string;
   readonly stepCount: (count: number) => string;
   /**
-   * A journey's step in the panel: its place in the journey, the buttons to the steps around it,
-   * and the one that leaves the journey.
+   * A journey's step in the panel: its section and its place in the journey, the nature of an
+   * entry, the headings of its direction, of the data's form and of its condition, the buttons to
+   * the steps around it, and the one that leaves the journey.
    */
+  readonly sectionOf: (s: number, count: number, label: string) => string;
   readonly stepOf: (step: number, count: number) => string;
+  readonly entryKind: { readonly manual: string; readonly auto: string };
+  readonly direction: string;
+  readonly forward: string;
+  readonly back: string;
+  readonly data: string;
+  readonly condition: string;
+  readonly when: (text: string) => string;
   readonly previousStep: string;
   readonly nextStep: string;
   readonly leaveJourney: string;
@@ -81,7 +90,15 @@ const fr: Words = {
   journeysButton: "Parcours",
   journeysTitle: "Suivre une action à travers le plan, étape par étape",
   stepCount: (count) => (count === 1 ? "1 étape" : `${count} étapes`),
+  sectionOf: (s, count, label) => `Section ${s} sur ${count} : ${label}`,
   stepOf: (step, count) => `Étape ${step} sur ${count}`,
+  entryKind: { manual: "Action d'une personne", auto: "Automatique" },
+  direction: "Sens",
+  forward: "Aller, dans le sens du lien",
+  back: "Retour, le long du lien déclaré dans l'autre sens",
+  data: "Donnée",
+  condition: "Condition",
+  when: (text) => `si ${text}`,
   previousStep: "← Précédente",
   nextStep: "Suivante →",
   leaveJourney: "Quitter le parcours",
@@ -100,6 +117,7 @@ const fr: Words = {
   zoneLabel: (title) => `Zone ${title}`,
   legend: {
     flow: "flux",
+    back: "retour : la donnée revient le long du lien",
     dash: "en sommeil, local ou sur demande",
     deny: "refusé",
     coupled: "change avec la brique choisie",
@@ -156,7 +174,15 @@ const en: Words = {
   journeysButton: "Journeys",
   journeysTitle: "Follow one action across the map, step by step",
   stepCount: (count) => (count === 1 ? "1 step" : `${count} steps`),
+  sectionOf: (s, count, label) => `Section ${s} of ${count}: ${label}`,
   stepOf: (step, count) => `Step ${step} of ${count}`,
+  entryKind: { manual: "A person's action", auto: "Automatic" },
+  direction: "Direction",
+  forward: "Forward, along the link",
+  back: "Return, along the link declared the other way",
+  data: "Data",
+  condition: "Condition",
+  when: (text) => `if ${text}`,
   previousStep: "← Previous",
   nextStep: "Next →",
   leaveJourney: "Leave the journey",
@@ -175,6 +201,7 @@ const en: Words = {
   zoneLabel: (title) => `Zone ${title}`,
   legend: {
     flow: "flow",
+    back: "return: the data comes back along the link",
     dash: "dormant, local or on demand",
     deny: "refused",
     coupled: "changes with the selected brick",

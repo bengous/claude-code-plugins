@@ -586,11 +586,21 @@ describe("paramsAfter", () => {
 const CHECKOUT: Journey = {
   id: "checkout",
   label: "Checkout",
-  steps: [
-    { from: "browser", to: "proxy" },
-    { from: "proxy", to: "web" },
-    { from: "web", to: "orders" },
-    { from: "orders", to: "db" },
+  sections: [
+    {
+      label: "Visit",
+      steps: [
+        { from: "browser", to: "proxy", trigger: "Open the shop", kind: "manual" },
+        { from: "proxy", to: "web" },
+      ],
+    },
+    {
+      label: "Order",
+      steps: [
+        { from: "web", to: "orders", trigger: "Check out", kind: "manual" },
+        { from: "orders", to: "db" },
+      ],
+    },
   ],
 };
 
@@ -598,7 +608,7 @@ const journeyed = treeOf({
   ...SAMPLE,
   root: {
     ...SAMPLE.root,
-    journeys: [CHECKOUT, { id: "empty", label: "Empty", steps: [] }],
+    journeys: [CHECKOUT, { id: "empty", label: "Empty", sections: [{ label: "E", steps: [] }] }],
   },
 });
 
@@ -665,9 +675,16 @@ describe("a journey", () => {
     expect(shownPlace(onSample, start, playing(2))).toBe(start);
   });
 
-  test("the step shown, the first for a step past the last; none off a journey", () => {
+  test("the step shown, numbered across the sections, the first for a step past the last; none off a journey", () => {
     expect(stepShown(onJourneys, playing(2))).toEqual({ from: "proxy", to: "web" });
-    expect(stepShown(onJourneys, playing(9))).toEqual({ from: "browser", to: "proxy" });
+    expect(stepShown(onJourneys, playing(4))).toEqual({ from: "orders", to: "db" });
+    expect(stepShown(onJourneys, playing(5))).toEqual(stepShown(onJourneys, playing(1)));
+    expect(stepShown(onJourneys, playing(9))).toEqual({
+      from: "browser",
+      to: "proxy",
+      trigger: "Open the shop",
+      kind: "manual",
+    });
     expect(stepShown(onJourneys, DEFAULTS)).toBeNull();
     expect(stepShown(onJourneys, { ...DEFAULTS, journey: "empty" })).toBeNull();
     expect(stepShown(onSample, playing(2))).toBeNull();
