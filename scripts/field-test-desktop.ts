@@ -27,6 +27,8 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
+import { messageOf } from "../tools/platform/pure.ts";
+
 const USAGE = [
   "usage: field-test-desktop.ts <command> ...",
   "  open <cli session uuid | local_<id> | claude:// url> | new [--folder <dir>] [--prompt <text>]",
@@ -387,7 +389,7 @@ async function key(args: string[]): Promise<void> {
   try {
     codes = keyArgs(positionals);
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error), 2);
+    fail(messageOf(error), 2);
   }
 
   const window = await windowNamed(values.window);

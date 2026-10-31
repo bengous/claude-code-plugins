@@ -42,6 +42,7 @@ import { join } from "node:path";
 
 import type { Subprocess } from "bun";
 
+import { messageOf } from "../tools/platform/pure.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 import {
@@ -254,7 +255,7 @@ export function refHeader(cwd: string, ref: string): string | null {
   try {
     return headerVersion(git(cwd, "show", object).split(/\r?\n/u, 1)[0] ?? "");
   } catch (error) {
-    throw new Error(`${ref}: ${error instanceof Error ? error.message : String(error)}`, {
+    throw new Error(`${ref}: ${messageOf(error)}`, {
       cause: error,
     });
   }
@@ -786,7 +787,7 @@ async function runPipeline(start: string): Promise<void> {
   try {
     outcome = await pipeline(run);
   } catch (error) {
-    outcome = endOf(error instanceof Error ? error.message : String(error), run, logFile);
+    outcome = endOf(messageOf(error), run, logFile);
   }
 
   // What a run made before its costly steps is its own to throw away, so the
@@ -825,7 +826,7 @@ if (import.meta.main) {
           signal: null,
         });
     } catch (error) {
-      console.error(`claude-code-types: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`claude-code-types: ${messageOf(error)}`);
       process.exitCode = 1;
     }
   }

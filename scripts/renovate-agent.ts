@@ -58,6 +58,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { isErrno, messageOf } from "../tools/platform/pure.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
 import { type CiVerdict, ciVerdict, ghCli } from "./ci-wait.ts";
 import { RUN_GUARD as TYPES_RUN_GUARD } from "./claude-code-types.ts";
@@ -997,12 +998,12 @@ async function commitFixes(
 
     return { kind: "pushed", head, patchId, versions, base };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = messageOf(error);
 
     try {
       await restore();
     } catch (restoreError) {
-      const restoring = restoreError instanceof Error ? restoreError.message : String(restoreError);
+      const restoring = messageOf(restoreError);
 
       throw new Error(
         `${reason}; restoring the worktree to ${short(pr.headRefOid)} failed too: ${restoring}`,
@@ -1163,7 +1164,7 @@ async function handle(
       why = `\`bun ./scripts/land.ts ${pr.headRefName}\` refused it: ${verdict}`;
     }
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = messageOf(error);
     writeSync(log, `${reason}\n`);
     const kept = made && existsSync(worktree) ? worktree : null;
 
@@ -1289,8 +1290,7 @@ async function runAll(start: string): Promise<void> {
       process.kill(-child.pid, "SIGTERM");
     } catch (error) {
       // The group may have exited between its last read and this signal.
-      // SAFETY: process.kill throws only a system error, which carries `code`.
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      if (!isErrno(error, "ESRCH")) throw error;
     }
   };
 
@@ -1341,7 +1341,7 @@ async function runAll(start: string): Promise<void> {
       if (outcome.kind === "stopped") break;
     }
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = messageOf(error);
 
     const line =
       run.progress.signal === null
@@ -1368,7 +1368,7 @@ if (import.meta.main) {
       if (flag === "--dry-run") await dryRun(process.cwd());
       else await runAll(process.cwd());
     } catch (error) {
-      console.error(`renovate-agent: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`renovate-agent: ${messageOf(error)}`);
       process.exitCode = 1;
     }
   }

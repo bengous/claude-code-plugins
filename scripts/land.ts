@@ -64,6 +64,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { messageOf } from "../tools/platform/pure.ts";
 import {
   type CheckRun,
   checkRunsOf,
@@ -928,7 +929,7 @@ async function deleteRemote(lander: Lander, pr: number, head: string): Promise<R
       return kept(`${stacked.join(", ")} open on ${lander.branch} would close with it`);
     }
   } catch (error) {
-    return kept(error instanceof Error ? error.message : String(error));
+    return kept(messageOf(error));
   }
 
   const ref = `refs/heads/${lander.branch}`;
@@ -1096,7 +1097,7 @@ async function landFrom(
 
     if (behind !== null) return refused(behind);
   } catch (error) {
-    return refused(error instanceof Error ? error.message : String(error));
+    return refused(messageOf(error));
   }
 
   const reviewed = headOf(checkout);
@@ -1140,7 +1141,7 @@ async function landFrom(
       try {
         waited = await ready(lander, pushed, e2e && based);
       } catch (error) {
-        waited = refused(error instanceof Error ? error.message : String(error));
+        waited = refused(messageOf(error));
       }
 
       if (waited.kind === "refused") return waited;
