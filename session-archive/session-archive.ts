@@ -1,19 +1,11 @@
 #!/usr/bin/env bun
 
 import { existsSync, readFileSync } from "node:fs";
-import {
-  readdir,
-  stat,
-  rename,
-  mkdir,
-  readlink,
-  readFile,
-  writeFile,
-  unlink,
-  cp,
-} from "node:fs/promises";
+import { readdir, stat, mkdir, readlink, readFile, writeFile, unlink, cp } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename } from "node:path";
+
+import { rename, writeAtomic } from "./lib/platform/node.ts";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");
@@ -127,6 +119,7 @@ export async function acquireLock(
       // Try to create lock atomically
       const tmpLock = lockfile + `.${pid}`;
       await writeFile(tmpLock, pid, { flag: "wx" });
+      // FIXME: rename replaces a lock another process took a moment before, so two workers that both found no lock (or both removed the same stale one) each return true and archive the same project at once; create the lock exclusively instead (link the temporary file, or open the lock with "wx"), keeping the stale-lock check.
       await rename(tmpLock, lockfile);
 
       return true;
@@ -473,9 +466,7 @@ export async function loadArchiveIndex(archiveDir: string): Promise<ArchiveIndex
 
 export async function saveArchiveIndex(archiveDir: string, index: ArchiveIndex): Promise<void> {
   const indexPath = join(archiveDir, "sessions-index.json");
-  const tmpPath = indexPath + ".tmp";
-  await Bun.write(tmpPath, JSON.stringify(index, null, 2) + "\n");
-  await rename(tmpPath, indexPath);
+  await writeAtomic(indexPath, JSON.stringify(index, null, 2) + "\n", { mkdir: true });
 }
 
 export async function unarchiveSession(uuid: string, projectDir: string): Promise<void> {
