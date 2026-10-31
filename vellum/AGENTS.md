@@ -6,7 +6,7 @@ browser, and the reviewer's answer reaches Claude as a prompt. `/vellum:stop` le
 
 ## Shape
 
-Four kinds of folder, each with its own job. Only the parts share a form:
+Five kinds of folder, each with its own job. Only the parts share a form:
 
 - the parts, `src/steps/` and `src/formats/`, a folder each: a step Vellum follows, or the
   proposal that offers them; a format a document is read in. Every one is a slice, read the same
@@ -29,7 +29,11 @@ Four kinds of folder, each with its own job. Only the parts share a form:
   turns each part's half into its own representation of it (`*Extension`);
 - a pure machine, `src/workshop/`: the workflow judged against a table of rows (`next`), the
   view a reader takes of it, and the machinery the review and the parts are built with; it
-  names no event of anybody's and imports nothing outside itself.
+  names no event of anybody's and imports nothing outside itself;
+- the platform, `src/platform/`: the repository's file, path and process helpers, a copy of
+  `tools/platform/` that `bun ./scripts/sync-platform.ts --write` writes, never edited here. A
+  leaf, it imports nothing of the plugin: `pure.ts` names no Node and no Bun, so the hooks module
+  may load it; `node.ts` the server and `scripts/` alone.
 
 ```
 hooks/hooks.json            Claude Code's folder: it names the hooks module, nothing else lives there
@@ -50,6 +54,8 @@ src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's 
 src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts), and
                             the runtimes' own representation of a part, which the registries make from them
 src/runtime/*/slices.ts     each runtime's registry, the only way it reaches a part
+src/platform/               a copy of tools/platform/, never edited here: pure.ts quoting, errno, messages and
+                            lexical paths; node.ts writes, renames, the lock, processes and git
 src/steps/<name>/           a step Vellum follows, or the proposal that offers them: grill/, agent-review/, proposal/
 src/formats/<name>/         a format a document is read in: markdown/, html/, image/
 src/proof.ts                the proof of the table, the tests' alone: each part's walk.ts, alone, then in pairs
@@ -60,7 +66,8 @@ Dependencies point toward `src/workshop/`, which imports nothing outside itself,
 type. The review imports the workshop and the runtimes, never a part. A part imports the
 workshop, what a runtime's folder offers the halves it fills, the review's contract and another
 slice's `contract.ts` as types, and the review's surface; a runtime reaches a part through its
-`slices.ts` alone, as `src/boundaries.integration.spec.ts` holds. The rules of each zone load with its
+`slices.ts` alone; the hooks module imports the platform's `pure.ts`, the server and `scripts/`
+the platform whole, and no other folder any of it, as `src/boundaries.integration.spec.ts` holds. The rules of each zone load with its
 files, from `.claude/rules/`: `workshop.md`, `engine.md`, `server.md`, `page.md`,
 `extensions.md`, `slices.md`, `tests.md`.
 

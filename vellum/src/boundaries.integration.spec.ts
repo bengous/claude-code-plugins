@@ -4,9 +4,9 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 
 /**
  * What `.claude/rules/` says of the tree, held by a test: the workshop does no IO and imports
- * nothing outside itself, the hooks module imports nothing of ours but its registry, the page
- * never sees the server, and a part is a folder of `steps/` or `formats/` each runtime reaches
- * through its own registry, `slices.ts`.
+ * nothing outside itself, the hooks module imports nothing of ours but its registry and the
+ * platform's `pure.ts`, the page never sees the server, and a part is a folder of `steps/` or
+ * `formats/` each runtime reaches through its own registry, `slices.ts`.
  */
 
 /** A path as the checks below read it, `/` between its folders: `node:path` answers `\` on Windows. */
@@ -33,6 +33,21 @@ const REVIEW_SURFACE = ["surface.ts", "composer.tsx"].map((file) => `${REVIEW}/$
 
 /** The review's tool and its turn-end gate, as `runtime/hooks/register.ts` imports them. */
 const REVIEW_HOOKS = "../../review/hooks.ts";
+
+/** The repository's file, path and process helpers, a copy of `tools/platform/` that imports nothing of the plugin. */
+const PLATFORM = `${SRC}/platform`;
+
+/** What the hooks module may load of the platform, as its files import it: `pure.ts`, which names no Node and no Bun. */
+const HOOKS_PLATFORM = "../../platform/pure.ts";
+
+/**
+ * The folders that may import each file of the platform: `pure.ts` runs in Claude Code's engine,
+ * `node.ts` needs Node and Bun, so the hooks module takes the first alone.
+ */
+const PLATFORM_IMPORTERS = new Map<string, readonly string[]>([
+  ["pure.ts", ["src/runtime/hooks", "src/runtime/server", "scripts"]],
+  ["node.ts", ["src/runtime/server", "scripts"]],
+]);
 
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */
 const PART_GROUPS = ["steps", "formats"];
@@ -234,7 +249,7 @@ describe("dependency direction", () => {
     expect(stray).toEqual([]);
   });
 
-  test("runtime/hooks runs on claude-code and its own siblings alone; the rest reaches it as types only", () => {
+  test("runtime/hooks runs on claude-code, the platform's pure.ts and its own siblings alone; the rest reaches it as types only", () => {
     // The transpiler drops a type-only import, so `import type … from "../protocol.ts"`
     // never shows here, and a value import from anywhere but a sibling does. The registry,
     // `slices.ts`, loads the parts' hooks halves, which the tests below hold to their folders;
@@ -245,7 +260,10 @@ describe("dependency direction", () => {
         valueImports(file)
           .filter(
             (path) =>
-              path !== "claude-code" && path !== REVIEW_HOOKS && !/^\.\/[a-z-]+\.ts$/u.test(path),
+              path !== "claude-code" &&
+              path !== REVIEW_HOOKS &&
+              path !== HOOKS_PLATFORM &&
+              !/^\.\/[a-z-]+\.ts$/u.test(path),
           )
           .map((path) => `${short(file)} imports ${path}`),
       );
@@ -258,6 +276,23 @@ describe("dependency direction", () => {
     expect(stray).toEqual([]);
     expect(loading("./slices.ts")).toEqual(["src/runtime/hooks/register.ts"]);
     expect(loading(REVIEW_HOOKS)).toEqual(["src/runtime/hooks/register.ts"]);
+  });
+
+  test("src/platform/ reaches the hooks module as pure.ts alone, the server and scripts/ whole, and no other folder", () => {
+    const stray = [...relativeImports("src"), ...relativeImports("scripts")].flatMap(
+      ({ file, specifier, target }) => {
+        const importers = PLATFORM_IMPORTERS.get(target.slice(PLATFORM.length + 1)) ?? [];
+
+        const allowed =
+          !target.startsWith(`${PLATFORM}/`) ||
+          file.startsWith(`${PLATFORM}/`) ||
+          importers.some((folder) => file.startsWith(`${ROOT}/${folder}/`));
+
+        return allowed ? [] : [`${short(file)} imports ${specifier}`];
+      },
+    );
+
+    expect(stray).toEqual([]);
   });
 
   test("the review's hooks code loads nothing: the hooks module must never pull the server or the page in", () => {
