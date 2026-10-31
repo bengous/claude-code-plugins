@@ -410,6 +410,7 @@ export class Queue {
     // A `null` writes nothing and keeps a notes file already there: a retry carries no note.
     if (notes !== null)
       await writeText(project, projectPath(`${workdir}${notesFile(version)}`), notes);
+    // FIXME: a server killed between a draft's write and its rename leaves the scratch file (`.draft.json.<pid>.<uuid>.tmp`) in `.review/`; no reader takes it, but this removes `draft.json` alone, so the rename below carries the scratch into the final directory; fix: remove the draft's scratch files here too.
     await removeFile(project, this.draftDoc());
     await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), await this.planText(version));
     const heldRetryMs = this.options.heldRetryMs ?? HELD_RETRY_MS;
