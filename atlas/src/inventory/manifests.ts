@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters -- this module IS the boundary parser of the manifests a repository holds, JSON, TOML and YAML as their parsers leave them: nothing past it sees them untyped. */
 import { posix } from "node:path";
 
+import { messageOf } from "../platform/pure.ts";
 import { byText } from "./scan.ts";
 
 // What a repository's manifests state, for `cli.ts inventory`: each file read as data, never run.
@@ -535,8 +536,6 @@ export function stated(
   try {
     return parsed(kind, path, text, repo);
   } catch (error: unknown) {
-    const reason = error instanceof Error ? error.message : String(error);
-
-    return { manifest: { kind: named, path, error: reason }, env: [] };
+    return { manifest: { kind: named, path, error: messageOf(error) }, env: [] };
   }
 }

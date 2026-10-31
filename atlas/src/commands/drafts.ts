@@ -8,13 +8,14 @@ import {
   readdirSync,
   readlinkSync,
   realpathSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 
 import { DRAFTS, MAP_FILE, THREADS_FILE } from "../model/folder.ts";
+import { renameSync } from "../platform/node.ts";
+import { messageOf } from "../platform/pure.ts";
 
 export const TYPES_FILE = "atlas.d.ts";
 
@@ -29,10 +30,6 @@ const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const BASE_LINE = /^([0-9a-f]{64}) {2}(.+)$/u;
 
 export class DraftError extends Error {}
-
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- it reads what a catch clause caught, which TypeScript types unknown: anything can be thrown.
-export const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const walk = (dir: string, sub: string): string[] =>
   readdirSync(join(dir, sub), { withFileTypes: true }).flatMap((entry) => {

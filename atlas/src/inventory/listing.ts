@@ -1,6 +1,9 @@
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, posix } from "node:path";
 
+import { gitSync } from "../platform/node.ts";
+import { errnoOf, isErrno } from "../platform/pure.ts";
+
 // The files of a repository, for inventory.ts: the ones git lists, .gitignore applied, or outside a
 // git work tree a walk that honours the root's .gitignore. A path that cannot be listed or looked
 // at (a loop of links, a name the system cannot decode, a folder it may not read) is set aside with
@@ -22,39 +25,24 @@ export type Listed = {
 const WALK_SKIPS = new Set([".git", "node_modules"]);
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- it reads what a catch clause caught, which TypeScript types unknown: anything can be thrown.
-export const codeOf = (error: unknown): string =>
-  error instanceof Error && "code" in error ? String(error.code) : String(error);
+export const codeOf = (error: unknown): string => errnoOf(error) ?? String(error);
 
-/** git's environment variables point a git elsewhere than the folder, as a hook's GIT_DIR does. */
-const gitEnv = (): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(process.env).flatMap(([key, value]) =>
-      key.startsWith("GIT_") || value === undefined ? [] : [[key, value]],
-    ),
-  );
-
-/** The paths git lists in `root`, tracked or untracked but not ignored; `null` outside a work tree. */
+/**
+ * The paths git lists in `root`, tracked or untracked but not ignored; `null` outside a work tree.
+ * git's environment variables are left out: they point a git elsewhere than the folder, as a
+ * hook's GIT_DIR does.
+ */
 function gitPaths(root: string): string[] | null {
-  const argv = [
-    "git",
-    "-c",
-    "core.fsmonitor=false",
-    "-C",
-    root,
-    "ls-files",
-    "-z",
-    "--cached",
-    "--others",
-    "--exclude-standard",
-  ];
-
   const out = (() => {
     try {
-      const run = Bun.spawnSync(argv, { env: gitEnv(), stdout: "pipe", stderr: "pipe" });
+      const run = gitSync(
+        ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        { scrubGitEnv: true, config: ["core.fsmonitor=false"], stdout: "buffer" },
+      );
 
-      return run.exitCode === 0 ? run.stdout.toString() : null;
+      return run.kind === "exited" && run.code === 0 ? run.stdout.toString() : null;
     } catch {
-      // No git on the PATH (ENOENT): the folder is walked, which the output's `listing` says.
+      // No git on the PATH (gitSync throws): the folder is walked, which the output's `listing` says.
       return null;
     }
   })();
@@ -129,7 +117,7 @@ function walkPaths(root: string, unreadable: Unreadable[]): string[] {
   try {
     rules = ignoreRules(readFileSync(join(root, ".gitignore"), "utf8"));
   } catch (error: unknown) {
-    if (codeOf(error) !== "ENOENT") unreadable.push({ path: ".gitignore", code: codeOf(error) });
+    if (!isErrno(error, "ENOENT")) unreadable.push({ path: ".gitignore", code: codeOf(error) });
   }
 
   const walk = (sub: string): void => {

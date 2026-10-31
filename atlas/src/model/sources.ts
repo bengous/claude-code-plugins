@@ -11,6 +11,8 @@ import {
 } from "node:fs";
 import { isAbsolute, join, sep } from "node:path";
 
+import { messageOf } from "../platform/pure.ts";
+
 // The files a map's citations name, under the folder the Config's `sources` names: check counts
 // their lines, and serve.ts answers them to the page (server/source.ts). Node only. A citation
 // names a file as the repository lists it, from that folder down: no absolute path, no `..`, and
@@ -151,10 +153,7 @@ function textOfOpen(root: string, path: string, fd: number, cap: number): Source
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- it reads what a catch clause caught, which TypeScript types unknown: a filesystem call can throw anything.
 const unreadable = (path: string, error: unknown): Refused =>
-  refused(
-    "unreadable",
-    `${path} cannot be read: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  refused("unreadable", `${path} cannot be read: ${messageOf(error)}`);
 
 /**
  * The lines of `file`, the real path sourceFile found for `path` under `root`, read through one

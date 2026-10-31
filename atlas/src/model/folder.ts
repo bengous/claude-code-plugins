@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { messageOf } from "../platform/pure.ts";
 import type { AtlasMap, Config } from "./atlas.ts";
 import { mapCitations } from "./citations.ts";
 import { drawableOf } from "./drawable.ts";
@@ -168,7 +169,7 @@ if (import.meta.main) {
     const { map, config } = await loadFolder(folder);
     console.log(`${FOLDER_LINE}${JSON.stringify(folderLineOf(map, config, folder))}`);
   } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(messageOf(error));
     process.exit(1);
   }
 }

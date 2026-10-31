@@ -576,6 +576,19 @@ describe("what it lists", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  test("with no git on the PATH, a repository under git is walked", () => {
+    const dir = repo("no-git", { ".gitignore": "*.log\n", "a.ts": "1;\n", "b.log": "" }, true);
+    const empty = join(TMP, "no-git-bin");
+    mkdirSync(empty);
+
+    const run = Bun.spawnSync([process.execPath, CLI, "inventory", dir], {
+      env: { ...GIT_ENV, PATH: empty },
+    });
+
+    expect(run.stderr.toString()).toBe("");
+    expect(JSON.parse(run.stdout.toString())).toMatchObject({ listing: "walk", files: 2 });
+  });
+
   test("go.mod's main packages and requirements, from the files the pass reads, within its limit", () => {
     const dir = repo(
       "go-limit",

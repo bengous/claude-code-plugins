@@ -1,5 +1,6 @@
 import type { EngineInterface, Register, Timer } from "claude-code";
 
+import { isUnder } from "../src/platform/pure.ts";
 import type { Selection } from "../src/server/wire.ts";
 import type { MapRecord } from "./parse.ts";
 import {
@@ -293,9 +294,6 @@ async function toolFolder(
     : { deny: `atlas: ${path} is no map folder: it holds no ${CONFIG_FILE}` };
 }
 
-const isUnder = (path: string, dir: string): boolean =>
-  dir === "/" || path === dir || path.startsWith(`${dir}/`);
-
 const RUN = "Run it";
 
 const REFUSE = "Refuse";
@@ -358,7 +356,7 @@ export const register: Register = (on) => {
     const { folder } = placed;
     const cwd = await host.place(await host.cwd());
 
-    if (cwd !== null && isUnder(folder, cwd)) return placed;
+    if (cwd !== null && (folder === cwd || isUnder(cwd, folder, "/"))) return placed;
 
     const answer = await host
       .ask(

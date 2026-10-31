@@ -19,7 +19,6 @@ import {
   dropDraft,
   ignoreDrafts,
   makeDraft,
-  messageOf,
 } from "./commands/drafts.ts";
 import { ReplyError, appendReply } from "./commands/reply.ts";
 import { InventoryError, inventoryOf, printed, summaryOf } from "./inventory/inventory.ts";
@@ -29,6 +28,7 @@ import { DRAFTS, MAP_FILE, THREADS_FILE, loadFolder } from "./model/folder.ts";
 import { WHO, openItems, readThreads } from "./model/threads.ts";
 import type { Tree } from "./model/tree.ts";
 import { chainOf, couplingsOf, nodeOf } from "./model/tree.ts";
+import { messageOf, shellQuote } from "./platform/pure.ts";
 import { bunFlags } from "./server/wire.ts";
 
 const ROOT = dirname(import.meta.dir);
@@ -63,10 +63,8 @@ const USAGE = `usage: bun ${CLI} <command> …
 
 class CliError extends Error {}
 
-const quote = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'`;
-
 const hint = (command: string, dir: string): string =>
-  `run bun ${quote(CLI)} ${command} ${quote(dir)}`;
+  `run bun ${shellQuote(CLI)} ${command} ${shellQuote(dir)}`;
 
 type Parsed = { readonly positionals: readonly string[]; readonly flags: ReadonlySet<string> };
 
