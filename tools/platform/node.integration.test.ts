@@ -37,6 +37,23 @@ function bun(script: string): Argv {
   return [BUN, "-e", script];
 }
 
+/**
+ * How long, in ms, a bun process that imports `run` stays alive once `call` returned: what the
+ * call left running, a timer or a pipe read, holds its event loop.
+ */
+async function lingeringAfter(call: string): Promise<number> {
+  const script = [
+    `const { run } = await import(${NODE_TS});`,
+    call,
+    "const returned = performance.now();",
+    `process.on("exit", () => process.stdout.write(String(Math.round(performance.now() - returned))));`,
+  ].join("\n");
+
+  const result = await run(bun(script));
+
+  return result.kind === "exited" ? Number(result.stdout) : Number.NaN;
+}
+
 describe("run", () => {
   test("captures stdout, stderr and the exit code", async () => {
     const result = await run(
@@ -77,6 +94,63 @@ describe("run", () => {
         stdout: "34",
       },
     );
+  });
+
+  test("an undefined in env removes the variable, and keeps the others", async () => {
+    process.env["PLATFORM_TEST_X"] = "1";
+    process.env["PLATFORM_TEST_Y"] = "2";
+
+    const print = bun(
+      `process.stdout.write(String(process.env.PLATFORM_TEST_X) + process.env.PLATFORM_TEST_Y)`,
+    );
+
+    try {
+      expect(await run(print, { env: { PLATFORM_TEST_X: undefined } })).toMatchObject({
+        stdout: "undefined2",
+      });
+      expect(runSync(print, { env: { PLATFORM_TEST_X: undefined } })).toMatchObject({
+        stdout: "undefined2",
+      });
+    } finally {
+      delete process.env["PLATFORM_TEST_Y"];
+    }
+  });
+
+  test.if(process.platform === "win32")(
+    "on Windows, env replaces a variable spelled in another case",
+    async () => {
+      process.env["PLATFORM_TEST_X"] = "1";
+
+      const print = bun(
+        `process.stdout.write(JSON.stringify(Object.entries(process.env).filter(([name]) => name.toUpperCase() === "PLATFORM_TEST_X")))`,
+      );
+
+      const result = await run(print, { env: { platform_test_x: "2" } });
+
+      expect(result.kind === "exited" ? JSON.parse(result.stdout) : null).toEqual([
+        ["platform_test_x", "2"],
+      ]);
+    },
+  );
+
+  test("a call that returned leaves nothing that keeps this process alive", async () => {
+    const lingered = await lingeringAfter(`await run(${JSON.stringify(bun("1"))})`);
+
+    expect(lingered).toBeLessThan(500);
+  });
+
+  test("the pipes a child's child holds are let go of once the grace period passes", async () => {
+    const holder = JSON.stringify([BUN, "-e", "await Bun.sleep(4000)"]);
+
+    const parent = bun(
+      `Bun.spawn(${holder}, { stdout: "inherit", stderr: "inherit" }); await Bun.sleep(10000)`,
+    );
+
+    const lingered = await lingeringAfter(
+      `await run(${JSON.stringify(parent)}, { timeoutMs: 500 })`,
+    );
+
+    expect(lingered).toBeLessThan(1000);
   });
 
   test("a timeout answers timedOut, with the output printed before the kill", async () => {
@@ -151,6 +225,15 @@ describe("runSync", () => {
       stderr: "",
     });
   });
+
+  test.if(process.platform !== "win32")(
+    "a SIGKILL from outside before timeoutMs is an exit, not a timeout",
+    () => {
+      expect(
+        runSync(bun(`process.kill(process.pid, "SIGKILL")`), { timeoutMs: 10_000 }),
+      ).toMatchObject({ kind: "exited", code: 137 });
+    },
+  );
 
   test.if(process.platform !== "win32")(
     "a process a signal ends exits with 128 plus the signal's number, as run answers it",
@@ -235,6 +318,32 @@ describe("git and gitSync", () => {
       });
     } finally {
       delete process.env["GIT_DIR"];
+    }
+  });
+
+  test("an undefined in env removes one git variable and keeps the others", async () => {
+    const cwd = repo();
+    const config = join(dir, "isolated.gitconfig");
+    writeFileSync(config, "[probe]\n\tkey = isolated\n");
+    process.env["GIT_DIR"] = join(dir, "not-a-repository");
+    process.env["GIT_CONFIG_GLOBAL"] = config;
+
+    try {
+      const result = await git(["config", "--global", "--get", "probe.key"], {
+        cwd,
+        env: { GIT_DIR: undefined },
+      });
+
+      expect(result).toEqual({ kind: "exited", code: 0, stdout: "isolated\n", stderr: "" });
+      expect(gitSync(["rev-parse", "--git-dir"], { cwd, env: { GIT_DIR: undefined } })).toEqual({
+        kind: "exited",
+        code: 0,
+        stdout: ".git\n",
+        stderr: "",
+      });
+    } finally {
+      delete process.env["GIT_DIR"];
+      delete process.env["GIT_CONFIG_GLOBAL"];
     }
   });
 

@@ -71,7 +71,8 @@ export type WriteAtomicOptions = RenameOptions & {
  * Writes `data` to a scratch file beside `file`, then renames it over `file`: a reader meets the
  * old content or the new, whole, and two writers never rename each other's scratch file. The
  * scratch file is removed when the write or the rename fails. No fsync: a process crash or a
- * concurrent writer is what this guards against, not a power loss.
+ * concurrent writer is what this guards against, not a power loss. The rename replaces what `file`
+ * was: a symbolic link becomes a file, and the mode is the new file's default.
  */
 export async function writeAtomic(
   file: string,
@@ -201,11 +202,14 @@ export async function withLock<T>(
 
 export type Argv = readonly [program: string, ...args: string[]];
 
+/** Variables laid over this process's environment: a value sets one, `undefined` removes it. */
+export type EnvOverlay = Readonly<Record<string, string | undefined>>;
+
 export type RunOptions = {
   /** The process's directory; this process's own by default. */
   readonly cwd?: string;
-  /** Variables laid over this process's environment, which the child gets in full. */
-  readonly env?: Readonly<Record<string, string>>;
+  /** Laid over this process's environment, which the child gets in full otherwise. */
+  readonly env?: EnvOverlay;
   /** No timeout by default; `<= 0` answers `timedOut` without starting the process. */
   readonly timeoutMs?: number;
   readonly stdin?: string | Uint8Array;
@@ -264,17 +268,51 @@ function bytesOf(input: string | Uint8Array): Uint8Array {
   return input instanceof Uint8Array ? input : new TextEncoder().encode(input);
 }
 
-async function abandonedOutput(): Promise<null> {
-  await Bun.sleep(OUTPUT_GRACE_MS);
+/** A pipe read to its end, or let go of: a reader cancelled releases what a lingering child holds. */
+type Reading = { readonly bytes: Promise<Buffer>; readonly cancel: () => Promise<void> };
 
-  return null;
+function reading(stream: ReadableStream<Uint8Array>): Reading {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+
+  const bytes = (async () => {
+    for (;;) {
+      const { done, value } = await reader.read();
+
+      if (done) return Buffer.concat(chunks);
+      chunks.push(value);
+    }
+  })();
+
+  return { bytes, cancel: () => reader.cancel() };
 }
+
+/** Both pipes' bytes, or `null` once `OUTPUT_GRACE_MS` passed, both pipes then let go of. */
+async function graced(stdout: Reading, stderr: Reading): Promise<readonly [Buffer, Buffer] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const grace = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), OUTPUT_GRACE_MS);
+  });
+
+  try {
+    const output = await Promise.race([Promise.all([stdout.bytes, stderr.bytes]), grace]);
+
+    if (output === null) await Promise.all([stdout.cancel(), stderr.cancel()]);
+
+    return output;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const UTF8 = new TextDecoder();
 
 async function spawnAsync<Out>(
   argv: Argv,
   options: RunOptions,
   env: Env,
-  read: (stream: ReadableStream<Uint8Array>) => Promise<Out>,
+  read: (bytes: Buffer) => Out,
   empty: Out,
 ): Promise<RunResult<Out>> {
   if (options.timeoutMs !== undefined && options.timeoutMs <= 0) {
@@ -299,10 +337,12 @@ async function spawnAsync<Out>(
     throw cause;
   }
 
-  const output = Promise.all([read(proc.stdout), new Response(proc.stderr).text()]);
+  const pipes = [reading(proc.stdout), reading(proc.stderr)] as const;
   const code = await proc.exited;
   // A killed shell leaves its children holding the pipes: wait for the output only as long as the grace period.
-  const [stdout, stderr] = (await Promise.race([output, abandonedOutput()])) ?? [empty, ""];
+  const output = await graced(...pipes);
+  const stdout = output === null ? empty : read(output[0]);
+  const stderr = output === null ? "" : UTF8.decode(output[1]);
 
   // An async Subprocess carries no timeout flag, so the kill signal we asked for is the only evidence Bun cut it short.
   return options.timeoutMs !== undefined && proc.signalCode === "SIGKILL"
@@ -342,7 +382,7 @@ function spawnSync<Out>(
   const stdout = read(result.stdout);
   const stderr = result.stderr.toString();
 
-  if (options.timeoutMs !== undefined && result.signalCode === "SIGKILL") {
+  if (options.timeoutMs !== undefined && result.exitedDueToTimeout === true) {
     return { kind: "timedOut", timeoutMs: options.timeoutMs, stdout, stderr };
   }
 
@@ -352,15 +392,27 @@ function spawnSync<Out>(
   return { kind: "exited", code, stdout, stderr };
 }
 
-function overlaid(base: Env, env: Readonly<Record<string, string>> | undefined) {
-  return { ...base, ...env };
+/** Windows reads a variable's name whatever its case: `Path` and `PATH` are one variable there. */
+const sameName =
+  process.platform === "win32"
+    ? (a: string, b: string): boolean => a.toUpperCase() === b.toUpperCase()
+    : (a: string, b: string): boolean => a === b;
+
+/** `base` with `overlay` laid over it: a value sets its variable, `undefined` removes it. */
+function overlaid(base: Env, overlay: EnvOverlay = {}): Env {
+  const names = Object.keys(overlay);
+  const env = new Map<string, string>();
+
+  for (const [name, value] of Object.entries(base)) {
+    if (value !== undefined && !names.some((laid) => sameName(laid, name))) env.set(name, value);
+  }
+
+  for (const [name, value] of Object.entries(overlay)) {
+    if (value !== undefined) env.set(name, value);
+  }
+
+  return Object.fromEntries(env);
 }
-
-const readText = (stream: ReadableStream<Uint8Array>): Promise<string> =>
-  new Response(stream).text();
-
-const readBuffer = async (stream: ReadableStream<Uint8Array>): Promise<Buffer> =>
-  Buffer.from(await new Response(stream).arrayBuffer());
 
 function spawnAsyncAs(
   argv: Argv,
@@ -368,8 +420,8 @@ function spawnAsyncAs(
   env: Env,
 ): Promise<RunResult<string | Buffer>> {
   return options.stdout === "buffer"
-    ? spawnAsync(argv, options, env, readBuffer, Buffer.alloc(0))
-    : spawnAsync(argv, options, env, readText, "");
+    ? spawnAsync(argv, options, env, (bytes) => bytes, Buffer.alloc(0))
+    : spawnAsync(argv, options, env, (bytes) => UTF8.decode(bytes), "");
 }
 
 function spawnSyncAs(argv: Argv, options: RunOptions, env: Env): RunResult<string | Buffer> {
@@ -381,9 +433,10 @@ function spawnSyncAs(argv: Argv, options: RunOptions, env: Env): RunResult<strin
 /**
  * Runs `argv` to its end, its output captured: `exited` with its code, `timedOut` when
  * `timeoutMs` passed and the process was killed (`SIGKILL`), `missing` when the program is not on
- * the PATH. Any other failure to start (a missing `cwd`) is thrown. After the exit, the output is
- * waited for `OUTPUT_GRACE_MS` at most, then answered empty: a killed shell's children may hold
- * its pipes. The environment is this process's, `env` laid over it.
+ * the PATH. Any other failure to start (a missing `cwd`, a path to no program) is thrown. After
+ * the exit, the output is waited for `OUTPUT_GRACE_MS` at most, then answered empty and its pipes
+ * let go of: a killed shell's children may hold them. The environment is this process's, `env`
+ * laid over it.
  */
 export function run(argv: Argv, options: RunOptions & BufferOutput): Promise<RunResult<Buffer>>;
 export function run(argv: Argv, options?: RunOptions & TextOutput): Promise<RunResult>;
@@ -391,7 +444,10 @@ export function run(argv: Argv, options: RunOptions = {}): Promise<RunResult<str
   return spawnAsyncAs(argv, options, overlaid(process.env, options.env));
 }
 
-/** `run`, waiting in this thread; no grace period: the call returns once every pipe closes. */
+/**
+ * `run`, waiting in this thread; no grace period: the call returns once every pipe closes. A
+ * timeout is Bun's own flag on the result, so a process killed from outside is `exited`.
+ */
 export function runSync(argv: Argv, options: RunOptions & BufferOutput): RunResult<Buffer>;
 export function runSync(argv: Argv, options?: RunOptions & TextOutput): RunResult;
 export function runSync(argv: Argv, options: RunOptions = {}): RunResult<string | Buffer> {
@@ -411,13 +467,14 @@ export type GitResult<Out = string> = Exclude<RunResult<Out>, { readonly kind: "
 
 function gitEnvOf(options: GitOptions): Env {
   const base = options.scrubGitEnv === true ? withoutGitVariables(process.env) : process.env;
-  const env = overlaid(base, options.env);
 
-  return options.cLocale === true ? { ...env, LC_ALL: "C" } : env;
+  return overlaid(base, options.cLocale === true ? { ...options.env, LC_ALL: "C" } : options.env);
 }
 
 function withoutGitVariables(env: Env): Env {
-  return Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith("GIT_")));
+  return Object.fromEntries(
+    Object.entries(env).filter(([name]) => !sameName(name.slice(0, 4), "GIT_")),
+  );
 }
 
 function gitArgv(args: readonly string[], options: GitOptions): Argv {
@@ -487,7 +544,10 @@ function readOf(args: readonly string[], result: GitResult): string {
   return result.stdout.trim();
 }
 
-/** A git command that must succeed: its stdout trimmed; any other end throws a `GitError`. */
+/**
+ * A git command that must succeed: its stdout trimmed at both ends, so an output whose columns
+ * matter (`status --porcelain`) goes through `git`; any other end throws a `GitError`.
+ */
 export async function gitRead(
   args: readonly string[],
   options: GitReadOptions = {},
