@@ -31,8 +31,12 @@ const LIST_LIMIT = 50;
 
 const TELEPORT_TIMEOUT_MS = 5 * 60_000;
 
-/** Set on the headless teleport the plugin runs, so that process, which loads this plugin too, skips the cloud lookup. */
+/** Set on the headless runs the plugin starts (a teleport, the hub's creation), so that process, which loads this plugin too, skips the cloud lookup. */
 const TELEPORT_ENV = "CLOUD_PULL_TELEPORT";
+
+const HUB_TITLE = "☁ Cloud sessions";
+
+const HUB_KEY = "hub";
 
 const SESSION_ID = /^session_[A-Za-z0-9]+$/u;
 
@@ -64,6 +68,10 @@ const repoName = atom({ plugin: "cloud-pull", key: "repoName" } as const, "");
 
 const isPaneOpen = atom({ plugin: "cloud-pull", key: "isPaneOpen" } as const, false);
 
+const isHub = atom({ plugin: "cloud-pull", key: "isHub" } as const, false);
+
+const isBandHidden = atom({ plugin: "cloud-pull", key: "isBandHidden" } as const, false);
+
 /** A failure the pane can explain: what failed, what to do about it, and the raw cause. */
 class Failure extends Error {
   readonly problem: Problem;
@@ -74,8 +82,14 @@ class Failure extends Error {
   }
 }
 
-/** A cloud session as the API answers it, before the list keeps those of this repository that run in Anthropic's cloud. */
-type ApiSession = CloudRow & { readonly environmentKind: string | null };
+/** A cloud session as the API answers it, before the list keeps those that run in Anthropic's cloud and places them in a local clone. */
+type ApiSession = Omit<CloudRow, "repo" | "checkout"> & { readonly environmentKind: string | null };
+
+/** The computer's hub session: the one session that lists the cloud sessions of every repository. */
+type Hub = { sessionId: string; cwd: string };
+
+/** Where this session opens cloud sessions: one repository's clone, or in the hub every clone on this computer. */
+type Scope = { only: string | undefined; clones: ReadonlyMap<string, string> };
 
 /** What a resumed session's start reads back: the cloud session it came from. */
 type Pulled = {
@@ -131,6 +145,33 @@ function parseOpened(value: unknown): Opened | undefined {
     : { at, localSessionId, worktree };
 }
 
+function parseHub(value: unknown): Hub | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  const sessionId = textOf(value["sessionId"]);
+  const cwd = textOf(value["cwd"]);
+
+  return sessionId === undefined || cwd === undefined ? undefined : { sessionId, cwd };
+}
+
+/** `owner/name` → the folders Claude Code has run in for it: the `githubRepoPaths` index of `~/.claude.json`, which `--teleport` reads too. */
+function parseRepoPaths(value: unknown): Map<string, string[]> {
+  const index = isObject(value) ? value["githubRepoPaths"] : undefined;
+
+  if (!isObject(index)) {
+    return new Map();
+  }
+
+  return new Map(
+    Object.entries(index).map(([slug, paths]) => [
+      slug.toLowerCase(),
+      Array.isArray(paths) ? paths.flatMap((path) => textOf(path) ?? []) : [],
+    ]),
+  );
+}
+
 function parseSession(value: unknown): ApiSession | undefined {
   if (!isObject(value)) {
     return undefined;
@@ -176,16 +217,15 @@ function parseSessions(value: unknown): ApiSession[] {
   return data.flatMap((one) => parseSession(one) ?? []);
 }
 
-/** The local session id the headless teleport wrote, from its JSON result; a failed run names why. */
-function teleportResult(output: string): string {
+/** The local session id a headless run wrote, from its JSON result; a failed run names why. */
+function headlessSessionId(output: string, failure: Omit<Problem, "detail">): string {
   const events: unknown = JSON.parse(output);
   const last: unknown = Array.isArray(events) ? events.at(-1) : undefined;
   const localId = isObject(last) ? textOf(last["session_id"]) : undefined;
 
   if (!isObject(last) || last["is_error"] === true || localId === undefined) {
     throw new Failure({
-      headline: "The teleport failed",
-      fix: "Try again; if it keeps failing, run claude --teleport in a terminal to see why.",
+      ...failure,
       detail: isObject(last) ? (textOf(last["result"]) ?? output.slice(-300)) : output.slice(-300),
     });
   }
@@ -296,20 +336,77 @@ async function localRepo($: EngineInterface) {
   return { root: repo.root, slug };
 }
 
-async function listCloudSessions($: EngineInterface): Promise<CloudRow[]> {
+const isMainCheckout = ($: EngineInterface, path: string) =>
+  $.fs.stat(`${path}/.git`).then(
+    (git) => git.kind === "dir",
+    () => false,
+  );
+
+/** The main checkout of each GitHub repository Claude Code has run in on this computer; worktrees and vanished folders are skipped. */
+async function localClones($: EngineInterface): Promise<Map<string, string>> {
+  const home = (await $.env.get("CLAUDE_CONFIG_DIR")) ?? (await $.env.get("HOME"));
+  const config = `${home ?? "~"}/.claude.json`;
+
+  const index = parseRepoPaths(
+    JSON.parse(
+      await $.fs
+        .read(config)
+        .catch(
+          explainAs(
+            "Couldn't read Claude Code's list of local clones",
+            `cloud-pull finds your clones in ${config}.`,
+          ),
+        ),
+    ),
+  );
+
+  const clones = await Promise.all(
+    [...index].map(async ([slug, paths]) => {
+      const mains = await Promise.all(paths.map((path) => isMainCheckout($, path)));
+      const main = paths.find((_, at) => mains[at]);
+
+      return main === undefined ? [] : [[slug, main] as const];
+    }),
+  );
+
+  return new Map(clones.flat());
+}
+
+async function scopeOf($: EngineInterface): Promise<Scope> {
+  if (await read($, isHub)) {
+    return { only: undefined, clones: await localClones($) };
+  }
+
   const repo = await localRepo($);
   await update($, repoName, () => repo.slug.split("/").at(-1) ?? repo.slug);
+
+  return { only: repo.slug, clones: new Map([[repo.slug, repo.root]]) };
+}
+
+function rowsIn(scope: Scope, all: readonly ApiSession[]): CloudRow[] {
+  return all.flatMap(({ environmentKind: _kind, ...session }) => {
+    const slug = githubSlug(session.repoUrl);
+
+    if (scope.only !== undefined && slug !== scope.only) {
+      return [];
+    }
+
+    const checkout = slug === undefined ? undefined : scope.clones.get(slug);
+
+    return [{ ...session, repo: slug ?? session.repoUrl, checkout: checkout ?? null }];
+  });
+}
+
+async function listCloudSessions($: EngineInterface): Promise<CloudRow[]> {
+  const scope = await scopeOf($);
   const all = parseSessions(JSON.parse(await callApi($, `?limit=${LIST_LIMIT}`)));
 
-  return all
-    .filter(
-      (session) =>
-        session.environmentKind === "anthropic_cloud" &&
-        session.status !== "archived" &&
-        githubSlug(session.repoUrl) === repo.slug,
-    )
-    .map(({ environmentKind: _kind, ...row }) => row)
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return rowsIn(
+    scope,
+    all.filter(
+      (session) => session.environmentKind === "anthropic_cloud" && session.status !== "archived",
+    ),
+  ).toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 /** Opens a `claude://` link in Claude Desktop with the platform's own opener. */
@@ -357,18 +454,17 @@ async function pull(
   onStep: (step: OpenStep) => Promise<void>,
 ): Promise<Opened> {
   await onStep("worktree");
-  const repo = await localRepo($);
 
-  if (repo.slug !== githubSlug(cloud.repoUrl)) {
+  if (cloud.checkout === null) {
     throw new Failure({
-      headline: "This session is in another repository",
-      fix: `Run /cloud-pull from a session in ${cloud.repoUrl}.`,
-      detail: `this session's repository is ${repo.slug}`,
+      headline: `${cloud.repo} isn't cloned on this computer`,
+      fix: `Clone ${cloud.repoUrl}, open it once in Claude Code, then Refresh.`,
+      detail: "no main checkout of it in the githubRepoPaths of ~/.claude.json",
     });
   }
 
-  const worktree = `${repo.root}/.claude/worktrees/cloud-${cloud.id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
-  await run($, ["git", "worktree", "add", "--detach", worktree], repo.root).catch(
+  const worktree = `${cloud.checkout}/.claude/worktrees/cloud-${cloud.id.slice(-8).toLowerCase()}-${Date.now().toString(36)}`;
+  await run($, ["git", "worktree", "add", "--detach", worktree], cloud.checkout).catch(
     explainAs("Couldn't create a worktree", "Git refused; the detail below says why."),
   );
 
@@ -388,7 +484,10 @@ async function pull(
     ),
   );
 
-  const localSessionId = teleportResult(output);
+  const localSessionId = headlessSessionId(output, {
+    headline: "The teleport failed",
+    fix: "Try again; if it keeps failing, run claude --teleport in a terminal to see why.",
+  });
 
   const pulled: Pulled = {
     cloudSessionId: cloud.id,
@@ -406,6 +505,39 @@ async function pull(
   await $.store.set(openedKey(cloud.id), opened);
 
   return opened;
+}
+
+/** Opens the computer's hub in Desktop, creating it first: beside this repository's clone, or in this folder outside a repository. */
+async function openHub($: EngineInterface): Promise<string> {
+  const known = parseHub(await $.store.get(HUB_KEY));
+
+  if (known !== undefined) {
+    await openInDesktop($, resumeLink(known.sessionId, known.cwd), known.cwd, HUB_TITLE);
+
+    return `Opened the hub "${HUB_TITLE}" in Desktop.`;
+  }
+
+  const repo = await $.session.repo();
+  const cwd = repo === null ? await $.session.cwd() : repo.root.replace(/[\\/][^\\/]+[\\/]?$/u, "");
+
+  // /rename as the whole prompt writes the session with no model turn, under that title.
+  const output = await run(
+    $,
+    ["claude", "-p", `/rename ${HUB_TITLE}`, "--output-format", "json"],
+    cwd,
+    { env: { [TELEPORT_ENV]: "1" } },
+  ).catch(explainAs("Couldn't create the hub", "Try again; the detail below says why."));
+
+  const sessionId = headlessSessionId(output, {
+    headline: "Couldn't create the hub",
+    fix: "Try again; the detail below says why.",
+  });
+
+  const hub: Hub = { sessionId, cwd };
+  await $.store.set(HUB_KEY, hub);
+  await openInDesktop($, resumeLink(sessionId, cwd), cwd, HUB_TITLE);
+
+  return `Created the hub "${HUB_TITLE}" in ${cwd} and opened it in Desktop. Move it to a sidebar section to keep it at hand.`;
 }
 
 async function setRow($: EngineInterface, id: string, state: RowState | undefined) {
@@ -444,10 +576,19 @@ async function refresh($: EngineInterface) {
   }
 }
 
+/** A pane the person did not ask for may wait undrawn on a narrow screen; the band stays up as its door until it is drawn. */
 async function openPane($: EngineInterface) {
-  await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
-  await update($, isPaneOpen, () => true);
+  const opened = await $.ui.open({ id: PANE, title: "Cloud sessions", closeOnEscape: true });
+  await update($, isPaneOpen, () => opened.isPlaced);
   void refresh($);
+}
+
+async function pressBand($: EngineInterface) {
+  if (!(await read($, isHub))) {
+    await update($, isBandHidden, () => true);
+  }
+
+  await openPane($);
 }
 
 /** The lookup behind the band: a failure only hides the band, and goes to the debug log; the pane shows it in full. */
@@ -546,6 +687,17 @@ function modelLabel(row: CloudRow) {
   return row.effort === null ? model : `${model}, ${row.effort} effort`;
 }
 
+/** Rows grouped by repository, in the order of each repository's most recent row (rows come newest first). */
+function groupsOf(rows: readonly CloudRow[]): CloudRow[][] {
+  const groups = new Map<string, CloudRow[]>();
+
+  for (const row of rows) {
+    groups.set(row.repo, [...(groups.get(row.repo) ?? []), row]);
+  }
+
+  return [...groups.values()];
+}
+
 type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 const EFFORTS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
@@ -562,13 +714,28 @@ export const register: Register = (on) => {
     await $.command.register({
       name: PULL,
       description:
-        "List this repository's cloud sessions, or continue one here as a local Desktop session",
-      argumentHint: "[session_id]",
+        "List this repository's cloud sessions, continue one here as a local Desktop session, or open the hub that lists them all",
+      argumentHint: "[session_id | hub]",
     });
     const result = await next(e);
 
     if ((await $.env.get("CLOUD_PULL_TELEPORT")) === "1") {
       return result;
+    }
+
+    const hub = parseHub(await $.store.get(HUB_KEY));
+    const isThisHub = hub?.sessionId === (await $.session.id());
+    await update($, isHub, () => isThisHub);
+
+    if (isThisHub) {
+      void openPane($);
+
+      return result;
+    }
+
+    // A session past its first prompt is busy with its own task: the band leaves it alone.
+    if ((await $.session.turns()) > 1) {
+      await update($, isBandHidden, () => true);
     }
 
     void detectCloudSessions($);
@@ -590,6 +757,25 @@ export const register: Register = (on) => {
     }
 
     return result;
+  });
+
+  // The engine raises this before the prompt joins the transcript: a session with one prompt already is past its first.
+  on("prompt.submit", async ($, e, next) => {
+    if (e.command === undefined && e.isMeta !== true && (await $.session.turns()) >= 1) {
+      await update($, isBandHidden, () => true);
+    }
+
+    return next(e);
+  });
+
+  on("classic.SessionStart", async ($, e, next) => {
+    const started = await next(e);
+
+    if (e.source === "clear") {
+      await update($, isBandHidden, () => false);
+    }
+
+    return started;
   });
 
   on("turn.step", async function* ($, e, next) {
@@ -629,17 +815,33 @@ export const register: Register = (on) => {
       return {};
     }
 
+    if (id === "hub") {
+      try {
+        return { text: await openHub($) };
+      } catch (error) {
+        const problem = problemOf(error);
+
+        return { text: `cloud-pull: ${problem.headline}. ${problem.fix} (${problem.detail})` };
+      }
+    }
+
     if (!SESSION_ID.test(id)) {
       return {
-        text: "Usage: /cloud-pull to list, or /cloud-pull <session_id> (the id in claude.ai/code/<session_id>).",
+        text: "Usage: /cloud-pull to list, /cloud-pull <session_id> (the id in claude.ai/code/<session_id>), or /cloud-pull hub.",
       };
     }
 
     try {
-      const cloud = parseSessions(JSON.parse(`{"data":[${await callApi($, `/${id}`)}]}`)).at(0);
+      const api = parseSessions(JSON.parse(`{"data":[${await callApi($, `/${id}`)}]}`));
+
+      if (api.length === 0) {
+        return { text: `cloud-pull: ${id} has no git repository, nothing to check out locally.` };
+      }
+
+      const cloud = rowsIn(await scopeOf($), api).at(0);
 
       if (cloud === undefined) {
-        return { text: `cloud-pull: ${id} has no git repository, nothing to check out locally.` };
+        return { text: `cloud-pull: ${id} is in ${api[0]?.repoUrl}; run it from a session there.` };
       }
 
       const opened = await pull($, cloud, async () => {});
@@ -660,12 +862,17 @@ export const register: Register = (on) => {
     return next(e);
   });
 
-  // One quiet door: shown only while this repository has cloud sessions and the pane is closed.
+  // One quiet door, while the pane is closed: always in the hub; in a repository, while it has cloud sessions, until its first prompt is answered, used or closed.
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const others = await next(e);
     const rows = await read($, sessions);
+    const hub = await read($, isHub);
 
-    if (rows.length === 0 || (await read($, isPaneOpen))) {
+    const isHidden = hub
+      ? await read($, isPaneOpen)
+      : rows.length === 0 || (await read($, isPaneOpen)) || (await read($, isBandHidden));
+
+    if (isHidden) {
       return others;
     }
 
@@ -675,14 +882,31 @@ export const register: Register = (on) => {
       flexDirection: "column",
       children: [
         others,
-        Button({
-          key: "continue-cloud",
-          plain: true,
-          onPress: () => void openPane($),
+        Box({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: "sm",
           children: [
-            Text({ dimColor: true, children: "☁ " }),
-            "Continue cloud sessions",
-            Text({ dimColor: true, tabular: true, children: ` · ${rows.length}` }),
+            Button({
+              key: "continue-cloud",
+              plain: true,
+              onPress: () => void pressBand($),
+              children: [
+                Text({ dimColor: true, children: "☁ " }),
+                hub ? "Cloud sessions" : "Continue cloud sessions",
+                rows.length > 0 &&
+                  Text({ dimColor: true, tabular: true, children: ` · ${rows.length}` }),
+              ],
+            }),
+            !hub &&
+              Button({
+                key: "dismiss-cloud",
+                role: "dismiss",
+                label: "Hide",
+                plain: true,
+                dimColor: true,
+                onPress: () => void update($, isBandHidden, () => true),
+              }),
           ],
         }),
       ],
@@ -696,6 +920,8 @@ export const register: Register = (on) => {
     const states = await read($, rowStates);
     const opened = await read($, openedSessions);
     const repo = await read($, repoName);
+    const hub = await read($, isHub);
+    const home = await $.env.get("HOME");
     const now = Date.now();
     const isLoading = list.kind === "loading";
     const isOpening = states.some((entry) => entry.state.kind === "opening");
@@ -827,20 +1053,21 @@ export const register: Register = (on) => {
             return [
               titleLine(
                 row,
-                Button({
-                  key: `open:${row.id}`,
-                  label: done === undefined ? "Open locally" : "Open again",
-                  variant: "secondary",
-                  dimColor: true,
-                  hover: { dimColor: false },
-                  onPress: () => {
-                    if (isOpening) {
-                      return;
-                    }
+                row.checkout !== null &&
+                  Button({
+                    key: `open:${row.id}`,
+                    label: done === undefined ? "Open locally" : "Open again",
+                    variant: "secondary",
+                    dimColor: true,
+                    hover: { dimColor: false },
+                    onPress: () => {
+                      if (isOpening) {
+                        return;
+                      }
 
-                    void (done === undefined ? openRow($, row) : openAgain($, row, done));
-                  },
-                }),
+                      void (done === undefined ? openRow($, row) : openAgain($, row, done));
+                    },
+                  }),
               ),
               Box({
                 flexDirection: "row",
@@ -870,6 +1097,34 @@ export const register: Register = (on) => {
       return Box({ key: row.id, flexDirection: "column", gap: "xs", children });
     };
 
+    const groupOf = (group: readonly CloudRow[]) => {
+      const [first] = group;
+
+      const where =
+        first?.checkout === null || first === undefined
+          ? "Not cloned here"
+          : home !== undefined && first.checkout.startsWith(`${home}/`)
+            ? `~${first.checkout.slice(home.length)}`
+            : first.checkout;
+
+      return Box({
+        key: `repo:${first?.repo ?? ""}`,
+        flexDirection: "column",
+        gap: "sm",
+        children: [
+          Box({
+            flexDirection: "row",
+            gap: "sm",
+            children: [
+              Text({ size: "footnote", weight: "medium", children: first?.repo ?? "" }),
+              Text({ size: "footnote", dimColor: true, wrap: "truncate-start", children: where }),
+            ],
+          }),
+          ...group.map((row) => rowOf(row)),
+        ],
+      });
+    };
+
     const refreshButton = Button({
       key: "refresh",
       label: isLoading ? "Refreshing…" : "Refresh",
@@ -892,11 +1147,16 @@ export const register: Register = (on) => {
         gap: "sm",
         paddingY: "lg",
         children: [
-          Text({ weight: "medium", children: `No cloud sessions for ${repo}` }),
+          Text({
+            weight: "medium",
+            children: hub ? "No cloud sessions" : `No cloud sessions for ${repo}`,
+          }),
           Text({
             size: "footnote",
             dimColor: true,
-            children: "Sessions you start on claude.ai/code for this repository show up here.",
+            children: hub
+              ? "Sessions you start on claude.ai/code show up here."
+              : "Sessions you start on claude.ai/code for this repository show up here.",
           }),
           Box({
             flexDirection: "row",
@@ -923,7 +1183,7 @@ export const register: Register = (on) => {
             Text({
               size: "footnote",
               dimColor: true,
-              children: `${rows.length} cloud session${rows.length === 1 ? "" : "s"} in ${repo}`,
+              children: `${rows.length} cloud session${rows.length === 1 ? "" : "s"}${hub ? "" : ` in ${repo}`}`,
             }),
             refreshButton,
           ],
@@ -937,7 +1197,7 @@ export const register: Register = (on) => {
               onPress: () => void refresh($),
             }),
           ]),
-        ...rows.map((row) => rowOf(row)),
+        ...(hub ? groupsOf(rows).map((group) => groupOf(group)) : rows.map((row) => rowOf(row))),
       ],
     });
   });

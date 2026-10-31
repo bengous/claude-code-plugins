@@ -1,10 +1,14 @@
-/** A cloud session of this repository, as the cloud sessions API lists it. */
+/** A cloud session as the cloud sessions API lists it, with the local clone it would open in. */
 export type CloudRow = {
   readonly id: string;
   readonly title: string;
   readonly status: string;
   readonly updatedAt: string;
   readonly repoUrl: string;
+  /** `owner/name` of a GitHub repository, else the repository's URL. */
+  readonly repo: string;
+  /** The main checkout Open locally adds its worktree to; null when the repository has no clone on this computer. */
+  readonly checkout: string | null;
   readonly model: string | null;
   readonly effort: string | null;
 };
@@ -51,6 +55,10 @@ declare module "claude-code" {
       opened: readonly OpenedEntry[];
       repoName: string;
       isPaneOpen: boolean;
+      /** This session is the computer's hub: it lists the cloud sessions of every repository. */
+      isHub: boolean;
+      /** The band stays hidden for this session: the person closed or used it, or the session is past its first prompt. */
+      isBandHidden: boolean;
     };
   }
 }
