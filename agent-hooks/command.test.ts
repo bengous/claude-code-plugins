@@ -101,6 +101,14 @@ describe("pkgOf", () => {
     expect(pkgOf(root, "src/a.ts")).toBe(root);
     expect(pkgOf(root, "a.ts")).toBe(root);
   });
+
+  test("a sibling whose name extends the root's is never the package: the root is", () => {
+    const repo = path.join(root, "repo");
+    writeRepoFile(root, "repo-web/package.json", "{}");
+    mkdirSync(repo);
+
+    expect(pkgOf(repo, "../repo-web/a.ts")).toBe(repo);
+  });
 });
 
 describe("matchesFilter and isExcluded", () => {

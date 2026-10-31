@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { Argv } from "./exec.ts";
+import { isUnder } from "./lib/platform/pure.ts";
 
 export type Placeholders = {
   readonly root: string;
@@ -71,7 +72,7 @@ export function pkgOf(root: string, relativePath: string): string {
   let dir = path.dirname(path.resolve(root, relativePath));
   const stop = path.resolve(root);
 
-  while (dir.startsWith(stop)) {
+  while (dir === stop || isUnder(stop, dir, path.sep)) {
     if (existsSync(path.join(dir, "package.json")) || existsSync(path.join(dir, "Cargo.toml"))) {
       return dir;
     }

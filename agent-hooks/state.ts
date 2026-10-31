@@ -7,6 +7,7 @@ import path from "node:path";
 import { sha256 } from "./hash.ts";
 import { isRecord } from "./json.ts";
 import { writeAtomicSync } from "./lib/platform/node.ts";
+import { isErrno } from "./lib/platform/pure.ts";
 
 export const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -473,7 +474,7 @@ export function loadRefused(key: string): string[] {
   try {
     value = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    if (!isErrno(error, "ENOENT")) {
       console.error(`agent-hooks: ${file}: unreadable refused messages, ignored`);
     }
 

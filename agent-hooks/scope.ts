@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { DELETED, hashFile, sha256 } from "./hash.ts";
+import { gitSync } from "./lib/platform/node.ts";
+import { isInsideRelative } from "./lib/platform/pure.ts";
 import type { Photo } from "./state.ts";
 
 export const WORKTREES_PREFIX = ".claude/worktrees/";
@@ -22,12 +24,7 @@ const UNTRACKED = "??";
 export function underRoot(root: string, absolute: string): string | null {
   const relative = path.relative(path.resolve(root), path.resolve(absolute));
 
-  return relative === "" ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-    ? null
-    : relative;
+  return relative === "" || !isInsideRelative(relative, [path.sep]) ? null : relative;
 }
 
 /** The nearest ancestor of `start` (itself included) that holds `.claude/agent-hooks.jsonc`. */
@@ -84,15 +81,9 @@ function isDirectory(absolute: string): boolean {
 }
 
 export function git(cwd: string, args: readonly string[]): string | null {
-  // Without an explicit env Bun.spawnSync reuses the process's original environ and ignores the GIT_* scrub of tests.
-  const proc = Bun.spawnSync(["git", ...args], {
-    cwd,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const result = gitSync(args, { cwd });
 
-  return proc.exitCode === 0 ? proc.stdout.toString() : null;
+  return result.kind === "exited" && result.code === 0 ? result.stdout : null;
 }
 
 export function headSha(checkout: string): string | null {
