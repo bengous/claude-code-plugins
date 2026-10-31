@@ -396,8 +396,10 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .ribbon-cell.when { background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--line) 60%, transparent) 4px 7px); }
 .ribbon-cell .ribbon-icon { color: var(--ink-2); }
 .ribbon-cell.past { color: var(--ink-2); background-color: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-.ribbon-cell[aria-current="step"] { background: var(--ink); color: var(--sheet); }
+.ribbon-cell[aria-current="step"] { background-color: var(--ink); color: var(--sheet); }
 .ribbon-cell[aria-current="step"] .ribbon-icon { color: var(--sheet); }
+/* Shown, a cell under a condition keeps its hatching, in the colour of its number. */
+.ribbon-cell.when[aria-current="step"] { background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--sheet) 30%, transparent) 4px 7px); }
 /* The data row: each form over the cells of the steps it holds, the one the step shown holds lit. */
 .ribbon-forms { margin-top: 3px; min-height: 19px; }
 .ribbon-form {

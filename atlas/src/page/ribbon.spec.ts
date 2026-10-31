@@ -190,6 +190,18 @@ describe("the ribbon's data row", () => {
 describe("the ribbon's texts", () => {
   test("plain text, shown as written, in the labels, the tooltips and the data row", async () => {
     const hostile = '<img src=x onerror="alert(1)">';
+    const shown = "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;";
+
+    const tree = treeOf({
+      root: {
+        title: "Hostile",
+        children: [
+          { id: "a", label: `A${hostile}`, sub: "", color: "app" },
+          { id: "b", label: `B\n${hostile}`, sub: "", color: "app" },
+        ],
+      },
+      links: [{ from: "a", to: "b", label: "link" }],
+    });
 
     const journey: Journey = {
       id: "hostile",
@@ -197,14 +209,12 @@ describe("the ribbon's texts", () => {
       sections: [
         {
           label: hostile,
-          steps: [
-            { from: "reader", to: "proxy", trigger: hostile, kind: "manual", carries: hostile },
-          ],
+          steps: [{ from: "a", to: "b", trigger: hostile, kind: "manual", carries: hostile }],
         },
       ],
     };
 
-    const html = ribbonHtml(TREE, journey);
+    const html = ribbonHtml(tree, journey);
     let images = 0;
 
     await new HTMLRewriter()
@@ -217,6 +227,7 @@ describe("the ribbon's texts", () => {
       .text();
 
     expect(images).toBe(0);
-    expect(html.split("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;")).toHaveLength(5);
+    expect(html).toContain(`data-step="1" title="1. A${shown} → B ${shown}"`);
+    expect(html.split(shown)).toHaveLength(7);
   });
 });

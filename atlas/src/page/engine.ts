@@ -1430,9 +1430,23 @@ const REWRITTEN = [
   [openList, ["data-go"]],
 ] as const;
 
+// The root's own box scrolls, never the page, so the element is in its sight: renderJourney
+// scrolls the panel back to its top.
+function inSightOf(root: Element, e: Element): void {
+  const top = root.getBoundingClientRect().top + root.clientTop;
+  const bottom = top + root.clientHeight;
+  const r = e.getBoundingClientRect();
+
+  if (r.top < top) {
+    root.scrollTop -= Math.ceil(top - r.top);
+  } else if (r.bottom > bottom) {
+    root.scrollTop += Math.ceil(r.bottom - bottom);
+  }
+}
+
 // A step the playback shows, or a cell of the ribbon plays, leaves the focus where it was, on the
-// new copy of what held it, and scrolls nothing: on a phone, where the page scrolls, the map stays
-// in sight.
+// new copy of what held it, in sight within its own box but with the page left where it was: on
+// a phone, where the page scrolls, the map stays in sight.
 function keepingFocusInPlace(move: () => void): void {
   const active = document.activeElement;
   const marks = REWRITTEN.flatMap(([root, keys]) => markOf(root, keys, active) ?? []);
@@ -1440,6 +1454,11 @@ function keepingFocusInPlace(move: () => void): void {
 
   for (const mark of marks) {
     refocus(mark);
+    const focused = document.activeElement;
+
+    if (focused !== null && mark.root.contains(focused)) {
+      inSightOf(mark.root, focused);
+    }
   }
 }
 
@@ -1489,8 +1508,15 @@ function togglePlayback(): void {
 
 playButton.addEventListener("click", togglePlayback);
 
-// A cell of the ribbon plays its step, the focus where it was: a click does not always move it to
-// the cell.
+// A cell of the ribbon plays its step, the focus where it was before. A pointer's press would move
+// it to the cell in some browsers and not in others: it moves it in none. A key on a focused cell
+// plays it, the focus kept on the cell.
+ribbonSteps.addEventListener("mousedown", (e) => {
+  if (e.target instanceof Element && e.target.closest("[data-step]") !== null) {
+    e.preventDefault();
+  }
+});
+
 ribbonSteps.addEventListener("click", (e) => {
   const cell = e.target instanceof Element ? e.target.closest("[data-step]") : null;
 
