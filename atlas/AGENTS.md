@@ -24,7 +24,8 @@ which exports its `node` and its `links` with types from `../atlas.d.ts`, and `m
 them (parts.integration.spec.ts holds check, fmt and the page's bundle to it). `map.ts` writes
 its map `const map = { … } as const satisfies AtlasMap;` and exports it
 `export default map satisfies Filled<typeof map>;`: from the literal types `as const` keeps,
-`Filled` (atlas.ts) makes tsgo refuse a journey's empty text, which check refuses too; a part
+`Filled` (atlas.ts) makes tsgo refuse an empty section `label`, or an empty `trigger`, `carries`
+or `when` on a step, which check refuses too; a part
 writes its `node` and its `links` `as const satisfies` their types. The template, the sample and
 the fixtures written as literals do so. Its drafts sit in
 `drafts/<name>/`, which its check leaves out; each holds a copy of the map's own files, a map folder

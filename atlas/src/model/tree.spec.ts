@@ -45,8 +45,8 @@ const journeyed = (sections: readonly Section[]): AtlasMap => {
 const go = (from: string, to: string): Step => ({ from, to, trigger: "Go", kind: "manual" });
 
 type Unchecked = {
-  readonly id: string;
-  readonly label: string;
+  readonly id?: unknown;
+  readonly label?: unknown;
   readonly steps?: unknown;
   readonly sections?: unknown;
 };
@@ -238,6 +238,37 @@ describe("treeOf", () => {
       "a journey that is no object",
       uncheckedJourneys([{ id: "walk", label: "Walk", sections: [] }, null]),
       "journey 2 is not an object",
+    ],
+    [
+      "a journey without an id",
+      uncheckedJourneys([{ label: "Walk", sections: [] }]),
+      "journey 1: id is not text",
+    ],
+    [
+      "a journey whose id is no text",
+      uncheckedJourneys([{ id: 7, label: "Walk", sections: [] }]),
+      "journey 1: id is not text",
+    ],
+    [
+      "a journey without a label",
+      uncheckedJourneys([{ id: "walk", sections: [] }]),
+      "journey walk: label is not text",
+    ],
+    [
+      "a journey whose label is no text",
+      uncheckedJourneys([{ id: "walk", label: ["Walk"], sections: [] }]),
+      "journey walk: label is not text",
+    ],
+    [
+      "a journey's step whose kind is text but neither manual nor auto",
+      unchecked({
+        id: "walk",
+        label: "Walk",
+        sections: [
+          { label: "Out", steps: [{ from: "b", to: "c", trigger: "Go", kind: "sometimes" }] },
+        ],
+      }),
+      "journey walk: step 1 (Out), b → c: kind is not manual or auto",
     ],
     [
       "a journey's step that is no object",

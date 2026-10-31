@@ -7,7 +7,17 @@ import { join } from "node:path";
 import JOURNEYS_CONFIG from "../../fixtures/journeys/atlas.config.ts";
 import JOURNEYS_MAP from "../../fixtures/journeys/map.ts";
 import { DEEP } from "../../fixtures/trees.ts";
-import type { AtlasMap, Config, Journey, Lang, Link, Node, Section, Step } from "../model/atlas.ts";
+import type {
+  AtlasMap,
+  Config,
+  Filled,
+  Journey,
+  Lang,
+  Link,
+  Node,
+  Section,
+  Step,
+} from "../model/atlas.ts";
 import { mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import { THREADS_FILE, loadFolder } from "../model/folder.ts";
@@ -446,6 +456,162 @@ describe("validate", () => {
     ).toContain(
       'threads.json backup-restore-untested[0]: who must be one of human, agent, got "codex"',
     );
+  });
+});
+
+/**
+ * A map written as a map.ts writes it, `as const`, refuses in the typecheck through Filled the
+ * empty texts check refuses: the line under `@ts-expect-error` is what must not compile, and the
+ * line after it runs, to say what check makes of that map.
+ */
+describe("Filled, on a map written as const", () => {
+  test("a section's empty label does not compile", () => {
+    const map = {
+      ...MAP,
+      root: {
+        ...MAP.root,
+        journeys: [
+          {
+            id: "visit",
+            label: "Visit",
+            sections: [
+              {
+                label: "",
+                steps: [{ from: "browser", to: "proxy", trigger: "Open", kind: "manual" }],
+              },
+            ],
+          },
+        ],
+      },
+    } as const satisfies AtlasMap;
+
+    // @ts-expect-error -- Filled turns a section's empty label into never.
+    const typed = map satisfies Filled<typeof map>;
+
+    expect(checkMap(typed, CONFIG, THREADS)).toEqual(["journey visit: section 1: no label"]);
+  });
+
+  test("an entry's empty trigger does not compile", () => {
+    const map = {
+      ...MAP,
+      root: {
+        ...MAP.root,
+        journeys: [
+          {
+            id: "visit",
+            label: "Visit",
+            sections: [
+              {
+                label: "Open",
+                steps: [{ from: "browser", to: "proxy", trigger: "", kind: "manual" }],
+              },
+            ],
+          },
+        ],
+      },
+    } as const satisfies AtlasMap;
+
+    // @ts-expect-error -- Filled turns an entry's empty trigger into never.
+    const typed = map satisfies Filled<typeof map>;
+
+    expect(checkMap(typed, CONFIG, THREADS)).toEqual([
+      "journey visit: step 1 (Open), browser → proxy: an entry's trigger names what sets it off",
+    ]);
+  });
+
+  test("a step's empty carries does not compile", () => {
+    const map = {
+      ...MAP,
+      root: {
+        ...MAP.root,
+        journeys: [
+          {
+            id: "visit",
+            label: "Visit",
+            sections: [
+              {
+                label: "Open",
+                steps: [
+                  { from: "browser", to: "proxy", trigger: "Open", kind: "manual", carries: "" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    } as const satisfies AtlasMap;
+
+    // @ts-expect-error -- Filled turns a step's empty carries into never.
+    const typed = map satisfies Filled<typeof map>;
+
+    expect(checkMap(typed, CONFIG, THREADS)).toEqual([
+      "journey visit: step 1 (Open), browser → proxy: a step's carries names the data's form",
+    ]);
+  });
+
+  test("a step's empty when does not compile", () => {
+    const map = {
+      ...MAP,
+      root: {
+        ...MAP.root,
+        journeys: [
+          {
+            id: "visit",
+            label: "Visit",
+            sections: [
+              {
+                label: "Open",
+                steps: [
+                  { from: "browser", to: "proxy", trigger: "Open", kind: "manual", when: "" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    } as const satisfies AtlasMap;
+
+    // @ts-expect-error -- Filled turns a step's empty when into never.
+    const typed = map satisfies Filled<typeof map>;
+
+    expect(checkMap(typed, CONFIG, THREADS)).toEqual([
+      "journey visit: step 1 (Open), browser → proxy: a step's when names its condition",
+    ]);
+  });
+
+  test("filled texts compile, and so do a journey's empty label and a step's empty note, which check leaves alone", () => {
+    const map = {
+      ...MAP,
+      root: {
+        ...MAP.root,
+        journeys: [
+          {
+            id: "visit",
+            label: "",
+            sections: [
+              {
+                label: "Open",
+                steps: [
+                  {
+                    from: "browser",
+                    to: "proxy",
+                    trigger: "Open",
+                    kind: "manual",
+                    carries: "a request",
+                    when: "the shop is up",
+                    note: "",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    } as const satisfies AtlasMap;
+
+    const typed = map satisfies Filled<typeof map>;
+
+    expect(checkMap(typed, CONFIG, THREADS)).toEqual([]);
   });
 });
 

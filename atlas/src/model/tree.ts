@@ -1,4 +1,4 @@
-import type { AtlasMap, Node, Side } from "./atlas.ts";
+import type { AtlasMap, Node, Side, Step } from "./atlas.ts";
 
 export class TreeError extends Error {}
 
@@ -108,14 +108,17 @@ export const itemIn = (tree: Tree, container: string | null, id: string): string
 
 const STEP_TEXTS = ["trigger", "kind", "carries", "when", "note"] as const;
 
+const KINDS: ReadonlySet<string> = new Set<NonNullable<Step["kind"]>>(["manual", "auto"]);
+
 /**
  * Indexes a map, and refuses what its views cannot show: an empty id, two nodes with one id, an
  * empty `children`, a `kind` or a side "both" on a container, an outside node below the root or without
  * a side, a side on a node inside, a rank that is not an integer from 0, a coupling or a link to
  * an unknown node, a link whose one end holds the other, a `journeys`, a journey's `sections` or a
  * section's `steps` that is not a list, a journey, a section or a step that is not an object, a
- * section whose `label` is not text, and a journey's step to or from an unknown node, or whose
- * `trigger`, `kind`, `carries`, `when` or `note`, given, is not text.
+ * journey whose `id` or `label`, or a section whose `label`, is not text, and a journey's step to
+ * or from an unknown node, whose `trigger`, `kind`, `carries`, `when` or `note`, given, is not
+ * text, or whose `kind` is neither "manual" nor "auto".
  */
 export function treeOf(map: AtlasMap): Tree {
   const nodes = new Map<string, Node>();
@@ -233,6 +236,14 @@ export function treeOf(map: AtlasMap): Tree {
 
     const { id, sections } = journey;
 
+    if (typeof id !== "string") {
+      refuse(`journey ${j + 1}: id is not text`);
+    }
+
+    if (typeof journey.label !== "string") {
+      refuse(`journey ${id}: label is not text`);
+    }
+
     if (!Array.isArray(sections)) {
       refuse(`journey ${id}: sections is not a list`);
     }
@@ -277,6 +288,10 @@ export function treeOf(map: AtlasMap): Tree {
           if (value !== undefined && typeof value !== "string") {
             refuse(`${at}: ${field} is not text`);
           }
+        }
+
+        if (step.kind !== undefined && !KINDS.has(step.kind)) {
+          refuse(`${at}: kind is not manual or auto`);
         }
       }
     }

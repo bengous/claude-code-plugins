@@ -131,9 +131,10 @@ type Entry = { readonly trigger: string; readonly kind: "manual" | "auto" };
  * one with `two`; with `back`, a link set from its `to` to its `from` (`atlas check`; an arrow a
  * view lifts from links between nodes below them does not count). A step with `trigger` and `kind`
  * is an entry, its trigger naming what sets it off; any other starts at a node its section has
- * reached, an end of a step before it in that section (`atlas check`). An end that names no node is
- * refused wherever the map is loaded. The page shows it in the deepest view that shows both its
- * ends and draws its arrow, else in their lowest common container's view, its lifted arrow lit.
+ * reached, an end of a step before it in that section. Its `carries` and its `when`, given, name
+ * something: neither is empty or blank (`atlas check`). An end that names no node is refused
+ * wherever the map is loaded. The page shows it in the deepest view that shows both its ends and
+ * draws its arrow, else in their lowest common container's view, its lifted arrow lit.
  */
 export type Step = StepBase & (Entry | { readonly trigger?: never; readonly kind?: never });
 
