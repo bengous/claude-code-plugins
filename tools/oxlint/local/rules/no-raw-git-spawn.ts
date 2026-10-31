@@ -10,10 +10,15 @@ const CHILD_PROCESS = new Set(["node:child_process", "child_process"]);
 
 const NODE_SPAWNS = new Set(["spawn", "spawnSync", "execFile", "execFileSync"]);
 
+/** `node:child_process`'s spawners that take a shell line, not a program. */
+const NODE_SHELLS = new Set(["exec", "execSync"]);
+
 const WHOLE_MODULE = new Set(["*", "default"]);
 
-/** A shell line of bun's `$` that runs git: `git`, alone or before a space. */
+/** A shell line that runs git: `git`, alone or before a space. */
 const GIT_LINE = /^\s*git(?:\s|$)/u;
+
+type Spawner = "bun" | "node" | "node shell";
 
 function propertyName(node: ESTree.MemberExpression): string | null {
   if (!node.computed) return node.property.type === "Identifier" ? node.property.name : null;
@@ -23,9 +28,24 @@ function propertyName(node: ESTree.MemberExpression): string | null {
     : null;
 }
 
-/** `node` itself, or the `const` value it names. */
+/** `node` past `as` and `satisfies`, or the `const` value it names. */
 function valueOf(sourceCode: SourceCode, node: ESTree.Node): ESTree.Node {
-  return node.type === "Identifier" ? (constValueOf(sourceCode, node) ?? node) : node;
+  let value = node;
+
+  while (value.type === "TSAsExpression" || value.type === "TSSatisfiesExpression")
+    value = value.expression;
+
+  return value.type === "Identifier" ? (constValueOf(sourceCode, value) ?? value) : value;
+}
+
+/** A shell line that starts with `git`: a string, a template's head, or the `const` naming either. */
+function isGitLine(sourceCode: SourceCode, node: ESTree.Node | undefined): boolean {
+  if (node === undefined) return false;
+  const value = valueOf(sourceCode, node);
+
+  if (value.type === "Literal") return GIT_LINE.test(String(value.value));
+
+  return value.type === "TemplateLiteral" && GIT_LINE.test(value.quasis[0]?.value.cooked ?? "");
 }
 
 function isGitWord(sourceCode: SourceCode, node: ESTree.Node | null | undefined): boolean {
@@ -69,17 +89,22 @@ function isGitArgv(sourceCode: SourceCode, node: ESTree.Node | null | undefined)
   );
 }
 
+/** A spawner of `node:child_process` by its name: one that takes a program, one a shell line. */
+function nodeSpawner(name: string): Spawner | null {
+  if (NODE_SPAWNS.has(name)) return "node";
+
+  return NODE_SHELLS.has(name) ? "node shell" : null;
+}
+
 /** Which spawner a callee is, by where it comes from: Bun's, `node:child_process`'s, or none. */
-function spawnerOf(sourceCode: SourceCode, callee: ESTree.Node): "bun" | "node" | null {
+function spawnerOf(sourceCode: SourceCode, callee: ESTree.Node): Spawner | null {
   if (callee.type === "Identifier") {
     const binding = importOf(sourceCode, callee);
 
     if (binding?.source === "bun" && BUN_SPAWNS.has(binding.imported)) return "bun";
 
-    return binding !== null &&
-      CHILD_PROCESS.has(binding.source) &&
-      NODE_SPAWNS.has(binding.imported)
-      ? "node"
+    return binding !== null && CHILD_PROCESS.has(binding.source)
+      ? nodeSpawner(binding.imported)
       : null;
   }
 
@@ -94,7 +119,7 @@ function spawnerOf(sourceCode: SourceCode, callee: ESTree.Node): "bun" | "node" 
 
   if (binding.source === "bun" && BUN_SPAWNS.has(name)) return "bun";
 
-  return CHILD_PROCESS.has(binding.source) && NODE_SPAWNS.has(name) ? "node" : null;
+  return CHILD_PROCESS.has(binding.source) ? nodeSpawner(name) : null;
 }
 
 /** Whether a tag is bun's `$`: imported from `bun`, or `Bun.$`. */
@@ -119,7 +144,7 @@ export const noRawGitSpawnRule = defineRule({
     type: "problem",
     docs: {
       description:
-        "Disallow spawning git through Bun.spawn, bun's $ or node:child_process; use `git` or `gitRead` of the platform helpers.",
+        "Disallow spawning git through Bun.spawn, bun's $ or node:child_process, a shell line included; use `git` or `gitRead` of the platform helpers.",
     },
     messages: {
       rawGitSpawn:
@@ -138,7 +163,10 @@ export const noRawGitSpawnRule = defineRule({
         if (spawner === "bun" && isGitArgv(sourceCode, first))
           context.report({ node, messageId: "rawGitSpawn", data: { how: "Bun.spawn" } });
 
-        if (spawner === "node" && isGitWord(sourceCode, first))
+        if (
+          (spawner === "node" && isGitWord(sourceCode, first)) ||
+          (spawner === "node shell" && isGitLine(sourceCode, first))
+        )
           context.report({ node, messageId: "rawGitSpawn", data: { how: "node:child_process" } });
       },
       TaggedTemplateExpression(node) {

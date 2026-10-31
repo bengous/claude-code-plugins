@@ -43,6 +43,19 @@ const SOURCES = {
     'cp.spawnSync("git", ["fetch"]);',
     'spawn("ls", []);',
   ].join("\n"),
+  "scripts/asserted.ts": [
+    'Bun.spawnSync(["git", "status"] as const);',
+    'Bun.spawnSync(["git", "log"] satisfies string[]);',
+    'Bun.spawnSync(["ls"] as const);',
+  ].join("\n"),
+  "scripts/shell-line.ts": [
+    'import { exec, execSync } from "node:child_process";',
+    "const root = '/x';",
+    'execSync("git status --porcelain");',
+    "exec(`git -C ${root} fetch`, () => {});",
+    'execSync("gitk");',
+    'execSync("ls");',
+  ].join("\n"),
   "scripts/local-bun.ts": [
     "const Bun = { spawnSync: (argv: string[]) => argv };",
     'Bun.spawnSync(["git", "status"]);',
@@ -118,6 +131,14 @@ describe("no-raw-git-spawn", () => {
 
   test("reports node:child_process's spawners given git, by name or by a const", () => {
     expect(lines("scripts/child.ts")).toEqual([4, 5, 6]);
+  });
+
+  test("reads an argv literal past as const and satisfies", () => {
+    expect(lines("scripts/asserted.ts")).toEqual([1, 2]);
+  });
+
+  test("reports exec and execSync given a shell line that starts with git", () => {
+    expect(lines("scripts/shell-line.ts")).toEqual([3, 4]);
   });
 
   test("leaves a local binding named Bun", () => {
