@@ -191,6 +191,10 @@ EOF
     return
   fi
 
+  # FIXME: each branch below writes a mktemp file under /tmp, then mv's it onto settings.json: across two
+  # filesystems the mv is a copy, not an atomic replace; it turns a dotfiles symlink into a plain file; and two
+  # setups at once lose one edit. Make the temp file beside the resolved target (readlink -f), mv onto that
+  # target, and hold a flock on it around the read and the mv.
   # Check if hooks key exists
   if jq -e '.hooks' "$SETTINGS_FILE" >/dev/null 2>&1; then
     # Check if PreToolUse exists

@@ -443,6 +443,8 @@ stack_cleanup() {
 
     # Remove worktree
     if [[ -d "$child_full_path" ]]; then
+      # FIXME: --force with stderr discarded deletes a child worktree's uncommitted work without a word;
+      # drop --force (git then refuses a dirty worktree) and pass git's stderr into errors.
       if git worktree remove --force "$child_full_path" 2>/dev/null; then
         removed_worktrees=$((removed_worktrees + 1))
       else
@@ -465,6 +467,7 @@ stack_cleanup() {
   # Remove root
   local root_full_path="$hub/$root_path"
   if [[ -d "$root_full_path" ]]; then
+    # FIXME: same as the child removal above: --force and a discarded stderr lose the root's uncommitted work silently.
     if git worktree remove --force "$root_full_path" 2>/dev/null; then
       removed_worktrees=$((removed_worktrees + 1))
     else
