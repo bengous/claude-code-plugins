@@ -50,6 +50,7 @@ import type { EffectPorts } from "./effects.ts";
 import { interpret } from "./effects.ts";
 import {
   appendText,
+  fileExists,
   finalize as renameWorkspace,
   HELD_RETRY_MS,
   listFiles,
@@ -158,7 +159,7 @@ export class Queue {
       recordVersion: () => this.recordVersion(),
       writeFile: async (file, text) => writeText(project, await this.doc(file), text),
       appendFile: async (file, text) => appendText(project, await this.doc(file), text),
-      exists: async (file) => (await modifiedAt(project, await this.doc(file))) !== null,
+      exists: async (file) => fileExists(project, await this.doc(file)),
       removeFile: async (file) => removeFile(project, await this.doc(file)),
       relay: (entry) => this.relay(entry),
       returnToCall: (call, seq, text) => {

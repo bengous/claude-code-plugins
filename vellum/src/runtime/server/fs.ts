@@ -3,6 +3,7 @@ import { appendFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
 import { writeAtomic } from "../../platform/node.ts";
+import { isErrno } from "../../platform/pure.ts";
 import { rewriteLinks } from "../../workshop/links.ts";
 import type { FinalDir, ParseResult, ProjectPath, Slug, WipDir } from "../../workshop/paths.ts";
 import { dateOf, parseFinalDir } from "../../workshop/paths.ts";
@@ -172,6 +173,19 @@ export async function modifiedAt(project: string, path: ProjectPath): Promise<nu
   const found = await stat(join(project, path)).catch(() => null);
 
   return found?.isFile() === true ? found.mtimeMs : null;
+}
+
+/**
+ * Whether a file is there: not when nothing is (`ENOENT`, `ENOTDIR`), nor a folder. A stat refused
+ * otherwise is thrown, since it says nothing of what is there.
+ */
+export async function fileExists(project: string, path: ProjectPath): Promise<boolean> {
+  try {
+    return (await stat(join(project, path))).isFile();
+  } catch (cause) {
+    if (isErrno(cause, "ENOENT", "ENOTDIR")) return false;
+    throw cause;
+  }
 }
 
 async function isDir(project: string, path: string): Promise<boolean> {

@@ -16,6 +16,7 @@ import type { WipDir } from "../../workshop/paths.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import { slugFromTitle } from "../../workshop/slug.ts";
 import {
+  fileExists,
   finalize,
   freeTarget,
   listFiles,
@@ -104,6 +105,29 @@ describe("readTextIfAny and removeFile", () => {
     await removeFile(root, `${WIP}nope.json` as never);
     expect(existsSync(join(root, WIP, "shot.png"))).toBe(true);
   });
+});
+
+describe("fileExists", () => {
+  test("a file is there; a missing name, or one under a file, is not", async () => {
+    const root = fixture();
+
+    expect(await fileExists(root, `${WIP}mockup.html` as never)).toBe(true);
+    expect(await fileExists(root, `${WIP}nope.json` as never)).toBe(false);
+    expect(await fileExists(root, `${WIP}mockup.html/nope.json` as never)).toBe(false);
+  });
+
+  // Windows reads no folder's mode; a stat it refuses is a file another program holds.
+  test.skipIf(process.platform === "win32")(
+    "a stat refused throws, so a step never takes a file it could not see for one it created",
+    async () => {
+      const root = fixture();
+      chmodSync(join(root, WIP), 0o600);
+      const answer = await fileExists(root, `${WIP}mockup.html` as never).then(String, String);
+      chmodSync(join(root, WIP), 0o700);
+
+      expect(answer).toContain("EACCES");
+    },
+  );
 });
 
 describe("listFiles", () => {
