@@ -287,8 +287,9 @@ function isNotFound(cause: unknown): boolean {
 
 /**
  * A program that could not start for another reason than a name the PATH does not hold: a missing
- * `cwd`, a path to no program, a program it may not run (`EACCES`). It keeps Bun's message, Bun's
- * error as `cause`, and its errno as `code`, so `errnoOf` reads what it read off Bun's error.
+ * `cwd`, a path to no program on POSIX, a program it may not run (`EACCES`). It keeps Bun's
+ * message, Bun's error as `cause`, and its errno as `code`, so `errnoOf` reads what it read off
+ * Bun's error.
  */
 export class LaunchError extends Error {
   override readonly name = "LaunchError";
@@ -514,7 +515,7 @@ function spawnSyncAs(argv: Argv, options: RunOptions, env: Env): RunResult<strin
 /**
  * Runs `argv` to its end, its output captured: `exited` with its code, `timedOut` when
  * `timeoutMs` passed and the process was killed (`SIGKILL`), `missing` when the program is not on
- * the PATH. Any other failure to start (a missing `cwd`, a path to no program) throws a
+ * the PATH. Any other failure to start (a missing `cwd`, a path to no program on POSIX) throws a
  * `LaunchError`. After the exit, the output is waited for `OUTPUT_GRACE_MS` at most, then its pipes
  * are let go of: a killed shell's children may hold them. Past the grace, stdout and stderr are
  * both empty, even when one pipe had delivered its bytes, and the result carries

@@ -222,36 +222,46 @@ describe("run", () => {
     expect(result).toEqual({ kind: "timedOut", timeoutMs: 2000, stdout: "early\n", stderr: "" });
   });
 
-  test("the pipes a killed parent's child holds are waited for the grace period, then left", async () => {
-    const child = JSON.stringify([BUN, "-e", "await Bun.sleep(10000)"]);
-    const started = Date.now();
+  // On Windows a child of the killed process does not keep its pipes: the read ends with the kill.
+  test.if(process.platform !== "win32")(
+    "the pipes a killed parent's child holds are waited for the grace period, then left",
+    async () => {
+      const child = JSON.stringify([BUN, "-e", "await Bun.sleep(10000)"]);
+      const started = Date.now();
 
-    const result = await run(
-      bun(`Bun.spawn(${child}, { stdout: "inherit", stderr: "inherit" }); await Bun.sleep(10000)`),
-      { timeoutMs: 2000 },
-    );
+      const result = await run(
+        bun(
+          `Bun.spawn(${child}, { stdout: "inherit", stderr: "inherit" }); await Bun.sleep(10000)`,
+        ),
+        { timeoutMs: 2000 },
+      );
 
-    expect(result).toEqual({
-      kind: "timedOut",
-      timeoutMs: 2000,
-      stdout: "",
-      stderr: "",
-      outputLost: true,
-    });
-    expect(Date.now() - started).toBeLessThan(6000);
-  });
+      expect(result).toEqual({
+        kind: "timedOut",
+        timeoutMs: 2000,
+        stdout: "",
+        stderr: "",
+        outputLost: true,
+      });
+      expect(Date.now() - started).toBeLessThan(6000);
+    },
+  );
 
-  test("an exit whose child holds the pipes past the grace answers outputLost, its output empty", async () => {
-    const holder = JSON.stringify([BUN, "-e", "await Bun.sleep(4000)"]);
+  // On Windows the child's inherited pipes do not outlive the parent: nothing is lost.
+  test.if(process.platform !== "win32")(
+    "an exit whose child holds the pipes past the grace answers outputLost, its output empty",
+    async () => {
+      const holder = JSON.stringify([BUN, "-e", "await Bun.sleep(4000)"]);
 
-    const result = await run(
-      bun(
-        `process.stdout.write("written"); Bun.spawn(${holder}, { stdout: "inherit", stderr: "inherit" }).unref()`,
-      ),
-    );
+      const result = await run(
+        bun(
+          `process.stdout.write("written"); Bun.spawn(${holder}, { stdout: "inherit", stderr: "inherit" }).unref()`,
+        ),
+      );
 
-    expect(result).toEqual({ kind: "exited", code: 0, stdout: "", stderr: "", outputLost: true });
-  });
+      expect(result).toEqual({ kind: "exited", code: 0, stdout: "", stderr: "", outputLost: true });
+    },
+  );
 
   test("timeoutMs <= 0 answers timedOut without starting anything", async () => {
     const results = await Promise.all(
@@ -284,19 +294,23 @@ describe("run", () => {
     expect(errnoOf(thrown)).toBe("ENOENT");
   });
 
-  test("a path to no program throws a LaunchError, by run and runSync alike", async () => {
-    const nowhere = join(dir, "nowhere");
+  // Bun on Windows does not answer a path to no program with a LaunchError.
+  test.if(process.platform !== "win32")(
+    "a path to no program throws a LaunchError, by run and runSync alike",
+    async () => {
+      const nowhere = join(dir, "nowhere");
 
-    const thrown = [
-      await run([nowhere]).catch((cause: unknown) => cause),
-      thrownBy(() => runSync([nowhere])),
-    ];
+      const thrown = [
+        await run([nowhere]).catch((cause: unknown) => cause),
+        thrownBy(() => runSync([nowhere])),
+      ];
 
-    expect(thrown.map((cause) => cause instanceof LaunchError && errnoOf(cause))).toEqual([
-      "ENOENT",
-      "ENOENT",
-    ]);
-  });
+      expect(thrown.map((cause) => cause instanceof LaunchError && errnoOf(cause))).toEqual([
+        "ENOENT",
+        "ENOENT",
+      ]);
+    },
+  );
 
   test.if(process.platform !== "win32" && process.getuid?.() !== 0)(
     "a program it may not run throws a LaunchError whose errno is EACCES",
