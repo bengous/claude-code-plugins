@@ -7,16 +7,18 @@
  *   bun ./scripts/sync-platform.ts --write  writes the copies `consumers.ts` lists, then checks
  *
  * A plugin stands alone once installed, so it imports its own copy, never the source, and nothing
- * outside its directory. The check refuses a copy that differs from its source byte for byte, a
- * file a copy lacks or holds beyond its list, a consumer whose directory does not exist, a copy
- * directory `consumers.ts` does not list, and an import that leaves a plugin's or a consumer's
- * directory. A copy holds what git lists there: an ignored file is neither refused nor removed.
+ * outside its directory. A copy holds the modules its owner's files import from it, an import
+ * marked `type` included, and the modules those import in turn. The check refuses a copy that
+ * differs from its source byte for byte, a module a copy lacks or holds though nothing imports it,
+ * an import of a module the source does not hold, a consumer whose directory does not exist or
+ * whose copy nothing imports, a copy directory `consumers.ts` does not list, and an import that
+ * leaves a plugin's or a consumer's directory. A copy holds what git lists there: an ignored file
+ * is neither refused nor removed.
  */
 
 import { existsSync, lstatSync, readFileSync, rmSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
-import type { Consumer } from "../tools/platform/consumers.ts";
 import { CONSUMERS } from "../tools/platform/consumers.ts";
 import { gitRead, writeAtomic } from "../tools/platform/node.ts";
 import { isInsideRelative, isUnder } from "../tools/platform/pure.ts";
@@ -61,49 +63,107 @@ async function listedFiles(root: string): Promise<string[]> {
     .filter((path) => path !== "" && !path.startsWith("archive/") && existsSync(join(root, path)));
 }
 
-function heldBy(consumer: Consumer, files: readonly string[]): string[] {
-  const prefix = `${consumer.dir}/`;
+function heldBy(dir: string, files: readonly string[]): string[] {
+  const prefix = `${dir}/`;
 
   return files.flatMap((file) => (file.startsWith(prefix) ? [file.slice(prefix.length)] : []));
 }
 
-function manifestProblems(root: string, consumers: readonly Consumer[]): string[] {
+function manifestProblems(root: string, dirs: readonly string[]): string[] {
   const seen = new Set<string>();
 
-  return consumers.flatMap((consumer) => {
+  return dirs.flatMap((dir) => {
     const problems: string[] = [];
 
-    if (!COPY_DIR.test(consumer.dir)) {
+    if (!COPY_DIR.test(dir)) {
       problems.push(
-        `${consumer.dir}: a copy lives at <owner>/lib/platform or <owner>/src/platform, its owner a directory at the root; fix tools/platform/consumers.ts`,
+        `${dir}: a copy lives at <owner>/lib/platform or <owner>/src/platform, its owner a directory at the root; fix tools/platform/consumers.ts`,
       );
-    } else if (!existsSync(join(root, ownerOf(consumer.dir)))) {
+    } else if (!existsSync(join(root, ownerOf(dir)))) {
       problems.push(
-        `${consumer.dir}: tools/platform/consumers.ts lists it, but ${ownerOf(consumer.dir)}/ does not exist; fix the entry`,
+        `${dir}: tools/platform/consumers.ts lists it, but ${ownerOf(dir)}/ does not exist; fix the entry`,
       );
     }
 
-    if (seen.has(consumer.dir))
-      problems.push(`${consumer.dir}: tools/platform/consumers.ts lists it twice`);
-    seen.add(consumer.dir);
-
-    if (
-      !consumer.files.includes("pure.ts") ||
-      new Set(consumer.files).size !== consumer.files.length
-    )
-      problems.push(
-        `${consumer.dir}: tools/platform/consumers.ts names its files once each, pure.ts alone or pure.ts and node.ts, which imports ./pure.ts`,
-      );
+    if (seen.has(dir)) problems.push(`${dir}: tools/platform/consumers.ts lists it twice`);
+    seen.add(dir);
 
     return problems;
   });
 }
 
-/** The consumers the copies can be checked or written for: a valid directory whose owner exists. */
-function placed(root: string, consumers: readonly Consumer[]): readonly Consumer[] {
-  return consumers.filter(
-    (consumer) => COPY_DIR.test(consumer.dir) && existsSync(join(root, ownerOf(consumer.dir))),
-  );
+/** The copies that can be checked or written: a valid directory whose owner exists. */
+function placed(root: string, dirs: readonly string[]): readonly string[] {
+  return dirs.filter((dir) => COPY_DIR.test(dir) && existsSync(join(root, ownerOf(dir))));
+}
+
+/**
+ * Each specifier a file names after `from`, `import` or `require`, an import marked `type`
+ * included, which the transpiler drops: a copy holds what the typecheck reads as well.
+ */
+const SPECIFIER = /\b(?:from|import|require)\s*\(?\s*["']([^"']+)["']/gu;
+
+/** The files below `dir` that `file`'s relative imports name, `/` between their folders. */
+function importedFrom(
+  file: string,
+  dir: string,
+): { readonly specifier: string; readonly name: string }[] {
+  return [...readFileSync(file, "utf8").matchAll(SPECIFIER)].flatMap(([, specifier]) => {
+    if (specifier?.startsWith(".") !== true) return [];
+    const name = relative(dir, resolve(dirname(file), specifier));
+
+    return name !== "" && isInsideRelative(name, [sep])
+      ? [{ specifier, name: name.split(sep).join("/") }]
+      : [];
+  });
+}
+
+/** Whether `name` is a file of the source a copy can hold: one at its top. */
+const isSourceModule = (root: string, name: string): boolean =>
+  !name.includes("/") && existsSync(join(root, SOURCE_DIR, name));
+
+/** `names` and every module they import, at any depth, as the source's modules import one another. */
+function withTheirImports(root: string, names: ReadonlySet<string>): string[] {
+  const held = new Set<string>();
+  const waiting = [...names];
+
+  for (let name = waiting.pop(); name !== undefined; name = waiting.pop()) {
+    if (held.has(name)) continue;
+    held.add(name);
+
+    for (const imported of importedFrom(join(root, SOURCE_DIR, name), join(root, SOURCE_DIR))) {
+      if (isSourceModule(root, imported.name)) waiting.push(imported.name);
+    }
+  }
+
+  return [...held].toSorted();
+}
+
+/**
+ * What a copy must hold: the modules its owner's files, outside the copy, import from it, with
+ * what those import; and each import of a file the source does not hold, refused.
+ */
+type CopyPlan = { readonly modules: readonly string[]; readonly strays: readonly string[] };
+
+function planOf(root: string, dir: string, files: readonly string[]): CopyPlan {
+  const owner = ownerOf(dir);
+  const imported = new Set<string>();
+  const strays: string[] = [];
+
+  for (const file of files) {
+    if (!isUnder(owner, file, "/") || isUnder(dir, file, "/") || !LOADERS.has(extname(file)))
+      continue;
+
+    for (const { specifier, name } of importedFrom(join(root, file), join(root, dir))) {
+      if (isSourceModule(root, name)) imported.add(name);
+      else
+        strays.push(
+          `${file} imports ${specifier}, which ${SOURCE_DIR}/ does not hold: import one of its modules`,
+        );
+    }
+  }
+
+  return { modules: withTheirImports(root, imported), strays };
 }
 
 /** Whether `copy` is a file holding exactly `source`'s bytes: a link to it is not, once installed. */
@@ -111,14 +171,21 @@ function isExactCopy(copy: string, source: string): boolean {
   return !lstatSync(copy).isSymbolicLink() && readFileSync(copy).equals(readFileSync(source));
 }
 
-function copyProblems(root: string, consumer: Consumer, files: readonly string[]): string[] {
-  const dir = join(root, consumer.dir);
-  const listed = new Set<string>(consumer.files);
-  const held = heldBy(consumer, files);
+function copyProblems(root: string, dir: string, files: readonly string[]): string[] {
+  const owner = ownerOf(dir);
+  const { modules, strays } = planOf(root, dir, files);
 
-  const missingOrDiffering = consumer.files.flatMap((file) => {
-    const copy = join(dir, file);
-    const where = `${consumer.dir}/${file}`;
+  if (modules.length === 0 && strays.length === 0) {
+    return [
+      `${dir}: nothing in ${owner}/ imports a module of it: remove the directory and its entry in tools/platform/consumers.ts`,
+    ];
+  }
+
+  const held = heldBy(dir, files);
+
+  const missingOrDiffering = modules.flatMap((file) => {
+    const copy = join(root, dir, file);
+    const where = `${dir}/${file}`;
 
     if (!existsSync(copy)) return [`${where} is missing: run ${WRITE_COMMAND}`];
 
@@ -133,20 +200,20 @@ function copyProblems(root: string, consumer: Consumer, files: readonly string[]
       : [`${where} differs from ${SOURCE_DIR}/${file}: ${NEVER_A_COPY}`];
   });
 
-  const extra = held
-    .filter((file) => !listed.has(file))
+  const unimported = held
+    .filter((file) => !modules.includes(file))
     .map(
       (file) =>
-        `${consumer.dir}/${file} is no file consumers.ts lists for ${consumer.dir}: ${NEVER_A_COPY}, which removes it`,
+        `${dir}/${file} is no module ${owner}/ imports, directly or through another: run ${WRITE_COMMAND}, which removes it`,
     );
 
-  return [...missingOrDiffering, ...extra];
+  return [...missingOrDiffering, ...unimported, ...strays];
 }
 
-function unlistedCopyDirs(files: readonly string[], consumers: readonly Consumer[]): string[] {
-  const listed = new Set(consumers.map((consumer) => consumer.dir));
+function unlistedCopyDirs(files: readonly string[], dirs: readonly string[]): string[] {
+  const listed = new Set(dirs);
 
-  const dirs = new Set(
+  const unlisted = new Set(
     files.flatMap((file) => {
       const dir = IN_COPY_DIR.exec(file)?.[1];
 
@@ -154,7 +221,7 @@ function unlistedCopyDirs(files: readonly string[], consumers: readonly Consumer
     }),
   );
 
-  return [...dirs]
+  return [...unlisted]
     .toSorted()
     .map(
       (dir) =>
@@ -166,7 +233,7 @@ function unlistedCopyDirs(files: readonly string[], consumers: readonly Consumer
  * The plugins of the catalog, at any depth, and the consumers' owners: the directories that stand
  * alone, the deepest first, so the first one a file lies under is the one it belongs to.
  */
-function standaloneDirs(root: string, consumers: readonly Consumer[]): readonly string[] {
+function standaloneDirs(root: string, copyDirs: readonly string[]): readonly string[] {
   // SAFETY: validate-marketplace holds marketplace.json to this form.
   const catalog = JSON.parse(
     readFileSync(join(root, ".claude-plugin/marketplace.json"), "utf8"),
@@ -174,7 +241,7 @@ function standaloneDirs(root: string, consumers: readonly Consumer[]): readonly 
 
   const dirs = new Set([
     ...catalog.plugins.map((plugin) => posix.normalize(plugin.source).replace(/\/$/u, "")),
-    ...consumers.map((consumer) => ownerOf(consumer.dir)),
+    ...copyDirs.map((dir) => ownerOf(dir)),
   ]);
 
   return [...dirs].toSorted((a, b) => depthOf(b) - depthOf(a));
@@ -201,9 +268,9 @@ function outsideImport(file: string, owner: string, specifier: string, target: s
 function outsideImports(
   root: string,
   files: readonly string[],
-  consumers: readonly Consumer[],
+  copyDirs: readonly string[],
 ): string[] {
-  const owners = standaloneDirs(root, consumers);
+  const owners = standaloneDirs(root, copyDirs);
 
   return files.flatMap((file) => {
     const owner = owners.find((dir) => dir === REPOSITORY || isUnder(dir, file, "/"));
@@ -224,40 +291,41 @@ function outsideImports(
 }
 
 /** Every refusal of the gate, in the order a fix takes them: the manifest, the copies, the strays, the imports. */
-export async function problemsIn(root: string, consumers: readonly Consumer[]): Promise<string[]> {
+export async function problemsIn(root: string, copyDirs: readonly string[]): Promise<string[]> {
   const files = await listedFiles(root);
 
   return [
-    ...manifestProblems(root, consumers),
-    ...placed(root, consumers).flatMap((consumer) => copyProblems(root, consumer, files)),
-    ...unlistedCopyDirs(files, consumers),
-    ...outsideImports(root, files, consumers),
+    ...manifestProblems(root, copyDirs),
+    ...placed(root, copyDirs).flatMap((dir) => copyProblems(root, dir, files)),
+    ...unlistedCopyDirs(files, copyDirs),
+    ...outsideImports(root, files, copyDirs),
   ];
 }
 
-/** Writes each listed copy that differs or is missing, and removes what git lists there beyond the list. */
-export async function writeCopies(root: string, consumers: readonly Consumer[]): Promise<string[]> {
+/**
+ * Writes each module a copy must hold that differs or is missing, and removes what git lists there
+ * beyond them.
+ */
+export async function writeCopies(root: string, copyDirs: readonly string[]): Promise<string[]> {
   const files = await listedFiles(root);
   const written: string[] = [];
 
-  for (const consumer of placed(root, consumers)) {
-    const dir = join(root, consumer.dir);
+  for (const dir of placed(root, copyDirs)) {
+    const { modules } = planOf(root, dir, files);
 
-    for (const file of consumer.files) {
+    for (const file of modules) {
       const source = join(root, SOURCE_DIR, file);
-      const copy = join(dir, file);
+      const copy = join(root, dir, file);
 
       if (existsSync(copy) && isExactCopy(copy, source)) continue;
       await writeAtomic(copy, readFileSync(source), { mkdir: true });
-      written.push(`${consumer.dir}/${file}`);
+      written.push(`${dir}/${file}`);
     }
 
-    const listed = new Set<string>(consumer.files);
-
-    for (const file of heldBy(consumer, files)) {
-      if (listed.has(file)) continue;
-      rmSync(join(dir, file));
-      written.push(`${consumer.dir}/${file} (removed)`);
+    for (const file of heldBy(dir, files)) {
+      if (modules.includes(file)) continue;
+      rmSync(join(root, dir, file));
+      written.push(`${dir}/${file} (removed)`);
     }
   }
 

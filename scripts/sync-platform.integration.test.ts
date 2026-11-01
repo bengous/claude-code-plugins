@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -12,13 +13,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { Consumer } from "../tools/platform/consumers.ts";
 import { gitSync, run } from "../tools/platform/node.ts";
 import { problemsIn, WRITE_COMMAND, writeCopies } from "./sync-platform.ts";
 
 const REPO = join(import.meta.dir, "..");
 
-const PLUG: Consumer = { dir: "plug/lib/platform", files: ["pure.ts"] };
+const PLUG = "plug/lib/platform";
 
 let root = "";
 
@@ -38,20 +38,39 @@ afterAll(() => {
   for (const [name, value] of KEPT_GIT_ENV) process.env[name] = value;
 });
 
-/** A repository whose catalog lists `plug/` and `peer/`, beside `other/`, a directory no catalog names. */
+/** `plug/hooks/register.ts`, these import lines first. */
+function registerImporting(...lines: string[]): void {
+  write("plug/hooks/register.ts", `${lines.join("\n")}\nexport const register = 1;\n`);
+}
+
+/**
+ * A repository whose catalog lists `plug/` and `peer/`, beside `other/`, a directory no catalog
+ * names. Its modules import one another as the platform's do: `fs.ts` and `process.ts` import
+ * `pure.ts`, `lock.ts` imports `fs.ts` and `pure.ts`, `git.ts` imports `process.ts`. `plug/`
+ * imports `pure.ts` from its copy.
+ */
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "sync-platform-"));
   expect(gitSync(["init", "-q"], { cwd: root, scrubGitEnv: true })).toMatchObject({ code: 0 });
   write(".gitignore", "*.tmp\n.DS_Store\n");
   write("tools/platform/pure.ts", "export const pure = 1;\n");
-  write("tools/platform/node.ts", "export const node = 1;\n");
+  write("tools/platform/fs.ts", 'import { pure } from "./pure.ts";\nexport const fs = pure;\n');
+  write(
+    "tools/platform/lock.ts",
+    'import { fs } from "./fs.ts";\nimport { pure } from "./pure.ts";\nexport const lock = [fs, pure];\n',
+  );
+  write(
+    "tools/platform/process.ts",
+    'import { pure } from "./pure.ts";\nexport const run = pure;\n',
+  );
+  write("tools/platform/git.ts", 'import { run } from "./process.ts";\nexport const git = run;\n');
 
   write(
     ".claude-plugin/marketplace.json",
     JSON.stringify({ plugins: [{ source: "./plug" }, { source: "./peer" }] }),
   );
 
-  write("plug/hooks/register.ts", "export const register = 1;\n");
+  registerImporting('import { pure } from "../lib/platform/pure.ts";');
   write("peer/x.ts", "export const x = 1;\n");
   write("other/x.ts", "export const x = 1;\n");
 });
@@ -60,8 +79,78 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const problems = (consumers: readonly Consumer[] = [PLUG]): Promise<string[]> =>
-  problemsIn(root, consumers);
+const problems = (dirs: readonly string[] = [PLUG]): Promise<string[]> => problemsIn(root, dirs);
+
+const copied = (...files: string[]): string[] => files.map((file) => `${PLUG}/${file}`);
+
+describe("the files of a copy", () => {
+  test("a plugin that imports fs.ts alone receives it and the pure.ts it imports", async () => {
+    registerImporting('import { fs } from "../lib/platform/fs.ts";');
+
+    expect(await writeCopies(root, [PLUG])).toEqual(copied("fs.ts", "pure.ts"));
+    expect(await problems()).toEqual([]);
+  });
+
+  test("a plugin that imports git.ts receives process.ts and pure.ts through it", async () => {
+    registerImporting('import { git } from "../lib/platform/git.ts";');
+
+    expect(await writeCopies(root, [PLUG])).toEqual(copied("git.ts", "process.ts", "pure.ts"));
+    expect(await problems()).toEqual([]);
+  });
+
+  test("an import marked type counts, since the typecheck reads the file", async () => {
+    registerImporting(
+      'import type { lock } from "../lib/platform/lock.ts";',
+      'export type { run } from "../lib/platform/process.ts";',
+    );
+
+    expect(await writeCopies(root, [PLUG])).toEqual(
+      copied("fs.ts", "lock.ts", "process.ts", "pure.ts"),
+    );
+    expect(await problems()).toEqual([]);
+  });
+
+  test("a module nothing imports is not copied, and is refused while it lingers, its own imports counting for nothing", async () => {
+    expect(await writeCopies(root, [PLUG])).toEqual(copied("pure.ts"));
+    copyFileSync(join(root, "tools/platform/git.ts"), join(root, PLUG, "git.ts"));
+
+    expect(await problems()).toEqual([
+      `${PLUG}/git.ts is no module plug/ imports, directly or through another: run ${WRITE_COMMAND}, which removes it`,
+    ]);
+    expect(await writeCopies(root, [PLUG])).toEqual([`${PLUG}/git.ts (removed)`]);
+    expect(await problems()).toEqual([]);
+  });
+
+  test("a module the plugin imports is refused while its copy lacks it, and each module it imports", async () => {
+    registerImporting('import { lock } from "../lib/platform/lock.ts";');
+
+    expect(await problems()).toEqual(
+      ["fs.ts", "lock.ts", "pure.ts"].map(
+        (file) => `${PLUG}/${file} is missing: run ${WRITE_COMMAND}`,
+      ),
+    );
+  });
+
+  test("refuses an import of a module tools/platform/ does not hold", async () => {
+    registerImporting(
+      'import { pure } from "../lib/platform/pure.ts";',
+      'import { node } from "../lib/platform/node.ts";',
+    );
+    await writeCopies(root, [PLUG]);
+
+    expect(await problems()).toEqual([
+      "plug/hooks/register.ts imports ../lib/platform/node.ts, which tools/platform/ does not hold: import one of its modules",
+    ]);
+  });
+
+  test("refuses a listed directory whose copy nothing imports", async () => {
+    registerImporting();
+
+    expect(await problems()).toEqual([
+      `${PLUG}: nothing in plug/ imports a module of it: remove the directory and its entry in tools/platform/consumers.ts`,
+    ]);
+  });
+});
 
 describe("the check", () => {
   test("passes copies identical to their source", async () => {
@@ -79,31 +168,10 @@ describe("the check", () => {
     ]);
   });
 
-  test("refuses a listed file the copy lacks", async () => {
-    expect(await problems()).toEqual([
-      `plug/lib/platform/pure.ts is missing: run ${WRITE_COMMAND}`,
-    ]);
-  });
-
-  test("refuses a file the copy holds beyond its list", async () => {
-    await writeCopies(root, [PLUG]);
-    write("plug/lib/platform/node.ts", "export const node = 1;\n");
-
-    expect(await problems()).toEqual([
-      `plug/lib/platform/node.ts is no file consumers.ts lists for plug/lib/platform: edit tools/platform/, never a copy, then run ${WRITE_COMMAND}, which removes it`,
-    ]);
-  });
-
   test("refuses a consumer whose directory does not exist", async () => {
-    expect(await problems([{ dir: "ghost/lib/platform", files: ["pure.ts"] }])).toEqual([
+    expect(await problems(["ghost/lib/platform"])).toEqual([
       "ghost/lib/platform: tools/platform/consumers.ts lists it, but ghost/ does not exist; fix the entry",
     ]);
-  });
-
-  test("refuses a copy of node.ts without the pure.ts it imports", async () => {
-    expect(await problems([{ dir: "plug/lib/platform", files: ["node.ts"] }])).toContain(
-      "plug/lib/platform: tools/platform/consumers.ts names its files once each, pure.ts alone or pure.ts and node.ts, which imports ./pure.ts",
-    );
   });
 
   test("leaves a file git ignores in a copy directory, and --write keeps it", async () => {
@@ -137,7 +205,7 @@ describe("the check", () => {
   });
 
   test("refuses a consumer outside <owner>/lib/platform or <owner>/src/platform", async () => {
-    const [problem] = await problems([{ dir: "plug/hooks/platform", files: ["pure.ts"] }]);
+    const [problem] = await problems(["plug/hooks/platform"]);
 
     expect(problem).toStartWith("plug/hooks/platform: a copy lives at <owner>/lib/platform");
   });
@@ -151,11 +219,12 @@ describe("the check", () => {
   });
 
   test("refuses a plugin's import of tools/platform/, and a consumer's", async () => {
-    await writeCopies(root, [PLUG, { dir: "other/lib/platform", files: ["pure.ts"] }]);
+    write("other/a.ts", 'import { pure } from "./lib/platform/pure.ts";\npure;\n');
+    await writeCopies(root, [PLUG, "other/lib/platform"]);
     write("plug/hooks/a.ts", 'import { pure } from "../../tools/platform/pure.ts";\npure;\n');
     write("other/b.ts", 'export { pure } from "../tools/platform/pure.ts";\n');
 
-    const found = await problems([PLUG, { dir: "other/lib/platform", files: ["pure.ts"] }]);
+    const found = await problems([PLUG, "other/lib/platform"]);
 
     expect(found.map((problem) => problem.slice(0, problem.indexOf(":")))).toEqual([
       "other/b.ts imports ../tools/platform/pure.ts",
@@ -241,32 +310,32 @@ describe("the check", () => {
 
 describe("--write", () => {
   test("repairs a differing copy, writes a missing one and removes a stray file", async () => {
-    const both: Consumer = { dir: "plug/lib/platform", files: ["pure.ts", "node.ts"] };
+    registerImporting('import { fs } from "../lib/platform/fs.ts";');
     write("plug/lib/platform/pure.ts", "edited\n");
     write("plug/lib/platform/stray.ts", "stray\n");
 
-    expect(await writeCopies(root, [both])).toEqual([
-      "plug/lib/platform/pure.ts",
-      "plug/lib/platform/node.ts",
+    expect(await writeCopies(root, [PLUG])).toEqual([
+      ...copied("fs.ts", "pure.ts"),
       "plug/lib/platform/stray.ts (removed)",
     ]);
-    expect(await problems([both])).toEqual([]);
+    expect(await problems()).toEqual([]);
     expect(readFileSync(join(root, "plug/lib/platform/pure.ts"), "utf8")).toBe(
       "export const pure = 1;\n",
     );
   });
 
   test("the command checks, refuses, then repairs with --write", async () => {
-    for (const file of ["pure.ts", "node.ts"]) {
+    const modules = readdirSync(join(REPO, "tools/platform")).filter(
+      (file) => file.endsWith(".ts") && !file.includes(".test.") && file !== "consumers.ts",
+    );
+
+    for (const file of modules) {
       copyFileSync(join(REPO, "tools/platform", file), join(root, "tools/platform", file));
     }
 
     mkdirSync(join(root, "scripts"));
     copyFileSync(join(REPO, "scripts/sync-platform.ts"), join(root, "scripts/sync-platform.ts"));
-    write(
-      "tools/platform/consumers.ts",
-      'export const CONSUMERS = [{ dir: "plug/lib/platform", files: ["pure.ts", "node.ts"] }];\n',
-    );
+    write("tools/platform/consumers.ts", 'export const CONSUMERS = ["plug/lib/platform"];\n');
 
     const script = join(root, "scripts/sync-platform.ts");
     const check = await run([process.execPath, script], { cwd: root });
@@ -283,8 +352,8 @@ describe("--write", () => {
       kind: "exited",
       code: 0,
     });
-    expect(readFileSync(join(root, "plug/lib/platform/node.ts"))).toEqual(
-      readFileSync(join(REPO, "tools/platform/node.ts")),
+    expect(readFileSync(join(root, "plug/lib/platform/pure.ts"))).toEqual(
+      readFileSync(join(REPO, "tools/platform/pure.ts")),
     );
   });
 });
