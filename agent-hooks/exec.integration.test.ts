@@ -134,6 +134,19 @@ describe("run", () => {
     ).toEqual({ kind: "missing", program: path.join(gone, "no-such-binary-xyz") });
   });
 
+  // No real pipe makes the platform's run throw past its launch: an env whose read throws, read before the spawn, does.
+  test("a throw that is no failed start goes up, never read as missing", async () => {
+    const env = {
+      get UNREADABLE(): string {
+        throw new Error("env unreadable");
+      },
+    };
+
+    await expect(
+      run(["sh", "-c", "exit 0"], { cwd: temp.repo, timeoutMs: 5000, env }),
+    ).rejects.toThrow("env unreadable");
+  });
+
   test("succeeded only for exit code 0", async () => {
     expect(succeeded(await sh("exit 0"))).toBe(true);
     expect(succeeded(await sh("exit 1"))).toBe(false);

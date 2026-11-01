@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { Argv, RunResult as ProcessResult } from "./lib/platform/node.ts";
-import { run as runProcess } from "./lib/platform/node.ts";
+import { LaunchError, run as runProcess } from "./lib/platform/node.ts";
 
 export type { Argv } from "./lib/platform/node.ts";
 
@@ -35,13 +35,14 @@ export function deadlineIn(ms: number, start = Date.now()): Deadline {
 /**
  * The platform's `run`, where a program that cannot start is `missing` whatever stops it: a name the PATH does not
  * hold, a path to no program, a program it may not run, or a cwd gone from disk, which the landing guard derives
- * from the command it reads.
+ * from the command it reads. Any other throw is no failed start, and goes up.
  */
 export async function run(argv: Argv, options: RunOptions): Promise<RunResult> {
   try {
     return await runProcess(argv, options);
-  } catch {
-    return { kind: "missing", program: argv[0] };
+  } catch (cause) {
+    if (cause instanceof LaunchError) return { kind: "missing", program: argv[0] };
+    throw cause;
   }
 }
 
