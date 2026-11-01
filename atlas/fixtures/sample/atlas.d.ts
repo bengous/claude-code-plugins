@@ -133,8 +133,10 @@ type Entry = { readonly trigger: string; readonly kind: "manual" | "auto" };
  * is an entry, its trigger naming what sets it off; any other starts at a node its section has
  * reached, an end of a step before it in that section. Its `carries` and its `when`, given, name
  * something: neither is empty or blank (`atlas check`). An end that names no node is refused
- * wherever the map is loaded. The page shows it in the deepest view that shows both its ends and
- * draws its arrow, else in their lowest common container's view, its lifted arrow lit.
+ * wherever the map is loaded. The page plays it in its journey's host view, the deepest that draws
+ * every end of every step, when that view draws both its ends; else in the deepest view that draws
+ * both; else in the deepest view that shows both and draws its arrow, else in their lowest common
+ * container's view. There it traces it between what draws or holds its ends.
  */
 export type Step = StepBase & (Entry | { readonly trigger?: never; readonly kind?: never });
 
@@ -262,14 +264,16 @@ export type Lang = "fr" | "en";
 export type Swatch = { readonly light: string; readonly dark: string };
 
 /**
- * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`), `back`, the arrow a
- * journey's step follows back, a node mark (coupled to the selected node, outside, carrying an
- * open point), or `later`, what comes after the work phase picked. The legend shows the lines the
- * open view uses.
+ * A line of the legend: an arrow kind (a plain flow, `dash`, `deny`), a journey's traced step
+ * (`forward` along its link, `back` along a link declared the other way, `when` under a
+ * condition), a node mark (coupled to the selected node, outside, carrying an open point), or
+ * `later`, what comes after the work phase picked. The legend shows the lines the open view uses.
  */
 export type LegendKey =
   | "flow"
+  | "forward"
   | "back"
+  | "when"
   | "dash"
   | "deny"
   | "coupled"

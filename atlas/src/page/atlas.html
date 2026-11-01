@@ -67,22 +67,28 @@
     stays in the link as the reader moves.
   - A map whose root declares `journeys` gets a menu in the header, a row
     per journey. Picking one plays it step by step, numbered across its
-    sections: each step opens the deepest view that shows both its ends,
-    one of them a child there, else the view of their lowest common
-    container, lights its arrow, named by the step's `carries` when it has
-    one, and dims the others; a step `back` lights it in the colour of a
-    return, and the legend says so. The panel shows the journey, the
-    step's section and its place in the journey, the arrow's label, an
-    entry's trigger and nature, the step's direction, the data's form and
-    its condition, its note and ← → buttons, which the arrow keys press
-    too, and a button that leaves the journey for the place it started
-    from, as Escape or a click on the empty sheet does once the view is
-    back at its fit; a click on an arrow does nothing, and any other move
-    leaves it from the step's view. Until it is left, a ribbon over the
-    foot of the stage shows it whole, the view fitted above it: a column per
-    section, a cell per step, which a click plays, the data's forms under
-    the cells, and a button that plays the steps one after another, as
-    Space does.
+    sections, in its host view, the deepest that draws every end of every
+    step; a step whose ends it does not draw plays in the deepest view
+    that draws both. There the map traces each step of the section shown
+    between what draws or holds its ends, forward in the accent, back in
+    the colour of a return, dashed under a condition, the step shown
+    darker, with its number, the data's form and its condition in pills,
+    a pill travelling along it, and an entry's trigger over its start; the
+    view's own arrows stay, dimmed, and the legend explains the trace. The
+    camera frames the whole view, the section's steps or the step alone,
+    the reader's choice in the stage's controls, remembered per browser.
+    The panel shows the journey, the step's section and its place in the
+    journey, the arrow's label, an entry's trigger and nature, the step's
+    direction, the data's form and its condition, its note and ← →
+    buttons, which the arrow keys press too, and a button that leaves the
+    journey for the place it started from, as Escape or a click on the
+    empty sheet does once the camera is back at its mode's frame; a click
+    on an arrow or on the trace does nothing, and any other move leaves it
+    from the step's view. Until it is left, a ribbon over the foot of the
+    stage shows it whole, the view framed above it: a column per section, a
+    cell per step, which a click plays and the pointer brings out on the
+    map, the data's forms under the cells, and a button that plays the
+    steps one after another, as Space does.
   - The panel on the right renders the fields of the selection, or of the
     open container, under the headings of the Config's `headings` or the
     dictionary. A `<cite>path:lines</cite>` shows as a small marker of its
@@ -325,10 +331,18 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .controls .mode[hidden] { display: none; }
 .controls .mode button:first-child { border-radius: 4px 0 0 4px; }
 .controls .mode button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
+/* The camera's modes on a journey, in the switch's place: its word, then its three buttons as one. */
+.controls .camera { align-items: center; }
+.controls .camera button { border-radius: 0; }
+.controls .camera button + button { margin-left: -1px; }
+.controls .camera button:first-of-type { border-radius: 4px 0 0 4px; }
+.camera-label { font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; color: var(--ink-3); margin-right: 6px; }
 .stage:has(.mode:not([hidden])) .hint { max-width: calc(100% - 560px); }
+.stage:has(.camera:not([hidden])) .hint { max-width: calc(100% - 660px); }
 /* The hint keeps the stage's right of the controls; where that leaves it under 200 px, it hides rather than cover them. */
 @container stage (width < 640px) { .hint { display: none; } }
 @container stage (width < 760px) { .stage:has(.mode:not([hidden])) .hint { display: none; } }
+@container stage (width < 860px) { .stage:has(.camera:not([hidden])) .hint { display: none; } }
 
 /* The cards (panel.ts's cardsHtml): a container's leaves side by side, over the drawing, which stays laid out beneath; the legend and the hint, which read the drawing, hide.
    The top and left borders, outside the scrolled box, keep the controls' band and the margin: the header row sticks below the one, the row keys' column beside the other, its shadow covering the gap after it. */
@@ -596,10 +610,43 @@ svg text.illegible { visibility: hidden; }
 .arrowhead { fill: var(--ink-3); }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
-/* The arrow a journey's step follows back (engine.ts): the colour of a return, its heads where the link puts them. */
-.flow.hot.back path { stroke: var(--back); }
-.flow.hot.back .flow-label { fill: var(--back); }
+.arrowhead.ink { fill: var(--ink); }
 .arrowhead.back { fill: var(--back); }
+
+/* A journey's trace (engine.ts, trace.ts), over every item of the view its step is played in: each step of the section shown, forward in the accent, back in the colour of a return, dashed under a condition, a band of the sheet under it; those played lighter, those to come lighter still, the step shown thicker and darker; its lines take no pointer. */
+.trace-halo, .trace-line, .trace-pulse { pointer-events: none; }
+.trace-halo { fill: none; stroke: var(--sheet); stroke-width: 6; opacity: 0.9; }
+.trace-line { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.trace-step.back .trace-line { stroke: var(--back); }
+.trace-step.when .trace-line { stroke-dasharray: 5 4; }
+.trace-step.past .trace-line { opacity: 0.7; }
+.trace-step.next .trace-line { opacity: 0.28; }
+.trace-step.next .trace-number { opacity: 0.45; }
+/* A cell of the ribbon under the pointer brings its step out. */
+.trace-step.peek .trace-line { opacity: 1; stroke-width: 2.6; }
+.trace-step.peek .trace-number { opacity: 1; }
+.trace-step.current .trace-line { stroke: var(--ink); stroke-width: 3.2; }
+.trace-step.current.back .trace-line { stroke: var(--back); }
+/* Its marks keep their size on screen (engine.ts scales them): a step's number in its circle, the data's form in a pill, the condition under the step shown, the travelling pill, an entry's pill. measure.ts measures their texts by these classes. */
+.trace-number circle { fill: var(--sheet); stroke: var(--accent); stroke-width: 1.3; }
+.trace-step.back .trace-number circle { stroke: var(--back); }
+.trace-step.when .trace-number circle { stroke-dasharray: 2.5 2; }
+.trace-number-t { font-family: var(--f-mono); font-size: 9.5px; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+.trace-form rect { fill: var(--ink); }
+.trace-form-t { font-family: var(--f-mono); font-size: 12px; font-weight: 500; fill: var(--sheet); dominant-baseline: central; }
+.trace-when rect { fill: var(--sheet); stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 2; }
+.trace-when-t { font-family: var(--f-body); font-size: 11.5px; font-style: italic; fill: var(--ink); dominant-baseline: central; }
+.trace-traveller circle { fill: var(--ink); stroke: var(--sheet); stroke-width: 2; }
+.trace-entry rect { fill: var(--ink); }
+.trace-entry .glyph { color: var(--sheet); }
+.trace-entry-t { font-family: var(--f-display); font-size: 13.5px; font-weight: 600; fill: var(--sheet); dominant-baseline: central; }
+/* An entry's start pulses twice: an outline that grows and fades. */
+.trace-pulse { fill: none; stroke: var(--ink); stroke-width: 2; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; opacity: 0; animation: trace-pulse 1.4s ease-out 2; }
+@keyframes trace-pulse { from { opacity: 0.9; transform: scale(0.7); } to { opacity: 0; transform: scale(1.9); } }
+/* The items the section shown touches, outlined in the accent, the two ends of the step shown in the ink; the view's other chips, cards and ghosts faded, never a box. */
+.view.tracing :is(.card, .chip, .ghost):not(.touched) { opacity: 0.4; }
+.box.touched .box-bg, .card.touched rect, .chip.touched rect, .ghost.touched rect { stroke: var(--accent); stroke-width: 1.6; }
+.box.end .box-bg, .card.end rect, .chip.end rect, .ghost.end rect { stroke: var(--ink); stroke-width: 2.2; }
 
 /* A node or an arrow that comes after the phase picked (phases.ts, engine.ts), and its legend line: faded and dotted over every other state, after them here, a pattern apart from the dashes of kind "off", of outside nodes and of couplings. */
 .box.later, .card.later, .chip.later, .ghost.later { opacity: 0.4; }
@@ -607,8 +654,6 @@ svg text.illegible { visibility: hidden; }
 .legend .later-mark { opacity: 0.4; }
 .flow.later > * { opacity: 0.4; }
 .flow.later path { stroke-dasharray: 0 6; stroke-linecap: round; }
-/* The arrow of a journey's step (engine.ts) keeps its dots but not their fading: the step stays easy to see. */
-.flow.later.step > * { opacity: 1; }
 
 @media (max-width: 860px) {
   html, body { height: auto; }
@@ -649,6 +694,13 @@ svg text.illegible { visibility: hidden; }
       <span class="mode" id="mode" hidden>
         <button type="button" id="btn-map" aria-controls="cards" aria-pressed="true"></button>
         <button type="button" id="btn-cards" aria-controls="cards" aria-pressed="false"></button>
+      </span>
+      <!-- On a journey, in the place of the switch: what the camera frames (engine.ts). -->
+      <span class="mode camera" id="camera" role="group" aria-labelledby="camera-label" hidden>
+        <span class="camera-label" id="camera-label"></span>
+        <button type="button" id="btn-camera-plan" aria-pressed="false"></button>
+        <button type="button" id="btn-camera-section" aria-pressed="true"></button>
+        <button type="button" id="btn-camera-step" aria-pressed="false"></button>
       </span>
     </div>
     <p class="hint" id="hint"></p>

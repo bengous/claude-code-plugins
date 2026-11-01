@@ -9,8 +9,8 @@ import {
   edgePush,
   panned,
   pushed,
+  strayed,
   zoomed,
-  zoomedIn,
 } from "./zoom.ts";
 
 const FIT: Rect = { x: -100, y: 0, w: 1200, h: 1000 };
@@ -94,7 +94,7 @@ describe("edgePush and pushed", () => {
   });
 });
 
-describe("clamped and zoomedIn", () => {
+describe("clamped and strayed", () => {
   test("a rect wider than the fit or off it is brought back to the fit", () => {
     expect(clamped({ x: 0, y: 0, w: 5000, h: 10 }, FIT)).toEqual(FIT);
     expect(clamped({ x: 900, y: 900, w: 600, h: 500 }, FIT)).toEqual({
@@ -105,9 +105,19 @@ describe("clamped and zoomedIn", () => {
     });
   });
 
-  test("zoomedIn tells the fit from a closer look", () => {
-    expect(zoomedIn(FIT, FIT)).toBe(false);
-    expect(zoomedIn(zoomed(FIT, [0, 0], 0.9, FIT), FIT)).toBe(true);
+  test("strayed tells the fit from a closer look", () => {
+    expect(strayed(FIT, FIT)).toBe(false);
+    expect(strayed(zoomed(FIT, [0, 0], 0.9, FIT), FIT)).toBe(true);
+  });
+
+  test("strayed tells a rest frame from a look zoomed out of it or panned off it", () => {
+    const rest = zoomed(FIT, [500, 500], 0.5, FIT);
+
+    expect(strayed(rest, rest)).toBe(false);
+    expect(strayed({ ...rest, x: rest.x + rest.w * 1e-9 }, rest)).toBe(false);
+    expect(strayed(FIT, rest)).toBe(true);
+    expect(strayed(panned(rest, 10, 0, FIT), rest)).toBe(true);
+    expect(strayed(zoomed(rest, [500, 500], 0.8, FIT), rest)).toBe(true);
   });
 });
 

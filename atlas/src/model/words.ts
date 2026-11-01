@@ -45,6 +45,11 @@ export type Words = {
   readonly ribbonLabel: string;
   readonly play: string;
   readonly pause: string;
+  /** The pill over the start of an entry the map traces: the word of its nature, its trigger. */
+  readonly entryPill: (kind: string, trigger: string) => string;
+  /** The stage's choice of what the camera frames on a journey, and its three modes. */
+  readonly cameraLabel: string;
+  readonly camera: { readonly plan: string; readonly section: string; readonly step: string };
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -109,6 +114,9 @@ const fr: Words = {
   ribbonLabel: "Étapes du parcours",
   play: "Lire",
   pause: "Pause",
+  entryPill: (kind, trigger) => `${kind} : ${trigger}`,
+  cameraLabel: "Caméra",
+  camera: { plan: "Plan entier", section: "Section", step: "Étape" },
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -124,7 +132,9 @@ const fr: Words = {
   zoneLabel: (title) => `Zone ${title}`,
   legend: {
     flow: "flux",
+    forward: "aller : la donnée suit le lien",
     back: "retour : la donnée revient le long du lien",
+    when: "sous condition",
     dash: "en sommeil, local ou sur demande",
     deny: "refusé",
     coupled: "change avec la brique choisie",
@@ -196,6 +206,9 @@ const en: Words = {
   ribbonLabel: "Journey steps",
   play: "Play",
   pause: "Pause",
+  entryPill: (kind, trigger) => `${kind}: ${trigger}`,
+  cameraLabel: "Camera",
+  camera: { plan: "Whole view", section: "Section", step: "Step" },
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,
@@ -211,7 +224,9 @@ const en: Words = {
   zoneLabel: (title) => `Zone ${title}`,
   legend: {
     flow: "flow",
+    forward: "forward: the data follows the link",
     back: "return: the data comes back along the link",
+    when: "under a condition",
     dash: "dormant, local or on demand",
     deny: "refused",
     coupled: "changes with the selected brick",

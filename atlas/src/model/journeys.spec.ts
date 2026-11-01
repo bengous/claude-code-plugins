@@ -1,20 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
+import JOURNEYS from "../../fixtures/journeys/map.ts";
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP, randomMap } from "../../fixtures/trees.ts";
-import type { Journey, Section, Step } from "./atlas.ts";
+import type { Journey, Node, Section, Step } from "./atlas.ts";
 import {
+  drawnIn,
   formAfter,
+  formBefore,
+  hostView,
   isEntry,
   joins,
   journeyOf,
+  playView,
   reachedBefore,
-  stepLights,
+  representativeIn,
   stepView,
   stepsOf,
+  tracedIn,
 } from "./journeys.ts";
 import type { Tree } from "./tree.ts";
-import { chainOf, holds, itemIn, liftIn, treeOf } from "./tree.ts";
+import { chainOf, holds, liftIn, treeOf } from "./tree.ts";
 import { showsIn, viewOf } from "./view.ts";
 
 const deep = treeOf(DEEP);
@@ -29,11 +35,6 @@ const MAPS: [string, Tree][] = [
 ];
 
 const step = (from: string, to: string): Step => ({ from, to });
-
-const lit = (tree: Tree, s: Step): string[] =>
-  viewOf(tree, stepView(tree, s)).arrows.flatMap((a) =>
-    stepLights(tree, a, s) ? [`${a.from} → ${a.to}`] : [],
-  );
 
 describe("stepView, on the deep map", () => {
   test("both ends in one view: the view of their container, both as cards", () => {
@@ -110,51 +111,203 @@ describe("stepView, on every map", () => {
   );
 });
 
-describe("stepLights", () => {
-  test("in the step's view, one arrow lights: the one between what stands for its ends", () => {
-    expect(lit(deep, step("a1", "a2"))).toEqual(["a1 → a2"]);
-    expect(lit(deep, step("a3", "X"))).toEqual(["a3 → X"]);
-    expect(lit(deep, step("a1", "X"))).toEqual(["a1 → X"]);
+const shop = treeOf(JOURNEYS);
+
+describe("drawnIn and representativeIn", () => {
+  test("a view draws its children, the chips of its container children and its ghosts", () => {
+    expect(["reader", "edge", "proxy", "db", "bank"].map((id) => drawnIn(shop, null, id))).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(["routes", "pricing", "payment"].map((id) => drawnIn(shop, null, id))).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(["pricing", "cart", "bank"].map((id) => drawnIn(shop, "checkout", id))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(drawnIn(shop, "checkout", "db")).toBe(false);
+    expect(drawnIn(shop, "checkout", "checkout")).toBe(false);
+    expect(drawnIn(shop, null, "nowhere")).toBe(false);
   });
 
-  test("in the common container's view, the arrow lifted between the boxes that hold the ends", () => {
-    expect(lit(deep, step("a5", "a2"))).toEqual(["A12 → A11"]);
-    expect(lit(deep, step("a3", "a6"))).toEqual(["A1 → A2"]);
-    expect(lit(deep, step("a1", "b1"))).toEqual(["A → B"]);
-    expect(lit(deep, step("y1", "a3"))).toEqual(["Y → A"]);
+  test("what draws a node stands for it, else the box or ghost of the view that holds it, else nothing", () => {
+    expect(representativeIn(shop, null, "proxy")).toBe("proxy");
+    expect(representativeIn(shop, null, "pricing")).toBe("app");
+    expect(representativeIn(shop, "checkout", "db")).toBe("data");
+    expect(representativeIn(shop, "checkout", "cart")).toBe("cart");
+    expect(representativeIn(shop, "checkout", "reader")).toBeNull();
+    expect(representativeIn(shop, "checkout", "app")).toBeNull();
+    expect(representativeIn(shop, "checkout", "nowhere")).toBeNull();
+    expect(representativeIn(deep, "A111", "a4")).toBe("A12");
+  });
+});
+
+const journeyOn = (tree: Tree, id: string): Journey => {
+  const journey = journeyOf(tree, id);
+
+  if (journey === null) {
+    throw new Error(`no journey ${id}`);
+  }
+
+  return journey;
+};
+
+const viewsOf = (tree: Tree, journey: Journey): (string | null)[] => {
+  const host = hostView(tree, journey);
+
+  return stepsOf(journey).map(({ step: at }) => playView(tree, host, at));
+};
+
+describe("hostView and playView, on the journeys fixture", () => {
+  test("no container draws every end of a fixture's journey: each is hosted by the root", () => {
+    for (const id of ["place-order", "sign-in", "pay-and-confirm"]) {
+      expect(hostView(shop, journeyOn(shop, id))).toBeNull();
+    }
   });
 
-  test("a two-headed link lights for a step either way; a one-way link only its own way", () => {
-    expect(lit(deep, step("B", "A"))).toEqual(["A → B"]);
-    expect(lit(deep, step("b1", "b2"))).toEqual(["b1 → b2"]);
+  test("a step plays in the root when it draws both ends, else the deepest view that does, else stepView's", () => {
+    expect(viewsOf(shop, journeyOn(shop, "place-order"))).toEqual([
+      null,
+      null,
+      "app",
+      "checkout",
+      "checkout",
+      null,
+      null,
+      null,
+    ]);
+    expect(viewsOf(shop, journeyOn(shop, "sign-in"))).toEqual([null, null, "web", null]);
+    expect(viewsOf(shop, journeyOn(shop, "pay-and-confirm"))).toEqual([
+      "checkout",
+      "checkout",
+      "checkout",
+      "checkout",
+      null,
+      null,
+      null,
+    ]);
+    expect(stepView(shop, step("payment", "db"))).toBeNull();
+  });
+});
 
-    const view = viewOf(deep, "A111");
-    const back = step("a2", "a1");
+const node = (id: string): Node => ({ id, label: id, sub: "", color: "c" });
 
-    expect(view.arrows.filter((a) => stepLights(deep, a, back))).toEqual([]);
+const holder = (id: string, children: readonly Node[]): Node => ({ ...node(id), children });
+
+// Two ends below S, side by side, that S draws as children, the root does not, and P1 and Q1, a
+// level deeper, both draw as ghosts.
+const TWINS = treeOf({
+  root: {
+    title: "Twins",
+    children: [
+      holder("T", [
+        holder("S", [node("e1"), node("e2"), holder("P1", [node("p")]), holder("Q1", [node("q")])]),
+      ]),
+      node("Z"),
+      node("W"),
+    ],
+  },
+  links: [
+    { from: "p", to: "e1", label: "pe1" },
+    { from: "p", to: "e2", label: "pe2" },
+    { from: "q", to: "e1", label: "qe1" },
+    { from: "q", to: "e2", label: "qe2" },
+    { from: "Z", to: "W", label: "zw" },
+  ],
+});
+
+const walking = (steps: readonly Step[]): Journey => ({
+  id: "walk",
+  label: "Walk",
+  sections: [{ label: "Walk", steps }],
+});
+
+describe("hostView and playView, among views alike", () => {
+  test("the host is the deepest view that draws every end, the first depth-first among the deepest", () => {
+    expect(hostView(TWINS, walking([step("e1", "e2")]))).toBe("P1");
+    expect(hostView(TWINS, walking([step("e1", "p")]))).toBe("P1");
+    expect(hostView(TWINS, walking([step("e1", "Q1")]))).toBe("S");
+    expect(hostView(TWINS, walking([step("Z", "W"), step("e1", "e2")]))).toBeNull();
   });
 
-  test("a step back lights the arrow of the link it follows, drawn the link's way", () => {
-    expect(lit(deep, { from: "a2", to: "a1", back: true })).toEqual(["a1 → a2"]);
-  });
+  test("a step the host does not draw plays in the deepest view that draws both, the first depth-first", () => {
+    const journey = walking([step("Z", "W"), step("e1", "e2")]);
 
+    expect(viewsOf(TWINS, journey)).toEqual([null, "P1"]);
+    expect(playView(TWINS, "Q1", step("e1", "e2"))).toBe("Q1");
+    expect(playView(TWINS, "Q1", step("Z", "W"))).toBeNull();
+  });
+});
+
+describe("hostView, playView and tracedIn, on every map", () => {
   test.each(MAPS)(
-    "%s: every link, as a step, lights one arrow, between what stands for its ends",
+    "%s: the host draws every end, no deeper view does; every step plays in a view that traces it",
     (_, tree) => {
-      for (const link of tree.map.links) {
-        const s = step(link.from, link.to);
-        const open = stepView(tree, s);
-        const ends = [itemIn(tree, open, s.from), itemIn(tree, open, s.to)];
-        const arrows = viewOf(tree, open).arrows.filter((a) => stepLights(tree, a, s));
-        const [arrow] = arrows;
+      const journey: Journey = {
+        id: "links",
+        label: "Every link",
+        sections: [{ label: "Links", steps: tree.map.links.map((l) => step(l.from, l.to)) }],
+      };
 
-        expect(arrows).toHaveLength(1);
-        expect(ends).toContain(arrow?.from ?? null);
-        expect(ends).toContain(arrow?.to ?? null);
-        expect(arrow?.from).not.toBe(arrow?.to);
+      const ends = stepsOf(journey).flatMap(({ step: at }) => [at.from, at.to]);
+      const host = hostView(tree, journey);
+      const depth = (c: string | null): number => (c === null ? 0 : chainOf(tree, c).length);
+
+      expect(host === null || ends.every((end) => drawnIn(tree, host, end))).toBe(true);
+
+      for (const id of tree.order) {
+        if (tree.nodes.get(id)?.children !== undefined && depth(id) > depth(host)) {
+          expect(ends.every((end) => drawnIn(tree, id, end))).toBe(false);
+        }
+      }
+
+      for (const at of stepsOf(journey)) {
+        const open = playView(tree, host, at.step);
+        const traced = tracedIn(tree, open, journey, 1).find((t) => t.at.n === at.n);
+
+        expect(traced).toBeDefined();
+        expect(traced?.from).not.toBe(traced?.to);
       }
     },
   );
+});
+
+describe("tracedIn", () => {
+  const pay = journeyOn(shop, "pay-and-confirm");
+
+  const traced = (container: string | null, s: number): [number, string, string][] =>
+    tracedIn(shop, container, pay, s).map(({ at, from, to }) => [at.n, from, to]);
+
+  test("in the view a section plays in, each step between what stands for its ends", () => {
+    expect(traced("checkout", 1)).toEqual([
+      [1, "cart", "pricing"],
+      [2, "pricing", "payment"],
+      [3, "payment", "bank"],
+      [4, "bank", "payment"],
+      [5, "payment", "data"],
+    ]);
+    expect(traced(null, 2)).toEqual([
+      [6, "db", "outbox"],
+      [7, "outbox", "mailer"],
+    ]);
+  });
+
+  test("a step whose ends share what stands for them, or with an end nothing stands for, is not traced", () => {
+    expect(traced(null, 1)).toEqual([
+      [3, "app", "bank"],
+      [4, "bank", "app"],
+      [5, "app", "db"],
+    ]);
+    expect(traced("data", 1)).toEqual([[5, "app", "db"]]);
+    expect(traced("edge", 1)).toEqual([]);
+  });
 });
 
 describe("joins and journeyOf", () => {
@@ -264,6 +417,17 @@ describe("a journey's steps", () => {
       "a charge",
       null,
       "a confirmation",
+      null,
+    ]);
+  });
+
+  test("the data's form as a step starts: the form after the step before it in its section, none for a section's first", () => {
+    expect([1, 2, 3, 4, 5, 6].map((n) => formBefore(PAY, n))).toEqual([
+      null,
+      "the cart",
+      "the cart",
+      "a charge",
+      null,
       null,
     ]);
   });

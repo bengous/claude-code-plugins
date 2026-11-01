@@ -115,7 +115,8 @@ export function onActivate(g: SVGGElement, label: string, fn: () => void): void 
   });
 }
 
-// The background grid and the four arrowheads (plain, refused, lit, lit by a journey's step back).
+// The background grid and the arrowheads: plain, refused, lit (a journey's traced step forward
+// too), a journey's step shown forward, and its step back (engine.ts).
 export function defs(svg: SVGSVGElement): void {
   const d = el("defs", {}, svg);
 
@@ -135,6 +136,7 @@ export function defs(svg: SVGSVGElement): void {
     ["arr", ""],
     ["arr-deny", "deny"],
     ["arr-hot", "hot"],
+    ["arr-ink", "ink"],
     ["arr-back", "back"],
   ] as const) {
     const m = el(

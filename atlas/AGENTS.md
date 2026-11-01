@@ -103,15 +103,18 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      whether a view draws something dimmed (phases.spec.ts)
   journeys.ts        a journey's steps: numbered across its sections (stepsOf), an entry
                      (isEntry), the nodes a section has reached (reachedBefore), the data's form
-                     after a step (formAfter), the link a step follows (joins), the view it
-                     opens, the deepest that shows both its ends with one a child there, else
-                     their lowest common container's (stepView), and the arrow it lights there,
-                     lifted or not (stepLights) (journeys.spec.ts)
+                     before and after a step (formBefore, formAfter), the link a step follows
+                     (joins); what a view draws, a child, a chip or a ghost (drawnIn), and what
+                     stands for a node there (representativeIn); the journey's host view, the
+                     deepest that draws every end (hostView), the view a step plays in, the
+                     host, else the deepest that draws both ends, else the one it opens on its
+                     own (playView, stepView), and the steps of a section a view traces
+                     (tracedIn) (journeys.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
                      grammar on `Params`, read against the tree and the Config's phases,
-                     `Scope`), the view a journey's step shows in place of the place
+                     `Scope`), the view a journey's step plays in, shown in place of the place
                      (shownPlace), and the page's state window.atlas shows agents
                      (navigation.spec.ts)
   threads.ts         open points and threads: who a point waits for (threads.spec.ts)
@@ -160,7 +163,11 @@ src/page/            what runs in the browser
                      (camera.spec.ts)
   zoom.ts            the free look inside a view, pure: the camera's rect zoomed around a point,
                      panned, or pushed toward an edge the mouse rests at, kept within the rect
-                     that fits the view, and the captions a scale leaves readable (zoom.spec.ts)
+                     that fits the view, whether it strayed from the rest frame, and the
+                     captions a scale leaves readable (zoom.spec.ts)
+  trace.ts           a journey's trace, pure: a step's curve between the rects of its ends'
+                     representatives, the travelling pill's way along it, and the camera's
+                     frame of a mode (trace.spec.ts)
   layout.ts          runs ELK's layered layout, flat, in the map's direction, its rows wrapped to an
                      aspect or its layers partitioned by rank, a ghost held to the first or the last
                      layer (layout.spec.ts, which runs ELK under Bun)
@@ -277,16 +284,16 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   no bare id lands on, a ghost or a container among them. After a `?` come the parameters of the
   reading state, `key=value` joined by `&`, each written only away from its default, such as
   `#app?mode=cards&phase=MVP`; their grammar, the rules every new one follows and what survives a
-  move are on `Params`. With `journey=<id>&step=<n>`, the page shows that step's view, and the
-  place and the mode written are where the journey started (`shownPlace`). A fragment typed into the address
-  bar is followed.
+  move are on `Params`. With `journey=<id>&step=<n>`, the page shows the view that step plays in,
+  and the place and the mode written are where the journey started (`shownPlace`). A fragment
+  typed into the address bar is followed.
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the step's on a journey, the selected id, the ids the open view
   draws (boxes, chips, ghosts), each parameter of the fragment (`mode`, `phase`, `journey`,
   `step`) and the fragment, frozen and replaced
-  at each move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), `sourcesInFull`,
-  and the `citation` whose lines the panel shows, or null; a getter, so a page script cannot
-  assign it.
+  at each move, with the view's `zoom`, 1 at its fit (`zoomOf` in `engine.ts`), the `camera`'s
+  mode, `sourcesInFull`, and the `citation` whose lines the panel shows, or null; a getter, so a
+  page script cannot assign it.
 - A `<cite>` whose text is a citation (`citationOf` in `citations.ts`) shows as a small mono
   marker of its lines, the whole citation as its tooltip; a `<cite>` of other text, a `kicker`,
   and a `label`, plain text even as the heading of a node without `title`, show as written. The header's Sources toggle, shown when the map has a citation, shows every
@@ -316,43 +323,72 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   took, shortened as a placed label is when it does not fit. The panel shows a node's phase under
   its own heading. The phase stays as the reader moves. A map without phases has no stepper.
 - With the root's `journeys`, the header shows a menu, a row per journey and its count of steps,
-  numbered across its sections. Picking one plays it from its first step: each step opens the
-  deepest view that shows both its ends with one a child there, else their lowest common
-  container's (`stepView` in `journeys.ts`), its arrow hot and the others dimmed, nothing
-  selected. The hot arrow shows the step's `carries` in place of its label (`relabel` in
-  `draw.ts`), over the phase's label too; a step `back` lights it in `--back`, heads included,
-  and the legend adds its line. The panel shows the journey's label, the step's section and its
-  place in the journey, the step's `carries` or the label of the link it follows over its ends,
-  for an entry the icon of its nature beside its trigger and the word of its nature, the step's
-  direction, the data's form once it is done (`formAfter`) and its condition, and its note, with
-  ← → buttons, which the arrow keys press too, and under them a button that leaves the journey
-  for the place it started from (`renderJourney` in `panel.ts`). The mode switch hides on a
-  journey, which shows each step as a drawing; one started from the cards keeps `mode=cards` in
-  the fragment and shows the cards again once left for where it started. A phase picked stays; the step's arrow, when it comes
-  after that phase, keeps its dots but not their fading. A map without journeys has no menu.
+  numbered across its sections. Picking one plays it from its first step, nothing selected, in
+  its host view, the deepest that draws every end of every step as a box, a card, a chip or a
+  ghost (`hostView` in `journeys.ts`); a step whose ends the host does not both draw plays in the
+  deepest view that does, else in the view `stepView` opens (`playView`). The panel shows the
+  journey's label, the step's section and its place in the journey, the step's `carries` or the
+  label of the link it follows over its ends, for an entry the icon of its nature beside its
+  trigger and the word of its nature, the step's direction, the data's form once it is done
+  (`formAfter`) and its condition, and its note, with ← → buttons, which the arrow keys press
+  too, and under them a button that leaves the journey for the place it started from
+  (`renderJourney` in `panel.ts`). The mode switch hides on a journey, which shows each step as a
+  drawing, the camera's modes in its place; one started from the cards keeps `mode=cards` in the
+  fragment and shows the cards again once left for where it started. A phase picked stays, and
+  leaves the trace undimmed. A map without journeys has no menu.
+- The view a step plays in traces each step of its section over every item, between the
+  representatives of its ends, what draws each end or else the box or ghost that holds it
+  (`representativeIn`, `tracedIn`), a step whose ends share one, or with an end without one,
+  untraced: a quadratic curve from border to border, bowed to the right of its way, further for
+  each step before it on the same pair (`curveOf` in `trace.ts`), a ghost drawn twice left by its
+  "in" copy and reached at its "out" one going forward, the other way back. Forward in `--accent`,
+  back in `--back`, dashed under a condition, a band of `--sheet` under each; the steps played
+  lighter, those to come lighter still, the step shown thicker, in `--ink` forward; each with its
+  number at its middle, but the step shown when it has a data's form, which a pill shows over its
+  middle, its condition in a pill under it. A pill travels along the step shown, the data's form
+  before the step for the first half of its way, then after it (`travelled`, `formAt`); over an
+  entry's start, a pill of its nature and trigger, and the start pulses twice. The items the
+  section touches are outlined, the step's two ends darker, the view's other chips, cards and
+  ghosts faded, never a box; the view's own arrows stay, dimmed, no arrow hot. Numbers, pills and
+  the travelling dot keep their size on screen at any zoom (`placeTrace` in `engine.ts`); a cell
+  of the ribbon under the pointer brings its step's trace out; the legend has a line for each kind
+  of step traced, forward, back, under a condition. Under `prefers-reduced-motion`, the pill sits
+  at its end, the camera jumps and nothing pulses.
+- On a journey the stage's controls choose what the camera frames, remembered per browser under
+  `atlas.camera`, `section` for any other value: `plan`, the view's fit; `section`, every step of
+  the section traced there, the pills of its entries and 60 px on screen around, moving only at a
+  new section or view; `step`, the step shown and its entry's pill, at each step (`frameOf` in
+  `trace.ts`), never closer than `MAX_ZOOM`, within the fit, above the ribbon. That frame is the
+  journey's rest frame (`restOf` in `engine.ts`) where the fit is off a journey: where a move
+  ends, where a resize or a new layout lands, what the fit button, Escape and a click on the empty
+  sheet bring back, the edge push sliding only once the reader looked away from it. A move to the
+  step's view, or a mode picked, heads straight for that frame, in `DUR`.
 - On a journey, a ribbon over the foot of the stage shows it whole (`ribbon.ts`): a column per
   section with a step, as wide as its count of steps; a cell per step, at least 22 px wide, marked
   as an entry, a return, a condition, played or shown, which a click plays; under the cells, each
   form of the data (`formAfter`) over the steps it holds. Past the cells' minimum it scrolls
   sideways, the step shown's cell kept in sight. Written once per journey and marked in place at
-  each step, it keeps the focus. It floats, leaving the drawing area's size alone: the fit frames
-  the view above it and the legend rises above it, again each time its height moves (its
+  each step, it keeps the focus. It floats, leaving the drawing area's size alone: the rest frame
+  aims above it and the legend rises above it, again each time its height moves (its
   `ResizeObserver`). Its play button, which Space presses too unless the focus is on a text field,
   a button or a `.hit`, plays a step every 2 s up to the last, from the first when pressed there; a
-  step the reader plays (← →, a cell, the menu), a fragment typed or leaving stops it, a phase
-  picked does not.
+  step the reader plays (← →, a cell, the menu), a fragment typed or leaving stops it, a phase or
+  a camera mode picked does not.
 - Escape closes the lines viewer, then deselects, then goes up one level; so does a click on the
-  empty sheet. On a journey, both leave it for the place it started from, a click on an arrow or
-  its label does nothing, and any other move leaves it from the step's view.
+  empty sheet. On a journey, both bring the camera's frame back first when the reader looked away
+  from it, then leave it for the place it started from; a click on an arrow or its label, or on a
+  number or a pill of the trace, does nothing, and any other move leaves it from the step's view.
 - The header's lists, the journeys' and the open points', each open under their own button; a
   click outside an open list only closes it. A box enters its container, a card or a ghost is selected where
   it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
-  the rect that fits the view (`zoom.ts`); a mouse that rests near an edge of a zoomed view
+  the rect that fits the view (`zoom.ts`); a mouse that rests near an edge of a view looked into
   slides it that way, faster the closer to the edge, after a short dwell so that a pass toward
   the panel moves nothing (`edgePush` and `pushed` in `zoom.ts`), the place and the panel as
-  they were; the fit button, Escape and a click on the empty sheet bring the fit back before
-  they do anything else, but over the cards, and a move to another view starts at its fit.
+  they were, the bottom edge at the ribbon's top on a journey; the fit button, Escape and a
+  click on the empty sheet bring the rest frame back before they do anything else, but over the
+  cards, and a move to another view starts at its own: the fit, or the camera's frame on a
+  journey.
 - A caption (an arrow's label, a box's tag, a line of a card's sub-title) under 10 px on screen
   hides, keeping its spot, unless its arrow is lit by a hover or a keyboard focus or hot from the
   selection, or its own box or card is hovered, focused or selected (`captionShown` in

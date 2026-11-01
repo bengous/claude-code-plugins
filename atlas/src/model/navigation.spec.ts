@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import JOURNEYS from "../../fixtures/journeys/map.ts";
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP, randomMap } from "../../fixtures/trees.ts";
 import type { Journey, Node } from "./atlas.ts";
@@ -673,6 +674,31 @@ describe("a journey", () => {
     expect(shownPlace(onJourneys, start, playing(3))).toEqual(at(["server", "app"]));
     expect(shownPlace(onJourneys, start, playing(4))).toEqual(at(["server"]));
     expect(shownPlace(onSample, start, playing(2))).toBe(start);
+  });
+
+  test("on the journeys fixture, each step shows the view it plays in, in its journey's host view, the root", () => {
+    const shop: Scope = unphased(treeOf(JOURNEYS));
+    const start = at(["data"], "db");
+
+    const shownOf = (journey: string, steps: number): (readonly string[])[] =>
+      Array.from(
+        { length: steps },
+        (_, i) => shownPlace(shop, start, { ...DEFAULTS, journey, step: i + 1 }).path,
+      );
+
+    const checkout = ["app", "shop", "checkout"];
+
+    expect(shownOf("place-order", 8)).toEqual([[], [], ["app"], checkout, checkout, [], [], []]);
+    expect(shownOf("sign-in", 4)).toEqual([[], [], ["app", "web"], []]);
+    expect(shownOf("pay-and-confirm", 7)).toEqual([
+      checkout,
+      checkout,
+      checkout,
+      checkout,
+      [],
+      [],
+      [],
+    ]);
   });
 
   test("the step shown, numbered across the sections, the first for a step past the last; none off a journey", () => {

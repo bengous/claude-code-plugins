@@ -17,12 +17,21 @@
 import config from "atlas:config";
 import map from "atlas:map";
 
-import type { Journey, Step } from "../model/atlas.ts";
+import type { Journey } from "../model/atlas.ts";
 import { cardsOf } from "../model/cards.ts";
 import type { Citation } from "../model/citations.ts";
 import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
-import { journeyOf, stepLights, stepsOf } from "../model/journeys.ts";
+import type { EntryStep, Numbered, Traced } from "../model/journeys.ts";
+import {
+  formAfter,
+  formBefore,
+  isEntry,
+  journeyOf,
+  representativeIn,
+  stepsOf,
+  tracedIn,
+} from "../model/journeys.ts";
 import type { Mode, PageState, Params, Place, PlaceEvent, Scope } from "../model/navigation.ts";
 import {
   DEFAULTS,
@@ -34,7 +43,6 @@ import {
   paramsOfHash,
   placeOfHash,
   shownPlace,
-  stepShown,
 } from "../model/navigation.ts";
 import type { Dimmed } from "../model/phases.ts";
 import { arrowDimmed, dimmedBy, dimsIn, labelAt } from "../model/phases.ts";
@@ -51,9 +59,10 @@ import type { Drawn, Packing } from "./draw.ts";
 import { drawView, relabel } from "./draw.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { legendHtml, legendKeys } from "./legend.ts";
-import { fontKey } from "./measure.ts";
+import { fontKey, textWidth } from "./measure.ts";
 import type { LineSpan, Stretch, ThreadState, Viewer } from "./panel.ts";
 import {
+  ICONS,
   cardsHtml,
   journeysHtml,
   linesAround,
@@ -67,8 +76,19 @@ import type { Span } from "./ribbon.ts";
 import { cellMark, covers, ribbonHtml } from "./ribbon.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
-import { defs, el, esc } from "./svg.ts";
-import { captionShown, edgePush, panned, pushed, zoomed, zoomedIn } from "./zoom.ts";
+import { defs, el, esc, text as svgText } from "./svg.ts";
+import type { Curve, Pinned } from "./trace.ts";
+import {
+  TRAVEL,
+  curveOf,
+  formAt,
+  frameOf,
+  pathOf,
+  pointAt,
+  repeatsOf,
+  travelled,
+} from "./trace.ts";
+import { captionShown, edgePush, panned, pushed, strayed, zoomed } from "./zoom.ts";
 
 const { tree, settings } = drawableOf(map, config);
 
@@ -112,6 +132,8 @@ const mapButton = byId("btn-map", HTMLButtonElement);
 
 const cardsButton = byId("btn-cards", HTMLButtonElement);
 
+const cameraSwitch = byId("camera", HTMLSpanElement);
+
 const stepper = byId("phases", HTMLDivElement);
 
 const journeysButton = byId("btn-journeys", HTMLButtonElement);
@@ -138,6 +160,17 @@ const steps = [null, ...settings.phases].map(
     return [phase, button];
   },
 );
+
+// What the camera frames on a journey: the whole view a step is played in, the steps of its
+// section traced there, or the step alone.
+type CameraMode = "plan" | "section" | "step";
+
+const CAMERA_MODES: readonly CameraMode[] = ["plan", "section", "step"];
+
+const cameraButtons = CAMERA_MODES.map((mode): readonly [CameraMode, HTMLButtonElement] => [
+  mode,
+  byId(`btn-camera-${mode}`, HTMLButtonElement),
+]);
 
 function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
   const text =
@@ -238,6 +271,11 @@ function dressPage(): void {
     journeyList.setAttribute("aria-label", words.journeysButton);
     ribbon.setAttribute("aria-label", words.ribbonLabel);
     playButton.textContent = words.play;
+    byId("camera-label", HTMLSpanElement).textContent = words.cameraLabel;
+
+    for (const [mode, button] of cameraButtons) {
+      button.textContent = words.camera[mode];
+    }
   }
 }
 
@@ -265,9 +303,20 @@ let place: Place = HOME;
 // The rest of the reading state the fragment carries (navigation.ts's grammar).
 let params: Params = DEFAULTS;
 
-// The place the page shows: the reader's, or on a journey its step's view, the reader's place
-// then being where the journey started (shownPlace).
-const here = (): Place => shownPlace(scope, place, params);
+// The place the page shows: the reader's, or on a journey the view its step is played in, the
+// reader's place then being where the journey started (shownPlace). A hover asks it at each move
+// of the pointer, and a journey's host view reads every end of its steps: it is kept until the
+// place or the parameters change.
+let hereFor: { readonly place: Place; readonly params: Params; readonly shown: Place } | null =
+  null;
+
+function here(): Place {
+  if (hereFor?.place !== place || hereFor.params !== params) {
+    hereFor = { place, params, shown: shownPlace(scope, place, params) };
+  }
+
+  return hereFor.shown;
+}
 
 let cam: Camera | null = null;
 
@@ -507,6 +556,10 @@ function paintView(d: Drawn, op: number, transform: string, scale: number): void
   paintLayer(d.layer, op, transform);
   scales.set(d.layer, scale);
   showCaptions(d);
+
+  if (trace?.d === d) {
+    placeTrace(performance.now());
+  }
 }
 
 // The layers painted last: a frame touches the image's own layers and hides those that left it.
@@ -536,7 +589,8 @@ function paint(img: Image): void {
   painted = now;
 }
 
-// A move's last frame re-fits the view: the drawing area may have changed size on the way.
+// A move's last frame lands on the view's rest frame (restOf): the drawing area may have changed
+// size on the way.
 function frame(): void {
   raf = 0;
 
@@ -556,15 +610,16 @@ function frame(): void {
 }
 
 function jumpTo(key: Key): void {
-  const image = imageOf(key);
+  const image = restOf(key);
   cam = { kind: "idle", image };
+  framedBy = framingOf(key);
   paint(image);
   fitButton.disabled = true;
 }
 
 // A free look inside the view shown: the wheel zooms around the pointer, a drag pans, two
 // pointers pinch, all within the fit (zoom.ts). The fit button, a click on the empty sheet or
-// Escape bring the fit back, and a move to another view starts at its fit.
+// Escape bring the rest frame back (restOf), and a move to another view starts at its own.
 const WHEEL = 0.0018;
 
 const WHEEL_LINE = 20;
@@ -581,15 +636,15 @@ function look(vb: Rect): void {
   const image = { ...cam.image, vb };
   cam = { kind: "idle", image };
   paint(image);
-  fitButton.disabled = !zoomedIn(vb, imageOf(image.space).vb);
+  fitButton.disabled = !strayed(vb, restOf(image.space).vb);
 }
 
-const isZoomed = (): boolean =>
-  cam?.kind === "idle" && zoomedIn(cam.image.vb, imageOf(cam.image.space).vb);
+const astray = (): boolean =>
+  cam?.kind === "idle" && strayed(cam.image.vb, restOf(cam.image.space).vb);
 
-// Whether the view was zoomed into; if so, back to its fit.
+// Whether the reader looked away from the rest frame; if so, back to it.
 function unzoom(): boolean {
-  if (cam?.kind !== "idle" || !isZoomed()) {
+  if (cam?.kind !== "idle" || !astray()) {
     return false;
   }
 
@@ -720,10 +775,10 @@ fitButton.addEventListener("click", () => {
   unzoom();
 });
 
-// A mouse resting near an edge of a zoomed view slides it that way, faster the closer to the edge,
-// up to EDGE.speed screen px per second, once it rested there EDGE.dwellMs: a pass toward the
-// panel or the header moves nothing. At the fit, during a drag or a move, or under a touch, nothing
-// slides.
+// A mouse resting near an edge of a view the reader looked into slides it that way, faster the
+// closer to the edge, up to EDGE.speed screen px per second, once it rested there EDGE.dwellMs: a
+// pass toward the panel or the header moves nothing. At the rest frame (restOf), during a drag or
+// a move, or under a touch, nothing slides. On a journey, the bottom edge is the ribbon's top.
 const EDGE = { band: 56, speed: 900, dwellMs: 180 };
 
 // The longest gap between two frames that counts, in ms: a tab shown again does not leap.
@@ -774,24 +829,24 @@ function setPush(next: Point): void {
 }
 
 svg.addEventListener("pointermove", (e) => {
-  if (e.pointerType !== "mouse" || !isZoomed()) {
+  if (e.pointerType !== "mouse" || !astray()) {
     setPush([0, 0]);
 
     return;
   }
 
   const r = svg.getBoundingClientRect();
-  setPush(
-    edgePush([e.clientX, e.clientY], { x: r.left, y: r.top, w: r.width, h: r.height }, EDGE.band),
-  );
+  const bottom = ribbon.hidden ? r.bottom : Math.min(r.bottom, ribbon.getBoundingClientRect().top);
+  const area = { x: r.left, y: r.top, w: r.width, h: bottom - r.top };
+  setPush(edgePush([e.clientX, e.clientY], area, EDGE.band));
 });
 
 svg.addEventListener("pointerleave", () => {
   setPush([0, 0]);
 });
 
-// A move between a view and one of its ancestors is animated; any other, and the first, lands at
-// once.
+// A move to a view's rest frame (restOf): within the view, or between it and one of its
+// ancestors, it is animated; any other, and the first, lands at once.
 function moveTo(key: Key, from: Key): void {
   const related =
     from === key ||
@@ -804,9 +859,11 @@ function moveTo(key: Key, from: Key): void {
     return;
   }
 
+  framedBy = framingOf(key);
+
   cam = camera(
     cam,
-    { type: "go", to: imageOf(key), now: performance.now(), dur: reduced ? 0 : DUR },
+    { type: "go", to: restOf(key), now: performance.now(), dur: reduced ? 0 : DUR },
     between,
   );
 
@@ -815,12 +872,476 @@ function moveTo(key: Key, from: Key): void {
   }
 }
 
+// The journey played and its step shown, as the page shows them; null off a journey.
+type Played = { readonly journey: Journey; readonly at: Numbered };
+
+function playedNow(): Played | null {
+  const journey = journeyOf(tree, pageState.journey);
+  const at = journey === null ? undefined : stepsOf(journey)[pageState.step - 1];
+
+  return journey === null || at === undefined ? null : { journey, at };
+}
+
+// A step of the section shown that a view traces (tracedIn): the rects of its ends'
+// representatives and its curve, bowed further for each step before it between the same two.
+type Leg = Traced & { readonly a: Rect; readonly b: Rect; readonly curve: Curve };
+
+// A ghost drawn twice: a step forward leaves its "in" copy and reaches its "out" one, as the
+// view's arrows do; a step back leaves the "out" copy and reaches the "in" one.
+const rectIn = (d: Drawn, id: string, copy: "in" | "out"): Rect | undefined =>
+  d.rects.get(id) ?? d.chips.get(id) ?? d.ghosts.get(id)?.[copy];
+
+function legsOf(d: Drawn, played: Played): Leg[] {
+  const traced = tracedIn(tree, d.view.id, played.journey, played.at.s);
+  const repeats = repeatsOf(traced.map(({ from, to }) => JSON.stringify([from, to])));
+
+  return traced.flatMap((t, i): Leg[] => {
+    const back = t.at.step.back === true;
+    const a = rectIn(d, t.from, back ? "out" : "in");
+    const b = rectIn(d, t.to, back ? "in" : "out");
+
+    return a === undefined || b === undefined
+      ? []
+      : [{ ...t, a, b, curve: curveOf(a, b, repeats[i] ?? 0) }];
+  });
+}
+
+// The legs of the section shown in a view, kept while the view, the journey and the section stay:
+// a turn of the wheel asks for the rest frame.
+let legsFor: {
+  readonly d: Drawn;
+  readonly journey: Journey;
+  readonly s: number;
+  readonly legs: readonly Leg[];
+} | null = null;
+
+function legsIn(d: Drawn, played: Played): readonly Leg[] {
+  if (legsFor?.d !== d || legsFor.journey !== played.journey || legsFor.s !== played.at.s) {
+    legsFor = { d, journey: played.journey, s: played.at.s, legs: legsOf(d, played) };
+  }
+
+  return legsFor.legs;
+}
+
+// The marks drawn at a constant size on screen, in pixels: a step's number in its circle; a pill
+// of text, the data's form of the step shown over its middle and its condition under it; the
+// travelling pill, a dot with the data's form beside it; an entry's pill over its start, its
+// nature's icon before its text; the pulse around that start, in the view's units.
+const ON_SCREEN = {
+  number: 8.5,
+  pill: { h: 22, pad: 8, gap: 9, whenRadius: 3 },
+  traveller: { r: 6.5, dx: 12, dy: -26 },
+  entry: { h: 24, pad: 10, icon: 14, after: 4, gap: 6 },
+  pulse: 3,
+};
+
+const entryText = (step: EntryStep): string =>
+  words.entryPill(words.entryKind[step.kind], step.trigger);
+
+function entryBox(step: EntryStep): Rect {
+  const { h, pad, icon, after, gap } = ON_SCREEN.entry;
+  const w = pad + icon + after + textWidth(entryText(step), "trace-entry-t") + pad;
+
+  return { x: -w / 2, y: -(gap + h), w, h };
+}
+
+// An entry's pill stands over the middle of its start's top edge.
+const entryAt = ({ a }: Leg): Point => [a.x + a.w / 2, a.y];
+
+const FRAME_MARGIN_PX = 60;
+
+// What the camera's mode frames in the view a step is played in: the rects of the
+// representatives of the steps it frames and the middle of their curves, and the pill of each
+// entry among them. "section" frames every step of the section traced there, so it stays from
+// one step to the next; "step", the step shown.
+type Framed = { readonly rects: readonly Rect[]; readonly pinned: readonly Pinned[] };
+
+function framedIn(d: Drawn, played: Played): Framed {
+  const legs = legsIn(d, played).filter(
+    (leg) => cameraMode === "section" || leg.at.n === played.at.n,
+  );
+
+  const rects = legs.flatMap((leg): Rect[] => {
+    const [x, y] = pointAt(leg.curve, 0.5);
+
+    return [leg.a, leg.b, { x, y, w: 0, h: 0 }];
+  });
+
+  const pinned = legs.flatMap((leg): Pinned[] =>
+    isEntry(leg.at.step) ? [{ at: entryAt(leg), box: entryBox(leg.at.step) }] : [],
+  );
+
+  return { rects, pinned };
+}
+
+// The rest frame of a view: where a move ends, where a resize or a new layout lands, and what the
+// fit button, Escape and a click on the empty sheet bring back (unzoom), the edge push sliding
+// only once the reader looked away from it. The view's fit; on a journey, in the view its step is
+// played in, the frame of the camera's mode (frameOf), within the fit, above the ribbon.
+function restOf(key: Key): Image {
+  const image = imageOf(key);
+  const played = playedNow();
+
+  if (played === null || cameraMode === "plan" || key !== openOf(here())) {
+    return image;
+  }
+
+  const { rects, pinned } = framedIn(drawn(key), played);
+  const r = svg.getBoundingClientRect();
+  const area = { w: r.width, h: r.height };
+
+  return {
+    ...image,
+    vb: frameOf(rects, pinned, area, aboveRibbon(), FRAME_MARGIN_PX, image.vb),
+  };
+}
+
+// What sets a view's rest frame, so that a step which keeps it moves no camera: the view, and on
+// a journey, in the view its step is played in, the journey, the camera's mode and the section or
+// the step that mode frames.
+function framingOf(key: Key): string {
+  const played = playedNow();
+
+  if (played === null || key !== openOf(here())) {
+    return JSON.stringify([key]);
+  }
+
+  const by = { plan: 0, section: played.at.s, step: played.at.n }[cameraMode];
+
+  return JSON.stringify([key, played.journey.id, cameraMode, by]);
+}
+
+// The framing the camera last moved or jumped to.
+let framedBy = "";
+
+// A mark that keeps its size on screen, at `at` in its view's units.
+type Pin = { readonly g: SVGGElement; readonly at: Point };
+
+// The travelling pill along the step shown: the data's form before the step during the first
+// half of its way, then after it (formAt).
+type Traveller = {
+  readonly g: SVGGElement;
+  readonly pill: SVGGElement;
+  readonly rect: SVGRectElement;
+  readonly label: SVGTextElement;
+  readonly curve: Curve;
+  readonly before: string | null;
+  readonly after: string | null;
+};
+
+// The journey's trace, drawn over every item of the view its step is played in; `since`, when its
+// step showed, which the travelling pill sets off from.
+type Trace = {
+  readonly d: Drawn;
+  readonly journey: Journey;
+  readonly n: number;
+  readonly g: SVGGElement;
+  readonly legs: ReadonlyMap<number, SVGGElement>;
+  readonly pins: readonly Pin[];
+  readonly traveller: Traveller | null;
+  readonly since: number;
+};
+
+let trace: Trace | null = null;
+
+let travelRaf = 0;
+
+// The step whose cell of the ribbon the pointer is over, whose trace stands out; null for none.
+let peeked: number | null = null;
+
+function pinIn(parent: SVGGElement, cls: string, at: Point, pins: Pin[]): SVGGElement {
+  const g = el("g", { class: `${cls} trace-mark` }, parent);
+  pins.push({ g, at });
+
+  return g;
+}
+
+// A pill of one line of text, `left` its left edge, or centred on 0 when null, and `top` its top.
+function pillIn(
+  g: SVGGElement,
+  cls: string,
+  content: string,
+  left: number | null,
+  top: number,
+  radius: number,
+): readonly [SVGRectElement, SVGTextElement] {
+  const { h, pad } = ON_SCREEN.pill;
+  const w = textWidth(content, cls) + 2 * pad;
+  const x = left ?? -w / 2;
+  const rect = el("rect", { x, y: top, width: w, height: h, rx: radius }, g);
+  const label = svgText(g, { x: x + pad, y: top + h / 2, class: cls }, content);
+
+  return [rect, label];
+}
+
+function drawLeg(
+  g: SVGGElement,
+  leg: Leg,
+  current: number,
+  numbered: boolean,
+  pins: Pin[],
+): SVGGElement {
+  const { n, step } = leg.at;
+  const back = step.back === true;
+
+  const cls = [
+    "trace-step",
+    n < current ? "past" : n === current ? "current" : "next",
+    ...(back ? ["back"] : []),
+    ...(step.when === undefined ? [] : ["when"]),
+    ...(n === peeked ? ["peek"] : []),
+  ];
+
+  const s = el("g", { class: cls.join(" ") }, g);
+  const d = pathOf(leg.curve);
+  const head = back ? "url(#arr-back)" : n === current ? "url(#arr-ink)" : "url(#arr-hot)";
+  el("path", { d, class: "trace-halo" }, s);
+  el("path", { d, class: "trace-line", "marker-end": head }, s);
+
+  if (numbered) {
+    const badge = pinIn(s, "trace-number", pointAt(leg.curve, 0.5), pins);
+    el("circle", { r: ON_SCREEN.number }, badge);
+    svgText(badge, { class: "trace-number-t" }, String(n));
+  }
+
+  return s;
+}
+
+function drawEntry(g: SVGGElement, leg: Leg, step: EntryStep, pins: Pin[]): void {
+  const { pad, icon, after } = ON_SCREEN.entry;
+  const box = entryBox(step);
+  const pill = pinIn(g, "trace-entry", entryAt(leg), pins);
+  el("rect", { x: box.x, y: box.y, width: box.w, height: box.h, rx: box.h / 2 }, pill);
+
+  const glyph = el(
+    "g",
+    { transform: `translate(${box.x + pad} ${box.y + (box.h - icon) / 2})` },
+    pill,
+  );
+
+  glyph.innerHTML = ICONS[step.kind];
+  const x = box.x + pad + icon + after;
+  svgText(pill, { x, y: box.y + box.h / 2, class: "trace-entry-t" }, entryText(step));
+}
+
+// Each step of the section shown that the view traces, its number at its middle but the step
+// shown's when it has a data's form, which a pill shows there, its condition in a pill under it;
+// an entry's pill over its start, which pulses; the travelling pill on top.
+function drawTrace(d: Drawn, played: Played, since: number): Trace {
+  const { journey, at } = played;
+  const g = el("g", { class: "trace" }, d.layer);
+  const pins: Pin[] = [];
+  const all = legsIn(d, played);
+  const leg = all.find((l) => l.at.n === at.n);
+  const form = formAfter(journey, at.n);
+  const { h, gap, whenRadius } = ON_SCREEN.pill;
+
+  if (leg !== undefined && isEntry(at.step) && !reduced) {
+    const { a } = leg;
+    const k = ON_SCREEN.pulse;
+    el(
+      "rect",
+      {
+        x: a.x - k,
+        y: a.y - k,
+        width: a.w + 2 * k,
+        height: a.h + 2 * k,
+        rx: 6,
+        class: "trace-pulse",
+      },
+      g,
+    );
+  }
+
+  const legs = new Map(
+    all.map((l): [number, SVGGElement] => [
+      l.at.n,
+      drawLeg(g, l, at.n, l.at.n !== at.n || form === null, pins),
+    ]),
+  );
+
+  if (leg === undefined) {
+    return { d, journey, n: at.n, g, legs, pins, traveller: null, since };
+  }
+
+  const middle = pointAt(leg.curve, 0.5);
+
+  if (form !== null) {
+    pillIn(pinIn(g, "trace-form", middle, pins), "trace-form-t", form, null, -(gap + h), h / 2);
+  }
+
+  if (at.step.when !== undefined) {
+    const when = pinIn(g, "trace-when", middle, pins);
+    pillIn(when, "trace-when-t", words.when(at.step.when), null, gap, whenRadius);
+  }
+
+  if (isEntry(at.step)) {
+    drawEntry(g, leg, at.step, pins);
+  }
+
+  const traveller = el("g", { class: "trace-traveller trace-mark" }, g);
+  const pill = el("g", { class: "trace-form", display: "none" }, traveller);
+
+  const [rect, label] = pillIn(
+    pill,
+    "trace-form-t",
+    "",
+    ON_SCREEN.traveller.dx,
+    ON_SCREEN.traveller.dy,
+    h / 2,
+  );
+
+  el("circle", { r: ON_SCREEN.traveller.r }, traveller);
+
+  return {
+    d,
+    journey,
+    n: at.n,
+    g,
+    legs,
+    pins,
+    traveller: {
+      g: traveller,
+      pill,
+      rect,
+      label,
+      curve: leg.curve,
+      before: formBefore(journey, at.n),
+      after: form,
+    },
+    since,
+  };
+}
+
+// The travelling pill shows the form it carries at `t`, none when it carries none.
+function carry(traveller: Traveller, form: string | null): void {
+  if (form === null) {
+    traveller.pill.setAttribute("display", "none");
+
+    return;
+  }
+
+  traveller.pill.removeAttribute("display");
+
+  if (traveller.label.textContent !== form) {
+    traveller.label.textContent = form;
+    traveller.rect.setAttribute(
+      "width",
+      String(textWidth(form, "trace-form-t") + 2 * ON_SCREEN.pill.pad),
+    );
+  }
+}
+
+// Every mark at its size on screen, from the scale its layer was last painted at; the travelling
+// pill where it is at `now`, at the end of its way under a reduced motion.
+function placeTrace(now: number): void {
+  if (trace === null) {
+    return;
+  }
+
+  const perPx = 1 / (scales.get(trace.d.layer) ?? 1);
+
+  const pinAt = (g: SVGGElement, [x, y]: Point): void => {
+    g.setAttribute("transform", `translate(${x} ${y}) scale(${perPx})`);
+  };
+
+  for (const pin of trace.pins) {
+    pinAt(pin.g, pin.at);
+  }
+
+  const { traveller } = trace;
+
+  if (traveller !== null) {
+    const t = reduced ? 1 : travelled(now - trace.since);
+    carry(traveller, formAt(traveller.before, traveller.after, t));
+    pinAt(traveller.g, pointAt(traveller.curve, t));
+  }
+}
+
+function travelFrame(now: number): void {
+  travelRaf = 0;
+
+  if (trace === null) {
+    return;
+  }
+
+  placeTrace(now);
+
+  if (now - trace.since < TRAVEL.delay + TRAVEL.ms) {
+    travelRaf = requestAnimationFrame(travelFrame);
+  }
+}
+
+// The items the section shown touches, outlined, and the two ends of the step shown, outlined
+// darker; the view's other chips, cards and ghosts faded, never a box (atlas.html).
+function markItems(
+  d: Drawn,
+  tracing: boolean,
+  touched: ReadonlySet<string>,
+  ends: ReadonlySet<string>,
+): void {
+  for (const [id, gs] of d.items) {
+    for (const g of gs) {
+      g.classList.toggle("touched", touched.has(id));
+      g.classList.toggle("end", ends.has(id));
+    }
+  }
+
+  d.layer.classList.toggle("tracing", tracing);
+}
+
+// On a journey, the view its step is played in traces the step's section, drawn anew when the
+// step or the view's layout changes; the travelling pill keeps its way when only the layout does.
+// Off a journey, or in another view, no trace.
+function showTrace(d: Drawn, played: Played | null): void {
+  const at = played !== null && d.view.id === openOf(here()) ? played : null;
+  const same = at !== null && trace?.journey === at.journey && trace.n === at.at.n;
+  const kept = same ? trace : null;
+
+  if (kept?.d === d) {
+    return;
+  }
+
+  if (trace !== null) {
+    trace.g.remove();
+    markItems(trace.d, false, new Set(), new Set());
+    trace = null;
+  }
+
+  if (at === null) {
+    return;
+  }
+
+  trace = drawTrace(d, at, kept?.since ?? performance.now());
+  const section = stepsOf(at.journey).filter(({ s }) => s === at.at.s);
+
+  const touched = new Set(
+    section.flatMap(({ step: { from, to } }) =>
+      [from, to].flatMap((end) => representativeIn(tree, d.view.id, end) ?? []),
+    ),
+  );
+
+  const leg = legsIn(d, at).find((l) => l.at.n === at.at.n);
+  markItems(d, true, touched, new Set(leg === undefined ? [] : [leg.from, leg.to]));
+  placeTrace(performance.now());
+
+  if (!reduced && travelRaf === 0) {
+    travelRaf = requestAnimationFrame(travelFrame);
+  }
+}
+
+function peek(n: number | null): void {
+  peeked = n;
+
+  for (const [k, g] of trace?.legs ?? []) {
+    g.classList.toggle("peek", k === n);
+  }
+}
+
 // Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
-// lifted to the view's items; a journey's step, which selects nothing, lights its own arrow, in
-// the colour of a return for a step back, named by the step's `carries` in place of its label.
-// The label is set after dimView's, so it stays when the phase changes on a journey, and the
-// phase's comes back once the journey is left.
-function highlight(d: Drawn, p: Place, step: Step | null): void {
+// lifted to the view's items. A journey's step selects nothing: the view's own arrows stay dimmed
+// under its trace (showTrace).
+function highlight(d: Drawn, p: Place, played: Played | null): void {
   const selected = p.selected;
   const coupled = selected === null ? [] : coupledIn(tree, d.view, selected);
 
@@ -832,19 +1353,9 @@ function highlight(d: Drawn, p: Place, step: Step | null): void {
   }
 
   for (const e of d.arrows) {
-    const hot =
-      step === null
-        ? selected !== null && lights(tree, e.arrow, selected)
-        : stepLights(tree, e.arrow, step);
-
-    const back = hot && step?.back === true;
-    const carries = hot ? step?.carries : undefined;
+    const hot = selected !== null && lights(tree, e.arrow, selected);
     e.g.classList.toggle("hot", hot);
-    e.g.classList.toggle("step", hot && step !== null);
-    e.g.classList.toggle("back", back);
-    relabel(e, d.mode, carries ?? labelAt(tree, dimmed, e.arrow));
-    const lit = back ? "url(#arr-back)" : "url(#arr-hot)";
-    const m = hot ? lit : e.marker;
+    const m = hot ? "url(#arr-hot)" : e.marker;
     e.path.setAttribute("marker-end", m);
 
     if (e.arrow.two) {
@@ -852,7 +1363,8 @@ function highlight(d: Drawn, p: Place, step: Step | null): void {
     }
   }
 
-  d.layer.classList.toggle("selecting", selected !== null || step !== null);
+  d.layer.classList.toggle("selecting", selected !== null || played !== null);
+  showTrace(d, played);
   showCaptions(d);
 }
 
@@ -915,10 +1427,20 @@ svg.addEventListener("focusout", () => {
   hover([...svg.querySelectorAll(":hover")].at(-1) ?? null);
 });
 
+// On a journey, the lines of the kinds of steps the view traces: forward, back, under a condition.
 function renderLegend(key: Key): void {
   const view = viewOf(tree, key);
-  const back = stepShown(scope, params)?.back === true;
-  const keys = legendKeys({ ...view.legend, back, later: dimsIn(dimmed, view) });
+  const played = playedNow();
+  const traced = played === null ? [] : tracedIn(tree, key, played.journey, played.at.s);
+
+  const keys = legendKeys({
+    ...view.legend,
+    forward: traced.some(({ at }) => at.step.back !== true),
+    back: traced.some(({ at }) => at.step.back === true),
+    when: traced.some(({ at }) => at.step.when !== undefined),
+    later: dimsIn(dimmed, view),
+  });
+
   legend.innerHTML = legendHtml(keys, settings.legend);
   legend.classList.toggle("empty", keys.length === 0);
 }
@@ -997,19 +1519,21 @@ function keepingFocus(root: Element, keys: readonly string[], rewrite: () => voi
 // What the cards' focus is kept by: their headers and their markers.
 const CARD_KEYS = ["data-select", "data-cite"];
 
-// The switch shows where the open container has cards (cardsOf), but on a journey, whose arrow
-// they cannot show; the cards lie over the drawing, which stays laid out beneath, out of reach of
-// the pointer and the keyboard (inert), its zoom kept for the way back and the fit and legend
-// buttons disabled. The same cards rewritten keep where they were scrolled and the focus.
+// The switch shows where the open container has cards (cardsOf), but on a journey, whose trace
+// they cannot show, where the camera's modes show in its place; the cards lie over the drawing,
+// which stays laid out beneath, out of reach of the pointer and the keyboard (inert), its zoom
+// kept for the way back and the fit and legend buttons disabled. The same cards rewritten keep
+// where they were scrolled and the focus.
 function renderMode(key: Key): void {
   const cards = params.journey === null ? cardsOf(tree, key) : null;
   const table = params.mode === "cards" ? cards : null;
   modeSwitch.hidden = cards === null;
+  cameraSwitch.hidden = params.journey === null;
   mapButton.setAttribute("aria-pressed", String(table === null));
   cardsButton.setAttribute("aria-pressed", String(table !== null));
   cardsView.hidden = table === null;
   drawing.inert = table !== null;
-  fitButton.disabled = table !== null || !isZoomed();
+  fitButton.disabled = table !== null || !astray();
   legendButton.disabled = table !== null;
 
   if (table === null) {
@@ -1069,12 +1593,6 @@ function renderPhase(): void {
 
     for (const { drawn: d } of st.held.values()) {
       dimView(d);
-    }
-
-    const shownView = heldOf(st, openOf(here()));
-
-    if (shownView !== null) {
-      highlight(shownView, here(), stepShown(scope, params));
     }
   }
 }
@@ -1197,8 +1715,8 @@ function tellSelection(id: string | null): void {
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
 // so a page script cannot assign it, answering the frozen state of the last render, the fragment's
 // parameters among it, the zoom of the view shown, 1 at its fit, 2 when half its width fills the
-// stage, whether the panel shows its citations in full, and the citation whose lines it shows, if
-// any.
+// stage, the camera's mode on a journey, whether the panel shows its citations in full, and the
+// citation whose lines it shows, if any.
 let pageState: PageState = pageStateOf(scope, place, params);
 
 const zoomOf = (): number =>
@@ -1211,6 +1729,7 @@ Object.defineProperty(window, "atlas", {
     Object.freeze({
       ...pageState,
       zoom: zoomOf(),
+      camera: cameraMode,
       sourcesInFull,
       citation: viewer === null ? null : citationText(viewer.citation),
     }),
@@ -1319,9 +1838,11 @@ async function settle(): Promise<void> {
   if (key !== from || cam === null) {
     moveTo(key, from);
     hover(focusedItem());
+  } else if (framingOf(key) !== framedBy) {
+    moveTo(key, key);
   }
 
-  highlight(d, here(), stepShown(scope, params));
+  highlight(d, here(), playedNow());
 
   if (d.avoidError !== panelAvoidError) {
     rerender();
@@ -1525,6 +2046,16 @@ ribbonSteps.addEventListener("click", (e) => {
       play(pageState.journey, Number(cell.dataset["step"]));
     });
   }
+});
+
+// The pointer over a cell brings its step's trace out, when the view traces it.
+ribbonSteps.addEventListener("pointerover", (e) => {
+  const cell = e.target instanceof Element ? e.target.closest("[data-step]") : null;
+  peek(cell instanceof HTMLElement ? Number(cell.dataset["step"]) : null);
+});
+
+ribbonSteps.addEventListener("pointerleave", () => {
+  peek(null);
 });
 
 // The header's lists, each with the button that opens it under itself (atlas.html).
@@ -1924,6 +2455,38 @@ sourcesButton.addEventListener("click", () => {
   store(SOURCES_KEY, sourcesInFull ? "full" : "markers");
 });
 
+// The camera's mode on a journey, remembered per browser; any other value stored reads as
+// "section". A mode picked frames the step's view anew at once, in one move, and leaves the
+// playback playing.
+const CAMERA_KEY = "atlas.camera";
+
+let cameraMode: CameraMode = CAMERA_MODES.find((mode) => mode === stored(CAMERA_KEY)) ?? "section";
+
+function markCamera(): void {
+  for (const [mode, button] of cameraButtons) {
+    button.setAttribute("aria-pressed", String(mode === cameraMode));
+  }
+}
+
+markCamera();
+
+function showCamera(mode: CameraMode): void {
+  cameraMode = mode;
+  store(CAMERA_KEY, mode);
+  markCamera();
+  const key = openOf(here());
+
+  if (cam !== null && heldOf(st, key) !== null) {
+    moveTo(key, shown(cam, performance.now()).space);
+  }
+}
+
+for (const [mode, button] of cameraButtons) {
+  button.addEventListener("click", () => {
+    showCamera(mode);
+  });
+}
+
 // Escape and a click on the empty sheet: the fit back first, but over the cards, whose drawing's
 // zoom is not theirs to undo; then the lines viewer closes where the reader stands; then, on a
 // journey, back to the place it started from; else deselect, then up a level.
@@ -1999,9 +2562,9 @@ addEventListener("hashchange", () => {
 });
 
 // A label shown takes no pointer events, so a click on it reaches the sheet: it is found by where
-// it lies.
+// it lies. A journey's trace takes none either, but for its numbers and its pills.
 function onArrow(e: MouseEvent): boolean {
-  if (e.target instanceof Element && e.target.closest(".flow, .flow-hit") !== null) {
+  if (e.target instanceof Element && e.target.closest(".flow, .flow-hit, .trace-mark") !== null) {
     return true;
   }
 
@@ -2020,8 +2583,8 @@ function onArrow(e: MouseEvent): boolean {
   });
 }
 
-// On a journey, a click on an arrow, its band or its label is no click on the empty sheet: it
-// leaves nothing.
+// On a journey, a click on an arrow, its band or its label, or on a number or a pill of the
+// trace, is no click on the empty sheet: it leaves nothing.
 svg.addEventListener("click", (e) => {
   if (pageState.journey === null || !onArrow(e)) {
     backOut();
@@ -2078,19 +2641,23 @@ const FACES = [
   '600 16px "Barlow Condensed"',
   '700 16px "Barlow Condensed"',
   '400 12px "IBM Plex Mono"',
+  '500 12px "IBM Plex Mono"',
+  '400 12px "IBM Plex Sans"',
 ];
 
-// A journey's texts, and the ribbon's numbers and words.
+// A journey's texts, the ribbon's numbers and words, the camera's, and the trace's pills.
 const journeyText = (): string[] =>
   journeys.flatMap((journey) => [
     words.play,
     words.pause,
+    words.cameraLabel,
+    ...Object.values(words.camera),
     ...journey.sections.map((section) => section.label),
     ...stepsOf(journey).flatMap(({ n, step }) => [
       String(n),
-      step.trigger ?? "",
+      isEntry(step) ? entryText(step) : "",
       step.carries ?? "",
-      step.when ?? "",
+      step.when === undefined ? "" : words.when(step.when),
       step.note ?? "",
     ]),
   ]);

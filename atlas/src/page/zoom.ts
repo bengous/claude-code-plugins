@@ -78,5 +78,12 @@ export function edgePush(at: Point, box: Rect, band: number): Point {
 export const pushed = (vb: Rect, [px, py]: Point, step: number, fit: Rect): Rect =>
   clamped({ ...vb, x: vb.x + px * step, y: vb.y + py * step }, fit);
 
-/** Whether the rect shows less than the fit: the reader zoomed in. */
-export const zoomedIn = (vb: Rect, fit: Rect): boolean => vb.w < fit.w - 1e-6;
+// Below this share of the rest frame's width, a difference is the floating point's, not the reader's.
+const SAME = 1e-6;
+
+/**
+ * Whether the rect shows other than `rest`, the frame the camera rests at (the fit, or a
+ * journey's frame): the reader zoomed or panned away from it.
+ */
+export const strayed = (vb: Rect, rest: Rect): boolean =>
+  [vb.x - rest.x, vb.y - rest.y, vb.w - rest.w].some((d) => Math.abs(d) > SAME * rest.w);

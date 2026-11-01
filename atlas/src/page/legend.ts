@@ -3,7 +3,9 @@ import { esc } from "./svg.ts";
 
 const ORDER: readonly LegendKey[] = [
   "flow",
+  "forward",
   "back",
+  "when",
   "dash",
   "deny",
   "coupled",
@@ -20,7 +22,9 @@ const mark = (figure: string): string =>
 
 const GLYPH: Readonly<Record<LegendKey, string>> = {
   flow: line("var(--ink-3)"),
+  forward: line("var(--accent)"),
   back: line("var(--back)"),
+  when: line("var(--accent)", ` stroke-dasharray="5 4"`),
   dash: line("var(--ink-3)", ` stroke-dasharray="5 4"`),
   deny: line("var(--deny)"),
   coupled: mark(

@@ -97,8 +97,15 @@ export type Drawn = {
   readonly size: Size;
   /** Where the view's boxes stand: what the camera aligns with the box of this view's container. */
   readonly frame: Rect;
-  /** Each box's rect, by its id. */
+  /** Each box's and card's rect, by its id. */
   readonly rects: ReadonlyMap<string, Rect>;
+  /** Each chip's rect, by its node's id. */
+  readonly chips: ReadonlyMap<string, Rect>;
+  /**
+   * Each ghost's rect, by its id: the copy its arrows leave (`in`) and the one they reach (`out`),
+   * the same rect for a ghost drawn once.
+   */
+  readonly ghosts: ReadonlyMap<string, { readonly in: Rect; readonly out: Rect }>;
   readonly items: Registry;
   readonly arrows: readonly ArrowEl[];
   readonly captions: readonly Caption[];
@@ -478,6 +485,7 @@ function drawChip(
   cell: Cell,
   r: Rect,
   items: Registry,
+  chips: Map<string, Rect>,
   pick: Pick,
 ): void {
   const g = el(
@@ -500,6 +508,7 @@ function drawChip(
   });
 
   register(items, chip.id, g);
+  chips.set(chip.id, { x, y, w: cell.w, h: CHIP.h });
 }
 
 function drawBox(
@@ -509,6 +518,7 @@ function drawBox(
   cells: readonly Cell[],
   r: Rect,
   items: Registry,
+  chips: Map<string, Rect>,
   words: Words,
   pick: Pick,
 ): Caption {
@@ -531,7 +541,7 @@ function drawBox(
       throw new Error(`box ${box.id}: no cell for chip ${chip.id}`);
     }
 
-    drawChip(top, chip, cell, r, items, pick);
+    drawChip(top, chip, cell, r, items, chips, pick);
   }
 
   return { text: tag, size: fontSize(BOX.tag), owner: g };
@@ -752,6 +762,7 @@ export async function drawView(
   const arrowLayer = el("g", {}, layer);
   const top = el("g", {}, layer);
   const registry: Registry = new Map();
+  const chips = new Map<string, Rect>();
   const captions: Caption[] = [];
 
   const rectOf = (id: string): Rect => {
@@ -770,7 +781,7 @@ export async function drawView(
     switch (item.figure.kind) {
       case "box": {
         const { box, cells } = item.figure;
-        captions.push(drawBox(frames, top, box, cells, r, registry, words, pick));
+        captions.push(drawBox(frames, top, box, cells, r, registry, chips, words, pick));
         break;
       }
 
@@ -808,6 +819,14 @@ export async function drawView(
 
   const rects = new Map(view.boxes.map((b): [string, Rect] => [b.id, rectOf(b.id)]));
 
+  const ghosts = new Map(
+    view.ghosts.map((g): [string, { in: Rect; out: Rect }] => {
+      const first = rectOf(g.id);
+
+      return [g.id, { in: first, out: laid.rects.get(g.id + OUT) ?? first }];
+    }),
+  );
+
   return {
     view,
     mode,
@@ -815,6 +834,8 @@ export async function drawView(
     size: laid.size,
     frame: laid.frame,
     rects,
+    chips,
+    ghosts,
     items: registry,
     arrows,
     captions,

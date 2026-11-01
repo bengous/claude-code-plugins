@@ -1,7 +1,6 @@
 import type { Journey, Link, Section, Step } from "./atlas.ts";
 import type { Tree } from "./tree.ts";
-import { chainOf } from "./tree.ts";
-import type { Arrow } from "./view.ts";
+import { chainOf, isLeaf, itemIn, liftIn } from "./tree.ts";
 import { showsIn } from "./view.ts";
 
 /**
@@ -96,12 +95,106 @@ export function stepView(tree: Tree, step: Step): string | null {
 }
 
 /**
- * Whether a step lights the arrow: the arrow stands for a link the step follows (joins), drawn
- * between its ends or lifted to the boxes that hold them.
+ * Whether the view of `container` draws `id`: as a child, a box or a card; as a ghost (showsIn);
+ * or as a chip, a child of one of its container children.
  */
-export const stepLights = (tree: Tree, arrow: Arrow, step: Step): boolean =>
-  arrow.links.some((index) => {
-    const link = tree.map.links[index];
+export function drawnIn(tree: Tree, container: string | null, id: string): boolean {
+  if (showsIn(tree, container, id)) {
+    return true;
+  }
 
-    return link !== undefined && joins(link, step);
+  const child = tree.nodes.has(id) ? liftIn(tree, container, id) : null;
+
+  return child !== null && chainOf(tree, id).at(-2) === child;
+}
+
+/**
+ * What stands for `id` in the view of `container`: what draws it there (drawnIn), else the box or
+ * ghost of that view that holds it (itemIn); null when the view has neither.
+ */
+export function representativeIn(tree: Tree, container: string | null, id: string): string | null {
+  if (drawnIn(tree, container, id)) {
+    return id;
+  }
+
+  const item = tree.nodes.has(id) ? itemIn(tree, container, id) : null;
+
+  return item !== null && showsIn(tree, container, item) ? item : null;
+}
+
+/** The root, then every container, depth-first. */
+const viewsOf = (tree: Tree): readonly (string | null)[] => [
+  null,
+  ...tree.order.filter((id) => !isLeaf(tree, id)),
+];
+
+const depthOf = (tree: Tree, container: string | null): number =>
+  container === null ? 0 : chainOf(tree, container).length;
+
+/** The deepest of the views, the first depth-first among the deepest; undefined for none. */
+const deepestOf = (tree: Tree, views: readonly (string | null)[]): string | null | undefined =>
+  views.reduce<string | null | undefined>(
+    (best, view) => (best === undefined || depthOf(tree, view) > depthOf(tree, best) ? view : best),
+    undefined,
+  );
+
+const drawsBoth = (tree: Tree, container: string | null, step: Step): boolean =>
+  drawnIn(tree, container, step.from) && drawnIn(tree, container, step.to);
+
+/**
+ * The view a journey is played in: the deepest of the root's and the containers' that draws every
+ * end of every step (drawnIn), the first depth-first among the deepest; the root's when none does.
+ */
+export function hostView(tree: Tree, journey: Journey): string | null {
+  const ends = stepsOf(journey).flatMap(({ step }) => [step.from, step.to]);
+  const hosts = viewsOf(tree).filter((view) => ends.every((end) => drawnIn(tree, view, end)));
+
+  return deepestOf(tree, hosts) ?? null;
+}
+
+/**
+ * The view a journey's step is played in: the journey's host view when it draws both its ends;
+ * else the deepest view that draws both, the first depth-first among the deepest; else the view
+ * it opens on its own (stepView). `host` is the journey's (hostView).
+ */
+export function playView(tree: Tree, host: string | null, step: Step): string | null {
+  if (drawsBoth(tree, host, step)) {
+    return host;
+  }
+
+  const views = viewsOf(tree).filter((view) => drawsBoth(tree, view, step));
+  const deepest = deepestOf(tree, views);
+
+  return deepest === undefined ? stepView(tree, step) : deepest;
+}
+
+/** A step traced in a view: between the representatives of its ends there, two distinct ones. */
+export type Traced = { readonly at: Numbered; readonly from: string; readonly to: string };
+
+/**
+ * The steps of section `s` (from 1) the view of `container` traces, in order: each whose two ends
+ * have representatives there (representativeIn), distinct ones; a step whose ends share one, or
+ * with an end that has none, is not traced.
+ */
+export const tracedIn = (
+  tree: Tree,
+  container: string | null,
+  journey: Journey,
+  s: number,
+): readonly Traced[] =>
+  stepsOf(journey).flatMap((at): Traced[] => {
+    const from = representativeIn(tree, container, at.step.from);
+    const to = representativeIn(tree, container, at.step.to);
+
+    return at.s === s && from !== null && to !== null && from !== to ? [{ at, from, to }] : [];
   });
+
+/**
+ * The form the data has as step `n` starts: the form after the step before it (formAfter) when
+ * that step is in the same section; null for the first step of a section.
+ */
+export function formBefore(journey: Journey, n: number): string | null {
+  const steps = stepsOf(journey);
+
+  return n > 1 && steps[n - 2]?.s === steps[n - 1]?.s ? formAfter(journey, n - 1) : null;
+}

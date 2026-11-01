@@ -24,9 +24,19 @@ describe("legendKeys", () => {
     ]);
   });
 
-  test("a journey's step back has its line right after the plain flow's, when the page says one is shown", () => {
+  test("a journey's traced steps have their lines right after the plain flow's, forward, back, then under a condition, when the page says the view traces such a step", () => {
     const { legend } = viewOf(deep, "B");
 
+    expect(legendKeys({ ...legend, forward: true, back: true, when: true })).toEqual([
+      "flow",
+      "forward",
+      "back",
+      "when",
+      "dash",
+      "deny",
+      "coupled",
+      "open",
+    ]);
     expect(legendKeys({ ...legend, back: true })).toEqual([
       "flow",
       "back",
@@ -35,14 +45,18 @@ describe("legendKeys", () => {
       "coupled",
       "open",
     ]);
-    expect(legendKeys({ ...legend, back: false })).toEqual(legendKeys(legend));
+    expect(legendKeys({ ...legend, forward: false, back: false, when: false })).toEqual(
+      legendKeys(legend),
+    );
   });
 
   test("a view using nothing the legend explains has no line", () => {
     expect(
       legendKeys({
         flow: false,
+        forward: false,
         back: false,
+        when: false,
         dash: false,
         deny: false,
         coupled: false,
@@ -67,6 +81,9 @@ describe("legendKeys", () => {
   });
 });
 
+const line = (dash: string): string =>
+  `<span><svg viewBox="0 0 26 8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--accent)" stroke-width="2"${dash}/></svg>`;
+
 describe("legendHtml", () => {
   test("one line per key, its glyph then its label, escaped", () => {
     expect(legendHtml(["deny", "open"], { ...WORDS.en.legend, deny: "<refused>" })).toBe(
@@ -86,6 +103,15 @@ describe("legendHtml", () => {
     );
     expect(legendHtml(["back"], WORDS.en.legend)).toBe(
       `${glyph}return: the data comes back along the link</span>`,
+    );
+  });
+
+  test("the lines of a step forward, in the accent, and under a condition, dashed, in both languages", () => {
+    expect(legendHtml(["forward", "when"], WORDS.fr.legend)).toBe(
+      `${line("")}aller : la donnée suit le lien</span>${line(' stroke-dasharray="5 4"')}sous condition</span>`,
+    );
+    expect(legendHtml(["forward", "when"], WORDS.en.legend)).toBe(
+      `${line("")}forward: the data follows the link</span>${line(' stroke-dasharray="5 4"')}under a condition</span>`,
     );
   });
 

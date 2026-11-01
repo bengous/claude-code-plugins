@@ -1,6 +1,6 @@
 import type { Journey, Step } from "./atlas.ts";
 import { cardsOf } from "./cards.ts";
-import { journeyOf, stepView, stepsOf } from "./journeys.ts";
+import { hostView, journeyOf, playView, stepsOf } from "./journeys.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, childrenOf, nodeOf } from "./tree.ts";
 import { showsIn, viewOf } from "./view.ts";
@@ -108,10 +108,11 @@ export type Mode = "map" | "cards";
  * - What survives a move (paramsAfter): the mode goes back to "map" when the open container
  *   changes, or when the move leaves a journey; a phase stays across moves; a journey is a place
  *   of its own, which a move outside the journey leaves.
- * - A journey and its step, `journey=<id>&step=<n>` with n from 1, show the view of that step
- *   (shownPlace, stepView in journeys.ts) as a drawing, nothing selected; the place written
- *   before them, and the mode, are where the journey started, which leaving it returns to, such
- *   as `app?mode=cards&journey=checkout&step=2`, the cards of app shown again once it is left.
+ * - A journey and its step, `journey=<id>&step=<n>` with n from 1, show the view that step is
+ *   played in (shownPlace, playView in journeys.ts) as a drawing, nothing selected; the place
+ *   written before them, and the mode, are where the journey started, which leaving it returns
+ *   to, such as `app?mode=cards&journey=checkout&step=2`, the cards of app shown again once it
+ *   is left. The camera's mode, a reader's choice kept per browser, is no parameter.
  *   Every move is made from the step's view, a drawing, and leaves the journey; another step, or
  *   another journey, is no move and keeps that place. A phase picked stays on a journey.
  * - `window.atlas` shows each field (pageStateOf).
@@ -216,17 +217,19 @@ export function stepShown(scope: Scope, params: Params): Step | null {
 
 /**
  * The place the page shows: `given`, as the tree can show it (normalised), or on a journey the
- * view of its step (stepView), nothing selected; `given` is then where the journey started.
+ * view its step is played in (playView, in the journey's hostView), nothing selected; `given` is
+ * then where the journey started.
  */
 export function shownPlace(scope: Scope, given: Place, params: Params): Place {
   const place = normalised(scope.tree, given);
-  const step = stepShown(scope, params);
+  const played = playedOf(scope.tree, params);
+  const step = played === null ? undefined : stepsOf(played.journey)[played.step - 1]?.step;
 
-  if (step === null) {
+  if (played === null || step === undefined) {
     return place;
   }
 
-  const open = stepView(scope.tree, step);
+  const open = playView(scope.tree, hostView(scope.tree, played.journey), step);
 
   return { path: open === null ? [] : chainOf(scope.tree, open), selected: null };
 }
