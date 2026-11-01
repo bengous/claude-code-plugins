@@ -72,12 +72,13 @@ import {
   renderPanel,
   renderViewer,
 } from "./panel.ts";
+import type { Copies } from "./placement.ts";
 import type { Span } from "./ribbon.ts";
 import { cellMark, covers, ribbonHtml } from "./ribbon.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc, text as svgText } from "./svg.ts";
-import type { Copies, Course, Curve, Head, Pinned } from "./trace.ts";
+import type { Course, Curve, Head, Pinned } from "./trace.ts";
 import {
   TRAVEL,
   coursesOf,
@@ -1024,32 +1025,19 @@ let framedBy = "";
 // A mark that keeps its size on screen, at `at` in its view's units.
 type Pin = { readonly g: SVGGElement; readonly at: Point };
 
-// A step's head is HEAD.strokes widths of its stroke long on screen, as the markers of the view's
+// A step's head is HEAD.strokes widths of its line long on screen, as the markers of the view's
 // arrows are (svg.ts), its tip at the curve's end, and never longer than the curve on screen
-// (headPx). The strokes keep their width on screen too, the widths atlas.html gives `.trace-line`:
-// a step's, the step shown's, and a step brought out from the ribbon. `path` points along x,
-// HEAD.length long.
-const HEAD = {
-  strokes: 5.5,
-  width: { step: 1.8, shown: 3.2, peek: 2.6 },
-  path: "M0 0 L-10 -5 L-10 5 z",
-  length: 10,
-};
+// (headPx). `path` points along x, HEAD.length long.
+const HEAD = { strokes: 5.5, path: "M0 0 L-10 -5 L-10 5 z", length: 10 };
 
-// `leg`, its step's group, whose classes set its stroke; `length`, its curve's, in the view's units.
+// `line`, its step's, whose width on screen atlas.html sets; `length`, its curve's, in the view's
+// units.
 type Arrowhead = {
   readonly g: SVGGElement;
-  readonly leg: SVGGElement;
+  readonly line: SVGPathElement;
   readonly head: Head;
   readonly length: number;
 };
-
-const strokeOf = (leg: SVGGElement): number =>
-  leg.classList.contains("peek")
-    ? HEAD.width.peek
-    : leg.classList.contains("current")
-      ? HEAD.width.shown
-      : HEAD.width.step;
 
 // The travelling pill along the step shown: the data's form before the step during the first
 // half of its way, then after it (formAt).
@@ -1063,8 +1051,9 @@ type Traveller = {
   readonly after: string | null;
 };
 
-// The journey's trace, drawn over every item of the view its step is played in; `since`, when its
-// step showed, which the travelling pill sets off from.
+// The journey's trace, drawn over every item of the view its step is played in; `strokes`, the
+// width on screen of each step's line (readStrokes); `since`, when its step showed, which the
+// travelling pill sets off from.
 type Trace = {
   readonly d: Drawn;
   readonly journey: Journey;
@@ -1073,11 +1062,20 @@ type Trace = {
   readonly legs: ReadonlyMap<number, SVGGElement>;
   readonly pins: readonly Pin[];
   readonly heads: readonly Arrowhead[];
+  readonly strokes: Map<SVGPathElement, number>;
   readonly traveller: Traveller | null;
   readonly since: number;
 };
 
 let trace: Trace | null = null;
+
+// Each line's width as atlas.html sets it for its step's marks, read once the trace is drawn and
+// again when a cell of the ribbon brings a step out, not at each frame: a head follows its line.
+function readStrokes(t: Trace): void {
+  for (const { line } of t.heads) {
+    t.strokes.set(line, Number.parseFloat(getComputedStyle(line).strokeWidth));
+  }
+}
 
 let travelRaf = 0;
 
@@ -1134,10 +1132,12 @@ function drawLeg(
   const s = el("g", { class: cls.join(" ") }, g);
   const d = pathOf(leg.curve);
   el("path", { d, class: "trace-halo" }, s);
-  el("path", { d, class: "trace-line" }, s);
-  const head = el("g", { class: "trace-head" }, s);
+  // The line and its head fade as one: each faded on its own, the line under the head shows.
+  const stroke = el("g", { class: "trace-stroke" }, s);
+  const line = el("path", { d, class: "trace-line" }, stroke);
+  const head = el("g", { class: "trace-head" }, stroke);
   el("path", { d: HEAD.path }, head);
-  heads.push({ g: head, leg: s, head: headOf(leg.curve), length: lengthOf(leg.curve) });
+  heads.push({ g: head, line, head: headOf(leg.curve), length: lengthOf(leg.curve) });
   const badge = pinIn(s, "trace-number", pointAt(leg.curve, 0.5), pins);
   el("circle", { r: ON_SCREEN.number }, badge);
   svgText(badge, { class: "trace-number-t" }, String(n));
@@ -1199,7 +1199,18 @@ function drawTrace(d: Drawn, played: Played, since: number): Trace {
   );
 
   if (leg === undefined) {
-    return { d, journey, n: at.n, g, legs, pins, heads, traveller: null, since };
+    return {
+      d,
+      journey,
+      n: at.n,
+      g,
+      legs,
+      pins,
+      heads,
+      strokes: new Map(),
+      traveller: null,
+      since,
+    };
   }
 
   const middle = pointAt(leg.curve, 0.5);
@@ -1239,6 +1250,7 @@ function drawTrace(d: Drawn, played: Played, since: number): Trace {
     legs,
     pins,
     heads,
+    strokes: new Map(),
     traveller: {
       g: traveller,
       pill,
@@ -1289,8 +1301,9 @@ function placeTrace(now: number): void {
     pinAt(pin.g, pin.at);
   }
 
-  for (const { g, leg, head, length } of trace.heads) {
-    const k = (headPx(HEAD.strokes * strokeOf(leg), length, pxPerUnit) / HEAD.length) * perPx;
+  for (const { g, line, head, length } of trace.heads) {
+    const width = trace.strokes.get(line) ?? 0;
+    const k = (headPx(HEAD.strokes * width, length, pxPerUnit) / HEAD.length) * perPx;
     const [x, y] = head.at;
     g.setAttribute("transform", `translate(${x} ${y}) rotate(${head.angle}) scale(${k})`);
   }
@@ -1371,6 +1384,7 @@ function showTrace(d: Drawn, played: Played | null): void {
 
   const leg = legsIn(d, at).find((l) => l.at.n === at.at.n);
   markItems(d, true, touched, new Set(leg === undefined ? [] : [leg.from, leg.to]));
+  readStrokes(trace);
   placeTrace(performance.now());
 
   if (!reduced && travelRaf === 0) {
@@ -1381,10 +1395,15 @@ function showTrace(d: Drawn, played: Played | null): void {
 function peek(n: number | null): void {
   peeked = n;
 
-  for (const [k, g] of trace?.legs ?? []) {
+  if (trace === null) {
+    return;
+  }
+
+  for (const [k, g] of trace.legs) {
     g.classList.toggle("peek", k === n);
   }
 
+  readStrokes(trace);
   placeTrace(performance.now());
 }
 

@@ -1,8 +1,9 @@
 // The pure parts of placing a view: the middle items in bands by rank, the side columns or bands
-// around them, the chips wrapped in a block, the spot of each arrow's label, and the names of an
-// item drawn twice. draw.ts sizes the text and calls ELK and libavoid around them;
+// around them, the chips wrapped in a block, the spot of each arrow's label, and the names and
+// the copies of an item drawn twice. draw.ts sizes the text and calls ELK and libavoid around them;
 // placement.spec.ts runs them.
 import type { Direction } from "../model/atlas.ts";
+import type { View } from "../model/view.ts";
 import type { Point, Rect, Size } from "./geometry.ts";
 import { hits } from "./geometry.ts";
 
@@ -17,6 +18,32 @@ export const realId = (id: string): string => (id.endsWith(OUT) ? id.slice(0, -O
 /** The name of the copy an arrow ends at: the "out" one when `both` and the arrow arrives there. */
 export const copyOf = (id: string, both: boolean, arriving: boolean): string =>
   both && arriving ? id + OUT : id;
+
+/**
+ * The copies of an item a view draws: the one its arrows leave (`in`) and the one they reach
+ * (`out`), the same rect for an item drawn once.
+ */
+export type Copies = { readonly in: Rect; readonly out: Rect };
+
+/**
+ * The copies of each ghost of a view and of each of its cards that may stand on both sides, an
+ * outside leaf with side "both", by its id, from the rects the layout placed: the "out" copy under
+ * its OUT name, the "in" one, or the only one, under its id.
+ */
+export function copiesOf(view: View, rects: ReadonlyMap<string, Rect>): Map<string, Copies> {
+  const sided = [
+    ...view.ghosts.map((g) => g.id),
+    ...view.boxes.flatMap((b) => (b.column === "both" ? [b.id] : [])),
+  ];
+
+  return new Map(
+    sided.flatMap((id): [string, Copies][] => {
+      const first = rects.get(id);
+
+      return first === undefined ? [] : [[id, { in: first, out: rects.get(id + OUT) ?? first }]];
+    }),
+  );
+}
 
 export type Block = Size & { readonly id: string };
 

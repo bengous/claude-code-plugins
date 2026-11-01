@@ -344,7 +344,7 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   each step before it on the same pair (`curveOf`, `coursesOf` in `trace.ts`); an item drawn
   twice, a ghost or an outside leaf on both sides, is left by its "in" copy and reached at its
   "out" one going forward, as its links' arrows are (`Side` in `atlas.ts`), the other way back
-  (`copies` of `Drawn` in `draw.ts`). Forward in `--accent`, back in `--back`, dashed under a
+  (`copiesOf` in `placement.ts`, the `copies` of `Drawn` in `draw.ts`). Forward in `--accent`, back in `--back`, dashed under a
   condition, a band of `--sheet` under each, a head at its end; the steps played lighter, those to
   come lighter still, the step shown thicker, in `--ink` forward; each with its number at its
   middle, but the step shown when it has a data's form, which a pill shows over its middle, its

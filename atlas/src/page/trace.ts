@@ -3,6 +3,7 @@
 // engine.ts draws them over the view a step is played in (trace.spec.ts runs them).
 import type { Point, Rect, Size } from "./geometry.ts";
 import { center } from "./geometry.ts";
+import type { Copies } from "./placement.ts";
 import { MAX_ZOOM, clamped } from "./zoom.ts";
 
 /** A quadratic Bézier curve from p0 to p1, its control point c. */
@@ -80,12 +81,6 @@ export function repeatsOf(pairs: readonly string[]): number[] {
     return k;
   });
 }
-
-/**
- * The copies of an item a view draws: the one its arrows leave (`in`) and the one they reach
- * (`out`), the same rect for an item drawn once.
- */
-export type Copies = { readonly in: Rect; readonly out: Rect };
 
 /** A step a view traces: what stands for its ends there, and whether it goes back. */
 export type Way = { readonly from: string; readonly to: string; readonly back: boolean };

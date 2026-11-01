@@ -44,10 +44,9 @@ import {
   textWidth,
   titleWidth,
 } from "./measure.ts";
-import type { Block, Cell, Packed, Spotted } from "./placement.ts";
-import { OUT, banded, copyOf, flank, labelSpots, realId, wrap } from "./placement.ts";
+import type { Block, Cell, Copies, Packed, Spotted } from "./placement.ts";
+import { OUT, banded, copiesOf, copyOf, flank, labelSpots, realId, wrap } from "./placement.ts";
 import { arrowPath, el, onActivate, openBadge, rounded, text } from "./svg.ts";
-import type { Copies } from "./trace.ts";
 
 export type Mode = "packed" | "layered";
 
@@ -821,18 +820,7 @@ export async function drawView(
 
   const rects = new Map(view.boxes.map((b): [string, Rect] => [b.id, rectOf(b.id)]));
 
-  const twice = [
-    ...view.ghosts.map((g) => g.id),
-    ...view.boxes.flatMap((b) => (b.column === "both" ? [b.id] : [])),
-  ];
-
-  const copies = new Map(
-    twice.map((id): [string, Copies] => {
-      const first = rectOf(id);
-
-      return [id, { in: first, out: laid.rects.get(id + OUT) ?? first }];
-    }),
-  );
+  const copies = copiesOf(view, laid.rects);
 
   return {
     view,

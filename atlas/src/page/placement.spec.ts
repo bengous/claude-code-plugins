@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { DEEP } from "../../fixtures/trees.ts";
+import { treeOf } from "../model/tree.ts";
+import { viewOf } from "../model/view.ts";
 import type { Point, Rect } from "./geometry.ts";
 import { hits } from "./geometry.ts";
 import type { Packed, Ranked } from "./placement.ts";
@@ -7,6 +10,7 @@ import {
   band,
   banded,
   column,
+  copiesOf,
   copyOf,
   flank,
   labelSpots,
@@ -15,6 +19,10 @@ import {
   wrap,
 } from "./placement.ts";
 
+const deep = treeOf(DEEP);
+
+const at = (x: number): Rect => ({ x, y: 0, w: 10, h: 10 });
+
 describe("copies", () => {
   test("an item drawn twice names its right copy, which arrows arrive at", () => {
     expect(copyOf("x", true, true)).toBe("x~out");
@@ -22,6 +30,33 @@ describe("copies", () => {
     expect(copyOf("x", false, true)).toBe("x");
     expect(realId("x~out")).toBe("x");
     expect(realId("x")).toBe("x");
+  });
+
+  test("an outside leaf on both sides, a card of the root's view, has its two copies; no other box has any", () => {
+    const placed = new Map([
+      ["A", at(0)],
+      ["X", at(1)],
+      ["X~out", at(2)],
+      ["Y", at(3)],
+    ]);
+
+    const copies = copiesOf(viewOf(deep, null), placed);
+
+    expect(copies.get("X")).toEqual({ in: at(1), out: at(2) });
+    expect([...copies.keys()]).toEqual(["X"]);
+  });
+
+  test("a ghost drawn twice has its two copies, a ghost drawn once its one rect as both", () => {
+    const placed = new Map([
+      ["a3", at(4)],
+      ["X", at(5)],
+      ["X~out", at(6)],
+    ]);
+
+    const copies = copiesOf(viewOf(deep, "A111"), placed);
+
+    expect(copies.get("a3")).toEqual({ in: at(4), out: at(4) });
+    expect(copies.get("X")).toEqual({ in: at(5), out: at(6) });
   });
 });
 

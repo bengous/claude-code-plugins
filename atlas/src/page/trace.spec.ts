@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { Point, Rect } from "./geometry.ts";
 import { center } from "./geometry.ts";
-import type { Copies, Pinned } from "./trace.ts";
+import type { Copies } from "./placement.ts";
+import type { Pinned } from "./trace.ts";
 import {
   TRAVEL,
   bendOf,
@@ -97,7 +98,7 @@ describe("coursesOf", () => {
 
   const copies = new Map<string, Copies>([
     ["X", { in: X_IN, out: X_OUT }],
-    ["A1", { in: A3, out: A3 }],
+    ["a3", { in: A3, out: A3 }],
   ]);
 
   const copiesOf = (id: string): Copies | undefined => copies.get(id);
@@ -105,8 +106,8 @@ describe("coursesOf", () => {
   test("a step forward reaches the copy of an item drawn twice its arrows reach, and leaves the one they leave", () => {
     const [to, from] = coursesOf(
       [
-        { from: "A1", to: "X", back: false },
-        { from: "X", to: "A1", back: false },
+        { from: "a3", to: "X", back: false },
+        { from: "X", to: "a3", back: false },
       ],
       copiesOf,
     );
@@ -120,8 +121,8 @@ describe("coursesOf", () => {
   test("a step back leaves the copy the arrows reach, and reaches the one they leave", () => {
     const [back, toward] = coursesOf(
       [
-        { from: "X", to: "A1", back: true },
-        { from: "A1", to: "X", back: true },
+        { from: "X", to: "a3", back: true },
+        { from: "a3", to: "X", back: true },
       ],
       copiesOf,
     );
@@ -133,9 +134,9 @@ describe("coursesOf", () => {
   test("a second step on the same ordered pair bows further; one with an end of no copy is null", () => {
     const [first, again, none] = coursesOf(
       [
-        { from: "A1", to: "X", back: false },
-        { from: "A1", to: "X", back: false },
-        { from: "A1", to: "nowhere", back: false },
+        { from: "a3", to: "X", back: false },
+        { from: "a3", to: "X", back: false },
+        { from: "a3", to: "nowhere", back: false },
       ],
       copiesOf,
     );
