@@ -399,6 +399,11 @@ describe("sync", () => {
     );
   });
 
+  test("the sample and the template commit the .gitignore it writes", () => {
+    expect(readFileSync(join(SAMPLE, ".gitignore"), "utf8")).toBe(IGNORED);
+    expect(readFileSync(join(TEMPLATE, ".gitignore"), "utf8")).toBe(IGNORED);
+  });
+
   test("the .gitignore it writes keeps from git what a reply killed in its write leaves", () => {
     const dir = sampleCopy();
     rmSync(join(dir, ".gitignore"));

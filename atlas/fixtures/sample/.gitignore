@@ -1,1 +1,3 @@
 drafts/
+.threads.json.lock
+.threads.json.*.tmp
