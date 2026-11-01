@@ -363,13 +363,13 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   condition. Under `prefers-reduced-motion`, the pill sits
   at its end, the camera jumps and nothing pulses.
 - On a journey, each box of the view a step is played in carries its index on its top edge, when
-  it has one: the numbers of the steps of every section whose two ends it holds, those a trace
-  leaves out as their ends share the box among them (`indexOf`), in ranges, two numbers or more one
-  after another written `6–8` (`rangesOf`); those of the section shown in `--accent`, its returns
-  in `--back`, the others in `--ink-3`, a range holding numbers of one of them only. Its tooltip
-  names the box, then each step over its ends' labels. In the view's units as the open points'
-  badge, left of it, it is drawn in the box's group, so that a click on it enters the box and
-  leaves the journey; it is drawn anew at a new section, view or layout, and lays nothing out.
+  it has one: the numbers of the steps of every section whose two ends lie below it (`indexOf`),
+  in ranges, two numbers or more one after another written `6–8` (`rangesOf`); those of the
+  section shown in `--accent`, its returns in `--back`, the others in `--ink-3`, a range holding
+  numbers of one of them only. Its tooltip names the box, then each step over its ends' labels. In
+  the view's units as the open points' badge, left of that badge when the box has one, it is drawn
+  in the box's group, so that a click on it enters the box and leaves the journey; it is drawn anew
+  at a new journey, section, view or layout, and lays nothing out.
 - On a journey the stage's controls choose what the camera frames, remembered per browser under
   `atlas.camera`, `section` for any other value: `plan`, the view's fit; `section`, every step of
   the section traced there, the pills of its entries and 60 px on screen around, moving only at a
