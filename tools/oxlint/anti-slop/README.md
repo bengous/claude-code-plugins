@@ -14,7 +14,7 @@ Do not edit these files. `oxlint.config.ts` ignores this directory and registers
 is the one repo-owned file here, which is why the manifest below skips it.
 
 `../CHECKSUMS.sha256` freezes every other file in this directory, and
-`scripts/check-lint-config.ts` refuses a commit that edits one, or that adds a
+`scripts/gates/check-lint-config.ts` refuses a commit that edits one, or that adds a
 file the manifest never listed. To bump the pack, in a single commit:
 
 1. Re-run the installer against the new upstream commit.

@@ -3,9 +3,9 @@
 {
   // Agents push to dev and land on it with scripts/land.ts; main is the human's release. The kit's pre-bash hook
   // refuses the one-way doors this derives. scripts/land.ts lands a change to a `risky` path only with a clean
-  // review verdict for its patch (scripts/review-verdict.ts), reading this list from origin/dev: the paths that
+  // review verdict for its patch (scripts/landing/review-verdict.ts), reading this list from origin/dev: the paths that
   // move what lands, releases or guards, this file and the gate's own scripts included, and the lint and format
-  // configuration whose fixes scripts/renovate-agent.ts vouches for without a review, and what sets a change's
+  // configuration whose fixes scripts/headless/renovate-agent.ts vouches for without a review, and what sets a change's
   // tier: the tier scripts, the github-flow skills that publish, dispatch and land, and the commands they read.
   // scripts/land.ts lands a tier:human pull request only once it carries land-ok, which an agent adds only when the
   // human's latest typed message says "land #<n>". Each task takes a worktree of its own: a session starting in a
@@ -17,18 +17,18 @@
       "risky": [
         "scripts/land.ts",
         "scripts/release.ts",
-        "scripts/review-verdict.ts",
-        "scripts/renovate-agent.ts",
-        "scripts/lib/headless-run.ts",
+        "scripts/landing/review-verdict.ts",
+        "scripts/headless/renovate-agent.ts",
+        "scripts/headless/headless-run.ts",
         ".claude/hooks/renovate-agent.ts",
         "oxlint.config.ts",
         ".oxfmtrc.json",
         "tools/oxlint/local/**",
         "tools/oxlint/anti-slop/**",
-        "scripts/check-e2e-green.ts",
-        "scripts/check-plugin-bumps.ts",
-        "scripts/ci-wait.ts",
-        "scripts/release-plan.ts",
+        "scripts/gates/check-e2e-green.ts",
+        "scripts/release/check-plugin-bumps.ts",
+        "scripts/landing/ci-wait.ts",
+        "scripts/release/release-plan.ts",
         "scripts/lib/run.ts",
         ".github/workflows/**",
         "lefthook.yml",
@@ -43,10 +43,10 @@
         "agent-hooks/config.ts",
         "agent-hooks/json.ts",
         "scripts/lib/breaking-subject.ts",
-        "scripts/tier.ts",
-        "scripts/tier-floor.ts",
-        "scripts/tier.prompt.md",
-        "scripts/tier.cases.json",
+        "scripts/landing/tier.ts",
+        "scripts/landing/tier-floor.ts",
+        "scripts/landing/tier.prompt.md",
+        "scripts/landing/tier.cases.json",
         ".claude/github-flow.json",
         "github-flow/skills/pr/**",
         "github-flow/skills/dispatch/**",
@@ -58,7 +58,7 @@
   },
   "stop": {
     "lanes": {
-      "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/run-gates.ts", "timeout": 180 },
+      "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/gates/run-gates.ts", "timeout": 180 },
     },
   },
 }

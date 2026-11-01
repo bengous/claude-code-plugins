@@ -1,6 +1,6 @@
 # Driving a session: what was measured
 
-What `scripts/field-test.ts` relies on, and what a field test can and cannot see. Each fact names where it was measured; "not measured" marks the rest.
+What `scripts/sessions/field-test.ts` relies on, and what a field test can and cannot see. Each fact names where it was measured; "not measured" marks the rest.
 
 ## Launch
 
@@ -28,7 +28,7 @@ What `scripts/field-test.ts` relies on, and what a field test can and cannot see
 
 ## Desktop and mobile
 
-This drive covers the terminal. The kit pins the desktop tree (`$.ui.mount({ surface: "desktop" })`). Desktop's paint is driven by `scripts/field-test-desktop.ts` on Linux with Hyprland: [desktop.md](desktop.md). `claude --desktop` refuses Linux. Mobile is not driven. Say in the report which surfaces the run did not see.
+This drive covers the terminal. The kit pins the desktop tree (`$.ui.mount({ surface: "desktop" })`). Desktop's paint is driven by `scripts/sessions/field-test-desktop.ts` on Linux with Hyprland: [desktop.md](desktop.md). `claude --desktop` refuses Linux. Mobile is not driven. Say in the report which surfaces the run did not see.
 
 ## Agents and cost
 

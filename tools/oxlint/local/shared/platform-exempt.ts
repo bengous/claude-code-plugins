@@ -1,4 +1,4 @@
-/** The platform helpers themselves: the source and every copy `scripts/sync-platform.ts` writes. */
+/** The platform helpers themselves: the source and every copy `scripts/gates/sync-platform.ts` writes. */
 const PLATFORM = /^(?:tools\/platform|[^/]+\/(?:lib|src)\/platform)\//u;
 
 /** Tests and what only they load, which spawn and rename to set a scene, never for the product. */

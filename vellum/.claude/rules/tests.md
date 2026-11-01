@@ -24,7 +24,7 @@ paths:
   theme switch reads a transition halfway (`--transition`): `axe` waits for the page's
   transitions to end (`settled`), and any other colour measure calls `settled` first.
   `e2e/playwright.config.ts` runs every suite at the audit's five windows, and CI's matrix
-  names each one (`scripts/e2e-windows.integration.test.ts` holds the two lists equal). A test whose subject
+  names each one (`scripts/gates/e2e-windows.integration.test.ts` holds the two lists equal). A test whose subject
   is another width sets it with `test.use({ viewport })`, before `page.goto`, since `readWindow`
   reads the width once per load, and runs on `light-1440` alone (`test.skip` on
   `info.project.name`): its viewport replaces every project's. A test ends with the

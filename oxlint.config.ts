@@ -6,7 +6,7 @@ export default defineConfig({
     "node_modules/**",
     // Vendored third party, upstream owns the style.
     "tools/oxlint/anti-slop/**",
-    // Written by Claude Code, regenerated at each update (scripts/claude-code-types.ts).
+    // Written by Claude Code, regenerated at each update (scripts/headless/claude-code-types.ts).
     "vellum/types/**",
     // Vendored from the claude-api skill's eval runner scaffold, upstream owns the style.
     "goalify/evals/run-eval.mjs",
@@ -41,7 +41,7 @@ export default defineConfig({
     "unicorn/prefer-number-coercion": "off",
 
     // Deferred work carries a TODO(#issue) marker in the source, as in
-    // scripts/lint-shell.ts. The rule would reject every one of them.
+    // scripts/gates/lint-shell.ts. The rule would reject every one of them.
     "no-warning-comments": "off",
 
     // Option semantics are inverted here: `true` bans the directive, `false`

@@ -16,12 +16,12 @@ pre-commit:
         git add .claude/settings.json
     - name: sync-versions
       glob: "*/.claude-plugin/plugin.json"
-      run: ./scripts/sync-versions.ts
+      run: ./scripts/gates/sync-versions.ts
     - name: validate-marketplace
       glob:
         - ".claude-plugin/*.json"
         - "*/.claude-plugin/*.json"
-      run: ./scripts/validate-marketplace.ts
+      run: ./scripts/gates/validate-marketplace.ts
     - name: validate-frontmatter
       glob:
         - "*/commands/*.md"
@@ -32,21 +32,21 @@ pre-commit:
         - ".claude/commands/*.md"
         - ".claude/skills/*.md"
         - ".claude/rules/*.md"
-      run: bun ./scripts/validate-frontmatter.ts
+      run: bun ./scripts/gates/validate-frontmatter.ts
 
     # The nine gates below run over the whole repo, not the staged subset: each
     # takes well under a second, and CI then replays the exact same commands.
     - name: lint-config
       glob:
         - "oxlint.config.ts"
-        - "scripts/check-lint-config.ts"
-        - "scripts/check-lint-config.test.ts"
+        - "scripts/gates/check-lint-config.ts"
+        - "scripts/gates/check-lint-config.test.ts"
         - "tools/oxlint/lint-contract.json"
         - "tools/oxlint/CHECKSUMS.sha256"
         - "tools/oxlint/anti-slop/**"
         - ".github/workflows/ci.yml"
         - "lefthook.yml"
-      run: bun ./scripts/check-lint-config.ts
+      run: bun ./scripts/gates/check-lint-config.ts
     - name: typecheck
       glob:
         - "*.ts"
@@ -58,7 +58,7 @@ pre-commit:
         - "*.ts"
         - "*.tsx"
         - "tsconfig.json"
-      run: bun ./scripts/check-typecheck-coverage.ts
+      run: bun ./scripts/gates/check-typecheck-coverage.ts
     - name: lint-ts
       glob:
         - "*.ts"
@@ -83,7 +83,7 @@ pre-commit:
         - "*/scripts/*"
         - "*/hooks/*"
         - ".claude/git/*"
-      run: bun ./scripts/lint-shell.ts
+      run: bun ./scripts/gates/lint-shell.ts
     - name: check-lint-disables
       glob:
         - "*.ts"
@@ -91,15 +91,15 @@ pre-commit:
         - "*.js"
         - "*.mjs"
         - "*.cjs"
-      run: bun ./scripts/check-lint-disables.ts
+      run: bun ./scripts/gates/check-lint-disables.ts
     # No glob: a control renamed or deleted anywhere breaks the entry of
     # .claude/rule-registry.ts that names it.
     - name: rule-registry
-      run: bun ./scripts/check-rule-registry.ts
+      run: bun ./scripts/gates/check-rule-registry.ts
     # No glob: an import that leaves a plugin's directory can land in any of
     # its files.
     - name: platform-copies
-      run: bun ./scripts/sync-platform.ts
+      run: bun ./scripts/gates/sync-platform.ts
     # The engine reads the hooks module's source and reports what it hooks and
     # calls.
     - name: validate-vellum

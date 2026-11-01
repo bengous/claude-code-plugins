@@ -1,5 +1,5 @@
 /**
- * Every copy of `tools/platform/`, which `scripts/sync-platform.ts` writes and holds identical:
+ * Every copy of `tools/platform/`, which `scripts/gates/sync-platform.ts` writes and holds identical:
  * `<owner>/lib/platform` or `<owner>/src/platform`, relative to the repository's root, `<owner>` a
  * directory at the root. A copy holds the modules its owner imports from it, and what they import.
  */

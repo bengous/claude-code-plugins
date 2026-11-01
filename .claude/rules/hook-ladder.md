@@ -5,10 +5,10 @@ paths:
   - ".claude/agent-hooks.jsonc"
   - "lefthook.yml"
   - ".lefthook/**"
-  - "scripts/run-gates.ts"
-  - "scripts/check-lint-config.ts"
-  - "scripts/check-plugin-bumps.ts"
-  - "scripts/check-e2e-green.ts"
+  - "scripts/gates/run-gates.ts"
+  - "scripts/gates/check-lint-config.ts"
+  - "scripts/release/check-plugin-bumps.ts"
+  - "scripts/gates/check-e2e-green.ts"
 ---
 
 # Hook ladder
@@ -45,7 +45,7 @@ agent meets any finding left once, at the end of its turn, not on each edit.
 - The Stop and each subagent's SubagentStop are the agent-hooks kit's
   (`agent-hooks/`, wired by its plugin; the machine's global hooks wire the
   Stop only): `.claude/agent-hooks.jsonc` gives it one `project` lane,
-  `scripts/run-gates.ts`, run when the scope is not empty. The main session's
+  `scripts/gates/run-gates.ts`, run when the scope is not empty. The main session's
   scope is the files changed since SessionStart's photo of the tree; a
   subagent's, those changed since its first Edit or Write, on its own state
   keyed `<session>.<agent_id>`; any writer, `.claude/worktrees/` excluded.
@@ -55,16 +55,16 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   Stop while a subagent, workflow or teammate runs, and caches a green run by
   HEAD and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
 - A new gate is one `EXPECTED_COMMANDS` entry in
-  `scripts/check-lint-config.ts`. `lint-config` then demands its pre-commit job
+  `scripts/gates/check-lint-config.ts`. `lint-config` then demands its pre-commit job
   and its CI step; Stop and pre-push run it through `run-gates.ts`. A hooks
   module's `validate-<plugin>` and `test-<plugin>` are no entries:
   `expectedCommands` derives them from each catalog plugin whose
   `hooks/hooks.json` names `modules`. `run-gates.ts` runs a module's two only
-  when the change reaches its directory (`kitsOf` in `scripts/affected.ts`),
+  when the change reaches its directory (`kitsOf` in `scripts/gates/affected.ts`),
   every module's with `--all`; parity still demands them all.
   The exception is a check of what a push moves: the release guard,
-  `scripts/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
-  e2e gate, `scripts/check-e2e-green.ts`, on a push to `dev`, are each one
+  `scripts/release/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
+  e2e gate, `scripts/gates/check-e2e-green.ts`, on a push to `dev`, are each one
   line of `.lefthook/pre-push/gates-and-tests.sh`, fed git's pushed-ref
   lines. As an entry the release guard would run at every Stop and on every
   push, red from each plugin change to its release-time bump; the e2e gate
@@ -75,7 +75,7 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   tiers (16 threads, `docs/repo-ops/checks.md`, Test tiers), the gates a few
   seconds without a kit.
   pre-push and CI run them, pre-push only the suites the change reaches
-  (`scripts/affected.ts test`).
+  (`scripts/gates/affected.ts test`).
 
 Known ceilings:
 

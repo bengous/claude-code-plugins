@@ -1,16 +1,16 @@
 ---
 name: field-test
 description: "Field-test a plugin of this repository in a real Claude Code session, in the terminal through tmux or in the Claude Desktop app through its windows: the scenario goes red on the base and green on the change, read on the screen, in the files the plugin writes and in what Claude receives. Use when a behaviour change to a hook, pane, band, toast, command, registered tool or skill flow is about to be reported done, when a mod's pane or band must be checked in Claude Desktop, or when the user asks to test a plugin live."
-allowed-tools: Bash(bun ./scripts/field-test.ts *), Bash(bun ./scripts/field-test-desktop.ts *)
+allowed-tools: Bash(bun ./scripts/sessions/field-test.ts *), Bash(bun ./scripts/sessions/field-test-desktop.ts *)
 ---
 
 # Field test
 
 Unit tests and the kit (`claude plugin test`) pin the tree a mod hands the engine. A field test plays the change in a real session, on the real engine, and reads what a person sees and what Claude receives. It is **red** on the base and **green** on the change: a scenario that never went red proves nothing.
 
-`scripts/field-test.ts` drives a terminal session, one command per Bash call. How the terminal, the focus and the transcript behave, measured: [references/terminal.md](references/terminal.md).
+`scripts/sessions/field-test.ts` drives a terminal session, one command per Bash call. How the terminal, the focus and the transcript behave, measured: [references/terminal.md](references/terminal.md).
 
-`scripts/field-test-desktop.ts` drives the Claude Desktop app on Linux with Hyprland: open or show a session, capture its window, click, press keys, read Desktop's log. Which Desktop session runs a mod, and what a click may hit, measured: [references/desktop.md](references/desktop.md). A change that shows in Desktop (a pane, a band, a deep link, a session Desktop opens) is played there too.
+`scripts/sessions/field-test-desktop.ts` drives the Claude Desktop app on Linux with Hyprland: open or show a session, capture its window, click, press keys, read Desktop's log. Which Desktop session runs a mod, and what a click may hit, measured: [references/desktop.md](references/desktop.md). A change that shows in Desktop (a pane, a band, a deep link, a session Desktop opens) is played there too.
 
 ## 1. Gate
 
@@ -54,15 +54,15 @@ Report a table, one row per observable, with the text read on each side, and nam
 ## Commands
 
 ```bash
-bun ./scripts/field-test.ts start griller-base --ref <base> griller     # session on the base; prints the work directory
-bun ./scripts/field-test.ts send griller-base "/griller:grill <topic and the exact form wanted>"
-bun ./scripts/field-test.ts wait griller-base "of 2 answered"            # until the text shows; --gone until it leaves
-bun ./scripts/field-test.ts messages griller-base --last                 # what Claude wrote, hidden parts included
-bun ./scripts/field-test.ts press griller-base "(b)" --nth 1             # Tab to that control, then Enter
-bun ./scripts/field-test.ts screen griller-base --pane                   # the docked pane alone
-bun ./scripts/field-test.ts focused griller-base                         # the control the keys go to
-bun ./scripts/field-test.ts keys griller-base C-x Tab                    # raw tmux keys
-bun ./scripts/field-test.ts stop griller-base
+bun ./scripts/sessions/field-test.ts start griller-base --ref <base> griller     # session on the base; prints the work directory
+bun ./scripts/sessions/field-test.ts send griller-base "/griller:grill <topic and the exact form wanted>"
+bun ./scripts/sessions/field-test.ts wait griller-base "of 2 answered"            # until the text shows; --gone until it leaves
+bun ./scripts/sessions/field-test.ts messages griller-base --last                 # what Claude wrote, hidden parts included
+bun ./scripts/sessions/field-test.ts press griller-base "(b)" --nth 1             # Tab to that control, then Enter
+bun ./scripts/sessions/field-test.ts screen griller-base --pane                   # the docked pane alone
+bun ./scripts/sessions/field-test.ts focused griller-base                         # the control the keys go to
+bun ./scripts/sessions/field-test.ts keys griller-base C-x Tab                    # raw tmux keys
+bun ./scripts/sessions/field-test.ts stop griller-base
 ```
 
 `start` takes `--model` (default `sonnet`), `--width` and `--height` (default 220 × 50), and `--cwd <dir>` to run in a directory you prepared, whose Claude Code data `stop` then leaves alone.
@@ -70,15 +70,15 @@ bun ./scripts/field-test.ts stop griller-base
 In Claude Desktop (Desktop runs an installed plugin, not `--plugin-dir`: install the change and undo it after the run as "Install and clean up" in references/desktop.md says, and start a new session for each edit):
 
 ```bash
-bun ./scripts/field-test-desktop.ts mark                                 # a byte offset into Desktop's log, for log --since
-bun ./scripts/field-test-desktop.ts open <cli session uuid>              # import and show, confirmed by Desktop's log; local_<id> shows a Desktop session
-bun ./scripts/field-test-desktop.ts new --folder <dir> --prompt "<text>" # the new-session page, prompt box filled
-bun ./scripts/field-test-desktop.ts windows                              # Desktop's windows, their workspace and geometry
-bun ./scripts/field-test-desktop.ts shot --half                          # capture the main window into a new temporary directory; prints the file
-bun ./scripts/field-test-desktop.ts click <x> <y>                        # full-size window coordinates; refuses when the pointer misses
-bun ./scripts/field-test-desktop.ts key Enter                            # Escape Backspace Tab Enter Up Down End
-bun ./scripts/field-test-desktop.ts log --since <mark> --grep "Warming"  # what Desktop wrote since the mark
-bun ./scripts/field-test-desktop.ts process <cli session uuid>           # does a Claude Code process run it
+bun ./scripts/sessions/field-test-desktop.ts mark                                 # a byte offset into Desktop's log, for log --since
+bun ./scripts/sessions/field-test-desktop.ts open <cli session uuid>              # import and show, confirmed by Desktop's log; local_<id> shows a Desktop session
+bun ./scripts/sessions/field-test-desktop.ts new --folder <dir> --prompt "<text>" # the new-session page, prompt box filled
+bun ./scripts/sessions/field-test-desktop.ts windows                              # Desktop's windows, their workspace and geometry
+bun ./scripts/sessions/field-test-desktop.ts shot --half                          # capture the main window into a new temporary directory; prints the file
+bun ./scripts/sessions/field-test-desktop.ts click <x> <y>                        # full-size window coordinates; refuses when the pointer misses
+bun ./scripts/sessions/field-test-desktop.ts key Enter                            # Escape Backspace Tab Enter Up Down End
+bun ./scripts/sessions/field-test-desktop.ts log --since <mark> --grep "Warming"  # what Desktop wrote since the mark
+bun ./scripts/sessions/field-test-desktop.ts process <cli session uuid>           # does a Claude Code process run it
 ```
 
 `shot`, `click` and `key` take `--window <title>` for a popped-out session; `shot` refuses a window on a workspace the screen does not show unless `--focus`. `click` and `key` move the person's pointer and type on their screen: ask before the first one in a session.

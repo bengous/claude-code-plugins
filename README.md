@@ -64,7 +64,7 @@ Requires [mise](https://mise.jdx.dev) for tool management.
 After committing and pushing a plugin change, deploy exact installed plugins:
 
 ```bash
-scripts/publish-live <plugin-name>...
+scripts/release/publish-live.sh <plugin-name>...
 ```
 
 The publisher refuses dirty or unpushed repositories and never installs or

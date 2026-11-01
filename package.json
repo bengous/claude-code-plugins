@@ -8,7 +8,7 @@
     "lint:ts": "oxlint",
     "fmt": "oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'",
     "fmt:check": "oxfmt --check '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'",
-    "lint:sh": "bun ./scripts/lint-shell.ts"
+    "lint:sh": "bun ./scripts/gates/lint-shell.ts"
   },
   "dependencies": {
     "yaml": "2.9.1"

@@ -7,7 +7,7 @@ working tree, not the installed cache. The managed target is
 `~/Work/claude-code-plugins.wt/catalog`, detached on `origin/dev` and locked
 with the reason `claude plugin catalog`.
 
-`scripts/plugin-catalog.ts` owns `setup`, `sync`, and `status`. `setup` creates
+`scripts/sessions/plugin-catalog.ts` owns `setup`, `sync`, and `status`. `setup` creates
 that worktree next to the main checkout, locks it and installs each plugin's
 dependencies. It also repairs a locked registration whose directory is gone.
 `sync` finds the worktree by its lock reason, regardless of the caller's
@@ -58,7 +58,7 @@ lands, recover with `git -C <catalog> checkout --detach origin/dev`, then
 The units, activation template and Claude settings live in the dotfiles repo.
 The service executes the catalog's copy of the script. The live sequence is:
 
-1. Run `bun scripts/plugin-catalog.ts setup` from this repository, then apply
+1. Run `bun scripts/sessions/plugin-catalog.ts setup` from this repository, then apply
    only the three units and their activation script from the dotfiles. The
    script reloads systemd and enables the path unit.
 2. Verify the path unit is enabled and active, and a fetch advances the
@@ -72,7 +72,7 @@ The service executes the catalog's copy of the script. The live sequence is:
    `plugin-cache-sync status` and `try-plugin`, then observe a real landing.
 
 These live checks remain unmeasured by the disposable-repository tests in
-`scripts/plugin-catalog.integration.test.ts`. In particular, those tests use command
+`scripts/sessions/plugin-catalog.integration.test.ts`. In particular, those tests use command
 stubs and do not prove desktop notifications, engine loading, or unit
 activation. The source settings include
 `Read(~/Work/claude-code-plugins.wt/catalog/**)` so reference reads do not ask

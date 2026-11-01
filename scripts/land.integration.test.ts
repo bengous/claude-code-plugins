@@ -12,7 +12,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, posix, win32 } from "node:path";
 
-import type { Clock } from "./ci-wait.ts";
 import { type GitHubOverrides, readGitHub, type RunSpec, serveGitHub } from "./land.fixture.ts";
 import {
   addedCheckoutPath,
@@ -28,9 +27,10 @@ import {
   WAITING,
   type Waiting,
 } from "./land.ts";
-import { type Comment, record } from "./review-verdict.ts";
-import { profileSpec, riskyOf } from "./tier-floor.ts";
-import { digestOf, evidenceOf, type Judge, messagesOf, tierOf } from "./tier.ts";
+import type { Clock } from "./landing/ci-wait.ts";
+import { type Comment, record } from "./landing/review-verdict.ts";
+import { profileSpec, riskyOf } from "./landing/tier-floor.ts";
+import { digestOf, evidenceOf, type Judge, messagesOf, tierOf } from "./landing/tier.ts";
 
 let root = "";
 
@@ -907,7 +907,7 @@ function onDev(file: string, message: string, content: string) {
 }
 
 describe("land, a branch that touches a risky path", () => {
-  const RECORD = "bun ./scripts/review-verdict.ts record feature/x --sha";
+  const RECORD = "bun ./scripts/landing/review-verdict.ts record feature/x --sha";
 
   beforeEach(() => {
     onDev(".claude/agent-hooks.jsonc", "review profile", RISKY_PROFILE);

@@ -37,7 +37,7 @@ under the [loader rules](hook-runtime.md#module-loader).
 - A plugin with `package.json` + `bun.lock` gets `bun install
   --frozen-lockfile --ignore-scripts` at its cache when installed. Under
   `--plugin-dir` nothing installs: run `bun install --cwd <plugin>` yourself,
-  as `scripts/run-gates.ts` does for `vellum` and `pinpoint`.
+  as `scripts/gates/run-gates.ts` does for `vellum` and `pinpoint`.
 
 - `claude plugin validate <plugin>` reads
   the module's source and prints what it hooks (`skill.prompt{skill=...}`)
@@ -55,7 +55,7 @@ under the [loader rules](hook-runtime.md#module-loader).
   takes `run_in_background`, an interactive session's does not), the
   account's features and environment variables such as
   `CLAUDE_CODE_FORK_SUBAGENT`, so
-  `bun ./scripts/claude-code-types.ts regenerate` starts that session in a
+  `bun ./scripts/headless/claude-code-types.ts regenerate` starts that session in a
   pseudo-terminal with only `PATH`, `HOME` and `DISABLE_AUTOUPDATER`, and a
   `CLAUDE_CONFIG_DIR` that holds no login, only the onboarding marked done
   and the session's folder trusted, stops it once the files are written,
@@ -65,7 +65,7 @@ under the [loader rules](hook-runtime.md#module-loader).
 - vellum's copy, `vellum/types/`, follows the installed build through a pull
   request, never in a developer's checkout. At session start
   `.claude/hooks/claude-code-types.ts` starts
-  `bun ./scripts/claude-code-types.ts run` detached for an installed version
+  `bun ./scripts/headless/claude-code-types.ts run` detached for an installed version
   no run settled yet, unless a run is going. The run decides after its fetch:
   nothing to do when `origin/dev`, or the rolling branch
   `chore/claude-code-types` while its pull request is open, carries the
@@ -73,7 +73,7 @@ under the [loader rules](hook-runtime.md#module-loader).
   passphrase prompt, then, in `<main worktree>.wt/claude-code-types`, it
   rebases the live branch onto `origin/dev` or starts it again from there,
   installs the dependencies, regenerates and commits the types, and hands the
-  worktree to a headless Claude (`scripts/claude-code-types.prompt.md`) that
+  worktree to a headless Claude (`scripts/headless/claude-code-types.prompt.md`) that
   judges the update's impact on each hooks module and commits what it calls
   for; the run then pushes the branch and opens or updates its pull request,
   which lands as any reviewed branch does,

@@ -29,7 +29,7 @@ The plugin's root holds what Claude Code loads (`.claude-plugin/`, `hooks/`, `sk
 `cli.ts` copies or runs on a map folder (`template/`, `lint/`, `child.bunfig.toml`), the specs'
 `fixtures/`, and `src/`, where every module of the engine lives. A new module goes in the folder
 of its layer, never at a root, its spec beside it. `platform/` is a leaf: a copy of
-`tools/platform/` that `bun ./scripts/sync-platform.ts --write` writes, never edited here, and
+`tools/platform/` that `bun ./scripts/gates/sync-platform.ts --write` writes, never edited here, and
 that imports nothing of the plugin. `model/` imports nothing outside itself but `platform/`;
 `inventory/` imports nothing outside itself but `platform/`; `page/` and `commands/` import
 `model/`; the mod imports `platform/pure.ts` alone of it, since the other modules need Node and Bun;

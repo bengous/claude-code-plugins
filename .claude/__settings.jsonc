@@ -160,10 +160,10 @@
       // answers turns a worker's tier human. tier.ts --pr bills one or two
       // headless judge calls; record posts the review's verdict on a
       // worker's own PR, never a renovate/ one, which that verdict alone lands.
-      "Bash(bun ./scripts/tier.ts --pr *)",
-      "Bash(bun ./scripts/review-verdict.ts record feature/*)",
-      "Bash(bun ./scripts/review-verdict.ts record fix/*)",
-      "Bash(bun ./scripts/run-gates.ts *)",
+      "Bash(bun ./scripts/landing/tier.ts --pr *)",
+      "Bash(bun ./scripts/landing/review-verdict.ts record feature/*)",
+      "Bash(bun ./scripts/landing/review-verdict.ts record fix/*)",
+      "Bash(bun ./scripts/gates/run-gates.ts *)",
       "Bash(bun test *)",
 
       // Blankets that also reach past this machine (a publish, an install, a

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * SessionStart hook — shows, once, the lines `scripts/renovate-agent.ts run`
+ * SessionStart hook — shows, once, the lines `scripts/headless/renovate-agent.ts run`
  * left for the human, and starts that run detached at most once a day, from
  * the main checkout only, unless a run is going: a session in a linked
  * worktree, the run's own agents' included, starts none. The run's state lives
@@ -13,15 +13,15 @@ import { spawn } from "node:child_process";
 import { appendFileSync, closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 
-import { runState, takeFile } from "../../scripts/lib/headless-run.ts";
-import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
-import { reportLines, type StatePaths, statePaths } from "../../scripts/renovate-agent.ts";
+import { runState, takeFile } from "../../scripts/headless/headless-run.ts";
+import { reportLines, type StatePaths, statePaths } from "../../scripts/headless/renovate-agent.ts";
+import { withoutSessionIdentity } from "../../scripts/headless/session-env.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 import { claimToday, mainCommonDir } from "./once-a-day.ts";
 
-const SCRIPT = join(import.meta.dir, "../../scripts/renovate-agent.ts");
+const SCRIPT = join(import.meta.dir, "../../scripts/headless/renovate-agent.ts");
 
 const NO_PROMPT = {
   GIT_TERMINAL_PROMPT: "0",

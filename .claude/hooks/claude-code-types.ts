@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * SessionStart hook — shows the last outcome of `scripts/claude-code-types.ts
+ * SessionStart hook — shows the last outcome of `scripts/headless/claude-code-types.ts
  * run` once, and starts the run detached when the installed Claude Code is a
  * version no run settled yet and no run is going.
  *
@@ -29,14 +29,14 @@ import {
   settledVersion,
   type StatePaths,
   statePaths,
-} from "../../scripts/claude-code-types.ts";
-import { commonDirOf, runState, takeFile } from "../../scripts/lib/headless-run.ts";
-import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
+} from "../../scripts/headless/claude-code-types.ts";
+import { commonDirOf, runState, takeFile } from "../../scripts/headless/headless-run.ts";
+import { withoutSessionIdentity } from "../../scripts/headless/session-env.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 
-const SCRIPT = join(import.meta.dir, "../../scripts/claude-code-types.ts");
+const SCRIPT = join(import.meta.dir, "../../scripts/headless/claude-code-types.ts");
 
 /** The outcome, taken by one session alone. */
 function takeOutcome(file: string): Outcome | null {

@@ -3,7 +3,7 @@
 # lefthook pre-push: on a push to main, the version guard over the pushed
 # commits; on a push to dev, the e2e gate over the pushed commit; then the CI
 # gates and the suites the change reaches since its merge-base with
-# origin/dev (scripts/affected.ts), on the working tree.
+# origin/dev (scripts/gates/affected.ts), on the working tree.
 #
 # A push from a linked worktree exports GIT_DIR to this hook. The test suites
 # run git in temp repos with the inherited environment: with GIT_DIR still set,
@@ -23,7 +23,7 @@ git_env_list="$(git rev-parse --local-env-vars)"
 mapfile -t git_env_vars <<<"${git_env_list}"
 unset "${git_env_vars[@]}"
 
-bun ./scripts/check-plugin-bumps.ts --pre-push <<<"${pushed_refs}"
-bun ./scripts/check-e2e-green.ts <<<"${pushed_refs}"
-bun ./scripts/run-gates.ts
-bun ./scripts/affected.ts test
+bun ./scripts/release/check-plugin-bumps.ts --pre-push <<<"${pushed_refs}"
+bun ./scripts/gates/check-e2e-green.ts <<<"${pushed_refs}"
+bun ./scripts/gates/run-gates.ts
+bun ./scripts/gates/affected.ts test

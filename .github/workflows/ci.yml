@@ -71,28 +71,28 @@ jobs:
       - name: Install atlas dependencies
         run: bun install --cwd atlas --frozen-lockfile --ignore-scripts
 
-      # What the change reaches (`scripts/affected.ts`): a pull request's against its base, every
+      # What the change reaches (`scripts/gates/affected.ts`): a pull request's against its base, every
       # suite and kit on any other event. The steps below read `kits`, never interpolate it.
       - name: Scope the suites and kits to the change
         id: scope
-        run: bun ./scripts/affected.ts github-output
+        run: bun ./scripts/gates/affected.ts github-output
 
       # The suites the change reaches, `scripts/` always; on a push or a dispatch every one, the
       # repo's own hooks in a run of their own, since `bun test` skips dot directories. Each run
-      # retries the files whose tests failed once (`scripts/flaky-report.ts`), for `flaky`.
+      # retries the files whose tests failed once (`scripts/ci/flaky-report.ts`), for `flaky`.
       - name: Run test suites
-        run: bun ./scripts/affected.ts test --retry validate
+        run: bun ./scripts/gates/affected.ts test --retry validate
 
       # The nine gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
       - name: Check lint configuration
-        run: bun ./scripts/check-lint-config.ts
+        run: bun ./scripts/gates/check-lint-config.ts
 
       - name: Typecheck (tsgo)
         run: bun x tsgo --noEmit
 
       - name: Check that the typecheck covers every tracked TypeScript file
-        run: bun ./scripts/check-typecheck-coverage.ts
+        run: bun ./scripts/gates/check-typecheck-coverage.ts
 
       - name: Lint TypeScript (oxlint)
         run: bun x oxlint
@@ -101,24 +101,24 @@ jobs:
         run: bun x oxfmt --check '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'
 
       - name: Lint shell (shellcheck + shfmt)
-        run: bun ./scripts/lint-shell.ts
+        run: bun ./scripts/gates/lint-shell.ts
 
       - name: Refuse unjustified lint suppressions
-        run: bun ./scripts/check-lint-disables.ts
+        run: bun ./scripts/gates/check-lint-disables.ts
 
       - name: Check that each rule names its control
-        run: bun ./scripts/check-rule-registry.ts
+        run: bun ./scripts/gates/check-rule-registry.ts
 
       - name: Check that every copy of tools/platform matches its source
-        run: bun ./scripts/sync-platform.ts
+        run: bun ./scripts/gates/sync-platform.ts
 
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.
       - name: Validate marketplace (version + structure sync)
-        run: bun ./scripts/validate-marketplace.ts
+        run: bun ./scripts/gates/validate-marketplace.ts
 
       - name: Validate plugin frontmatter
-        run: bun ./scripts/validate-frontmatter.ts --all
+        run: bun ./scripts/gates/validate-frontmatter.ts --all
 
       - name: Validate the vellum hooks module
         if: contains(fromJSON(steps.scope.outputs.kits), 'vellum')
@@ -211,7 +211,7 @@ jobs:
 
       - name: Scope the suites and kits to the change
         id: scope
-        run: bun ./scripts/affected.ts github-output
+        run: bun ./scripts/gates/affected.ts github-output
 
   # Vellum on Windows: its `bun:test` suites and the hooks module's kit, then `tools/platform`'s
   # suites, where Linux misses what Windows refuses (a folder a process holds cannot be renamed).
@@ -220,7 +220,7 @@ jobs:
   # (`docs/repo-ops/protections.md`), and a pull request's run is named `win32 (scoped)`, a name
   # no ruleset requires. `always()` runs it on a push or a dispatch, where `scope` is skipped. The
   # repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is not run here.
-  # Each suite retries what failed once (`scripts/flaky-report.ts`), and the job uploads what passed
+  # Each suite retries what failed once (`scripts/ci/flaky-report.ts`), and the job uploads what passed
   # on the retry for `flaky`, red or green.
   win32:
     name: ${{ github.event_name == 'pull_request' && 'win32 (scoped)' || 'win32' }}
@@ -251,17 +251,17 @@ jobs:
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
 
       # Unit and integration suites in one run, on the integration tier's budget (`testRuns` in
-      # `scripts/affected.ts`): the job is no required check, and runs vellum's suites alone.
+      # `scripts/gates/affected.ts`): the job is no required check, and runs vellum's suites alone.
       - name: Run vellum's suites
-        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout=20000 vellum
+        run: bun ./scripts/ci/flaky-report.ts retry bun --job win32 -- bun test --parallel --timeout=20000 vellum
 
       - name: Test the vellum hooks module
-        run: bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
+        run: bun ./scripts/ci/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
 
       # The platform helpers every plugin copies: their rename retries a folder Windows holds,
       # which no other job can see.
       - name: Run tools/platform's suites
-        run: bun ./scripts/flaky-report.ts retry bun --job win32 --report bun-platform -- bun test --timeout=20000 tools/platform
+        run: bun ./scripts/ci/flaky-report.ts retry bun --job win32 --report bun-platform -- bun test --timeout=20000 tools/platform
 
       # A name per attempt: a re-run keeps the first attempt's report beside its own.
       - name: Upload the flaky report
@@ -273,7 +273,7 @@ jobs:
           if-no-files-found: ignore
 
   # Mutation testing on what the change alters in the modules `stryker.config.ts` lists or their
-  # tests (`scripts/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an
+  # tests (`scripts/ci/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an
   # inline commit is tested and a survivor turns the push run red, a dispatch's since `origin/dev`.
   # A label asks for no new verdict, and a push to `main` releases a `dev` head already tested. A
   # push whose commit has a green `mutation` check from its pull request skips the passes. With
@@ -301,7 +301,7 @@ jobs:
 
       - name: Scope the mutants to the changed lines
         id: scope
-        run: bun ./scripts/mutation.ts github-output
+        run: bun ./scripts/ci/mutation.ts github-output
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -311,11 +311,11 @@ jobs:
 
       - name: Mutation-test the changed lines
         if: steps.scope.outputs.mutate == 'true'
-        run: bun ./scripts/mutation.ts run
+        run: bun ./scripts/ci/mutation.ts run
 
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
-  # `scripts/e2e-windows.integration.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
+  # `scripts/gates/e2e-windows.integration.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
   # reads a running `e2e (<window>)` by that name. `check-lint-config.ts` reads `validate` alone.
   e2e-window:
     name: e2e (${{ matrix.window }})
@@ -358,7 +358,7 @@ jobs:
 
       - name: Record the tests that passed on their retry
         if: ${{ !cancelled() && steps.suite.outcome != 'skipped' }}
-        run: bun ./scripts/flaky-report.ts playwright --job "e2e (${{ matrix.window }})" vellum/test-results/playwright.json
+        run: bun ./scripts/ci/flaky-report.ts playwright --job "e2e (${{ matrix.window }})" vellum/test-results/playwright.json
 
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
@@ -403,7 +403,7 @@ jobs:
 
       - name: Record the tests that passed on their retry
         if: ${{ !cancelled() && steps.suite.outcome != 'skipped' }}
-        run: bun ./scripts/flaky-report.ts playwright --job "e2e (win32, light-1440)" vellum/test-results/playwright.json
+        run: bun ./scripts/ci/flaky-report.ts playwright --job "e2e (win32, light-1440)" vellum/test-results/playwright.json
 
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
@@ -413,7 +413,7 @@ jobs:
           path: flaky-reports/*.json
           if-no-files-found: ignore
 
-  # The one check the pre-push gate reads, `scripts/check-e2e-green.ts`: green when every window
+  # The one check the pre-push gate reads, `scripts/gates/check-e2e-green.ts`: green when every window
   # is, Windows' included. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
   # which the gate reads as no run; `always()` lets a red or cancelled window turn it red.
   e2e:
@@ -436,7 +436,7 @@ jobs:
           WINDOWS: ${{ needs.e2e-window.result }}
           WIN32: ${{ needs.e2e-win32.result }}
 
-  # One issue per flaky test, from the reports the suite jobs uploaded (`scripts/flaky-report.ts`):
+  # One issue per flaky test, from the reports the suite jobs uploaded (`scripts/ci/flaky-report.ts`):
   # the one job that writes issues, so the suites' jobs keep the read-only token. It runs after
   # them, red or green, `validate` running on every event, but not on a fork's pull request, whose
   # token cannot write issues.
@@ -476,7 +476,7 @@ jobs:
 
       - name: Open, reopen or comment on an issue per flaky test
         continue-on-error: true
-        run: bun ./scripts/flaky-report.ts report flaky-reports
+        run: bun ./scripts/ci/flaky-report.ts report flaky-reports
         env:
           GH_TOKEN: ${{ github.token }}
 

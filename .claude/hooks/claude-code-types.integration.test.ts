@@ -11,11 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { stubbedEnv, write } from "../../scripts/claude-code-types.fixture.ts";
-import { type Outcome, RUN_GUARD, statePaths } from "../../scripts/claude-code-types.ts";
+import { stubbedEnv, write } from "../../scripts/headless/claude-code-types.fixture.ts";
+import { type Outcome, RUN_GUARD, statePaths } from "../../scripts/headless/claude-code-types.ts";
+import { runState } from "../../scripts/headless/headless-run.ts";
 import { TYPES_PATH } from "../../scripts/lib/claude-code-types-paths.ts";
 import { holdLock } from "../../scripts/lib/flock.fixture.ts";
-import { runState } from "../../scripts/lib/headless-run.ts";
 
 const HOOK = join(import.meta.dir, "claude-code-types.ts");
 

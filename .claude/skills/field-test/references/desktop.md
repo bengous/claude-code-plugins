@@ -1,6 +1,6 @@
 # Driving Claude Desktop: what was measured
 
-What `scripts/field-test-desktop.ts` relies on, and how a field test sees a mod in the Code tab of Claude Desktop without the person. Measured on Linux with Hyprland, while field-testing the `cloud-pull` mod; "not measured" marks the rest.
+What `scripts/sessions/field-test-desktop.ts` relies on, and how a field test sees a mod in the Code tab of Claude Desktop without the person. Measured on Linux with Hyprland, while field-testing the `cloud-pull` mod; "not measured" marks the rest.
 
 ## Which session draws a mod
 

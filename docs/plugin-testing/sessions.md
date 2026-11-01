@@ -8,7 +8,7 @@
 command claude --permission-mode default --plugin-dir <repo>/<plugin>
 ```
 
-`scripts/try-plugin.ts` is that launch with `--debug`, the function-hooks flag and the
+`scripts/sessions/try-plugin.ts` is that launch with `--debug`, the function-hooks flag and the
 plugin's `bun install`. The owner's shell calls it `tp`.
 
 - `try-plugin.ts` alone asks two questions through `fzf`: which plugin, then which

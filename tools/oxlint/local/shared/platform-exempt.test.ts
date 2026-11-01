@@ -32,7 +32,7 @@ describe("isPlatformExempt", () => {
   });
 
   test("keeps product code, whatever its name holds", () => {
-    expect(exempt("scripts/affected.ts")).toBe(false);
+    expect(exempt("scripts/gates/affected.ts")).toBe(false);
     expect(exempt("scripts/attest.ts")).toBe(false);
     expect(exempt("vellum/src/e2e-paths.ts")).toBe(false);
   });

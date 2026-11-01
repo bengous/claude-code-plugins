@@ -16,7 +16,7 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   fullyParallel: true,
   forbidOnly: process.env.CI !== undefined,
-  // `scripts/flaky-report.ts` reads the JSON report for the tests CI's retry passed.
+  // `scripts/ci/flaky-report.ts` reads the JSON report for the tests CI's retry passed.
   retries: process.env.CI === undefined ? 0 : 1,
   reporter:
     process.env.CI === undefined

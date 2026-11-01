@@ -1,6 +1,6 @@
 name: red-dev
 
-# While `dev`'s head is red in CI, one open issue labelled `red-dev` says so (`scripts/red-dev.ts`).
+# While `dev`'s head is red in CI, one open issue labelled `red-dev` says so (`scripts/ci/red-dev.ts`).
 # Each CI run that completes on `dev` wakes it; it decides from `dev`'s head alone, read fresh, so
 # runs that end out of order reach the head's verdict. GitHub runs a `workflow_run` workflow from
 # the default branch, `main`: this file and its script take effect with the release that carries
@@ -36,7 +36,7 @@ jobs:
           install_args: bun
 
       - name: Open, comment on or close the red-dev issue from dev's head
-        run: bun ./scripts/red-dev.ts
+        run: bun ./scripts/ci/red-dev.ts
         env:
           GH_TOKEN: ${{ github.token }}
           CI_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}

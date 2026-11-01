@@ -36,7 +36,7 @@
  * Renovate's branches and the types branch have guards of their own.
  *
  * Then it waits, an hour at most in all, until
- * every `ci.yml` run of that head is green (`scripts/ci-wait.ts`), a run red
+ * every `ci.yml` run of that head is green (`scripts/landing/ci-wait.ts`), a run red
  * in its e2e jobs alone re-run once. A branch touching the e2e paths whose
  * head holds `origin/dev` and has no green `e2e` check run, the pre-push
  * gate's own predicate, gets the `e2e` label, taken off first when it is on,
@@ -46,7 +46,7 @@
  * clean at the head the landing left there: fetch, rebase on `origin/dev`,
  * refuse a rebased branch that touches a path of
  * `origin/dev`'s `profile.review.risky` without a clean review verdict for
- * its patch on the pull request (`scripts/review-verdict.ts`); while that
+ * its patch on the pull request (`scripts/landing/review-verdict.ts`); while that
  * profile does not read, every path is risky. Then install the lockfile when
  * the rebase changed it, push the branch with a lease on the head last
  * pushed, push it to `dev`. A rebase that makes a new commit on a branch
@@ -65,13 +65,15 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { messageOf } from "../tools/platform/pure.ts";
+import { LABEL as RED_DEV } from "./ci/red-dev.ts";
 import {
   type CheckRun,
   checkRunsOf,
   isE2eCheck,
   isE2ePath,
   refusalFor,
-} from "./check-e2e-green.ts";
+} from "./gates/check-e2e-green.ts";
+import { ROLLING_BRANCH, worktreePath } from "./headless/claude-code-types.ts";
 import {
   type CiOutcome,
   type CiQuery,
@@ -83,10 +85,7 @@ import {
   REGISTRATION_MS,
   SYSTEM_CLOCK,
   waitFor,
-} from "./ci-wait.ts";
-import { ROLLING_BRANCH, worktreePath } from "./claude-code-types.ts";
-import { run } from "./lib/run.ts";
-import { LABEL as RED_DEV } from "./red-dev.ts";
+} from "./landing/ci-wait.ts";
 import {
   BASE,
   type Comment,
@@ -96,8 +95,9 @@ import {
   recordCommand,
   short,
   verdictsOf,
-} from "./review-verdict.ts";
-import { riskyOf, riskyPaths, type Tier, type Verdict } from "./tier-floor.ts";
+} from "./landing/review-verdict.ts";
+import { riskyOf, riskyPaths, type Tier, type Verdict } from "./landing/tier-floor.ts";
+import { run } from "./lib/run.ts";
 
 /** Set in the environment of `origin/dev`'s copy, which runs the landing itself. */
 const DEV_COPY = "LAND_DEV_COPY";
@@ -124,7 +124,7 @@ const GREEN_JOB = new Set(["success", "skipped", "neutral"]);
 
 const PR_NUMBER = /^\d+$/u;
 
-/** Renovate's branches: `scripts/renovate-agent.ts` and the verdict it posts guard them, not the tier. */
+/** Renovate's branches: `scripts/headless/renovate-agent.ts` and the verdict it posts guard them, not the tier. */
 const BOT_BRANCH = /^renovate\//u;
 
 /** The human's ok on one pull request, added only on the human's own words (`profile.approvals.labels`). */
@@ -361,7 +361,7 @@ export async function tierScript(checkout: string, pr: number): Promise<Verdict>
   const child = Bun.spawn(
     [
       process.execPath,
-      join(import.meta.dir, "tier.ts"),
+      join(import.meta.dir, "landing", "tier.ts"),
       "--pr",
       String(pr),
       "--checkout",

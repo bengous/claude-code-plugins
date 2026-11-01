@@ -1,7 +1,7 @@
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Comment } from "./review-verdict.ts";
+import type { Comment } from "./landing/review-verdict.ts";
 
 // Stands in for `gh` in land.integration.test.ts: one pull request and the ci.yml runs of
 // its heads, kept in a JSON file. The pull request's head is the one the bare

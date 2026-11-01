@@ -2,7 +2,7 @@
 
 The file, path and process helpers of the whole repository, in one source. A plugin stands alone
 once installed, so it never imports this directory: it imports its own copy, which
-`scripts/sync-platform.ts` writes and holds identical. `scripts/` and `.claude/` import this
+`scripts/gates/sync-platform.ts` writes and holds identical. `scripts/` and `.claude/` import this
 directory directly.
 
 | File | Holds | Imports |
@@ -47,11 +47,11 @@ Each way to share code without a copy fails a target this repository has:
   marked `type` counts, since the typecheck reads that file too; the transpiler drops it, so the
   gate reads each path quoted after `from`, `import` or `require` in the text, but on a line that
   opens with `//`, `/*` or `*`, a comment's.
-- Edit this directory, never a copy, then run `bun ./scripts/sync-platform.ts --write`: it writes
+- Edit this directory, never a copy, then run `bun ./scripts/gates/sync-platform.ts --write`: it writes
   each module a copy must hold that differs or is missing, and removes what git lists in a copy
   beyond them, unless an import names no module, a typo maybe for one the copy holds. A file git
   ignores there (a scratch `.tmp`, a `.DS_Store`) is left alone.
-- `bun ./scripts/sync-platform.ts`, the gate `platform-copies`, writes nothing and refuses:
+- `bun ./scripts/gates/sync-platform.ts`, the gate `platform-copies`, writes nothing and refuses:
   - a copy that differs from its source, byte for byte, or is a symbolic link, which a plugin
     installed alone loses;
   - a module a copy must hold that it lacks or git ignores, or a file git lists there that no

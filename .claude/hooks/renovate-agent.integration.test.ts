@@ -3,10 +3,10 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { write } from "../../scripts/claude-code-types.fixture.ts";
+import { write } from "../../scripts/headless/claude-code-types.fixture.ts";
+import { runState } from "../../scripts/headless/headless-run.ts";
+import { statePaths } from "../../scripts/headless/renovate-agent.ts";
 import { holdLock } from "../../scripts/lib/flock.fixture.ts";
-import { runState } from "../../scripts/lib/headless-run.ts";
-import { statePaths } from "../../scripts/renovate-agent.ts";
 import { dayOf } from "./once-a-day.ts";
 
 const HOOK = join(import.meta.dir, "renovate-agent.ts");

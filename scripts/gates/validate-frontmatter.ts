@@ -1,0 +1,144 @@
+#!/usr/bin/env bun
+/**
+ * YAML frontmatter validation script
+ * Validates frontmatter in component markdown files (commands, skills, agents,
+ * hooks, path-scoped rules) — staged files by default, the whole repo with --all
+ */
+
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+import { GitError, git, gitRead } from "../../tools/platform/git.ts";
+import { workingTreeFiles } from "../lib/working-tree-files.ts";
+import { checkKeys, classifyComponent, validateFrontmatter } from "./frontmatter-validation.ts";
+
+// Colors (disabled if not a terminal)
+const isTTY = process.stdout.isTTY;
+
+const RED = isTTY ? "\u001B[0;31m" : "";
+
+const GREEN = isTTY ? "\u001B[0;32m" : "";
+
+const YELLOW = isTTY ? "\u001B[1;33m" : "";
+
+const BOLD = isTTY ? "\u001B[1m" : "";
+
+const RESET = isTTY ? "\u001B[0m" : "";
+
+// Get repo root
+const SHOW_TOPLEVEL = ["rev-parse", "--show-toplevel"];
+
+const repoRootResult = await git(SHOW_TOPLEVEL);
+
+if (repoRootResult.outputLost === true) throw new GitError(SHOW_TOPLEVEL, repoRootResult);
+
+if (repoRootResult.kind !== "exited" || repoRootResult.code !== 0) {
+  console.error("Error: Not in a git repository");
+  process.exit(2);
+}
+
+const repoRoot = repoRootResult.stdout.trim();
+
+// File source: `--all` validates every plugin markdown file of the working
+// tree, untracked ones included (CI, Stop, pre-push); default validates only
+// staged files (pre-commit).
+const checkAll = process.argv.includes("--all");
+
+const candidates = checkAll
+  ? await workingTreeFiles()
+  : (await gitRead(["diff", "--cached", "--name-only", "--diff-filter=ACMR"]))
+      .split("\n")
+      .filter(Boolean);
+
+// Filter to Claude Code markdown files (commands, skills, agents, hooks,
+// path-scoped rules). archive/ holds vendored, frozen plugins — skip it.
+const pluginPatterns = [
+  /commands\/.*\.md$/u,
+  /skills\/.*\.md$/u,
+  /agents\/.*\.md$/u,
+  /hooks\/.*\.md$/u,
+  /^\.claude\/rules\/.*\.md$/u,
+];
+
+const mdFiles = candidates.filter(
+  (f: string) => !f.startsWith("archive/") && pluginPatterns.some((p) => p.test(f)),
+);
+
+if (mdFiles.length === 0) {
+  process.exit(0); // No relevant files staged
+}
+
+console.log(`${BOLD}Validating YAML frontmatter...${RESET}\n`);
+
+let errors = 0;
+
+for (const file of mdFiles) {
+  const fullPath = join(repoRoot, file);
+
+  if (!existsSync(fullPath)) continue;
+
+  const content = await Bun.file(fullPath).text();
+  const result = validateFrontmatter(file, content);
+
+  if (!result.valid && result.error) {
+    errors++;
+    const loc = result.error.line ? `:${result.error.line}:${result.error.col}` : "";
+    console.log(`${RED}✗${RESET} ${file}${loc}`);
+    console.log(`  ${result.error.message}`);
+
+    if (result.error.code) {
+      console.log(`  ${YELLOW}Code: ${result.error.code}${RESET}`);
+    }
+
+    console.log();
+    continue;
+  }
+
+  // Key validation: Claude Code silently ignores unknown frontmatter keys
+  // (verified against CLI v2.1.232 — even `claude plugin validate --strict`
+  // passes them), so this pre-commit check is the only gate.
+  const type = classifyComponent(file);
+
+  if (!type) continue;
+
+  if (!result.frontmatter) {
+    if (type === "agent") {
+      errors++;
+      console.log(`${RED}✗${RESET} ${file}`);
+      console.log(`  Agent file has no frontmatter (name and description are required)`);
+      console.log();
+    }
+
+    continue;
+  }
+
+  const keys = checkKeys(type, result.frontmatter);
+
+  if (keys.unknown.length === 0 && keys.missing.length === 0) continue;
+
+  errors++;
+  console.log(`${RED}✗${RESET} ${file} (${type})`);
+
+  for (const violation of keys.unknown) {
+    const hint = violation.suggestion ? ` — ${violation.suggestion}` : "";
+    console.log(`  Unknown key \`${violation.key}\`${hint}`);
+  }
+
+  for (const key of keys.missing) {
+    console.log(`  Missing required key \`${key}\``);
+  }
+
+  console.log();
+}
+
+if (errors === 0) {
+  console.log(`${GREEN}✓${RESET} All ${mdFiles.length} file(s) have valid frontmatter`);
+  process.exit(0);
+} else {
+  console.log(`\n${RED}${errors} file(s) with invalid frontmatter${RESET}`);
+  console.log(`\n${YELLOW}Common fixes:${RESET}`);
+  console.log(`  - Quote strings with special chars: argument-hint: "[optional]"`);
+  console.log(`  - Escape colons in values: description: "Note: this works"`);
+  console.log(`  - Unknown keys are silently ignored by Claude Code; fix the key, do not keep it`);
+  process.exit(1);
+}

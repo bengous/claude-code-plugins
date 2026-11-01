@@ -25,10 +25,10 @@ For plugin tests, permissions and the catalog lifecycle, start at [Plugin testin
 ```bash
 bun test --parallel                                    # every suite outside dot directories and `archive/`
 bun test --parallel ./.claude/hooks/*.test.ts          # the repo's own hooks; `bun test` skips them
-bun ./scripts/run-gates.ts                             # CI's `validate` gates for what the change reaches (`--all`: everything)
-bun ./scripts/affected.ts print                        # what the change reaches since origin/dev; `test` runs those suites
+bun ./scripts/gates/run-gates.ts                       # CI's `validate` gates for what the change reaches (`--all`: everything)
+bun ./scripts/gates/affected.ts print                  # what the change reaches since origin/dev; `test` runs those suites
 bun ./scripts/land.ts <branch>                         # land a branch on dev; run once in the background, its last line says what to do next
-bun ./scripts/tier.ts                                  # this branch's review tier, low or human; `--history`, `--eval` calibrate it
+bun ./scripts/landing/tier.ts                          # this branch's review tier, low or human; `--history`, `--eval` calibrate it
 bun run --cwd vellum e2e                               # vellum's browser suite; Chromium once per machine: `bun run --cwd vellum e2e:install`
 ```
 
@@ -60,9 +60,10 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 
 ## Non-Obvious Directories
 
+- `scripts/` - the repo's own tooling, one directory per concern (`gates/`, `landing/`, `release/`, `ci/`, `headless/`, `sessions/`, `reports/`, `lib/` for what two of them share). `land.ts` and `release.ts` stay at the root: the agent-hooks guard reads them there (`agent-hooks/guard/repo.ts`, `guard/argv.ts`).
 - `archive/` - retired plugins, not in the marketplace.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
-- `tools/platform/` - the file, path and process helpers; edit here, then `bun ./scripts/sync-platform.ts --write`; never edit a copy.
+- `tools/platform/` - the file, path and process helpers; edit here, then `bun ./scripts/gates/sync-platform.ts --write`; never edit a copy.
 - `tools/oxlint/local/` - the repo's own lint plugin, edited here; registered beside anti-slop in `oxlint.config.ts`.
 
 ## Branching
@@ -73,7 +74,7 @@ Claude Code's built-in "Commit or push only when the user asks" does not hold he
 
 Two lanes; the agent judges by scope, the user can override:
 
-- Inline — one concern, small diff: commit directly on `dev`. A commit that touches the e2e paths (listed in `scripts/check-e2e-green.ts`) goes through a branch instead: the pre-push hook lets it reach `dev` only once its SHA has a green `e2e` run, and that run needs a pushed branch.
+- Inline — one concern, small diff: commit directly on `dev`. A commit that touches the e2e paths (listed in `scripts/gates/check-e2e-green.ts`) goes through a branch instead: the pre-push hook lets it reach `dev` only once its SHA has a green `e2e` run, and that run needs a pushed branch.
 - Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`. During a feature the branch ignores `dev`; rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
 
 Review: one agent review of each branch, before `github-flow:pr` publishes it; on a branch that touches the `profile.review.risky` paths of `.claude/agent-hooks.jsonc`, `land.ts` requires its verdict. The change sets the tier: a `tier:low` pull request lands through its worker once green, a `tier:human` one waits until the human types `land #<n>`. The inline lane stays outside the tier, at its author's judgement, so the loop's *Low escapes* does not cover all of `dev`. The human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause.

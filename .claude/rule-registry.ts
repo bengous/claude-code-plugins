@@ -1,6 +1,6 @@
 /**
  * What holds each rule of the root `AGENTS.md` and of `.claude/rules/`, read by
- * `scripts/check-rule-registry.ts` (the `rule-registry` gate). A rule is a text
+ * `scripts/gates/check-rule-registry.ts` (the `rule-registry` gate). A rule is a text
  * block, headings and code aside: a paragraph, a top-level list item, a table
  * row. The key is a fingerprint of its text, so an edited rule loses its entry
  * and the gate names the new key. `held` names the controls that enforce what
@@ -9,7 +9,7 @@
  * it; without it, each item has its own entry.
  */
 
-import type { Registry } from "../scripts/check-rule-registry.ts";
+import type { Registry } from "../scripts/gates/check-rule-registry.ts";
 
 export const REGISTRY: Registry = {
   "AGENTS.md": {
@@ -21,11 +21,14 @@ export const REGISTRY: Registry = {
     },
     af9d742f: {
       quote: "New plugin: add its `marketplace.json` entry and its",
-      held: ["hook scripts/sync-versions.ts", "gate validate-marketplace"],
+      held: ["hook scripts/gates/sync-versions.ts", "gate validate-marketplace"],
     },
     e720734e: {
       quote: "Agents never bump a version or write a `CHANGELOG.md`",
-      held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.integration.test.ts"],
+      held: [
+        "hook scripts/release/check-plugin-bumps.ts",
+        "test scripts/release.integration.test.ts",
+      ],
     },
     "0e6d3332": {
       quote: "A behaviour change to a plugin is done once the `field-test`",
@@ -41,7 +44,11 @@ export const REGISTRY: Registry = {
     },
     "4d9290b5": {
       quote: "`pre-commit` and `pre-push` run the gates; CI runs them all",
-      held: ["gate lint-config", "hook scripts/run-gates.ts", "hook scripts/affected.ts"],
+      held: [
+        "gate lint-config",
+        "hook scripts/gates/run-gates.ts",
+        "hook scripts/gates/affected.ts",
+      ],
     },
     "650a7855": {
       quote: "`.claude/github-flow.json` names the validate, tier, verdict",
@@ -103,7 +110,11 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/anti-slop/` - vendored lint plugin. Do not",
       held: ["gate lint-config"],
     },
-    "9fd94dd1": {
+    "9d592292": {
+      quote: "`scripts/` - the repo's own tooling, one directory per",
+      prose: "a fact about the layout; agent-hooks' tests hold the two root paths",
+    },
+    "667fb01a": {
       quote: "`tools/platform/` - the file, path and process helpers; edit",
       held: ["gate platform-copies"],
     },
@@ -124,9 +135,9 @@ export const REGISTRY: Registry = {
       quote: "Two lanes; the agent judges by scope, the user can override:",
       prose: "a lead-in; each lane below has its own entry",
     },
-    "8706f9f1": {
+    "6206bcdc": {
       quote: "Inline — one concern, small diff: commit directly on `dev`.",
-      held: ["hook scripts/check-e2e-green.ts"],
+      held: ["hook scripts/gates/check-e2e-green.ts"],
     },
     c316b6bb: {
       quote: "Branch — several concerns, big work (large feature, large",
@@ -172,15 +183,15 @@ export const REGISTRY: Registry = {
       quote: "Per-edit cost, measured on 2026-09-14 with hyperfine on",
       prose: "a measurement, kept with its conditions",
     },
-    "29cf4b80": {
+    "4029847c": {
       quote: "The Stop and each subagent's SubagentStop are the",
-      held: ["hook scripts/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
+      held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
     },
-    "33ff07c7": {
+    "42bf516c": {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",
       held: ["gate lint-config"],
     },
-    "61ef1d46": {
+    "4235d5f9": {
       quote: "Tests stay out of Stop: every suite takes about 36 s here in",
       prose: "a trade-off of cost",
     },
@@ -230,7 +241,7 @@ export const REGISTRY: Registry = {
     },
   },
   ".claude/rules/test-tiers.md": {
-    "65a8aa47": {
+    "4f8e006e": {
       quote: "A test file that starts a process (`git`, `bun`, a CLI, a",
       prose: "whether a test starts a process is known only by running it",
     },

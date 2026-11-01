@@ -39,7 +39,7 @@ export interface Rewriter {
 
 const OXFMT_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"] as const;
 
-// Mirrors SHFMT_FLAGS in scripts/lint-shell.ts.
+// Mirrors SHFMT_FLAGS in scripts/gates/lint-shell.ts.
 const SHFMT_FLAGS = ["-i", "2", "-ci"] as const;
 
 const GIT_DIFF_FILES_DIFFER = 1;
@@ -99,7 +99,7 @@ export function rewritersFor(relativePath: string): Rewriter[] {
     return [oxfmt, oxlintFix, oxfmt];
   }
 
-  // archive/ is excluded as in scripts/lint-shell.ts.
+  // archive/ is excluded as in scripts/gates/lint-shell.ts.
   if (relativePath.endsWith(".sh") && !relativePath.startsWith("archive/")) {
     return [{ tool: "shfmt", argv: ["shfmt", ...SHFMT_FLAGS, "-w", relativePath] }];
   }

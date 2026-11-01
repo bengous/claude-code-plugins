@@ -16,23 +16,7 @@ import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
 
 import { releaseScriptOf } from "../agent-hooks/guard/argv.ts";
-import { type Semver, semverOf } from "./changelog.ts";
-import {
-  type CommitId,
-  commitAt,
-  type MarketplaceName,
-  type SourceDir,
-} from "./check-plugin-bumps.ts";
-import type { Gh } from "./ci-wait.ts";
-import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
-import {
-  loadPlan,
-  localDate,
-  type PlannedBump,
-  planRelease,
-  type ReleasePlan,
-  sealPlan,
-} from "./release-plan.ts";
+import type { Gh } from "./landing/ci-wait.ts";
 import {
   type Context,
   describeDryRun,
@@ -48,6 +32,22 @@ import {
   type ShipOutcome,
   type View,
 } from "./release.ts";
+import { type Semver, semverOf } from "./release/changelog.ts";
+import {
+  type CommitId,
+  commitAt,
+  type MarketplaceName,
+  type SourceDir,
+} from "./release/check-plugin-bumps.ts";
+import {
+  loadPlan,
+  localDate,
+  type PlannedBump,
+  planRelease,
+  type ReleasePlan,
+  sealPlan,
+} from "./release/release-plan.ts";
+import { type PluginDir, pluginDirAt } from "./sessions/plugin-sources.ts";
 
 let root = "";
 
@@ -183,16 +183,13 @@ function installSyncVersions() {
   );
 
   write("lefthook.yml", stringify({ "pre-commit": { jobs: [job] } }));
-  mkdirSync(join(repo, "scripts", "lib"), { recursive: true });
-  copyFileSync(
-    join(import.meta.dir, "sync-versions.ts"),
-    join(repo, "scripts", "sync-versions.ts"),
-  );
-  chmodSync(join(repo, "scripts", "sync-versions.ts"), 0o755);
-  copyFileSync(
-    join(import.meta.dir, "lib", "marketplace-validation.ts"),
-    join(repo, "scripts", "lib", "marketplace-validation.ts"),
-  );
+  mkdirSync(join(repo, "scripts", "gates"), { recursive: true });
+
+  for (const file of ["sync-versions.ts", "marketplace-validation.ts"]) {
+    copyFileSync(join(import.meta.dir, "gates", file), join(repo, "scripts", "gates", file));
+  }
+
+  chmodSync(join(repo, "scripts", "gates", "sync-versions.ts"), 0o755);
   mkdirSync(join(repo, "tools", "platform"), { recursive: true });
 
   for (const file of ["pure.ts", "fs.ts", "process.ts", "git.ts"]) {

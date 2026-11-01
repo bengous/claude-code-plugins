@@ -22,7 +22,7 @@ node_modules/
 # Playwright's traces of failed e2e tests, and its JSON report under CI
 vellum/test-results/
 
-# The reports scripts/flaky-report.ts writes in CI
+# The reports scripts/ci/flaky-report.ts writes in CI
 flaky-reports/
 
 # Python
