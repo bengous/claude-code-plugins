@@ -9,16 +9,11 @@ import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from
 
 import type { Subprocess } from "bun";
 
-import {
-  type BufferOutput,
-  type RunOptions,
-  renameSync,
-  runSync,
-  writeAtomicSync,
-} from "../../tools/platform/node.ts";
+import { renameSync, writeAtomicSync } from "../../tools/platform/node.ts";
 import { isErrno, messageOf } from "../../tools/platform/pure.ts";
 import { tryLock, unlock } from "./flock.ts";
 import { pluginDirAt, readWorktrees } from "./plugin-sources.ts";
+import { runRaw } from "./run.ts";
 
 const LOCK_TRIES = 10;
 
@@ -52,22 +47,9 @@ export interface ChildSlot {
 
 /** `args` run to its end in `cwd`; a program the PATH lacks throws. */
 function spawned(args: readonly string[], cwd: string, stdin?: string): Result {
-  const [program, ...rest] = args;
+  const { code, raw, err } = runRaw(args, cwd, stdin);
 
-  if (program === undefined) throw new TypeError("cmd must not be empty");
-
-  const options: RunOptions & BufferOutput =
-    stdin === undefined ? { cwd, stdout: "buffer" } : { cwd, stdout: "buffer", stdin };
-
-  const result = runSync([program, ...rest], options);
-
-  if (result.kind === "missing") throw new Error(`Executable not found in $PATH: "${program}"`);
-
-  if (result.kind === "timedOut") {
-    throw new Error(`${program} timed out after ${result.timeoutMs} ms`);
-  }
-
-  return { code: result.code, out: result.stdout.toString(), err: result.stderr };
+  return { code, out: raw.toString(), err };
 }
 
 /** A command's result; a binary missing from PATH answers 127, as a shell does. */
