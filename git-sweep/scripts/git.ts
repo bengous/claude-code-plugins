@@ -33,10 +33,11 @@ async function runC(args: string[]): Promise<RunResult> {
 }
 
 // For a command whose exit code is the answer (is-ancestor, --verify, config).
+// An output let go of past the grace throws: its stdout and stderr read empty.
 export async function git(...args: string[]): Promise<GitResult> {
   const result = await runC(args);
 
-  if (result.kind !== "exited") throw new GitError(args, result);
+  if (result.kind !== "exited" || result.outputLost === true) throw new GitError(args, result);
 
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
@@ -46,7 +47,9 @@ export async function git(...args: string[]): Promise<GitResult> {
 export async function gitRead(...args: string[]): Promise<string> {
   const result = await runC(args);
 
-  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
+  if (result.kind !== "exited" || result.code !== 0 || result.outputLost === true) {
+    throw new GitError(args, result);
+  }
 
   return result.stdout.trim();
 }

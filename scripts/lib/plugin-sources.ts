@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 
 import { $ } from "bun";
 
-import { git as runGit } from "../../tools/platform/node.ts";
+import { GitError, git as runGit, gitRead } from "../../tools/platform/node.ts";
 
 const TRUNK = "dev";
 
@@ -98,21 +98,18 @@ export function worktreePathFor(main: PluginDir, ref: string): string {
   return join(`${main}.wt`, ref);
 }
 
-async function git(root: PluginDir, args: string[]): Promise<string> {
-  const result = await runGit(["-C", root, ...args], { stdout: "buffer" });
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
+function git(root: PluginDir, args: string[]): Promise<string> {
+  return gitRead(["-C", root, ...args], { raw: true });
 }
 
 /** Git's own output, for the calls whose failure is an answer: no such path at that ref. */
 async function gitOrNull(root: PluginDir, args: string[]): Promise<string | null> {
-  const result = await runGit(["-C", root, ...args], { stdout: "buffer" });
+  const inRoot = ["-C", root, ...args];
+  const result = await runGit(inRoot);
 
-  return result.kind === "exited" && result.code === 0 ? result.stdout.toString() : null;
+  if (result.outputLost === true) throw new GitError(inRoot, result);
+
+  return result.kind === "exited" && result.code === 0 ? result.stdout : null;
 }
 
 function lines(output: string): string[] {

@@ -48,7 +48,7 @@ async function repositoryAt(dir: string): Promise<Repository | null> {
   // `LC_ALL=C` keeps the "not a git repository" message matchable.
   const run = await git(args, { env: await gitDiscoveryEnv(), cLocale: true });
 
-  if (run.kind !== "exited") throw new GitError(args, run);
+  if (run.kind !== "exited" || run.outputLost === true) throw new GitError(args, run);
 
   if (run.code !== 0) {
     if (run.stderr.includes("not a git repository")) return null;

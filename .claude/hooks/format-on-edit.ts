@@ -178,7 +178,7 @@ if (import.meta.main) {
     const args = ["diff", "--no-index", "--no-color", "--no-ext-diff", "-", relative];
     const diff = await git(args, { cwd: root, stdin: before });
 
-    if (diff.kind !== "exited") throw new GitError(args, diff);
+    if (diff.kind !== "exited" || diff.outputLost === true) throw new GitError(args, diff);
 
     if (diff.code !== GIT_DIFF_FILES_DIFFER) {
       throw new Error(`git diff --no-index exited ${diff.code}: ${diff.stderr}`);

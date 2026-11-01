@@ -322,4 +322,27 @@ describe("plugin-sources", () => {
       delete process.env["CLAUDE_CONFIG_DIR"];
     }
   });
+
+  test("a manifest whose output git let go of past the grace throws its GitError, never parsed as empty", async () => {
+    const repo = join(scratch, "held");
+    const bin = join(scratch, "bin");
+    const path = process.env["PATH"];
+
+    await initRepo(repo);
+    writePlugin(repo, "alpha", "1.0.0");
+    await commit(repo, "init", "2026-01-01T00:00:00Z");
+    // The real git, then a `sleep` that holds its pipes past the platform's grace on a show.
+    mkdirSync(bin);
+    const held = `'${Bun.which("git")}' "$@"\ncode=$?\ncase " $* " in *" show "*) sleep 3 & ;; esac\nexit $code\n`;
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n${held}`, { mode: 0o755 });
+    process.env["PATH"] = `${bin}:${path ?? ""}`;
+
+    try {
+      await expect(readPlugins(dirAt(repo))).rejects.toThrow(
+        `git -C ${repo} show dev:alpha/.claude-plugin/plugin.json exited 0, its output let go of after 1000 ms`,
+      );
+    } finally {
+      process.env["PATH"] = path;
+    }
+  });
 });

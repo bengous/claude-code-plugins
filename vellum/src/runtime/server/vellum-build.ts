@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { git } from "../../platform/node.ts";
+import { gitRead } from "../../platform/node.ts";
 import { messageOf } from "../../platform/pure.ts";
 import type { ParseResult } from "../../workshop/paths.ts";
 import { installedCommit, vellumBuildOf } from "../../workshop/vellum-build.ts";
@@ -96,11 +96,10 @@ async function installedSha(root: string): Promise<ParseResult<string>> {
 /** Git's own variables are left out of the server's environment: a `GIT_DIR` there would name its repository for any root. */
 async function gitIn(root: string, ...args: readonly string[]): Promise<ParseResult<string>> {
   try {
-    const run = await git(["-C", root, ...args], { scrubGitEnv: true });
-
-    return run.kind === "exited" && run.code === 0
-      ? { ok: true, value: run.stdout }
-      : { ok: false, error: run.stderr.trim() };
+    return {
+      ok: true,
+      value: await gitRead(["-C", root, ...args], { scrubGitEnv: true, raw: true }),
+    };
   } catch (cause) {
     return { ok: false, error: messageOf(cause) };
   }

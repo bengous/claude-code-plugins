@@ -153,10 +153,11 @@ async function commit(repo: Repo, subject: string, signed: boolean): Promise<str
 async function run(
   repo: Repo,
   args: string[],
+  extra: Record<string, string> = {},
 ): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const { stdout, exitCode } = await $`bun run ${SCRIPT} ${args}`
     .cwd(repo.dir)
-    .env(isolatedEnv(repo.key.home))
+    .env({ ...isolatedEnv(repo.key.home), ...extra })
     .quiet()
     .nothrow();
 
@@ -189,6 +190,24 @@ async function snapshot(repo: Repo, ref: string): Promise<string[]> {
 
 async function verdicts(repo: Repo, ref: string): Promise<string[]> {
   return (await git(repo, "log", "--format=%G?", ref)).split("\n");
+}
+
+/**
+ * A PATH whose git runs the real one, then, on a command naming `held`, leaves a `sleep` holding
+ * its pipes past the platform's grace: the script reads that command's output as let go of.
+ */
+function holdingGit(held: string) {
+  const dir = join(root, `holding-${held}`);
+  mkdirSync(dir, { recursive: true });
+  const program = join(dir, "git");
+
+  writeFileSync(
+    program,
+    `#!/bin/sh\n'${Bun.which("git")}' "$@"\ncode=$?\ncase " $* " in *" ${held} "*) sleep 3 & ;; esac\nexit $code\n`,
+  );
+  chmodSync(program, 0o755);
+
+  return { PATH: `${dir}:${process.env.PATH ?? ""}` };
 }
 
 describe("gpg-sign-history", () => {
@@ -542,6 +561,45 @@ describe("gpg-sign-history", () => {
       ok: false,
       error: "operation-in-progress",
       detail: "rebase-merge",
+    });
+  });
+});
+
+describe("an output git let go of past the grace", () => {
+  test("a recreated commit's hash let go of stops apply, the branch unmoved", async () => {
+    const repo = await makeRepo();
+    await commit(repo, "a", true);
+    const tip = await commit(repo, "b", false);
+
+    const apply = await run(repo, ["apply"], holdingGit("commit-tree"));
+
+    expect(apply.result).toMatchObject({ ok: false, step: "apply", error: "signing-failed" });
+    expect(String(apply.result.detail)).toStartWith(`recreating ${tip}: git commit-tree `);
+    expect(String(apply.result.detail)).toContain(
+      " -S exited 0, its output let go of after 1000 ms",
+    );
+    expect(await git(repo, "rev-parse", "HEAD")).toBe(tip);
+  });
+
+  test("the commits cat-file --batch let go of fail the audit, never read as no commit", async () => {
+    const repo = await makeRepo();
+    await commit(repo, "a", false);
+
+    expect((await run(repo, ["audit"], holdingGit("cat-file"))).result).toMatchObject({
+      ok: false,
+      error: "unexpected-failure",
+      detail: "git cat-file --batch exited 0, its output let go of after 1000 ms",
+    });
+  });
+
+  test("a branch name let go of fails the audit, never read as an empty name", async () => {
+    const repo = await makeRepo();
+    await commit(repo, "a", false);
+
+    expect((await run(repo, ["audit"], holdingGit("symbolic-ref"))).result).toMatchObject({
+      ok: false,
+      error: "unexpected-failure",
+      detail: "git symbolic-ref --quiet --short HEAD exited 0, its output let go of after 1000 ms",
     });
   });
 });

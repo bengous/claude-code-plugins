@@ -145,4 +145,25 @@ describe("readVellumBuild", () => {
 
     expect(!built.ok && built.error).toContain("is not tracked: git is not on the PATH");
   });
+
+  // The git first on the PATH runs the real one, then leaves a POSIX `sleep` holding its pipes on a rev-parse.
+  test.if(process.platform !== "win32")(
+    "a commit whose output git let go of past the grace reads as missing, never as an empty one",
+    async () => {
+      const { base, root } = installed(WITHOUT_SHA);
+      git(base, "init", "-q");
+      git(base, "add", "cache");
+      git(base, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "copy");
+      mkdirSync(join(base, "bin"));
+      const held = `'${Bun.which("git")}' "$@"\ncode=$?\ncase " $* " in *" rev-parse "*) sleep 3 & ;; esac\nexit $code\n`;
+      writeFileSync(join(base, "bin", "git"), `#!/bin/sh\n${held}`, { mode: 0o755 });
+      process.env["PATH"] = `${join(base, "bin")}:${KEPT_PATH ?? ""}`;
+
+      const built = await readVellumBuild(root);
+
+      expect(!built.ok && built.error).toContain(
+        "rev-parse HEAD exited 0, its output let go of after 1000 ms",
+      );
+    },
+  );
 });

@@ -25,7 +25,7 @@ import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/node.ts";
 import { retryReported } from "./flaky-report.ts";
 import { TYPES_DIR } from "./lib/claude-code-types-paths.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
@@ -137,7 +137,10 @@ export async function baseOf(explicit: string | undefined, env: Env): Promise<Ba
 
 /** HEAD's merge-base with `ref`, the commit a change is measured from. */
 export async function mergeBaseWith(repoRoot: string, ref: string): Promise<MergeBase> {
-  const found = await git(["merge-base", "HEAD", ref], { cwd: repoRoot });
+  const args = ["merge-base", "HEAD", ref];
+  const found = await git(args, { cwd: repoRoot });
+
+  if (found.outputLost === true) throw new GitError(args, found);
 
   if (found.kind === "exited" && found.code === 0) {
     return { kind: "found", sha: found.stdout.trim() };

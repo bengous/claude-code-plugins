@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- this harness asserts on the JSON that rebase.ts prints on stdout: closed types, or a safety comment per read, would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -46,13 +46,19 @@ async function run(
   cwd: string,
   args: string[],
   stdin: string | null = null,
+  path = process.env.PATH ?? "",
 ): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const shell =
     stdin === null
       ? $`bun run ${SCRIPT} ${args}`
       : $`bun run ${SCRIPT} ${args} < ${Buffer.from(stdin)}`;
 
-  const { stdout, exitCode } = await shell.cwd(cwd).quiet().nothrow();
+  const { stdout, exitCode } = await shell
+    .cwd(cwd)
+    .env({ ...process.env, PATH: path })
+    .quiet()
+    .nothrow();
+
   const out = stdout.toString().trim();
 
   try {
@@ -95,6 +101,23 @@ function step(hash: string, action: string, message: string | null = null) {
   return { hash, action, message };
 }
 
+/**
+ * A PATH whose git runs the real one, then, on a command naming `held`, leaves a `sleep` holding
+ * its pipes past the platform's grace: the script reads that command's output as let go of.
+ */
+function holdingGit(held: string): string {
+  const dir = makeTmpDir("holding-git");
+  const program = join(dir, "git");
+
+  writeFileSync(
+    program,
+    `#!/bin/sh\n'${Bun.which("git")}' "$@"\ncode=$?\ncase " $* " in *" ${held} "*) sleep 3 & ;; esac\nexit $code\n`,
+  );
+  chmodSync(program, 0o755);
+
+  return `${dir}:${process.env.PATH ?? ""}`;
+}
+
 // ---------------------------------------------------------------------------
 // plan
 // ---------------------------------------------------------------------------
@@ -133,6 +156,18 @@ describe("plan", () => {
     expect(commits[0]?.insertions).toBe(1);
     expect(commits[0]?.deletions).toBe(0);
     expect(commits[0]?.author).toBe("Test");
+  });
+
+  test("a base whose output git let go of past the grace fails the plan, never planned from an empty base", async () => {
+    const repo = await makeRepo("held", ["initial commit", "second"]);
+
+    const { result } = await run(repo, ["plan", "1"], null, holdingGit("--verify"));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "unexpected-failure",
+      detail: "git rev-parse --verify HEAD~1^{commit} exited 0, its output let go of after 1000 ms",
+    });
   });
 
   test("keeps the body of a commit message", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -310,6 +310,25 @@ describe("tree-diff.ts on a repository", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout.toString().trim()).toBe(MOVE_TREE);
+  });
+
+  test("a file list git let go of past the grace fails the run, never drawn as an empty tree", async () => {
+    const repo = await makeMoveRepo();
+    const bin = mkdtempSync(join(tmpdir(), "tree-diff-git-"));
+    tmpDirs.push(bin);
+    // The real git, then a `sleep` that holds its pipes past the platform's grace on an ls-tree.
+    const held = `'${Bun.which("git")}' "$@"\ncode=$?\ncase "$1" in ls-tree) sleep 3 & ;; esac\nexit $code\n`;
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n${held}`);
+    chmodSync(join(bin, "git"), 0o755);
+
+    const { stdout, stderr, exitCode } = await $`bun ${SCRIPT} main`
+      .cwd(repo)
+      .env({ ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` })
+      .quiet()
+      .nothrow();
+
+    expect([exitCode, stdout.toString()]).toEqual([1, ""]);
+    expect(stderr.toString()).toContain("exited 0, its output let go of after 1000 ms");
   });
 
   test("no base prints the usage and exits 2", async () => {

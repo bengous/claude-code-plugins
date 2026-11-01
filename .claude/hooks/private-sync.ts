@@ -48,7 +48,7 @@ async function repositoryOf(root: string): Promise<Repository> {
   const args = ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"];
   const run = await git(args, { env: await gitDiscoveryEnv(), cLocale: true });
 
-  if (run.kind !== "exited") throw new GitError(args, run);
+  if (run.kind !== "exited" || run.outputLost === true) throw new GitError(args, run);
 
   if (run.code !== 0) {
     throw new Error(`git rev-parse in ${root} exited ${run.code}: ${run.stderr.trim()}`);

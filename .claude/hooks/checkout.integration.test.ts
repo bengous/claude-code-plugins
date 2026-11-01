@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,6 +32,25 @@ describe("placeOf", () => {
     } finally {
       if (inherited === undefined) delete process.env["GIT_DIR"];
       else process.env["GIT_DIR"] = inherited;
+    }
+  });
+
+  test("a toplevel whose output git let go of past the grace throws its GitError", async () => {
+    await git(["init", "-q"], project);
+    const bin = join(project, ".git", "held-bin");
+    const path = process.env["PATH"];
+    // The real git, then a `sleep` that holds its pipes past the platform's grace on a --git-common-dir.
+    const held = `'${Bun.which("git")}' "$@"\ncode=$?\ncase " $* " in *" --git-common-dir "*) sleep 3 & ;; esac\nexit $code\n`;
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n${held}`, { mode: 0o755 });
+    process.env["PATH"] = `${bin}:${path ?? ""}`;
+
+    try {
+      await expect(placeOf(project, project)).rejects.toThrow(
+        `git -C ${project} rev-parse --path-format=absolute --show-toplevel --git-common-dir exited 0, its output let go of after 1000 ms`,
+      );
+    } finally {
+      process.env["PATH"] = path;
     }
   });
 });

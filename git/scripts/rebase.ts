@@ -119,7 +119,7 @@ async function git(
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const result = await runGit(args);
 
-  if (result.kind !== "exited") throw new GitError(args, result);
+  if (result.kind !== "exited" || result.outputLost === true) throw new GitError(args, result);
 
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }

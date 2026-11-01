@@ -159,7 +159,7 @@ async function git(
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const result = await runGit(args);
 
-  if (result.kind !== "exited") throw new GitError(args, result);
+  if (result.kind !== "exited" || result.outputLost === true) throw new GitError(args, result);
 
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
@@ -274,13 +274,11 @@ async function readCommits(hashes: string[]): Promise<Map<string, RawCommit>> {
 
   if (hashes.length === 0) return commits;
 
-  const run = await runGit(["cat-file", "--batch"], {
-    stdin: `${hashes.join("\n")}\n`,
-    stdout: "buffer",
-  });
+  const args = ["cat-file", "--batch"];
+  const run = await runGit(args, { stdin: `${hashes.join("\n")}\n`, stdout: "buffer" });
 
-  if (run.kind !== "exited" || run.code !== 0) {
-    throw new Error(`git cat-file --batch failed: ${run.stderr.trim()}`);
+  if (run.kind !== "exited" || run.code !== 0 || run.outputLost === true) {
+    throw new GitError(args, { ...run, stdout: run.stdout.toString() });
   }
 
   const out = run.stdout;
@@ -461,21 +459,19 @@ async function signedAt(hash: string): Promise<number | null> {
 async function recreate(commit: RawCommit, parents: string[]): Promise<string> {
   const args = ["commit-tree", commit.tree, ...parents.flatMap((p) => ["-p", p]), "-S"];
 
-  const run = await runGit(args, {
-    stdin: commit.message,
-    env: {
-      GIT_AUTHOR_NAME: commit.author.name,
-      GIT_AUTHOR_EMAIL: commit.author.email,
-      GIT_AUTHOR_DATE: `@${commit.author.date}`,
-      GIT_COMMITTER_DATE: `@${commit.committer.date}`,
-    },
-  });
-
-  if (run.kind !== "exited" || run.code !== 0) {
-    throw new Error(`git commit-tree for ${commit.hash} failed: ${run.stderr.trim()}`);
+  try {
+    return await gitRead(args, {
+      stdin: commit.message,
+      env: {
+        GIT_AUTHOR_NAME: commit.author.name,
+        GIT_AUTHOR_EMAIL: commit.author.email,
+        GIT_AUTHOR_DATE: `@${commit.author.date}`,
+        GIT_COMMITTER_DATE: `@${commit.committer.date}`,
+      },
+    });
+  } catch (cause) {
+    throw new Error(`recreating ${commit.hash}: ${messageOf(cause)}`, { cause });
   }
-
-  return run.stdout.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -485,16 +481,12 @@ async function recreate(commit: RawCommit, parents: string[]): Promise<string> {
 async function badSignatures(hashes: string[]): Promise<string[]> {
   if (hashes.length === 0) return [];
 
-  const run = await runGit(["log", "--no-walk=unsorted", "--stdin", "--format=%H %G?"], {
+  const listed = await gitRead(["log", "--no-walk=unsorted", "--stdin", "--format=%H %G?"], {
     stdin: `${hashes.join("\n")}\n`,
   });
 
-  if (run.kind !== "exited" || run.code !== 0) {
-    throw new Error(`git log --format=%G? failed: ${run.stderr.trim()}`);
-  }
-
   const verdicts = new Map(
-    run.stdout
+    listed
       .split("\n")
       .filter(Boolean)
       .map((line) => {

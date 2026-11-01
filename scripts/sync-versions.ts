@@ -14,7 +14,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { git, gitRead, writeAtomic } from "../tools/platform/node.ts";
+import { GitError, git, gitRead, writeAtomic } from "../tools/platform/node.ts";
 import {
   extractDescriptionFromReadme,
   extractVersionFromReadme,
@@ -25,12 +25,16 @@ import {
   type PluginJson,
 } from "./lib/marketplace-validation";
 
-const repoRootResult = await git(["rev-parse", "--show-toplevel"]);
+const SHOW_TOPLEVEL = ["rev-parse", "--show-toplevel"];
+
+const repoRootResult = await git(SHOW_TOPLEVEL);
 
 if (repoRootResult.kind !== "exited" || repoRootResult.code !== 0) {
   console.error("Error: Not in a git repository");
   process.exit(2);
 }
+
+if (repoRootResult.outputLost === true) throw new GitError(SHOW_TOPLEVEL, repoRootResult);
 
 const repoRoot = repoRootResult.stdout.trim();
 

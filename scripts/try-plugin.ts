@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
-import { git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/node.ts";
 import {
   type Manifest,
   type PluginDir,
@@ -291,14 +291,18 @@ async function launch(
 
 /** The working tree holding `path`, and the repository it belongs to. */
 async function checkoutAt(path: string) {
-  const read = await git([
+  const args = [
     "-C",
     path,
     "rev-parse",
     "--path-format=absolute",
     "--show-toplevel",
     "--git-common-dir",
-  ]);
+  ];
+
+  const read = await git(args);
+
+  if (read.outputLost === true) throw new GitError(args, read);
 
   if (read.kind !== "exited" || read.code !== 0) return null;
 

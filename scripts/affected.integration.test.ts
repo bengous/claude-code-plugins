@@ -231,6 +231,24 @@ describe("currentScope", () => {
     expect(scope.kind === "all" && scope.reason).toStartWith("no merge-base with origin/nowhere");
   });
 
+  test("a merge-base whose output git let go of past the grace throws, never measured from an empty commit", async () => {
+    const bin = join(root, ".git", "held-bin");
+    const path = process.env["PATH"];
+    // The real git, then a `sleep` that holds its pipes past the platform's grace on a merge-base.
+    const held = `'${Bun.which("git")}' "$@"\ncode=$?\ncase "$1" in merge-base) sleep 3 & ;; esac\nexit $code\n`;
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n${held}`, { mode: 0o755 });
+    process.env["PATH"] = `${bin}:${path ?? ""}`;
+
+    try {
+      await expect(currentScope(root, "dev", NO_ACTIONS)).rejects.toThrow(
+        "git merge-base HEAD dev exited 0, its output let go of after 1000 ms",
+      );
+    } finally {
+      process.env["PATH"] = path;
+    }
+  });
+
   test("a pull request run measures from its merge commit's first parent, not the event's base", async () => {
     const stale = git("rev-parse", "dev");
     write("todos/scan.ts", "committed\n");

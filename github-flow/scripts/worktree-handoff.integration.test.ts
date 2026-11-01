@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- this harness asserts on the JSON that worktree-handoff.ts prints on stdout: a wrong shape has to fail an assertion rather than the compiler. */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstatSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,8 +37,14 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 async function run(
   cwd: string,
   args: string[],
+  path = process.env.PATH ?? "",
 ): Promise<{ exitCode: number; result: Record<string, unknown> }> {
-  const { stdout, exitCode } = await $`bun run ${SCRIPT} ${args}`.cwd(cwd).quiet().nothrow();
+  const { stdout, exitCode } = await $`bun run ${SCRIPT} ${args}`
+    .cwd(cwd)
+    .env({ ...process.env, PATH: path })
+    .quiet()
+    .nothrow();
+
   const out = stdout.toString().trim();
 
   try {
@@ -77,6 +83,24 @@ async function makeRepo(): Promise<string> {
   await Bun.write(join(repo, ".gh", "README.md"), "- [ ] layer-2\n");
 
   return repo;
+}
+
+/**
+ * A PATH whose git runs the real one, then, on a command naming `held`, leaves a `sleep` holding
+ * its pipes past the platform's grace: the script reads that command's output as let go of.
+ */
+function holdingGit(held: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "worktree-handoff-git-"));
+  tmpDirs.push(dir);
+  const program = join(dir, "git");
+
+  writeFileSync(
+    program,
+    `#!/bin/sh\n'${Bun.which("git")}' "$@"\ncode=$?\ncase " $* " in *" ${held} "*) sleep 3 & ;; esac\nexit $code\n`,
+  );
+  chmodSync(program, 0o755);
+
+  return `${dir}:${process.env.PATH ?? ""}`;
 }
 
 describe("parseArgs", () => {
@@ -214,6 +238,19 @@ describe("worktree-handoff.ts", () => {
     ]);
 
     expect(result.error).toBe("inside-a-worktree");
+  });
+
+  test("a git directory let go of past the grace fails the run, never read as the main checkout's", async () => {
+    const repo = await makeRepo();
+    const first = await run(repo, ["layer-2", "--base", "origin/layer-1", "--install", ""]);
+    const worktree = first.result.worktree as string;
+    const args = ["layer-3", "--base", "origin/layer-1", "--install", ""];
+
+    expect((await run(worktree, args, holdingGit("--git-dir"))).result).toEqual({
+      ok: false,
+      error: "unexpected-failure",
+      detail: "git rev-parse --git-dir exited 0, its output let go of after 1000 ms",
+    });
   });
 
   test("runs the install command through the shell, in the worktree", async () => {
