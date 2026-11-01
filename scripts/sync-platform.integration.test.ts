@@ -206,6 +206,29 @@ describe("the check", () => {
     );
   });
 
+  test("reads a catalog source ./ as the repository itself, a plugin inside it still its own", async () => {
+    write(
+      ".claude-plugin/marketplace.json",
+      JSON.stringify({ plugins: [{ source: "./" }, { source: "./p" }] }),
+    );
+
+    write("p/a.ts", 'import { main } from "../main.ts";\nexport const a = main;\n');
+
+    write(
+      "main.ts",
+      [
+        'import { x } from "./peer/x.ts";',
+        'import { z } from "../outside.ts";',
+        "export const main = [x, z];",
+      ].join("\n"),
+    );
+
+    expect(await problems([])).toEqual([
+      "main.ts imports ../outside.ts, outside ./: a plugin stands alone once installed, so no import leaves its directory",
+      "p/a.ts imports ../main.ts, outside p/: a plugin stands alone once installed, so no import leaves its directory",
+    ]);
+  });
+
   test("leaves a type-only import, a copy's import and a directory no catalog names", async () => {
     await writeCopies(root, [PLUG]);
     write("plug/hooks/a.ts", 'import type { pure } from "../../tools/platform/pure.ts";\n');

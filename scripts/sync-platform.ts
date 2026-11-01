@@ -19,7 +19,7 @@ import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } fro
 import type { Consumer } from "../tools/platform/consumers.ts";
 import { CONSUMERS } from "../tools/platform/consumers.ts";
 import { gitRead, writeAtomic } from "../tools/platform/node.ts";
-import { isInsideRelative } from "../tools/platform/pure.ts";
+import { isInsideRelative, isUnder } from "../tools/platform/pure.ts";
 
 export const SOURCE_DIR = "tools/platform";
 
@@ -43,6 +43,12 @@ const LOADERS = new Map<string, "ts" | "tsx" | "js" | "jsx">([
 ]);
 
 type Catalog = { readonly plugins: readonly { readonly source: string }[] };
+
+/** A catalog source `./`, normalised: the repository itself is the plugin, every file under it. */
+const REPOSITORY = ".";
+
+/** How deep a standalone directory lies, for the deepest to come first: `.` the shallowest. */
+const depthOf = (dir: string): number => (dir === REPOSITORY ? 0 : dir.length);
 
 const ownerOf = (path: string): string => path.slice(0, Math.max(0, path.indexOf("/")));
 
@@ -171,7 +177,7 @@ function standaloneDirs(root: string, consumers: readonly Consumer[]): readonly 
     ...consumers.map((consumer) => ownerOf(consumer.dir)),
   ]);
 
-  return [...dirs].toSorted((a, b) => b.length - a.length);
+  return [...dirs].toSorted((a, b) => depthOf(b) - depthOf(a));
 }
 
 /** What the file loads at run time: the transpiler drops every type-only import, and reads no shebang. */
@@ -200,7 +206,7 @@ function outsideImports(
   const owners = standaloneDirs(root, consumers);
 
   return files.flatMap((file) => {
-    const owner = owners.find((dir) => file.startsWith(`${dir}/`));
+    const owner = owners.find((dir) => dir === REPOSITORY || isUnder(dir, file, "/"));
 
     if (owner === undefined) return [];
 
