@@ -1,7 +1,7 @@
 import { lstat, mkdir, readdir, readFile, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
 
-import { writeAtomic } from "../lib/platform/node.ts";
+import { createExclusiveSync, writeAtomic } from "../lib/platform/node.ts";
 import { isErrno } from "../lib/platform/pure.ts";
 import type { Delivery, Outcome } from "../shared/wire.ts";
 import { parseDelivery } from "./parse.ts";
@@ -10,7 +10,8 @@ import { parseDelivery } from "./parse.ts";
  * What a server keeps on disk, under `<dir>` (`~/.claude/pinpoint` outside the tests):
  * `sessions/<session>/seq`, the last batch number given; `sessions/<session>/pending/<seq>.json`,
  * each batch not yet handed to the session, so a server started again on the same session tells
- * it again; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
+ * it again, empty from the moment its number is taken until the batch is kept, which `pending`
+ * skips; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
  * page asks after its own across a restart; `sessions/<session>/images/<id>.png`, each zone's image
  * a page handed over, until the session's directory goes: at `/pinpoint:stop`, or at the start of
  * another session's server once nothing in it changed, its own server's heartbeat included, for
@@ -23,7 +24,8 @@ export type Pending = { readonly seq: number; readonly text: string };
 export type SessionFiles = {
   /**
    * The next batch number, kept across servers of one session, and past `after`; the caller asks
-   * one at a time.
+   * one at a time. The number is taken by creating its pending file, so two servers of one session
+   * asking at once get two numbers.
    */
   readonly nextSeq: (after: number) => Promise<number>;
   readonly keepPending: (pending: Pending) => Promise<void>;
@@ -45,6 +47,9 @@ export type SessionFiles = {
 
 /** How many reported batches `settled.json` keeps: a page asks after its own every second. */
 const SETTLED_KEPT = 100;
+
+/** How many numbers past the kept one `nextSeq` tries before it gives up. */
+const SEQ_TRIES = 1000;
 
 const PENDING_FILE = /^(\d+)\.json$/u;
 
@@ -159,7 +164,7 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
 
   return {
     nextSeq: async (after) => {
-      await mkdir(own, { recursive: true });
+      await mkdir(pendingDir, { recursive: true });
 
       const kept = await readFile(seqFile, "utf8").catch((cause: unknown) => {
         if (isMissing(cause)) return "0";
@@ -167,7 +172,18 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
       });
 
       const last = Number.parseInt(kept, 10);
-      const next = Math.max(Number.isNaN(last) ? 0 : last, after) + 1;
+      const first = Math.max(Number.isNaN(last) ? 0 : last, after) + 1;
+
+      const next = Array.from({ length: SEQ_TRIES }, (_, n) => first + n).find((seq) =>
+        createExclusiveSync(join(pendingDir, `${seq}.json`), ""),
+      );
+
+      if (next === undefined) {
+        throw new Error(
+          `pinpoint: batch numbers ${first} to ${first + SEQ_TRIES - 1} are all taken in ${pendingDir}`,
+        );
+      }
+
       await writeAtomic(seqFile, `${next}\n`);
 
       return next;

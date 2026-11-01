@@ -36,3 +36,19 @@ test("a server and the one started again on its session both writing a file leav
   expect(texts).toContain(kept[0]?.text ?? "");
   expect(readdirSync(join(dir, "sessions", SESSION, "pending"))).toEqual(["1.json"]);
 });
+
+test("a server and the one started again on its session numbering a batch at once keep both", async () => {
+  const servers = [sessionFiles(dir, SESSION), sessionFiles(dir, SESSION)];
+
+  const seqs = await Promise.all(servers.map((files) => files.nextSeq(0)));
+
+  expect(new Set(seqs).size).toBe(servers.length);
+
+  await Promise.all(
+    servers.map((files, n) => files.keepPending({ seq: seqs[n] ?? 0, text: `batch ${n}` })),
+  );
+
+  const kept = await servers[0]?.pending();
+
+  expect(kept?.map(({ text }) => text).toSorted()).toEqual(["batch 0", "batch 1"]);
+});
