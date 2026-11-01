@@ -201,14 +201,20 @@ function copyProblems(root: string, dir: string, files: readonly string[]): stri
       : [`${where} differs from ${SOURCE_DIR}/${file}: ${NEVER_A_COPY}`];
   });
 
-  const unimported = held
-    .filter((file) => !modules.includes(file))
-    .map(
-      (file) =>
-        `${dir}/${file} is no module ${owner}/ imports, directly or through another: run ${WRITE_COMMAND}, which removes it`,
-    );
+  const unimported = removable(held, { modules, strays }).map(
+    (file) =>
+      `${dir}/${file} is no module ${owner}/ imports, directly or through another: run ${WRITE_COMMAND}, which removes it`,
+  );
 
   return [...missingOrDiffering, ...unimported, ...strays];
+}
+
+/**
+ * What `--write` removes of the files git lists in a copy: those beyond its modules, and none
+ * while an import names no module, a typo maybe for one the copy holds.
+ */
+function removable(held: readonly string[], plan: CopyPlan): readonly string[] {
+  return plan.strays.length > 0 ? [] : held.filter((file) => !plan.modules.includes(file));
 }
 
 function unlistedCopyDirs(files: readonly string[], dirs: readonly string[]): string[] {
@@ -305,16 +311,16 @@ export async function problemsIn(root: string, copyDirs: readonly string[]): Pro
 
 /**
  * Writes each module a copy must hold that differs or is missing, and removes what git lists there
- * beyond them.
+ * beyond them, unless an import names no module.
  */
 export async function writeCopies(root: string, copyDirs: readonly string[]): Promise<string[]> {
   const files = await listedFiles(root);
   const written: string[] = [];
 
   for (const dir of placed(root, copyDirs)) {
-    const { modules } = planOf(root, dir, files);
+    const plan = planOf(root, dir, files);
 
-    for (const file of modules) {
+    for (const file of plan.modules) {
       const source = join(root, SOURCE_DIR, file);
       const copy = join(root, dir, file);
 
@@ -323,8 +329,7 @@ export async function writeCopies(root: string, copyDirs: readonly string[]): Pr
       written.push(`${dir}/${file}`);
     }
 
-    for (const file of heldBy(dir, files)) {
-      if (modules.includes(file)) continue;
+    for (const file of removable(heldBy(dir, files), plan)) {
       rmSync(join(root, dir, file));
       written.push(`${dir}/${file} (removed)`);
     }

@@ -49,7 +49,8 @@ Each way to share code without a copy fails a target this repository has:
   included.
 - Edit this directory, never a copy, then run `bun ./scripts/sync-platform.ts --write`: it writes
   each module a copy must hold that differs or is missing, and removes what git lists in a copy
-  beyond them. A file git ignores there (a scratch `.tmp`, a `.DS_Store`) is left alone.
+  beyond them, unless an import names no module, a typo maybe for one the copy holds. A file git
+  ignores there (a scratch `.tmp`, a `.DS_Store`) is left alone.
 - `bun ./scripts/sync-platform.ts`, the gate `platform-copies`, writes nothing and refuses:
   - a copy that differs from its source, byte for byte, or is a symbolic link, which a plugin
     installed alone loses;

@@ -84,6 +84,10 @@ const problems = (dirs: readonly string[] = [PLUG]): Promise<string[]> => proble
 
 const copied = (...files: string[]): string[] => files.map((file) => `${PLUG}/${file}`);
 
+/** The refusal of an import, from `plug/hooks/register.ts`, of a file that is no module of the source. */
+const noModule = (specifier: string): string =>
+  `plug/hooks/register.ts imports ${specifier}, which tools/platform/ does not hold: import one of its modules`;
+
 describe("the files of a copy", () => {
   test("a plugin that imports fs.ts alone receives it and the pure.ts it imports", async () => {
     registerImporting('import { fs } from "../lib/platform/fs.ts";');
@@ -139,9 +143,17 @@ describe("the files of a copy", () => {
     );
     await writeCopies(root, [PLUG]);
 
-    expect(await problems()).toEqual([
-      "plug/hooks/register.ts imports ../lib/platform/node.ts, which tools/platform/ does not hold: import one of its modules",
-    ]);
+    expect(await problems()).toEqual([noModule("../lib/platform/node.ts")]);
+  });
+
+  test("--write removes nothing from a copy while an import names no module of it, a typo maybe", async () => {
+    registerImporting('import { git } from "../lib/platform/git.ts";');
+    await writeCopies(root, [PLUG]);
+    registerImporting('import { git } from "../lib/platform/gti.ts";');
+
+    expect(await writeCopies(root, [PLUG])).toEqual([]);
+    expect(readdirSync(join(root, PLUG)).toSorted()).toEqual(["git.ts", "process.ts", "pure.ts"]);
+    expect(await problems()).toEqual([noModule("../lib/platform/gti.ts")]);
   });
 
   test("refuses a listed directory whose copy nothing imports", async () => {
