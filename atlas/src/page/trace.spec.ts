@@ -96,11 +96,17 @@ describe("travelled and formAt", () => {
     expect(travelled(1150)).toBeGreaterThan(0.9);
   });
 
-  test("the first half carries the form before the step, when there is one; then the form after it", () => {
+  test("the first half carries the form before the step; then the form after it", () => {
     expect(formAt("the cart", "a charge", 0.2)).toBe("the cart");
     expect(formAt("the cart", "a charge", 0.5)).toBe("a charge");
-    expect(formAt(null, "a charge", 0.2)).toBe("a charge");
-    expect(formAt(null, null, 0.2)).toBeNull();
+    expect(formAt("the cart", "a charge", 1)).toBe("a charge");
+  });
+
+  test("without a form before the step, the dot travels alone in the first half, then carries the form after it", () => {
+    expect(formAt(null, "the cart", 0)).toBeNull();
+    expect(formAt(null, "the cart", 0.49)).toBeNull();
+    expect(formAt(null, "the cart", 0.5)).toBe("the cart");
+    expect(formAt(null, null, 0.8)).toBeNull();
   });
 });
 

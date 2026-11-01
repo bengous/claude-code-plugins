@@ -98,10 +98,11 @@ export function travelled(elapsed: number): number {
 
 /**
  * The form the travelling pill carries at `t` along its step: during the first half, the form
- * the data had before the step, when it had one; then the form after the step.
+ * the data had before the step (formBefore), none when it had none yet or the step opens its
+ * section, the dot then travelling alone; from mid-way, the form after the step.
  */
 export const formAt = (before: string | null, after: string | null, t: number): string | null =>
-  t < 0.5 && before !== null ? before : after;
+  t < 0.5 ? before : after;
 
 /**
  * A mark drawn at a constant size on screen, anchored at `at` in the view's units: `box`, in

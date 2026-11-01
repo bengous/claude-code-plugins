@@ -346,7 +346,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   lighter, those to come lighter still, the step shown thicker, in `--ink` forward; each with its
   number at its middle, but the step shown when it has a data's form, which a pill shows over its
   middle, its condition in a pill under it. A pill travels along the step shown, the data's form
-  before the step for the first half of its way, then after it (`travelled`, `formAt`); over an
+  before the step for the first half of its way, the dot alone when the section gave the data no
+  form yet, then the form after it (`travelled`, `formAt`, `formBefore`); over an
   entry's start, a pill of its nature and trigger, and the start pulses twice. The items the
   section touches are outlined, the step's two ends darker, the view's other chips, cards and
   ghosts faded, never a box; the view's own arrows stay, dimmed, no arrow hot. Numbers, pills and
