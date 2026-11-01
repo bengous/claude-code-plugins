@@ -46,19 +46,68 @@ function loadedModule(sourceCode: SourceCode, node: ESTree.Node): string | null 
   return specifier === undefined ? null : literalOf(specifier);
 }
 
-/** The fs module `node` loads through `require` or `await import()`, or the `const` holding such a load. */
-function fsModuleOf(sourceCode: SourceCode, node: ESTree.Node): string | null {
-  const value = unwrapTs(node);
-  const held = value.type === "Identifier" ? constValueOf(sourceCode, value) : value;
-  const source = held === null ? null : loadedModule(sourceCode, held);
+/**
+ * An object whose `rename` and `renameSync` are fs's: the module named `source`, whole, or its
+ * `promises`; `hasPromises` while a `.promises` read off it is `node:fs/promises`.
+ */
+type FsObject = { readonly source: string; readonly hasPromises: boolean };
 
-  return source !== null && FS_MODULES.has(source) ? source : null;
+/** How many `const` bindings `fsObjectOf` follows, so that `const a = a;` ends. */
+const CONST_HOPS = 8;
+
+function wholeModule(source: string): FsObject {
+  return { source, hasPromises: FS_WITH_PROMISES.has(source) };
+}
+
+/**
+ * The fs object `node` reads: an fs module loaded by `require` or `await import()`, or imported
+ * whole; a `promises` read off one, or imported by name; a `const` holding any of them.
+ */
+function fsObjectOf(sourceCode: SourceCode, node: ESTree.Node, hops = CONST_HOPS): FsObject | null {
+  const value = unwrapTs(node);
+  const loaded = loadedModule(sourceCode, value);
+
+  if (loaded !== null) return FS_MODULES.has(loaded) ? wholeModule(loaded) : null;
+
+  if (value.type === "MemberExpression") {
+    if (propertyName(value) !== "promises") return null;
+    const parent = fsObjectOf(sourceCode, value.object, hops);
+
+    return parent?.hasPromises === true ? { source: parent.source, hasPromises: false } : null;
+  }
+
+  if (value.type !== "Identifier") return null;
+  const binding = importOf(sourceCode, value);
+
+  if (binding !== null) {
+    if (!FS_MODULES.has(binding.source)) return null;
+
+    if (WHOLE_MODULE.has(binding.imported)) return wholeModule(binding.source);
+
+    return binding.imported === "promises" && FS_WITH_PROMISES.has(binding.source)
+      ? { source: binding.source, hasPromises: false }
+      : null;
+  }
+
+  const held = hops > 0 ? constValueOf(sourceCode, value) : null;
+
+  return held === null ? null : fsObjectOf(sourceCode, held, hops - 1);
 }
 
 function keyName(property: ESTree.ObjectPattern["properties"][number]): string | null {
   if (property.type !== "Property" || property.computed) return null;
 
   return property.key.type === "Identifier" ? property.key.name : literalOf(property.key);
+}
+
+/** The pattern a destructured property binds, past its default; `null` when it binds a name. */
+function nestedPattern(
+  property: ESTree.ObjectPattern["properties"][number],
+): ESTree.ObjectPattern | null {
+  if (property.type !== "Property") return null;
+  const target = property.value.type === "AssignmentPattern" ? property.value.left : property.value;
+
+  return target.type === "ObjectPattern" ? target : null;
 }
 
 /** Ban a rename straight from `node:fs`: `rename` of the platform helpers retries what Windows holds. */
@@ -81,6 +130,17 @@ export const noRawRenameRule = defineRule({
     const report = (node: ESTree.Node, name: string, source: string): void =>
       context.report({ node, messageId: "rawRename", data: { name, source } });
 
+    const reportPattern = (pattern: ESTree.ObjectPattern, fs: FsObject): void => {
+      for (const property of pattern.properties) {
+        const key = keyName(property);
+
+        if (key !== null && RENAMES.has(key)) report(property, key, fs.source);
+        const nested = key === "promises" && fs.hasPromises ? nestedPattern(property) : null;
+
+        if (nested !== null) reportPattern(nested, { source: fs.source, hasPromises: false });
+      }
+    };
+
     return {
       Identifier(node) {
         const binding = importOf(sourceCode, node);
@@ -92,60 +152,15 @@ export const noRawRenameRule = defineRule({
         const name = propertyName(node);
 
         if (name === null || !RENAMES.has(name)) return;
-        const { object } = node;
-        const loaded = fsModuleOf(sourceCode, object);
+        const fs = fsObjectOf(sourceCode, node.object);
 
-        if (loaded !== null) {
-          report(node, name, loaded);
-
-          return;
-        }
-
-        if (object.type === "Identifier") {
-          const binding = importOf(sourceCode, object);
-
-          if (
-            binding !== null &&
-            FS_MODULES.has(binding.source) &&
-            (WHOLE_MODULE.has(binding.imported) ||
-              (binding.imported === "promises" && FS_WITH_PROMISES.has(binding.source)))
-          )
-            report(node, name, binding.source);
-
-          return;
-        }
-
-        if (object.type !== "MemberExpression" || propertyName(object) !== "promises") return;
-        const loadedParent = fsModuleOf(sourceCode, object.object);
-
-        if (loadedParent !== null) {
-          if (FS_WITH_PROMISES.has(loadedParent)) report(node, name, loadedParent);
-
-          return;
-        }
-
-        if (object.object.type === "Identifier") {
-          const binding = importOf(sourceCode, object.object);
-
-          if (
-            binding !== null &&
-            FS_WITH_PROMISES.has(binding.source) &&
-            WHOLE_MODULE.has(binding.imported)
-          )
-            report(node, name, binding.source);
-        }
+        if (fs !== null) report(node, name, fs.source);
       },
       VariableDeclarator(node) {
         if (node.id.type !== "ObjectPattern" || node.init === null) return;
-        const source = fsModuleOf(sourceCode, node.init);
+        const fs = fsObjectOf(sourceCode, node.init);
 
-        if (source === null) return;
-
-        for (const property of node.id.properties) {
-          const key = keyName(property);
-
-          if (key !== null && RENAMES.has(key)) report(property, key, source);
-        }
+        if (fs !== null) reportPattern(node.id, fs);
       },
     };
   },

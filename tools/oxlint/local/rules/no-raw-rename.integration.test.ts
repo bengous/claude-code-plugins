@@ -53,6 +53,28 @@ const SOURCES = {
     'fs.renameSync("a", "b");',
     'await fsp.rename("a", "b");',
   ].join("\n"),
+  "scripts/whole-destructured.ts": [
+    'import * as fs from "node:fs";',
+    "const { renameSync } = fs;",
+    'renameSync("a", "b");',
+  ].join("\n"),
+  "scripts/required-promises-destructured.ts": [
+    'const { rename } = require("fs").promises;',
+    'await rename("a", "b");',
+  ].join("\n"),
+  "scripts/imported-promises-destructured.ts": [
+    'import { promises } from "fs";',
+    "const { rename } = promises;",
+    'await rename("a", "b");',
+  ].join("\n"),
+  "scripts/nested-destructured.ts": [
+    'const { promises: { rename } } = require("fs");',
+    'await rename("a", "b");',
+  ].join("\n"),
+  "scripts/promises-const.ts": [
+    'const fsp = require("fs").promises;',
+    'await fsp.rename("a", "b");',
+  ].join("\n"),
   "scripts/unrelated.ts": [
     'import { rename } from "./local.ts";',
     'import { writeFileSync } from "node:fs";',
@@ -63,6 +85,11 @@ const SOURCES = {
     'require("node:path").rename;',
     'await (await import("./local.ts")).rename("a", "b");',
     "other();",
+    'const { promises: { rename: nested } } = require("./local.cjs");',
+    'const { promises: { rename: deeper } } = require("fs/promises");',
+    "const looped = looped;",
+    'looped.rename("a", "b");',
+    "nested(deeper);",
   ].join("\n"),
   "todos/lib/platform/node.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
   "tools/platform/node.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
@@ -151,6 +178,26 @@ describe("no-raw-rename", () => {
 
   test("reports a rename read off a const that holds a require or an await import() of fs", () => {
     expect(lines("scripts/loaded-const.ts")).toEqual([3, 4]);
+  });
+
+  test("reports renameSync destructured from fs imported whole", () => {
+    expect(lines("scripts/whole-destructured.ts")).toEqual([2]);
+  });
+
+  test("reports rename destructured from the promises of a require of fs", () => {
+    expect(lines("scripts/required-promises-destructured.ts")).toEqual([1]);
+  });
+
+  test("reports rename destructured from the promises imported from fs", () => {
+    expect(lines("scripts/imported-promises-destructured.ts")).toEqual([2]);
+  });
+
+  test("reports rename destructured from the promises nested in a require of fs", () => {
+    expect(lines("scripts/nested-destructured.ts")).toEqual([1]);
+  });
+
+  test("reports rename read off a const that holds the promises of a require of fs", () => {
+    expect(lines("scripts/promises-const.ts")).toEqual([2]);
   });
 
   test("leaves a rename of another module, required, loaded or imported, and a property spelled rename", () => {
