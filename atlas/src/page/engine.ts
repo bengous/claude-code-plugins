@@ -569,13 +569,7 @@ let painted = new Set<SVGGElement>();
 
 // The stage's width is read before the viewBox is written, so a frame forces no layout.
 function paint(img: Image): void {
-  const { width } = svg.getBoundingClientRect();
-  const scale = width / img.vb.w;
-
-  if (trace !== null) {
-    traceFitPx = fitPxOf(trace.d, width);
-  }
-
+  const scale = svg.getBoundingClientRect().width / img.vb.w;
   svg.setAttribute("viewBox", `${img.vb.x} ${img.vb.y} ${img.vb.w} ${img.vb.h}`);
   const own = drawn(img.space);
   paintView(own, img.op, "", scale);
@@ -1030,19 +1024,32 @@ let framedBy = "";
 // A mark that keeps its size on screen, at `at` in its view's units.
 type Pin = { readonly g: SVGGElement; readonly at: Point };
 
-// A step's head keeps on screen the length the markers of the view's arrows give it at the view's
-// fit, HEAD.strokes widths of the stroke (svg.ts, atlas.html: 1.8, or 3.2 for the step shown), its
-// tip at the curve's end; never longer than the curve on screen (headPx). `path` points along x,
+// A step's head is HEAD.strokes widths of its stroke long on screen, as the markers of the view's
+// arrows are (svg.ts), its tip at the curve's end, and never longer than the curve on screen
+// (headPx). The strokes keep their width on screen too, the widths atlas.html gives `.trace-line`:
+// a step's, the step shown's, and a step brought out from the ribbon. `path` points along x,
 // HEAD.length long.
-const HEAD = { strokes: 5.5, stroke: 1.8, shown: 3.2, path: "M0 0 L-10 -5 L-10 5 z", length: 10 };
+const HEAD = {
+  strokes: 5.5,
+  width: { step: 1.8, shown: 3.2, peek: 2.6 },
+  path: "M0 0 L-10 -5 L-10 5 z",
+  length: 10,
+};
 
-// `strokes`, its length at the fit in the view's units; `length`, its curve's.
+// `leg`, its step's group, whose classes set its stroke; `length`, its curve's, in the view's units.
 type Arrowhead = {
   readonly g: SVGGElement;
+  readonly leg: SVGGElement;
   readonly head: Head;
   readonly length: number;
-  readonly strokes: number;
 };
+
+const strokeOf = (leg: SVGGElement): number =>
+  leg.classList.contains("peek")
+    ? HEAD.width.peek
+    : leg.classList.contains("current")
+      ? HEAD.width.shown
+      : HEAD.width.step;
 
 // The travelling pill along the step shown: the data's form before the step during the first
 // half of its way, then after it (formAt).
@@ -1071,12 +1078,6 @@ type Trace = {
 };
 
 let trace: Trace | null = null;
-
-// The screen pixels a unit of the traced view spans at its fit, read where the stage's width is
-// read, before a frame writes the viewBox (paint, showTrace).
-let traceFitPx = 1;
-
-const fitPxOf = (d: Drawn, width: number): number => width / imageOf(d.view.id).vb.w;
 
 let travelRaf = 0;
 
@@ -1136,8 +1137,7 @@ function drawLeg(
   el("path", { d, class: "trace-line" }, s);
   const head = el("g", { class: "trace-head" }, s);
   el("path", { d: HEAD.path }, head);
-  const strokes = HEAD.strokes * (n === current ? HEAD.shown : HEAD.stroke);
-  heads.push({ g: head, head: headOf(leg.curve), length: lengthOf(leg.curve), strokes });
+  heads.push({ g: head, leg: s, head: headOf(leg.curve), length: lengthOf(leg.curve) });
   const badge = pinIn(s, "trace-number", pointAt(leg.curve, 0.5), pins);
   el("circle", { r: ON_SCREEN.number }, badge);
   svgText(badge, { class: "trace-number-t" }, String(n));
@@ -1271,9 +1271,8 @@ function carry(traveller: Traveller, form: string | null): void {
   }
 }
 
-// Every mark at its size on screen, from the scale its layer was last painted at, and each head at
-// its fit's; the travelling pill where it is at `now`, at the end of its way under a reduced
-// motion.
+// Every mark and head at its size on screen, from the scale its layer was last painted at; the
+// travelling pill where it is at `now`, at the end of its way under a reduced motion.
 function placeTrace(now: number): void {
   if (trace === null) {
     return;
@@ -1290,8 +1289,8 @@ function placeTrace(now: number): void {
     pinAt(pin.g, pin.at);
   }
 
-  for (const { g, head, length, strokes } of trace.heads) {
-    const k = (headPx(strokes * traceFitPx, length, pxPerUnit) / HEAD.length) * perPx;
+  for (const { g, leg, head, length } of trace.heads) {
+    const k = (headPx(HEAD.strokes * strokeOf(leg), length, pxPerUnit) / HEAD.length) * perPx;
     const [x, y] = head.at;
     g.setAttribute("transform", `translate(${x} ${y}) rotate(${head.angle}) scale(${k})`);
   }
@@ -1362,7 +1361,6 @@ function showTrace(d: Drawn, played: Played | null): void {
   }
 
   trace = drawTrace(d, at, kept?.since ?? performance.now());
-  traceFitPx = fitPxOf(d, svg.getBoundingClientRect().width);
   const section = stepsOf(at.journey).filter(({ s }) => s === at.at.s);
 
   const touched = new Set(
@@ -1386,6 +1384,8 @@ function peek(n: number | null): void {
   for (const [k, g] of trace?.legs ?? []) {
     g.classList.toggle("peek", k === n);
   }
+
+  placeTrace(performance.now());
 }
 
 // Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,

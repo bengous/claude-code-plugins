@@ -613,8 +613,10 @@ svg text.illegible { visibility: hidden; }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
 
-/* A journey's trace (engine.ts, trace.ts), over every item of the view its step is played in: each step of the section shown, forward in the accent, back in the colour of a return, dashed under a condition, a band of the sheet under it, its head at its end; those played lighter, those to come lighter still, the step shown thicker and darker, its number hidden when a pill shows its data's form; its lines and heads take no pointer. */
+/* A journey's trace (engine.ts, trace.ts), over every item of the view its step is played in: each step of the section shown, forward in the accent, back in the colour of a return, dashed under a condition, a band of the sheet under it, its head at its end; those played lighter, those to come lighter still, the step shown thicker and darker, its number hidden when a pill shows its data's form; its lines and heads take no pointer.
+   Its strokes and dashes keep their width on screen at any zoom (non-scaling-stroke), in screen pixels; engine.ts sizes each head from the widths of `.trace-line` here (HEAD). */
 .trace-halo, .trace-line, .trace-head, .trace-pulse { pointer-events: none; }
+.trace-halo, .trace-line { vector-effect: non-scaling-stroke; }
 .trace-halo { fill: none; stroke: var(--sheet); stroke-width: 6; opacity: 0.9; }
 .trace-line { fill: none; stroke: var(--accent); stroke-width: 1.8; }
 .trace-head { fill: var(--accent); }

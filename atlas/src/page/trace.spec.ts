@@ -161,7 +161,7 @@ describe("headOf, lengthOf and headPx", () => {
     expect(lengthOf(curveOf(A, B, 0))).toBeGreaterThan(300);
   });
 
-  test("the head keeps its length at the fit whatever the zoom, but never runs past its curve on screen", () => {
+  test("the head keeps its length on screen whatever the zoom, but never runs past its curve on screen", () => {
     expect(headPx(10, 300, 0.5)).toBe(10);
     expect(headPx(10, 300, 4)).toBe(10);
     expect(headPx(10, 9, 0.6)).toBeCloseTo(5.4);

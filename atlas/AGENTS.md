@@ -353,9 +353,10 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   form yet, then the form after it (`travelled`, `formAt`, `formBefore`); over an
   entry's start, a pill of its nature and trigger, and the start pulses twice. The items the
   section touches are outlined, the step's two ends darker, the view's other chips, cards and
-  ghosts faded, never a box; the view's own arrows stay, dimmed, no arrow hot. Numbers, pills and
-  the travelling dot keep their size on screen at any zoom, and each head the size it has at the
-  view's fit, never longer than its curve on screen (`placeTrace` in `engine.ts`, `headPx`); a
+  ghosts faded, never a box; the view's own arrows stay, dimmed, no arrow hot. Numbers, pills, the
+  travelling dot, the strokes and their dashes keep their size on screen at any zoom, each head
+  the size the view's arrows' markers give its stroke, never longer than its curve on screen
+  (`placeTrace` in `engine.ts`, `headPx`); a
   cell of the ribbon under the pointer brings its step's trace out, its number shown, the step
   shown's too; the legend has a line for each kind of step traced, forward, back, under a
   condition. Under `prefers-reduced-motion`, the pill sits

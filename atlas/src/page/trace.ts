@@ -146,11 +146,11 @@ export function lengthOf(curve: Curve): number {
 }
 
 /**
- * The length on screen, in pixels, of a step's head: `atFit`, the length it has at the view's fit,
- * whatever the zoom, but never longer than its curve on screen, `length` units at `pxPerUnit`.
+ * The length on screen, in pixels, of a step's head: `size`, whatever the zoom, but never longer
+ * than its curve on screen, `length` units at `pxPerUnit`.
  */
-export const headPx = (atFit: number, length: number, pxPerUnit: number): number =>
-  Math.min(atFit, length * pxPerUnit);
+export const headPx = (size: number, length: number, pxPerUnit: number): number =>
+  Math.min(size, length * pxPerUnit);
 
 /** The travelling pill: it waits `delay` ms after its step shows, then travels for `ms` ms. */
 export const TRAVEL = { delay: 250, ms: 1000 };
