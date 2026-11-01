@@ -33,12 +33,36 @@ const SOURCES = {
     "const mv = renameSync;",
     'mv("a", "b");',
   ].join("\n"),
+  "scripts/require-member.ts": [
+    'require("node:fs").renameSync("a", "b");',
+    'require("fs").promises.rename("a", "b");',
+  ].join("\n"),
+  "scripts/require-destructured.ts": [
+    'const { renameSync, writeFileSync } = require("fs");',
+    'renameSync("a", "b");',
+    'writeFileSync("a", "b");',
+  ].join("\n"),
+  "scripts/import-member.ts": 'await (await import("node:fs/promises")).rename("a", "b");\n',
+  "scripts/import-destructured.ts": [
+    'const { rename: move } = await import("node:fs/promises");',
+    'await move("a", "b");',
+  ].join("\n"),
+  "scripts/loaded-const.ts": [
+    'const fs = require("node:fs");',
+    'const fsp = await import("fs/promises");',
+    'fs.renameSync("a", "b");',
+    'await fsp.rename("a", "b");',
+  ].join("\n"),
   "scripts/unrelated.ts": [
     'import { rename } from "./local.ts";',
     'import { writeFileSync } from "node:fs";',
     "const obj = { rename: 1, renameSync: 2 };",
     'await rename("a", "b");',
     'writeFileSync("a", String(obj.rename + obj.renameSync));',
+    'const { rename: other } = require("./local.cjs");',
+    'require("node:path").rename;',
+    'await (await import("./local.ts")).rename("a", "b");',
+    "other();",
   ].join("\n"),
   "todos/lib/platform/node.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
   "tools/platform/node.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
@@ -109,7 +133,27 @@ describe("no-raw-rename", () => {
     expect(lines("scripts/const-alias.ts")).toEqual([2]);
   });
 
-  test("leaves a rename of another module and a property spelled rename", () => {
+  test("reports renameSync and rename read off a require of fs, its promises included", () => {
+    expect(lines("scripts/require-member.ts")).toEqual([1, 2]);
+  });
+
+  test("reports renameSync destructured from a require of fs, once, at the binding", () => {
+    expect(lines("scripts/require-destructured.ts")).toEqual([1]);
+  });
+
+  test("reports rename read off an await import() of fs/promises", () => {
+    expect(lines("scripts/import-member.ts")).toEqual([1]);
+  });
+
+  test("reports rename destructured from an await import() of fs/promises, an alias included", () => {
+    expect(lines("scripts/import-destructured.ts")).toEqual([1]);
+  });
+
+  test("reports a rename read off a const that holds a require or an await import() of fs", () => {
+    expect(lines("scripts/loaded-const.ts")).toEqual([3, 4]);
+  });
+
+  test("leaves a rename of another module, required, loaded or imported, and a property spelled rename", () => {
     expect(lines("scripts/unrelated.ts")).toEqual([]);
   });
 
