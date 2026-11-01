@@ -1,9 +1,10 @@
+// oxlint-disable max-classes-per-file -- the errors the helpers throw (GitError, GitMissingError, LaunchError) live beside them: a caller tells them apart by instanceof, and a plugin's copy is this one file
 import { linkSync, mkdirSync, renameSync as fsRenameSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, open, readFile, rename as fsRename, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import { isErrno } from "./pure.ts";
+import { errnoOf, isErrno, messageOf } from "./pure.ts";
 
 const HELD_CODES: ReadonlySet<unknown> = new Set(["EBUSY", "EPERM", "EACCES"]);
 
@@ -261,23 +262,43 @@ export type RunResult<Out = string> =
       readonly code: number;
       readonly stdout: Out;
       readonly stderr: string;
+      /** `run` let go of the pipes once `OUTPUT_GRACE_MS` passed: stdout and stderr are empty. */
+      readonly outputLost?: true;
     }
   | {
       readonly kind: "timedOut";
       readonly timeoutMs: number;
       readonly stdout: Out;
       readonly stderr: string;
+      /** `run` let go of the pipes once `OUTPUT_GRACE_MS` passed: stdout and stderr are empty. */
+      readonly outputLost?: true;
     }
   | { readonly kind: "missing"; readonly program: string };
 
 /** The output a killed shell's children may keep holding is waited for this long after the exit. */
 export const OUTPUT_GRACE_MS = 1000;
 
-/** Bun's words for a program it cannot find on the PATH; any other spawn failure (a missing cwd) is thrown. */
+/** Bun's words for a program it cannot find on the PATH; any other spawn failure is a `LaunchError`. */
 const NOT_FOUND = /^Executable not found/u;
 
 function isNotFound(cause: unknown): boolean {
   return cause instanceof Error && NOT_FOUND.test(cause.message);
+}
+
+/**
+ * A program that could not start for another reason than a name the PATH does not hold: a missing
+ * `cwd`, a path to no program, a program it may not run (`EACCES`). It keeps Bun's message, Bun's
+ * error as `cause`, and its errno as `code`, so `errnoOf` reads what it read off Bun's error.
+ */
+export class LaunchError extends Error {
+  override readonly name = "LaunchError";
+
+  readonly code: string | undefined;
+
+  constructor(cause: unknown) {
+    super(messageOf(cause), { cause });
+    this.code = errnoOf(cause) ?? undefined;
+  }
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -378,7 +399,7 @@ async function spawnAsync<Out>(
     });
   } catch (cause) {
     if (isNotFound(cause)) return { kind: "missing", program: argv[0] };
-    throw cause;
+    throw new LaunchError(cause);
   }
 
   const pipes = [reading(proc.stdout), reading(proc.stderr)] as const;
@@ -386,14 +407,21 @@ async function spawnAsync<Out>(
   const lasted = performance.now() - started;
   // A killed shell leaves its children holding the pipes: wait for the output only as long as the grace period.
   const output = await graced(...pipes);
-  const stdout = output === null ? empty : read(output[0]);
-  const stderr = output === null ? "" : UTF8.decode(output[1]);
-
+  const { timeoutMs } = options;
   // An async Subprocess carries no timeout flag: the kill signal we asked for, once the timeout passed, is the only evidence Bun cut it short.
-  return options.timeoutMs !== undefined &&
-    proc.signalCode === "SIGKILL" &&
-    lasted >= options.timeoutMs
-    ? { kind: "timedOut", timeoutMs: options.timeoutMs, stdout, stderr }
+  const timedOut = timeoutMs !== undefined && proc.signalCode === "SIGKILL" && lasted >= timeoutMs;
+
+  if (output === null) {
+    return timedOut
+      ? { kind: "timedOut", timeoutMs, stdout: empty, stderr: "", outputLost: true }
+      : { kind: "exited", code, stdout: empty, stderr: "", outputLost: true };
+  }
+
+  const stdout = read(output[0]);
+  const stderr = UTF8.decode(output[1]);
+
+  return timedOut
+    ? { kind: "timedOut", timeoutMs, stdout, stderr }
     : { kind: "exited", code, stdout, stderr };
 }
 
@@ -423,7 +451,7 @@ function spawnSync<Out>(
     });
   } catch (cause) {
     if (isNotFound(cause)) return { kind: "missing", program: argv[0] };
-    throw cause;
+    throw new LaunchError(cause);
   }
 
   const stdout = read(result.stdout);
@@ -486,10 +514,11 @@ function spawnSyncAs(argv: Argv, options: RunOptions, env: Env): RunResult<strin
 /**
  * Runs `argv` to its end, its output captured: `exited` with its code, `timedOut` when
  * `timeoutMs` passed and the process was killed (`SIGKILL`), `missing` when the program is not on
- * the PATH. Any other failure to start (a missing `cwd`, a path to no program) is thrown. After
- * the exit, the output is waited for `OUTPUT_GRACE_MS` at most, then its pipes are let go of: a
- * killed shell's children may hold them. Past the grace, stdout and stderr are both empty, even
- * when one pipe had delivered its bytes. The environment is this process's, `env` laid over it.
+ * the PATH. Any other failure to start (a missing `cwd`, a path to no program) throws a
+ * `LaunchError`. After the exit, the output is waited for `OUTPUT_GRACE_MS` at most, then its pipes
+ * are let go of: a killed shell's children may hold them. Past the grace, stdout and stderr are
+ * both empty, even when one pipe had delivered its bytes, and the result carries
+ * `outputLost: true`. The environment is this process's, `env` laid over it.
  */
 export function run(argv: Argv, options: RunOptions & BufferOutput): Promise<RunResult<Buffer>>;
 export function run(argv: Argv, options?: RunOptions & TextOutput): Promise<RunResult>;
@@ -498,8 +527,9 @@ export function run(argv: Argv, options: RunOptions = {}): Promise<RunResult<str
 }
 
 /**
- * `run`, waiting in this thread; no grace period: the call returns once every pipe closes. A
- * timeout is Bun's own flag on the result, so a process killed from outside is `exited`.
+ * `run`, waiting in this thread; no grace period: the call returns once every pipe closes, so
+ * `outputLost` is never set. A timeout is Bun's own flag on the result, so a process killed from
+ * outside is `exited`.
  */
 export function runSync(argv: Argv, options: RunOptions & BufferOutput): RunResult<Buffer>;
 export function runSync(argv: Argv, options?: RunOptions & TextOutput): RunResult;
@@ -534,15 +564,25 @@ function gitArgv(args: readonly string[], options: GitOptions): Argv {
   return ["git", ...(options.config ?? []).flatMap((entry) => ["-c", entry]), ...args];
 }
 
+/** git is not on the PATH: `git`, `gitSync`, `gitRead` and `gitReadSync` throw it. */
+export class GitMissingError extends Error {
+  override readonly name = "GitMissingError";
+
+  constructor() {
+    super("git is not on the PATH");
+  }
+}
+
 function found<Out>(result: RunResult<Out>): GitResult<Out> {
-  if (result.kind === "missing") throw new Error("git is not on the PATH");
+  if (result.kind === "missing") throw new GitMissingError();
 
   return result;
 }
 
 /**
- * Runs git through `run`, its output raw, untrimmed. A git missing from the PATH throws. `cwd` is
- * an option; a call that names its repository with `-C` keeps it in `args`.
+ * Runs git through `run`, its output raw, untrimmed, `outputLost` kept as `run` sets it. A git
+ * missing from the PATH throws a `GitMissingError`. `cwd` is an option; a call that names its
+ * repository with `-C` keeps it in `args`.
  */
 export function git(
   args: readonly string[],
@@ -568,7 +608,23 @@ export function gitSync(
   return found(spawnSyncAs(gitArgv(args, options), options, gitEnvOf(options)));
 }
 
-/** A git command that did not exit 0: `git <args> failed (exit <code>): <stderr>`, or timed out. */
+/** How a git command ended, as `GitError` words it: its code or its timeout, then its stderr or its loss. */
+function endingOf(result: GitResult): string {
+  const ended =
+    result.kind === "exited" ? `exited ${result.code}` : `timed out after ${result.timeoutMs} ms`;
+
+  if (result.outputLost === true)
+    return `${ended}, its output let go of after ${OUTPUT_GRACE_MS} ms`;
+
+  return result.kind === "exited"
+    ? `failed (exit ${result.code}): ${result.stderr.trim()}`
+    : `${ended}: ${result.stderr.trim()}`;
+}
+
+/**
+ * A git command that did not exit 0: `git <args> failed (exit <code>): <stderr>`, or timed out;
+ * or whose output `run` let go of: `git <args> exited <code>, its output let go of after 1000 ms`.
+ */
 export class GitError extends Error {
   override readonly name = "GitError";
 
@@ -577,33 +633,36 @@ export class GitError extends Error {
   readonly result: GitResult;
 
   constructor(args: readonly string[], result: GitResult) {
-    const command = `git ${args.join(" ")}`;
-
-    super(
-      result.kind === "exited"
-        ? `${command} failed (exit ${result.code}): ${result.stderr.trim()}`
-        : `${command} timed out after ${result.timeoutMs} ms: ${result.stderr.trim()}`,
-    );
+    super(`git ${args.join(" ")} ${endingOf(result)}`);
     this.args = args;
     this.result = result;
   }
 }
 
-export type GitReadOptions = Omit<GitOptions, "stdout">;
+export type GitReadOptions = Omit<GitOptions, "stdout"> & {
+  /** `true` answers stdout as git wrote it, for an output whose columns matter (`status --porcelain`). */
+  readonly raw?: boolean;
+};
 
-function readOf(args: readonly string[], result: GitResult): string {
-  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
+function readOf(args: readonly string[], result: GitResult, options: GitReadOptions): string {
+  if (result.kind !== "exited" || result.code !== 0 || result.outputLost === true)
+    throw new GitError(args, result);
 
-  return result.stdout.trim();
+  return options.raw === true ? result.stdout : result.stdout.trim();
 }
 
 /**
- * A git command that must succeed: its stdout trimmed at both ends, so an output whose columns
- * matter (`status --porcelain`) goes through `git`; any other end throws a `GitError`.
+ * A git command that must succeed: its stdout trimmed at both ends, or as git wrote it with
+ * `raw`. Any other end throws a `GitError`, an exit 0 whose output `run` let go of included.
  */
 export async function gitRead(
   args: readonly string[],
   options: GitReadOptions = {},
 ): Promise<string> {
-  return readOf(args, await git(args, options));
+  return readOf(args, await git(args, options), options);
+}
+
+/** `gitRead`, waiting in this thread: `gitSync` has no grace period, so no output is let go of. */
+export function gitReadSync(args: readonly string[], options: GitReadOptions = {}): string {
+  return readOf(args, gitSync(args, options), options);
 }

@@ -1,13 +1,46 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { Argv } from "./node.ts";
-import { git, GitError, gitRead, gitSync, run, runSync } from "./node.ts";
+import {
+  git,
+  GitError,
+  GitMissingError,
+  gitRead,
+  gitReadSync,
+  gitSync,
+  LaunchError,
+  run,
+  runSync,
+} from "./node.ts";
+import { errnoOf, messageOf } from "./pure.ts";
 
 const BUN = process.execPath;
+
+/** What `call` throws, `null` when it returns; a thrown value that is no `Error` fails the test. */
+function thrownBy(call: () => void): Error | null {
+  try {
+    call();
+
+    return null;
+  } catch (cause) {
+    if (!(cause instanceof Error))
+      throw new TypeError(`thrown, not an Error: ${String(cause)}`, { cause: cause });
+
+    return cause;
+  }
+}
 
 const NODE_TS = JSON.stringify(pathToFileURL(join(import.meta.dir, "node.ts")).href);
 
@@ -198,8 +231,26 @@ describe("run", () => {
       { timeoutMs: 2000 },
     );
 
-    expect(result).toEqual({ kind: "timedOut", timeoutMs: 2000, stdout: "", stderr: "" });
+    expect(result).toEqual({
+      kind: "timedOut",
+      timeoutMs: 2000,
+      stdout: "",
+      stderr: "",
+      outputLost: true,
+    });
     expect(Date.now() - started).toBeLessThan(6000);
+  });
+
+  test("an exit whose child holds the pipes past the grace answers outputLost, its output empty", async () => {
+    const holder = JSON.stringify([BUN, "-e", "await Bun.sleep(4000)"]);
+
+    const result = await run(
+      bun(
+        `process.stdout.write("written"); Bun.spawn(${holder}, { stdout: "inherit", stderr: "inherit" }).unref()`,
+      ),
+    );
+
+    expect(result).toEqual({ kind: "exited", code: 0, stdout: "", stderr: "", outputLost: true });
   });
 
   test("timeoutMs <= 0 answers timedOut without starting anything", async () => {
@@ -220,9 +271,51 @@ describe("run", () => {
     });
   });
 
-  test("a cwd that does not exist throws", async () => {
-    await expect(run(bun("1"), { cwd: join(dir, "none") })).rejects.toThrow();
+  test("a cwd that does not exist throws a LaunchError, Bun's message, error and errno kept", async () => {
+    const thrown: unknown = await run(bun("1"), { cwd: join(dir, "none") }).catch(
+      (cause: unknown) => cause,
+    );
+
+    const cause = thrown instanceof LaunchError ? thrown.cause : null;
+
+    expect(thrown).toBeInstanceOf(LaunchError);
+    expect(cause).toBeInstanceOf(Error);
+    expect(messageOf(thrown)).toBe(messageOf(cause));
+    expect(errnoOf(thrown)).toBe("ENOENT");
   });
+
+  test("a path to no program throws a LaunchError, by run and runSync alike", async () => {
+    const nowhere = join(dir, "nowhere");
+
+    const thrown = [
+      await run([nowhere]).catch((cause: unknown) => cause),
+      thrownBy(() => runSync([nowhere])),
+    ];
+
+    expect(thrown.map((cause) => cause instanceof LaunchError && errnoOf(cause))).toEqual([
+      "ENOENT",
+      "ENOENT",
+    ]);
+  });
+
+  test.if(process.platform !== "win32" && process.getuid?.() !== 0)(
+    "a program it may not run throws a LaunchError whose errno is EACCES",
+    async () => {
+      const script = join(dir, "not-executable.sh");
+      writeFileSync(script, "#!/bin/sh\n");
+      chmodSync(script, 0o644);
+
+      const thrown = [
+        await run([script]).catch((cause: unknown) => cause),
+        thrownBy(() => runSync([script])),
+      ];
+
+      expect(thrown.map((cause) => cause instanceof LaunchError && errnoOf(cause))).toEqual([
+        "EACCES",
+        "EACCES",
+      ]);
+    },
+  );
 
   test("stdout: buffer answers the bytes as they came", async () => {
     const result = await run(bun("process.stdout.write(new Uint8Array([0, 255, 10]))"), {
@@ -278,7 +371,7 @@ describe("runSync", () => {
       kind: "missing",
       program: "no-such-binary-xyz",
     });
-    expect(() => runSync(bun("1"), { cwd: join(dir, "none") })).toThrow();
+    expect(() => runSync(bun("1"), { cwd: join(dir, "none") })).toThrow(LaunchError);
 
     const bytes = runSync(bun("process.stdout.write(new Uint8Array([0, 255]))"), {
       stdout: "buffer",
@@ -388,36 +481,108 @@ describe("git and gitSync", () => {
     expect(result.kind === "exited" ? [...result.stdout] : null).toEqual([0, 255, 10]);
   });
 
-  test("a git missing from the PATH throws", async () => {
-    await expect(git(["--version"], { env: { PATH: dir } })).rejects.toThrow(
-      "git is not on the PATH",
+  test("a git missing from the PATH throws a GitMissingError, by each of the four", async () => {
+    const options = { env: { PATH: dir } };
+
+    const thrown = [
+      await git(["--version"], options).catch((cause: unknown) => cause),
+      thrownBy(() => gitSync(["--version"], options)),
+      await gitRead(["--version"], options).catch((cause: unknown) => cause),
+      thrownBy(() => gitReadSync(["--version"], options)),
+    ];
+
+    expect(thrown.map((cause) => cause instanceof GitMissingError && messageOf(cause))).toEqual(
+      Array.from({ length: 4 }, () => "git is not on the PATH"),
     );
-    expect(() => gitSync(["--version"], { env: { PATH: dir } })).toThrow("git is not on the PATH");
   });
+
+  test("a cwd that does not exist throws a LaunchError", async () => {
+    const cwd = join(dir, "none");
+
+    await expect(git(["--version"], { cwd })).rejects.toBeInstanceOf(LaunchError);
+    expect(() => gitSync(["--version"], { cwd })).toThrow(LaunchError);
+  });
+
+  // The alias's line backgrounds a POSIX `sleep` that holds git's pipes once git exited.
+  test.if(process.platform !== "win32")(
+    "an exit 0 whose output the grace let go of: git flags it, gitRead throws",
+    async () => {
+      const options = { cwd: dir, config: ["alias.hold=!echo out; sleep 3 &"] };
+
+      expect(await git(["hold"], options)).toEqual({
+        kind: "exited",
+        code: 0,
+        stdout: "",
+        stderr: "",
+        outputLost: true,
+      });
+
+      const failure: unknown = await gitRead(["hold"], options).catch((cause: unknown) => cause);
+
+      expect(failure).toBeInstanceOf(GitError);
+      expect(messageOf(failure)).toBe("git hold exited 0, its output let go of after 1000 ms");
+    },
+  );
 
   test("timeoutMs answers timedOut", async () => {
     expect(await git(["--version"], { timeoutMs: 0 })).toMatchObject({ kind: "timedOut" });
   });
 });
 
-describe("gitRead", () => {
-  test("answers stdout trimmed", async () => {
+describe("gitRead and gitReadSync", () => {
+  test("answer stdout trimmed", async () => {
     const cwd = repo();
 
     expect(await gitRead(["log", "-1", "--format=%s"], { cwd })).toBe("one");
+    expect(gitReadSync(["log", "-1", "--format=%s"], { cwd })).toBe("one");
   });
 
-  test("throws a GitError naming the command, the exit code and git's stderr", async () => {
+  test("raw answers stdout as git wrote it, its leading column kept", async () => {
     const cwd = repo();
+    writeFileSync(join(dir, "file"), "changed\n");
+
+    expect(await gitRead(["status", "--porcelain"], { cwd, raw: true })).toBe(" M file\n");
+    expect(gitReadSync(["status", "--porcelain"], { cwd, raw: true })).toBe(" M file\n");
+  });
+
+  test("throw a GitError naming the command, the exit code and git's stderr", async () => {
+    const cwd = repo();
+
+    const message =
+      "git rev-parse --verify nope failed (exit 128): fatal: Needed a single revision";
 
     const failure: unknown = await gitRead(["rev-parse", "--verify", "nope"], { cwd }).catch(
       (cause: unknown) => cause,
     );
 
+    const failureSync = thrownBy(() => gitReadSync(["rev-parse", "--verify", "nope"], { cwd }));
+
     expect(failure).toBeInstanceOf(GitError);
-    expect(failure instanceof Error ? failure.message : "").toBe(
-      "git rev-parse --verify nope failed (exit 128): fatal: Needed a single revision",
-    );
+    expect(failureSync).toBeInstanceOf(GitError);
+    expect([messageOf(failure), messageOf(failureSync)]).toEqual([message, message]);
+  });
+
+  test("pass git's options through: cwd, env, stdin, cLocale, scrubGitEnv and config", async () => {
+    const cwd = repo();
+    process.env["GIT_DIR"] = join(dir, "not-a-repository");
+
+    const options = {
+      cwd,
+      env: { PLATFORM_TEST_X: "x" },
+      stdin: "in",
+      cLocale: true,
+      scrubGitEnv: true,
+      config: [
+        'alias.probe=!printf "%s %s %s %s" "$LC_ALL" "$PLATFORM_TEST_X" "$(cat)" "$(git rev-parse --git-dir)"',
+      ],
+    };
+
+    try {
+      expect(await gitRead(["probe"], options)).toBe("C x in .git");
+      expect(gitReadSync(["probe"], options)).toBe("C x in .git");
+    } finally {
+      delete process.env["GIT_DIR"];
+    }
   });
 });
 

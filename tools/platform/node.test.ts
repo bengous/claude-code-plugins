@@ -19,6 +19,7 @@ import {
   createExclusiveSync,
   GitError,
   isHeld,
+  LaunchError,
   rename,
   renameSync,
   withLock,
@@ -345,5 +346,51 @@ describe("GitError", () => {
     });
 
     expect(error.message).toBe("git fetch timed out after 50 ms: ");
+  });
+
+  test("names an output let go of after the grace, an exit 0 or a timeout", () => {
+    const exited = new GitError(["commit-tree", "-S"], {
+      kind: "exited",
+      code: 0,
+      stdout: "",
+      stderr: "",
+      outputLost: true,
+    });
+
+    const timedOut = new GitError(["fetch"], {
+      kind: "timedOut",
+      timeoutMs: 50,
+      stdout: "",
+      stderr: "",
+      outputLost: true,
+    });
+
+    expect(exited.message).toBe("git commit-tree -S exited 0, its output let go of after 1000 ms");
+    expect(timedOut.message).toBe(
+      "git fetch timed out after 50 ms, its output let go of after 1000 ms",
+    );
+  });
+});
+
+describe("LaunchError", () => {
+  test("keeps the message, the cause and the errno of the error it wraps", () => {
+    const cause = Object.assign(new Error("EACCES: permission denied, posix_spawn '/x'"), {
+      code: "EACCES",
+    });
+
+    const error = new LaunchError(cause);
+
+    expect(error.message).toBe(cause.message);
+    expect(error.cause).toBe(cause);
+    expect(error.code).toBe("EACCES");
+    expect(errnoOf(error)).toBe("EACCES");
+    expect(error.name).toBe("LaunchError");
+  });
+
+  test("reads the errno off the message when the wrapped error has no code, as errnoOf does", () => {
+    const error = new LaunchError(new Error("spawn failed: ENOENT"));
+
+    expect(errnoOf(error)).toBe("ENOENT");
+    expect(new LaunchError("not an error").message).toBe("not an error");
   });
 });
