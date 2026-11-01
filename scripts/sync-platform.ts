@@ -10,8 +10,8 @@
  * outside its directory. A copy holds the modules its owner's files import from it, an import
  * marked `type` included, and the modules those import in turn. The check refuses a copy that
  * differs from its source byte for byte, a module a copy lacks or holds though nothing imports it,
- * an import of a module the source does not hold, a consumer whose directory does not exist or
- * whose copy nothing imports, a copy directory `consumers.ts` does not list, and an import that
+ * an import of a file that is no module of the source, a consumer whose directory does not exist
+ * or whose copy nothing imports, a copy directory `consumers.ts` does not list, and an import that
  * leaves a plugin's or a consumer's directory. A copy holds what git lists there: an ignored file
  * is neither refused nor removed.
  */
@@ -119,12 +119,35 @@ function importedFrom(
   });
 }
 
-/** Whether `name` is a file of the source a copy can hold: one at its top. */
-const isSourceModule = (root: string, name: string): boolean =>
-  !name.includes("/") && existsSync(join(root, SOURCE_DIR, name));
+/** Whether a file at the top of the source, by its name, is a module a copy can hold. */
+export const isModuleName = (name: string): boolean =>
+  name.endsWith(".ts") && !name.includes(".test.") && name !== "consumers.ts";
+
+/** The modules a copy can hold: each file at the top of the source that git tracks, by its name. */
+async function sourceModules(root: string): Promise<ReadonlySet<string>> {
+  const prefix = `${SOURCE_DIR}/`;
+  const args = ["ls-files", "--cached", "-z", "--", SOURCE_DIR];
+
+  return new Set(
+    (await gitRead(args, { cwd: root, raw: true })).split("\0").flatMap((path) => {
+      const name = path.slice(prefix.length);
+
+      return path.startsWith(prefix) &&
+        !name.includes("/") &&
+        isModuleName(name) &&
+        existsSync(join(root, path))
+        ? [name]
+        : [];
+    }),
+  );
+}
 
 /** `names` and every module they import, at any depth, as the source's modules import one another. */
-function withTheirImports(root: string, names: ReadonlySet<string>): string[] {
+function withTheirImports(
+  root: string,
+  source: ReadonlySet<string>,
+  names: ReadonlySet<string>,
+): string[] {
   const held = new Set<string>();
   const waiting = [...names];
 
@@ -133,7 +156,7 @@ function withTheirImports(root: string, names: ReadonlySet<string>): string[] {
     held.add(name);
 
     for (const imported of importedFrom(join(root, SOURCE_DIR, name), join(root, SOURCE_DIR))) {
-      if (isSourceModule(root, imported.name)) waiting.push(imported.name);
+      if (source.has(imported.name)) waiting.push(imported.name);
     }
   }
 
@@ -146,7 +169,12 @@ function withTheirImports(root: string, names: ReadonlySet<string>): string[] {
  */
 type CopyPlan = { readonly modules: readonly string[]; readonly strays: readonly string[] };
 
-function planOf(root: string, dir: string, files: readonly string[]): CopyPlan {
+function planOf(
+  root: string,
+  source: ReadonlySet<string>,
+  dir: string,
+  files: readonly string[],
+): CopyPlan {
   const owner = ownerOf(dir);
   const imported = new Set<string>();
   const strays: string[] = [];
@@ -156,15 +184,15 @@ function planOf(root: string, dir: string, files: readonly string[]): CopyPlan {
       continue;
 
     for (const { specifier, name } of importedFrom(join(root, file), join(root, dir))) {
-      if (isSourceModule(root, name)) imported.add(name);
+      if (source.has(name)) imported.add(name);
       else
         strays.push(
-          `${file} imports ${specifier}, which ${SOURCE_DIR}/ does not hold: import one of its modules`,
+          `${file} imports ${specifier}, no module of ${SOURCE_DIR}/: a copy holds a .ts file git tracks there, neither a test nor consumers.ts`,
         );
     }
   }
 
-  return { modules: withTheirImports(root, imported), strays };
+  return { modules: withTheirImports(root, source, imported), strays };
 }
 
 /** Whether `copy` is a file holding exactly `source`'s bytes: a link to it is not, once installed. */
@@ -172,9 +200,14 @@ function isExactCopy(copy: string, source: string): boolean {
   return !lstatSync(copy).isSymbolicLink() && readFileSync(copy).equals(readFileSync(source));
 }
 
-function copyProblems(root: string, dir: string, files: readonly string[]): string[] {
+function copyProblems(
+  root: string,
+  source: ReadonlySet<string>,
+  dir: string,
+  files: readonly string[],
+): string[] {
   const owner = ownerOf(dir);
-  const { modules, strays } = planOf(root, dir, files);
+  const { modules, strays } = planOf(root, source, dir, files);
 
   if (modules.length === 0 && strays.length === 0) {
     return [
@@ -300,10 +333,11 @@ function outsideImports(
 /** Every refusal of the gate, in the order a fix takes them: the manifest, the copies, the strays, the imports. */
 export async function problemsIn(root: string, copyDirs: readonly string[]): Promise<string[]> {
   const files = await listedFiles(root);
+  const source = await sourceModules(root);
 
   return [
     ...manifestProblems(root, copyDirs),
-    ...placed(root, copyDirs).flatMap((dir) => copyProblems(root, dir, files)),
+    ...placed(root, copyDirs).flatMap((dir) => copyProblems(root, source, dir, files)),
     ...unlistedCopyDirs(files, copyDirs),
     ...outsideImports(root, files, copyDirs),
   ];
@@ -315,17 +349,18 @@ export async function problemsIn(root: string, copyDirs: readonly string[]): Pro
  */
 export async function writeCopies(root: string, copyDirs: readonly string[]): Promise<string[]> {
   const files = await listedFiles(root);
+  const source = await sourceModules(root);
   const written: string[] = [];
 
   for (const dir of placed(root, copyDirs)) {
-    const plan = planOf(root, dir, files);
+    const plan = planOf(root, source, dir, files);
 
     for (const file of plan.modules) {
-      const source = join(root, SOURCE_DIR, file);
+      const from = join(root, SOURCE_DIR, file);
       const copy = join(root, dir, file);
 
-      if (existsSync(copy) && isExactCopy(copy, source)) continue;
-      await writeAtomic(copy, readFileSync(source), { mkdir: true });
+      if (existsSync(copy) && isExactCopy(copy, from)) continue;
+      await writeAtomic(copy, readFileSync(from), { mkdir: true });
       written.push(`${dir}/${file}`);
     }
 

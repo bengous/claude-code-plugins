@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 
 import { gitSync } from "../tools/platform/git.ts";
 import { run } from "../tools/platform/process.ts";
-import { problemsIn, WRITE_COMMAND, writeCopies } from "./sync-platform.ts";
+import { isModuleName, problemsIn, WRITE_COMMAND, writeCopies } from "./sync-platform.ts";
 
 const REPO = join(import.meta.dir, "..");
 
@@ -39,6 +39,12 @@ afterAll(() => {
   for (const [name, value] of KEPT_GIT_ENV) process.env[name] = value;
 });
 
+function track(...paths: string[]): void {
+  expect(gitSync(["add", "--", ...paths], { cwd: root, scrubGitEnv: true })).toMatchObject({
+    code: 0,
+  });
+}
+
 /** `plug/hooks/register.ts`, these import lines first. */
 function registerImporting(...lines: string[]): void {
   write("plug/hooks/register.ts", `${lines.join("\n")}\nexport const register = 1;\n`);
@@ -46,9 +52,9 @@ function registerImporting(...lines: string[]): void {
 
 /**
  * A repository whose catalog lists `plug/` and `peer/`, beside `other/`, a directory no catalog
- * names. Its modules import one another as the platform's do: `fs.ts` and `process.ts` import
- * `pure.ts`, `lock.ts` imports `fs.ts` and `pure.ts`, `git.ts` imports `process.ts`. `plug/`
- * imports `pure.ts` from its copy.
+ * names. Its modules, tracked, import one another as the platform's do: `fs.ts` and `process.ts`
+ * import `pure.ts`, `lock.ts` imports `fs.ts` and `pure.ts`, `git.ts` imports `process.ts`.
+ * `plug/` imports `pure.ts` from its copy.
  */
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "sync-platform-"));
@@ -65,6 +71,7 @@ beforeEach(() => {
     'import { pure } from "./pure.ts";\nexport const run = pure;\n',
   );
   write("tools/platform/git.ts", 'import { run } from "./process.ts";\nexport const git = run;\n');
+  track("tools/platform");
 
   write(
     ".claude-plugin/marketplace.json",
@@ -86,7 +93,7 @@ const copied = (...files: string[]): string[] => files.map((file) => `${PLUG}/${
 
 /** The refusal of an import, from `plug/hooks/register.ts`, of a file that is no module of the source. */
 const noModule = (specifier: string): string =>
-  `plug/hooks/register.ts imports ${specifier}, which tools/platform/ does not hold: import one of its modules`;
+  `plug/hooks/register.ts imports ${specifier}, no module of tools/platform/: a copy holds a .ts file git tracks there, neither a test nor consumers.ts`;
 
 describe("the files of a copy", () => {
   test("a plugin that imports fs.ts alone receives it and the pure.ts it imports", async () => {
@@ -145,6 +152,27 @@ describe("the files of a copy", () => {
 
     expect(await problems()).toEqual([noModule("../lib/platform/node.ts")]);
   });
+
+  test.each([
+    ["a test", "fs.test.ts", true],
+    ["the manifest", "consumers.ts", true],
+    ["a file no script is", "README.md", true],
+    ["a module git does not track", "wip.ts", false],
+  ])(
+    "refuses an import of %s of tools/platform/, and copies nothing of it",
+    async (_, file, tracked) => {
+      write(`tools/platform/${file}`, "export const x = 1;\n");
+
+      if (tracked) track(`tools/platform/${file}`);
+      registerImporting(
+        'import { pure } from "../lib/platform/pure.ts";',
+        `import { x } from "../lib/platform/${file}";`,
+      );
+
+      expect(await writeCopies(root, [PLUG])).toEqual(copied("pure.ts"));
+      expect(await problems()).toEqual([noModule(`../lib/platform/${file}`)]);
+    },
+  );
 
   test("--write removes nothing from a copy while an import names no module of it, a typo maybe", async () => {
     registerImporting('import { git } from "../lib/platform/git.ts";');
@@ -338,9 +366,7 @@ describe("--write", () => {
   });
 
   test("the command checks, refuses, then repairs with --write", async () => {
-    const modules = readdirSync(join(REPO, "tools/platform")).filter(
-      (file) => file.endsWith(".ts") && !file.includes(".test.") && file !== "consumers.ts",
-    );
+    const modules = readdirSync(join(REPO, "tools/platform")).filter((file) => isModuleName(file));
 
     for (const file of modules) {
       copyFileSync(join(REPO, "tools/platform", file), join(root, "tools/platform", file));

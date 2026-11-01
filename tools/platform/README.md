@@ -56,7 +56,8 @@ Each way to share code without a copy fails a target this repository has:
     installed alone loses;
   - a module a copy must hold that it lacks or git ignores, or a file git lists there that no
     import brings;
-  - an import, into a copy, of a file this directory does not hold;
+  - an import, into a copy, of a file that is no module here: a module is a `.ts` file at the top
+    of this directory that git tracks, neither a test nor `consumers.ts`;
   - a consumer whose owner does not exist, a directory of another form or listed twice, or one
     whose copy nothing in its owner imports;
   - a `lib/platform/` or `src/platform/` directory `consumers.ts` does not list;
