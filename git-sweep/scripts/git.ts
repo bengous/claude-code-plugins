@@ -1,7 +1,12 @@
 // The one git runner of both scripts, and the ref type every git call that
 // names a branch takes.
 
-import { GitError, git as runGit, type GitResult as RunResult } from "../lib/platform/node.ts";
+import {
+  GitError,
+  GitMissingError,
+  git as runGit,
+  type GitResult as RunResult,
+} from "../lib/platform/node.ts";
 
 export { GitError };
 
@@ -11,23 +16,19 @@ export type GitResult = { stdout: string; stderr: string; exitCode: number };
 // `remote ref does not exist`); LC_ALL=C pins them.
 const C_LOCALE = { cLocale: true } as const;
 
-// The platform's git throws a plain Error, with this message, when git is not
-// on the PATH. Read here as a command that failed, as Bun's shell answered it:
-// an exit-code read sees a failure, and a gitRead throws the GitError both
-// entry points catch. 127 is the shell's code for a command not found, which
-// no git command answers.
-const NO_GIT: RunResult = {
-  kind: "exited",
-  code: 127,
-  stdout: "",
-  stderr: "git is not on the PATH",
-};
-
+// The platform's git throws a GitMissingError when git is not on the PATH.
+// Read here as a command that failed, as Bun's shell answered it: an exit-code
+// read sees a failure, and a gitRead throws the GitError both entry points
+// catch. 127 is the shell's code for a command not found, which no git command
+// answers.
 async function runC(args: string[]): Promise<RunResult> {
   try {
     return await runGit(args, C_LOCALE);
   } catch (cause) {
-    if (cause instanceof Error && cause.message === NO_GIT.stderr) return NO_GIT;
+    if (cause instanceof GitMissingError) {
+      return { kind: "exited", code: 127, stdout: "", stderr: cause.message };
+    }
+
     throw cause;
   }
 }

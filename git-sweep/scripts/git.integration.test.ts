@@ -49,6 +49,26 @@ function holdGitPipes(): void {
   process.env["PATH"] = `${bin}:${PATH ?? ""}`;
 }
 
+describe("git missing from the PATH", () => {
+  test("reads as a command that failed with 127, and gitRead throws its GitError", async () => {
+    process.env["PATH"] = tmp("git-sweep-no-git-");
+
+    expect(await git("--version")).toEqual({
+      stdout: "",
+      stderr: "git is not on the PATH",
+      exitCode: 127,
+    });
+    await expect(gitRead("--version")).rejects.toThrow(
+      new GitError(["--version"], {
+        kind: "exited",
+        code: 127,
+        stdout: "",
+        stderr: "git is not on the PATH",
+      }),
+    );
+  });
+});
+
 describe("an output let go of past the grace", () => {
   test("git throws, never answering its exit code with an empty stdout", async () => {
     const dir = repo();
