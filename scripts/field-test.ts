@@ -27,7 +27,7 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
-import { git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/node.ts";
 import { messageOf, shellQuote } from "../tools/platform/pure.ts";
 import { installDependencies } from "./lib/plugin-sources.ts";
 
@@ -420,10 +420,15 @@ async function start(name: string, args: string[]): Promise<void> {
   if (values.ref !== undefined) {
     from = join(scratch, "source");
 
-    const added = await git(["-C", ROOT, "worktree", "add", "--detach", from, values.ref]);
+    const add = ["-C", ROOT, "worktree", "add", "--detach", from, values.ref];
+    const added = await git(add);
 
-    if (added.kind !== "exited" || added.code !== 0)
-      fail(`git worktree add ${values.ref}: ${added.stderr.trim()}`);
+    if (added.kind !== "exited" || added.code !== 0) {
+      const why =
+        added.outputLost === true ? new GitError(add, added).message : added.stderr.trim();
+
+      fail(`git worktree add ${values.ref}: ${why}`);
+    }
   }
 
   const pluginDirs = plugins.map((plugin) => {
@@ -581,9 +586,14 @@ async function messages(name: string, args: string[]): Promise<void> {
 /** Why `git worktree remove` left `source` in place, a git that does not start included; null once it is gone. */
 async function worktreeLeft(source: string): Promise<string | null> {
   try {
-    const unlinked = await git(["-C", ROOT, "worktree", "remove", "--force", source]);
+    const remove = ["-C", ROOT, "worktree", "remove", "--force", source];
+    const unlinked = await git(remove);
 
-    return unlinked.kind === "exited" && unlinked.code === 0 ? null : unlinked.stderr.trim();
+    if (unlinked.kind === "exited" && unlinked.code === 0) return null;
+
+    return unlinked.outputLost === true
+      ? new GitError(remove, unlinked).message
+      : unlinked.stderr.trim();
   } catch (error) {
     return messageOf(error);
   }

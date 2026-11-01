@@ -153,11 +153,19 @@ async function materialize(main: PluginDir, ref: string, hasLocalBranch: boolean
 
   console.log(`creating worktree: ${path}`);
 
-  const added = await git(["-C", main, "worktree", "add", path, ref]);
+  const args = ["-C", main, "worktree", "add", path, ref];
+  const added = await git(args);
   const dir = added.kind === "exited" && added.code === 0 ? pluginDirAt(path) : null;
 
   // Git's exit code is 0, 128 or 255 depending on the case; its output is the message.
-  if (dir === null) fail(`${added.stdout}${added.stderr}`.trim(), 1);
+  if (dir === null) {
+    fail(
+      added.outputLost === true
+        ? new GitError(args, added).message
+        : `${added.stdout}${added.stderr}`.trim(),
+      1,
+    );
+  }
 
   if (!hasLocalBranch) console.log("warning: detached HEAD, no local branch for this ref");
 
