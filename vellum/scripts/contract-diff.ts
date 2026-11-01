@@ -25,7 +25,7 @@ import { dirname, join, relative } from "node:path";
 
 import { diffWordsWithSpace } from "diff";
 
-import { gitSync } from "../src/platform/node.ts";
+import { gitReadSync, gitSync } from "../src/platform/node.ts";
 
 type FileChange = {
   readonly status: "A" | "D" | "M" | "R";
@@ -85,13 +85,7 @@ const SUITES = [
 ];
 
 function git(cwd: string, args: readonly string[]): string {
-  const run = gitSync(args, { cwd, stdout: "buffer" });
-
-  if (run.kind !== "exited" || run.code !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${run.stderr.trim()}`);
-  }
-
-  return run.stdout.toString();
+  return gitReadSync(args, { cwd, raw: true });
 }
 
 /** A file's text at a revision; `""` when the revision holds none. */

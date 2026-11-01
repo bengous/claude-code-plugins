@@ -27,7 +27,7 @@ import type { Stryker } from "@stryker-mutator/core";
 import { $ } from "bun";
 
 import config from "../stryker.config.ts";
-import { GitError, git } from "../tools/platform/node.ts";
+import { git, gitRead } from "../tools/platform/node.ts";
 import { type Base, baseOf, DEFAULT_BASE, type Env, mergeBaseWith } from "./affected.ts";
 
 export interface LineRange {
@@ -293,11 +293,9 @@ export async function changeSince(
     ...paths,
   ];
 
-  const diff = await git(args, { cwd: repoRoot });
+  const diff = await gitRead(args, { cwd: repoRoot, raw: true });
 
-  if (diff.kind !== "exited" || diff.code !== 0) throw new GitError(args, diff);
-
-  return { since: mergeBase.sha, hunks: hunksOf(diff.stdout) };
+  return { since: mergeBase.sha, hunks: hunksOf(diff) };
 }
 
 /** The tree at `sha`, written to a directory of its own, which the caller removes. */

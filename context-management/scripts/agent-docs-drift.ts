@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { basename } from "node:path";
 
-import { gitSync } from "../lib/platform/node.ts";
+import { gitReadSync } from "../lib/platform/node.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 
 const DOC_SET = [
@@ -256,13 +256,7 @@ function render({ baseline, docFiles, commits }: Report): string {
 }
 
 function git(cwd: string, args: string[]): string {
-  const result = gitSync(args, { cwd });
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout;
+  return gitReadSync(args, { cwd, raw: true });
 }
 
 function collect(cwd: string): Report {

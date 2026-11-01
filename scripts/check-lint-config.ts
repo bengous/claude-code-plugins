@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 
 import config from "../oxlint.config.ts";
-import { GitError, git } from "../tools/platform/node.ts";
+import { gitRead } from "../tools/platform/node.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 export interface JsonObject {
@@ -514,12 +514,12 @@ if (import.meta.main) {
 
   const vendoredRoot = join(repoRoot, "tools/oxlint");
 
-  const listing = ["ls-files", "tools/oxlint/anti-slop"];
-  const listed = await git(listing, { cwd: repoRoot });
+  const listed = await gitRead(["ls-files", "tools/oxlint/anti-slop"], {
+    cwd: repoRoot,
+    raw: true,
+  });
 
-  if (listed.kind !== "exited" || listed.code !== 0) throw new GitError(listing, listed);
-
-  const tracked = listed.stdout
+  const tracked = listed
     .split("\n")
     .filter(Boolean)
     .map((path) => path.slice("tools/oxlint/".length))

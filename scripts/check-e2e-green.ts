@@ -15,7 +15,7 @@
  * `.claude/rules/hook-ladder.md` says why.
  */
 
-import { gitSync } from "../tools/platform/node.ts";
+import { gitReadSync, gitSync } from "../tools/platform/node.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 
 const DEV = "refs/heads/dev";
@@ -161,22 +161,8 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
   };
 }
 
-function spawnGit(args: readonly string[]) {
-  return gitSync(args, { stdout: "buffer" });
-}
-
-function git(args: readonly string[]): string {
-  const result = spawnGit(args);
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
-}
-
 function hasCommit(oid: string): boolean {
-  const result = spawnGit(["cat-file", "-e", `${oid}^{commit}`]);
+  const result = gitSync(["cat-file", "-e", `${oid}^{commit}`]);
 
   return result.kind === "exited" && result.code === 0;
 }
@@ -190,8 +176,8 @@ function changedPaths({ local, remote }: PushToDev): readonly string[] {
 
   const listed =
     remote === null
-      ? git(["ls-tree", "-r", "-z", "--name-only", local])
-      : git(["diff", "--name-only", "--no-renames", "-z", remote, local]);
+      ? gitReadSync(["ls-tree", "-r", "-z", "--name-only", local], { raw: true })
+      : gitReadSync(["diff", "--name-only", "--no-renames", "-z", remote, local], { raw: true });
 
   return listed.split("\0").filter((path) => path !== "");
 }

@@ -1,4 +1,4 @@
-import { GitError, git } from "../../tools/platform/node.ts";
+import { gitRead } from "../../tools/platform/node.ts";
 
 const LIST = ["ls-files", "-z", "--cached", "--others", "--exclude-standard"];
 
@@ -8,9 +8,5 @@ const LIST = ["ls-files", "-z", "--cached", "--others", "--exclude-standard"];
  * same set, so a file created but never staged meets every gate at once.
  */
 export async function workingTreeFiles(cwd = process.cwd()): Promise<string[]> {
-  const listed = await git(LIST, { cwd });
-
-  if (listed.kind !== "exited" || listed.code !== 0) throw new GitError(LIST, listed);
-
-  return listed.stdout.split("\0").filter(Boolean);
+  return (await gitRead(LIST, { cwd, raw: true })).split("\0").filter(Boolean);
 }

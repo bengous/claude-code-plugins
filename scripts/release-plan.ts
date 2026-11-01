@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { isRecord, stringField } from "../agent-hooks/json.ts";
-import { gitSync } from "../tools/platform/node.ts";
+import { gitReadSync } from "../tools/platform/node.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import {
   CHANGELOG,
@@ -127,13 +127,7 @@ export interface Sealed {
 }
 
 function git(repo: string, args: readonly string[]): string {
-  const result = gitSync(["-C", repo, ...args], { stdout: "buffer" });
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
+  return gitReadSync(["-C", repo, ...args], { raw: true });
 }
 
 function fileAt(repo: PluginDir, commit: CommitId, path: string): string | null {

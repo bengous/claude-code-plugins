@@ -18,7 +18,7 @@ import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } fro
 
 import type { Consumer } from "../tools/platform/consumers.ts";
 import { CONSUMERS } from "../tools/platform/consumers.ts";
-import { git, GitError, writeAtomic } from "../tools/platform/node.ts";
+import { gitRead, writeAtomic } from "../tools/platform/node.ts";
 import { isInsideRelative } from "../tools/platform/pure.ts";
 
 export const SOURCE_DIR = "tools/platform";
@@ -49,11 +49,8 @@ const ownerOf = (path: string): string => path.slice(0, Math.max(0, path.indexOf
 /** The files git sees under `root`, tracked or new and not ignored, that are on disk. */
 async function listedFiles(root: string): Promise<string[]> {
   const args = ["ls-files", "--cached", "--others", "--exclude-standard", "-z"];
-  const result = await git(args, { cwd: root });
 
-  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
-
-  return result.stdout
+  return (await gitRead(args, { cwd: root, raw: true }))
     .split("\0")
     .filter((path) => path !== "" && !path.startsWith("archive/") && existsSync(join(root, path)));
 }

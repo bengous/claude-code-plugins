@@ -25,7 +25,7 @@ import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { GitError, git } from "../tools/platform/node.ts";
+import { git, gitRead } from "../tools/platform/node.ts";
 import { retryReported } from "./flaky-report.ts";
 import { TYPES_DIR } from "./lib/claude-code-types-paths.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
@@ -153,11 +153,7 @@ function nulSeparated(text: string): string[] {
 }
 
 async function listed(repoRoot: string, args: readonly string[]): Promise<string[]> {
-  const result = await git(args, { cwd: repoRoot });
-
-  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
-
-  return nulSeparated(result.stdout);
+  return nulSeparated(await gitRead(args, { cwd: repoRoot, raw: true }));
 }
 
 export async function currentScope(

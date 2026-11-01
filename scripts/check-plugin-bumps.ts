@@ -16,7 +16,7 @@
 
 import { posix } from "node:path";
 
-import { gitSync } from "../tools/platform/node.ts";
+import { gitReadSync, gitSync } from "../tools/platform/node.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 
@@ -108,13 +108,7 @@ function spawnGit(repo: PluginDir, args: readonly string[]) {
 }
 
 function git(repo: PluginDir, args: readonly string[]): string {
-  const result = spawnGit(repo, args);
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
+  return gitReadSync(["-C", repo, ...args], { raw: true });
 }
 
 export function commitAt(repo: PluginDir, ref: string): CommitId {

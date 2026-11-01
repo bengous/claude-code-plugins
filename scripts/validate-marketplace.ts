@@ -7,7 +7,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { GitError, git } from "../tools/platform/node.ts";
+import { git, gitRead } from "../tools/platform/node.ts";
 import { CHANGELOG, changelogVerdict, versionCommits } from "./changelog.ts";
 import { commitAt, sourceDirOf, type Version } from "./check-plugin-bumps.ts";
 import {
@@ -91,13 +91,7 @@ try {
 
 // Shipped plugin code, listed once and filtered per plugin below. Only what git
 // tracks ships, so an untracked scratch file is not the marketplace's problem.
-const listing = ["ls-files", "-z"];
-
-const listed = await git(listing);
-
-if (listed.kind !== "exited" || listed.code !== 0) throw new GitError(listing, listed);
-
-const trackedFiles = listed.stdout.split("\0").filter(Boolean);
+const trackedFiles = (await gitRead(["ls-files", "-z"], { raw: true })).split("\0").filter(Boolean);
 
 const SHIPPED_TEXT_EXTENSIONS = [
   ".ts",

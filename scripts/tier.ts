@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { isRecord, stringField } from "../agent-hooks/json.ts";
-import { type BufferOutput, type GitOptions, gitSync } from "../tools/platform/node.ts";
+import { type GitReadOptions, gitReadSync } from "../tools/platform/node.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import { withoutSessionIdentity } from "./lib/session-env.ts";
 import { BASE, short } from "./review-verdict.ts";
@@ -142,22 +142,9 @@ function firstLine(text: string): string {
 function git(
   cwd: string,
   args: readonly string[],
-  { env, stdin }: { env?: Readonly<Record<string, string>>; stdin?: string } = {},
+  options: Pick<GitReadOptions, "env" | "stdin"> = {},
 ): string {
-  const overlay = env ?? {};
-
-  const options: GitOptions & BufferOutput =
-    stdin === undefined
-      ? { cwd, env: overlay, stdout: "buffer" }
-      : { cwd, env: overlay, stdin, stdout: "buffer" };
-
-  const result = gitSync(args, options);
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
+  return gitReadSync(args, { ...options, cwd, raw: true });
 }
 
 export function digestOf(text: string): string {

@@ -25,7 +25,7 @@
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 
-import { gitSync } from "../tools/platform/node.ts";
+import { gitReadSync } from "../tools/platform/node.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 
@@ -206,17 +206,11 @@ export function sessionOf(body: string): string | null {
 }
 
 function git(cwd: string, args: readonly string[], input = ""): string {
-  const result = gitSync(["-C", cwd, ...args], {
+  return gitReadSync(["-C", cwd, ...args], {
     config: ["core.quotePath=false"],
     stdin: input,
-    stdout: "buffer",
+    raw: true,
   });
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
 }
 
 function countOf(text: string): number {

@@ -7,7 +7,7 @@
 // line, and so is a run of modified files, so a branch of a hundred renames
 // stays a short tree: the shape of the change, not its file list.
 
-import { git as runGit } from "../lib/platform/node.ts";
+import { gitRead } from "../lib/platform/node.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 
 const MAX_LISTED_MODIFIED = 3;
@@ -410,29 +410,21 @@ export function treeDiff(snapshot: Snapshot): string[] {
   return render(toEntries(root, context), "", true);
 }
 
-async function git(...args: string[]): Promise<string> {
-  const result = await runGit(args);
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout;
-}
-
 // `--full-tree`: from a subdirectory, ls-tree would list that subtree with
 // paths relative to it, while `git diff` always prints them from the root.
 async function filesAt(ref: string): Promise<Set<string>> {
-  const raw = await git("ls-tree", "--full-tree", "-r", "-z", "--name-only", ref);
+  const raw = await gitRead(["ls-tree", "--full-tree", "-r", "-z", "--name-only", ref], {
+    raw: true,
+  });
 
   return new Set(raw.split("\0").filter((path) => path !== ""));
 }
 
 async function snapshotFor(base: string): Promise<Snapshot> {
-  const mergeBase = (await git("merge-base", base, "HEAD")).trim();
+  const mergeBase = await gitRead(["merge-base", base, "HEAD"]);
 
   const [diff, baseFiles, headFiles] = await Promise.all([
-    git("diff", "--name-status", "-M", "-C", "-z", `${mergeBase}..HEAD`),
+    gitRead(["diff", "--name-status", "-M", "-C", "-z", `${mergeBase}..HEAD`], { raw: true }),
     filesAt(mergeBase),
     filesAt("HEAD"),
   ]);

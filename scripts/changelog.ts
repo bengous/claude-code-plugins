@@ -8,7 +8,7 @@
  * carries a brand that says what was checked.
  */
 
-import { gitSync } from "../tools/platform/node.ts";
+import { gitReadSync } from "../tools/platform/node.ts";
 import { type CommitId, type SourceDir, type Version, versionAt } from "./check-plugin-bumps.ts";
 import type { ValidationResult } from "./lib/marketplace-validation.ts";
 import type { PluginDir } from "./lib/plugin-sources.ts";
@@ -170,13 +170,7 @@ export function notesSince(sections: readonly ChangelogSection[], shipped: Semve
 }
 
 function git(repo: PluginDir, args: readonly string[]): string {
-  const result = gitSync(["-C", repo, ...args], { stdout: "buffer" });
-
-  if (result.kind !== "exited" || result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${result.stderr.trim()}`);
-  }
-
-  return result.stdout.toString();
+  return gitReadSync(["-C", repo, ...args], { raw: true });
 }
 
 /** One line of `git log --format="%H %as"`. */
