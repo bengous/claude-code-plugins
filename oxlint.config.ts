@@ -138,6 +138,17 @@ export default defineConfig({
       rules: { "max-lines": "off" },
     },
     {
+      // The source of every copy carries the lowest ceiling a copy answers to, vellum/src/'s: a
+      // module past it would fail the lint on a copy, which nobody edits.
+      files: ["tools/platform/*.ts"],
+      rules: { "max-lines": ["error", { max: 500 }] },
+    },
+    {
+      // A suite grows with the behaviours it holds, one per test: its size says nothing of its notions.
+      files: ["tools/platform/*.test.ts"],
+      rules: { "max-lines": "off" },
+    },
+    {
       // A file of agent-hooks holds one notion; past this size it holds two.
       files: ["agent-hooks/**/*.ts"],
       rules: { "max-lines": ["error", { max: 600 }] },

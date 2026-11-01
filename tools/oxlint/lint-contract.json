@@ -83,6 +83,27 @@
     },
     {
       "files": [
+        "tools/platform/*.ts"
+      ],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 500
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "tools/platform/*.test.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    },
+    {
+      "files": [
         "agent-hooks/**/*.ts"
       ],
       "rules": {
