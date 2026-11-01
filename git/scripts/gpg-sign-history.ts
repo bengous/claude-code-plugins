@@ -164,10 +164,6 @@ async function git(
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
-function gitOk(...args: string[]): Promise<string> {
-  return gitRead(args);
-}
-
 /** The signing program, fed raw bytes; a program that cannot start throws. */
 async function spawn(
   argv: string[],
@@ -310,7 +306,7 @@ async function readCommits(hashes: string[]): Promise<Map<string, RawCommit>> {
 }
 
 async function loadHistory(tip: string): Promise<History> {
-  const listed = await gitOk("rev-list", "--topo-order", "--reverse", tip);
+  const listed = await gitRead(["rev-list", "--topo-order", "--reverse", tip]);
   const order = listed.split("\n").filter(Boolean);
 
   return { order, commits: await readCommits(order) };
@@ -401,7 +397,7 @@ async function configValue(key: string): Promise<string> {
 }
 
 async function committerIdent(): Promise<Ident> {
-  return parseIdent("HEAD", "committer", await gitOk("var", "GIT_COMMITTER_IDENT"));
+  return parseIdent("HEAD", "committer", await gitRead(["var", "GIT_COMMITTER_IDENT"]));
 }
 
 /** The program and key git itself signs with: `user.signingkey`, else the committer's identity. */
@@ -594,7 +590,7 @@ async function requireHead(step: Phase): Promise<Checked<string>> {
 
   if (head.exitCode !== 0) return fail(step, "no-commits");
 
-  if ((await gitOk("rev-parse", "--is-shallow-repository")) === "true") {
+  if ((await gitRead(["rev-parse", "--is-shallow-repository"])) === "true") {
     return fail(step, "shallow-repository", "Fetch the whole history first: git fetch --unshallow");
   }
 
@@ -608,7 +604,7 @@ async function requireBranch(step: Phase): Promise<Checked<{ branch: string; hea
 
   // A rebase detaches HEAD: look for it first, or it reads as a detached HEAD to switch away from.
   for (const operation of OPERATIONS) {
-    if (existsSync(await gitOk("rev-parse", "--git-path", operation))) {
+    if (existsSync(await gitRead(["rev-parse", "--git-path", operation]))) {
       return fail(step, "operation-in-progress", operation);
     }
   }
@@ -630,13 +626,13 @@ function rewriteRoots(history: History, rewrite: string[]): string[] {
 async function otherRefs(branch: string, roots: string[]): Promise<string[]> {
   if (roots.length === 0) return [];
 
-  const listed = await gitOk(
+  const listed = await gitRead([
     "for-each-ref",
     "--format=%(refname)",
     ...roots.map((root) => `--contains=${root}`),
     "refs/heads",
     "refs/tags",
-  );
+  ]);
 
   return listed
     .split("\n")
@@ -712,11 +708,11 @@ async function auditMode(): Promise<Result> {
     }
   }
 
-  const backups = await gitOk(
+  const backups = await gitRead([
     "for-each-ref",
     "--format=%(refname:short)",
     `refs/heads/${BACKUP_PREFIX}*`,
-  );
+  ]);
 
   return {
     ok: true,

@@ -197,10 +197,6 @@ async function git(...args: string[]): Promise<GitResult> {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
-function gitOk(...args: string[]): Promise<string> {
-  return gitRead(args);
-}
-
 async function refExists(ref: string): Promise<boolean> {
   return (await git("show-ref", "--verify", "--quiet", ref)).exitCode === 0;
 }
@@ -227,7 +223,7 @@ async function linkInto(source: string, target: string): Promise<boolean> {
 }
 
 async function excludeLocally(dir: string): Promise<void> {
-  const exclude = await gitOk("rev-parse", "--git-path", "info/exclude");
+  const exclude = await gitRead(["rev-parse", "--git-path", "info/exclude"]);
   const lines = existsSync(exclude) ? (await readFile(exclude, "utf8")).split("\n") : [];
 
   if (lines.includes(`${dir}/`)) return;
@@ -251,7 +247,7 @@ async function run(options: Options): Promise<Result> {
     return fail("inside-a-worktree", "run this script from the main checkout");
   }
 
-  const root = await gitOk("rev-parse", "--show-toplevel");
+  const root = await gitRead(["rev-parse", "--show-toplevel"]);
   process.chdir(root);
 
   const { branch, base, dir } = options;
@@ -283,13 +279,13 @@ async function run(options: Options): Promise<Result> {
   const baseRef = await git("rev-parse", "--verify", "--quiet", `${base}^{commit}`);
 
   if (baseRef.exitCode !== 0) {
-    const recent = await gitOk(
+    const recent = await gitRead([
       "for-each-ref",
       "--sort=-committerdate",
       "--count=10",
       "--format=%(refname:short)",
       "refs/remotes/origin",
-    );
+    ]);
 
     return fail("base-not-found", `${base}\n\nRecent remote branches:\n${recent}`);
   }

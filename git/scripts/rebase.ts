@@ -124,10 +124,6 @@ async function git(
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
 }
 
-function gitOk(...args: string[]): Promise<string> {
-  return gitRead(args);
-}
-
 function fail(step: Phase, error: string, detail: string | null = null): Failure {
   return { ok: false, step, error, detail, state: null, guidance: null, backup_ref: null };
 }
@@ -168,7 +164,7 @@ async function countMarkers(path: string): Promise<number> {
 }
 
 async function conflictedFiles(): Promise<ConflictedFile[]> {
-  const listed = await gitOk("diff", "--name-only", "--diff-filter=U");
+  const listed = await gitRead(["diff", "--name-only", "--diff-filter=U"]);
   const files: ConflictedFile[] = [];
 
   for (const path of listed.split("\n").filter(Boolean)) {
@@ -186,7 +182,7 @@ type Stop = { kind: "exec-failed"; command: string } | { kind: "conflict" } | { 
  * than replaying it, so a trailing exec in `done` means a message was lost.
  */
 async function stopReason(state: RebaseState): Promise<Stop> {
-  const mergeDir = await gitOk("rev-parse", "--git-path", "rebase-merge");
+  const mergeDir = await gitRead(["rev-parse", "--git-path", "rebase-merge"]);
   const donePath = join(mergeDir, "done");
 
   if (existsSync(donePath)) {
@@ -245,8 +241,8 @@ async function stopFailure(
 }
 
 async function readState(): Promise<RebaseState> {
-  const mergeDir = await gitOk("rev-parse", "--git-path", "rebase-merge");
-  const applyDir = await gitOk("rev-parse", "--git-path", "rebase-apply");
+  const mergeDir = await gitRead(["rev-parse", "--git-path", "rebase-merge"]);
+  const applyDir = await gitRead(["rev-parse", "--git-path", "rebase-apply"]);
   const inProgress = existsSync(mergeDir) || existsSync(applyDir);
 
   if (!inProgress) {
@@ -329,7 +325,7 @@ async function resolveRange(spec: string): Promise<Range> {
 type Stats = { files: number; insertions: number; deletions: number };
 
 async function collectStats(base: string): Promise<Map<string, Stats>> {
-  const raw = await gitOk("log", "--reverse", `--format=${RS}%H`, "--numstat", `${base}..HEAD`);
+  const raw = await gitRead(["log", "--reverse", `--format=${RS}%H`, "--numstat", `${base}..HEAD`]);
   const stats = new Map<string, Stats>();
 
   for (const record of raw.split(RS)) {
@@ -358,7 +354,7 @@ async function collectStats(base: string): Promise<Map<string, Stats>> {
 
 async function collectCommits(base: string): Promise<Commit[]> {
   const format = RS + ["%H", "%h", "%s", "%an", "%ar", "%b"].join(US);
-  const raw = await gitOk("log", "--reverse", `--format=${format}`, `${base}..HEAD`);
+  const raw = await gitRead(["log", "--reverse", `--format=${format}`, `${base}..HEAD`]);
   const stats = await collectStats(base);
   const commits: Commit[] = [];
 
@@ -577,7 +573,7 @@ async function requireClean(step: Phase): Promise<Failure | null> {
 
   if (unstaged.exitCode === 0 && staged.exitCode === 0) return null;
 
-  return fail(step, "dirty-worktree", await gitOk("status", "--porcelain", "-uno"));
+  return fail(step, "dirty-worktree", await gitRead(["status", "--porcelain", "-uno"]));
 }
 
 async function requireNoRebase(step: Phase): Promise<Failure | null> {
@@ -611,8 +607,8 @@ async function planMode(spec: string): Promise<Result> {
     ok: true,
     step: "plan",
     base: range.base,
-    base_short: await gitOk("rev-parse", "--short", range.base),
-    branch: await gitOk("branch", "--show-current"),
+    base_short: await gitRead(["rev-parse", "--short", range.base]),
+    branch: await gitRead(["branch", "--show-current"]),
     commits: await collectCommits(range.base),
     note: range.note,
   };
@@ -624,7 +620,7 @@ async function planMode(spec: string): Promise<Result> {
  * resumes, long after this process exited.
  */
 async function messageDir(): Promise<string> {
-  const gitDir = await gitOk("rev-parse", "--absolute-git-dir");
+  const gitDir = await gitRead(["rev-parse", "--absolute-git-dir"]);
 
   return join(gitDir, "claude-rebase");
 }
@@ -687,11 +683,11 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
     hash: commits[index]?.hash ?? step.hash,
   }));
 
-  const planText = renderPlan(await gitOk("rev-parse", "--short", base), commits, steps);
+  const planText = renderPlan(await gitRead(["rev-parse", "--short", base]), commits, steps);
 
   if (dryRun) return { ok: true, step: "dry-run", plan_text: planText };
 
-  const branch = await gitOk("branch", "--show-current");
+  const branch = await gitRead(["branch", "--show-current"]);
 
   const stamp = new Date()
     .toISOString()
@@ -730,13 +726,13 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
     step: "applied",
     plan_text: planText,
     backup_ref: backupRef,
-    head: await gitOk("rev-parse", "HEAD"),
-    commits: Number(await gitOk("rev-list", "--count", `${base}..HEAD`)),
+    head: await gitRead(["rev-parse", "HEAD"]),
+    commits: Number(await gitRead(["rev-list", "--count", `${base}..HEAD`])),
   };
 }
 
 async function stagedMarkers(): Promise<string | null> {
-  const staged = await gitOk("diff", "--cached", "--name-only");
+  const staged = await gitRead(["diff", "--cached", "--name-only"]);
 
   for (const path of staged.split("\n").filter(Boolean)) {
     if ((await countMarkers(path)) > 0) return path;
@@ -801,7 +797,7 @@ async function resumeMode(mode: "continue" | "skip"): Promise<Result> {
     ok: true,
     step: "completed",
     from: mode,
-    head: await gitOk("rev-parse", "HEAD"),
+    head: await gitRead(["rev-parse", "HEAD"]),
     backup_ref: backupRef,
   };
 }
