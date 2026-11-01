@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { GitError, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { GitError, type GitResult, git as runGit, gitRead } from "../lib/platform/node.ts";
 import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------
@@ -114,14 +114,22 @@ const US = "\u001F";
 
 const RS = "\u001E";
 
-async function git(
-  ...args: string[]
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+/** What a git command said on stderr, or the `GitError`'s words when its output was let go of. */
+function stderrOf(args: readonly string[], result: GitResult): string {
+  return result.outputLost === true ? new GitError(args, result).message : result.stderr.trim();
+}
+
+/**
+ * A git command read by its exit code alone, its stdout through `gitRead`: an output let go of
+ * fails nothing here, as a `branch` whose hook leaves a process holding stderr has still created
+ * the branch.
+ */
+async function git(...args: string[]): Promise<{ stderr: string; exitCode: number }> {
   const result = await runGit(args);
 
-  if (result.kind !== "exited" || result.outputLost === true) throw new GitError(args, result);
+  if (result.kind !== "exited") throw new GitError(args, result);
 
-  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
+  return { stderr: stderrOf(args, result), exitCode: result.code };
 }
 
 function fail(step: Phase, error: string, detail: string | null = null): Failure {
@@ -266,9 +274,9 @@ type Range =
   | { kind: "rejected"; reason: string };
 
 async function resolveCommit(rev: string): Promise<string | null> {
-  const result = await git("rev-parse", "--verify", `${rev}^{commit}`);
+  const args = ["rev-parse", "--verify", `${rev}^{commit}`];
 
-  return result.exitCode === 0 ? result.stdout : null;
+  return (await git(...args)).exitCode === 0 ? await gitRead(args) : null;
 }
 
 async function resolveRange(spec: string): Promise<Range> {
@@ -309,13 +317,13 @@ async function resolveRange(spec: string): Promise<Range> {
   const target = await resolveCommit(spec);
 
   if (target === null) return { kind: "rejected", reason: `unknown revision: ${spec}` };
-  const mergeBase = await git("merge-base", "HEAD", target);
+  const mergeBase = ["merge-base", "HEAD", target];
 
-  if (mergeBase.exitCode !== 0) {
+  if ((await git(...mergeBase)).exitCode !== 0) {
     return { kind: "rejected", reason: `no common ancestor between HEAD and ${spec}` };
   }
 
-  return { kind: "resolved", base: mergeBase.stdout, note: null };
+  return { kind: "resolved", base: await gitRead(mergeBase), note: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -709,14 +717,16 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
 
   // GIT_EDITOR=true keeps squash and reword from opening an editor; the `exec`
   // lines set the final messages afterwards.
-  const run = await runGit(["rebase", "-i", base], {
+  const rebase = ["rebase", "-i", base];
+
+  const run = await runGit(rebase, {
     env: { GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: `cp ${shellQuote(todoPath)}` },
   });
 
   const state = await readState();
 
   if (run.kind !== "exited" || run.code !== 0 || state.in_progress) {
-    return stopFailure("apply", state, run.stderr.trim(), backupRef);
+    return stopFailure("apply", state, stderrOf(rebase, run), backupRef);
   }
 
   await rm(dir, { recursive: true, force: true });
@@ -781,14 +791,12 @@ async function resumeMode(mode: "continue" | "skip"): Promise<Result> {
     }
   }
 
-  const run = await runGit(["rebase", mode === "continue" ? "--continue" : "--skip"], {
-    env: { GIT_EDITOR: "true" },
-  });
-
+  const resume = ["rebase", mode === "continue" ? "--continue" : "--skip"];
+  const run = await runGit(resume, { env: { GIT_EDITOR: "true" } });
   const after = await readState();
 
   if (run.kind !== "exited" || run.code !== 0 || after.in_progress) {
-    return stopFailure(mode, after, run.stderr.trim(), backupRef);
+    return stopFailure(mode, after, stderrOf(resume, run), backupRef);
   }
 
   await rm(await messageDir(), { recursive: true, force: true });

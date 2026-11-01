@@ -187,14 +187,22 @@ function resolveInstall(install: Install, present: ReadonlySet<string>): string 
 // Git and filesystem helpers
 // ---------------------------------------------------------------------------
 
-type GitResult = { stdout: string; stderr: string; exitCode: number };
+type GitExit = { stderr: string; exitCode: number };
 
-async function git(...args: string[]): Promise<GitResult> {
+/**
+ * A git command read by its exit code alone, its stdout through `gitRead`: an output let go of
+ * fails nothing here, as a `worktree add` whose hook leaves a process holding stderr has still
+ * added the worktree, and the `GitError`'s words stand in for the stderr it lost.
+ */
+async function git(...args: string[]): Promise<GitExit> {
   const result = await runGit(args);
 
-  if (result.kind !== "exited" || result.outputLost === true) throw new GitError(args, result);
+  if (result.kind !== "exited") throw new GitError(args, result);
 
-  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), exitCode: result.code };
+  return {
+    stderr: result.outputLost === true ? new GitError(args, result).message : result.stderr.trim(),
+    exitCode: result.code,
+  };
 }
 
 async function refExists(ref: string): Promise<boolean> {
@@ -239,11 +247,11 @@ async function excludeLocally(dir: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function run(options: Options): Promise<Result> {
-  const gitDir = await git("rev-parse", "--git-dir");
+  const repo = await git("rev-parse", "--git-dir");
 
-  if (gitDir.exitCode !== 0) return fail("not-a-git-repo", gitDir.stderr);
+  if (repo.exitCode !== 0) return fail("not-a-git-repo", repo.stderr);
 
-  if (gitDir.stdout.includes("/worktrees/")) {
+  if ((await gitRead(["rev-parse", "--git-dir"])).includes("/worktrees/")) {
     return fail("inside-a-worktree", "run this script from the main checkout");
   }
 

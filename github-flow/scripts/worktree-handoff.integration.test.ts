@@ -253,6 +253,28 @@ describe("worktree-handoff.ts", () => {
     });
   });
 
+  test("a worktree add whose output git let go of past the grace is read by its exit, the worktree added", async () => {
+    const repo = await makeRepo();
+    const args = ["layer-2", "--base", "origin/layer-1", "--install", ""];
+
+    const { result } = await run(repo, args, holdingGit("add"));
+
+    expect(result.ok).toBe(true);
+    expect(await git(result.worktree as string, "branch", "--show-current")).toBe("layer-2");
+  });
+
+  test("a fetch that fails with its output let go of says so, not an empty detail", async () => {
+    const repo = await makeRepo();
+    await git(repo, "remote", "set-url", "origin", join(repo, "..", "gone.git"));
+    const args = ["layer-2", "--base", "origin/layer-1", "--install", ""];
+
+    expect((await run(repo, args, holdingGit("fetch"))).result).toEqual({
+      ok: false,
+      error: "fetch-failed",
+      detail: "git fetch origin --quiet exited 128, its output let go of after 1000 ms",
+    });
+  });
+
   test("runs the install command through the shell, in the worktree", async () => {
     const repo = await makeRepo();
 

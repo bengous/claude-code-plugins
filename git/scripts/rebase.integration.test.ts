@@ -131,6 +131,18 @@ describe("plan", () => {
     expect(result.error).toBe("not-a-git-repo");
   });
 
+  test("outside a git repository, its output let go of, names the loss rather than an empty detail", async () => {
+    const dir = makeTmpDir("no-repo-held");
+
+    const { result } = await run(dir, ["plan", "1"], null, holdingGit("--show-toplevel"));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: "not-a-git-repo",
+      detail: "git rev-parse --show-toplevel exited 128, its output let go of after 1000 ms",
+    });
+  });
+
   test("refuses a dirty working directory", async () => {
     const repo = await makeRepo("dirty", ["initial commit", "second"]);
     await Bun.write(join(repo, "file-0.txt"), "edited\n");
@@ -438,6 +450,25 @@ describe("apply", () => {
 
     expect(await git(repo, "rev-parse", "HEAD")).toBe(head);
     expect(await git(repo, "branch", "--list")).not.toContain("rebase-backup");
+  });
+
+  test("an ancestry check whose output git let go of past the grace is read by its exit", async () => {
+    const repo = await makeRepo("held-ancestor", ["initial commit", "feat: parser"]);
+    const list = await hashes(repo, 1);
+
+    const plan = {
+      base: await git(repo, "rev-parse", "HEAD~1"),
+      steps: [step(list[0] ?? "", "pick")],
+    };
+
+    const { result } = await run(
+      repo,
+      ["apply", "--dry-run"],
+      JSON.stringify(plan),
+      holdingGit("--is-ancestor"),
+    );
+
+    expect(result.step).toBe("dry-run");
   });
 
   test("rewords, squashes and drops in one pass, behind a backup branch", async () => {
