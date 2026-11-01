@@ -30,12 +30,12 @@ const SHOW_TOPLEVEL = ["rev-parse", "--show-toplevel"];
 
 const repoRootResult = await git(SHOW_TOPLEVEL);
 
+if (repoRootResult.outputLost === true) throw new GitError(SHOW_TOPLEVEL, repoRootResult);
+
 if (repoRootResult.kind !== "exited" || repoRootResult.code !== 0) {
   console.error("Error: Not in a git repository");
   process.exit(2);
 }
-
-if (repoRootResult.outputLost === true) throw new GitError(SHOW_TOPLEVEL, repoRootResult);
 
 const repoRoot = repoRootResult.stdout.trim();
 
