@@ -39,6 +39,8 @@ const IN_COPY_DIR = /^(.*?(?:^|\/)(?:lib|src)\/platform)\//u;
 const LOADERS = new Map<string, "ts" | "tsx" | "js" | "jsx">([
   [".ts", "ts"],
   [".tsx", "tsx"],
+  [".mts", "ts"],
+  [".cts", "ts"],
   [".js", "js"],
   [".mjs", "js"],
   [".cjs", "js"],
@@ -104,12 +106,20 @@ function placed(root: string, dirs: readonly string[]): readonly string[] {
  */
 const SPECIFIER = /\b(?:from|import|require)\s*\(?\s*["']([^"']+)["']/gu;
 
+/** A line of a comment, whose path imports nothing: it opens with `//`, `/*` or `*`. */
+const COMMENT_LINE = /^\s*(?:\/\/|\/?\*)/u;
+
 /** The files below `dir` that `file`'s relative imports name, `/` between their folders. */
 function importedFrom(
   file: string,
   dir: string,
 ): { readonly specifier: string; readonly name: string }[] {
-  return [...readFileSync(file, "utf8").matchAll(SPECIFIER)].flatMap(([, specifier]) => {
+  const code = readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => !COMMENT_LINE.test(line))
+    .join("\n");
+
+  return [...code.matchAll(SPECIFIER)].flatMap(([, specifier]) => {
     if (specifier?.startsWith(".") !== true) return [];
     const name = relative(dir, resolve(dirname(file), specifier));
 

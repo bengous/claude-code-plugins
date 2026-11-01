@@ -122,6 +122,37 @@ describe("the files of a copy", () => {
     expect(await problems()).toEqual([]);
   });
 
+  test("a path a comment names imports nothing", async () => {
+    registerImporting(
+      'import { pure } from "../lib/platform/pure.ts";',
+      '// was imported from "../lib/platform/node.ts"',
+      '  // import { git } from "../lib/platform/git.ts";',
+      "/**",
+      ' * Once imported from "../lib/platform/lock.ts".',
+      " */",
+      '/* from "../lib/platform/fs.ts" */',
+    );
+
+    expect(await writeCopies(root, [PLUG])).toEqual(copied("pure.ts"));
+    expect(await problems()).toEqual([]);
+  });
+
+  test("a .mts or .cts file imports as a .ts does", async () => {
+    write(
+      "plug/hooks/a.mts",
+      'import { fs } from "../lib/platform/fs.ts";\nexport const a = fs;\n',
+    );
+    write(
+      "plug/hooks/b.cts",
+      'import { git } from "../lib/platform/git.ts";\nexport const b = git;\n',
+    );
+
+    expect(await writeCopies(root, [PLUG])).toEqual(
+      copied("fs.ts", "git.ts", "process.ts", "pure.ts"),
+    );
+    expect(await problems()).toEqual([]);
+  });
+
   test("a module nothing imports is not copied, and is refused while it lingers, its own imports counting for nothing", async () => {
     expect(await writeCopies(root, [PLUG])).toEqual(copied("pure.ts"));
     copyFileSync(join(root, "tools/platform/git.ts"), join(root, PLUG, "git.ts"));

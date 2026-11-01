@@ -45,8 +45,8 @@ Each way to share code without a copy fails a target this repository has:
   `git.ts` brings `process.ts`, `lock.ts` brings `fs.ts`, each brings `pure.ts`. An edit to a
   module changes only the copies that hold it, so only their plugins ship a new version. An import
   marked `type` counts, since the typecheck reads that file too; the transpiler drops it, so the
-  gate reads each path quoted after `from`, `import` or `require` in the text, a comment's
-  included.
+  gate reads each path quoted after `from`, `import` or `require` in the text, but on a line that
+  opens with `//`, `/*` or `*`, a comment's.
 - Edit this directory, never a copy, then run `bun ./scripts/sync-platform.ts --write`: it writes
   each module a copy must hold that differs or is missing, and removes what git lists in a copy
   beyond them, unless an import names no module, a typo maybe for one the copy holds. A file git
