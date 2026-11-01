@@ -16,7 +16,7 @@
 
 import { posix } from "node:path";
 
-import { gitReadSync, gitSync } from "../tools/platform/node.ts";
+import { gitReadSync, gitSync } from "../tools/platform/git.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { DELETED, hashFile, sha256 } from "./hash.ts";
-import { gitSync } from "./lib/platform/node.ts";
+import { gitSync } from "./lib/platform/git.ts";
 import { isInsideRelative } from "./lib/platform/pure.ts";
 import type { Photo } from "./state.ts";
 

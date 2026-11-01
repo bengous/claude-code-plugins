@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { basename } from "node:path";
 
-import { gitReadSync } from "../lib/platform/node.ts";
+import { gitReadSync } from "../lib/platform/git.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 
 const DOC_SET = [

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isHeld } from "../../platform/node.ts";
+import { isHeld } from "../../platform/fs.ts";
 import { readVellumBuild } from "./vellum-build.ts";
 
 const SHA = "0f9634d417d4307b2b8e3f63829899ea691bdd6e";

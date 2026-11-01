@@ -15,7 +15,7 @@
  * `.claude/rules/hook-ladder.md` says why.
  */
 
-import { gitReadSync, gitSync } from "../tools/platform/node.ts";
+import { gitReadSync, gitSync } from "../tools/platform/git.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 
 const DEV = "refs/heads/dev";

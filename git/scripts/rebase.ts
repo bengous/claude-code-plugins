@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { GitError, type GitResult, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { GitError, type GitResult, git as runGit, gitRead } from "../lib/platform/git.ts";
 import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@
 
 import { existsSync } from "node:fs";
 
-import { GitError, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { GitError, git as runGit, gitRead } from "../lib/platform/git.ts";
 import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------

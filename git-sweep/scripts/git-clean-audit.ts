@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { writeAtomic } from "../lib/platform/node.ts";
+import { writeAtomic } from "../lib/platform/fs.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 import {
   type Kept,

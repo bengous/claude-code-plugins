@@ -20,7 +20,7 @@ import {
   THREADS_LOCK,
   THREADS_SCRATCH_GLOB,
 } from "../model/folder.ts";
-import { renameSync } from "../platform/node.ts";
+import { renameSync } from "../platform/fs.ts";
 import { messageOf } from "../platform/pure.ts";
 
 export const TYPES_FILE = "atlas.d.ts";

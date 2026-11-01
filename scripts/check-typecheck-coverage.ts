@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
-import { gitRead } from "../tools/platform/node.ts";
+import { gitRead } from "../tools/platform/git.ts";
 
 /** What `tsconfig.json` leaves out on purpose; anything else tracked must be type-checked. */
 const LEFT_OUT = /^(?:archive|tools\/oxlint\/anti-slop)\//u;

@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
-import { GitError, git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/git.ts";
 import {
   type Manifest,
   type PluginDir,

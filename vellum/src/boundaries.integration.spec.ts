@@ -42,11 +42,15 @@ const HOOKS_PLATFORM = "../../platform/pure.ts";
 
 /**
  * The folders that may import each file of the platform: `pure.ts` runs in Claude Code's engine,
- * `node.ts` needs Node and Bun, so the hooks module takes the first alone.
+ * `fs.ts`, `lock.ts`, `process.ts` and `git.ts` need Node and Bun, so the hooks module takes the
+ * first alone.
  */
 const PLATFORM_IMPORTERS = new Map<string, readonly string[]>([
   ["pure.ts", ["src/runtime/hooks", "src/runtime/server", "scripts"]],
-  ["node.ts", ["src/runtime/server", "scripts"]],
+  ["fs.ts", ["src/runtime/server", "scripts"]],
+  ["lock.ts", ["src/runtime/server", "scripts"]],
+  ["process.ts", ["src/runtime/server", "scripts"]],
+  ["git.ts", ["src/runtime/server", "scripts"]],
 ]);
 
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */

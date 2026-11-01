@@ -15,7 +15,7 @@ import { parseArgs as parseArgv } from "node:util";
 
 import { $, Glob } from "bun";
 
-import { GitError, git as runGit, gitRead } from "../lib/platform/node.ts";
+import { GitError, git as runGit, gitRead } from "../lib/platform/git.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------

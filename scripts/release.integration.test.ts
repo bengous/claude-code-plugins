@@ -195,7 +195,7 @@ function installSyncVersions() {
   );
   mkdirSync(join(repo, "tools", "platform"), { recursive: true });
 
-  for (const file of ["pure.ts", "node.ts"]) {
+  for (const file of ["pure.ts", "fs.ts", "process.ts", "git.ts"]) {
     copyFileSync(
       join(import.meta.dir, "..", "tools", "platform", file),
       join(repo, "tools", "platform", file),

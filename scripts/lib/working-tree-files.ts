@@ -1,4 +1,4 @@
-import { gitRead } from "../../tools/platform/node.ts";
+import { gitRead } from "../../tools/platform/git.ts";
 
 const LIST = ["ls-files", "-z", "--cached", "--others", "--exclude-standard"];
 

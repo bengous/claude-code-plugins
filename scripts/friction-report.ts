@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { gitSync } from "../tools/platform/node.ts";
+import { gitSync } from "../tools/platform/git.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import {
   type IsoWeek,

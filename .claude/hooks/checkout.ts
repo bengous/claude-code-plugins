@@ -7,7 +7,8 @@
 import { realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { type EnvOverlay, GitError, git, gitRead } from "../../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../../tools/platform/git.ts";
+import type { EnvOverlay } from "../../tools/platform/process.ts";
 
 export type Place =
   | { kind: "checkout"; root: string }

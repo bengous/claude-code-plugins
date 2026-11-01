@@ -25,7 +25,7 @@
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 
-import { gitReadSync } from "../tools/platform/node.ts";
+import { gitReadSync } from "../tools/platform/git.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "./lib/claude-code-types-paths.ts";
 

@@ -3,7 +3,7 @@ import {
   type BufferOutput,
   type RunOptions,
   runSync,
-} from "../../tools/platform/node.ts";
+} from "../../tools/platform/process.ts";
 
 /** A finished command: whether it exited 0, its stdout as bytes and trimmed, its stderr trimmed. */
 export interface Run {

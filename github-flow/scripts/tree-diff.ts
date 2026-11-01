@@ -7,7 +7,7 @@
 // line, and so is a run of modified files, so a branch of a hundred renames
 // stays a short tree: the shape of the change, not its file list.
 
-import { gitRead } from "../lib/platform/node.ts";
+import { gitRead } from "../lib/platform/git.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 
 const MAX_LISTED_MODIFIED = 3;

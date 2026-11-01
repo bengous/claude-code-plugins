@@ -14,7 +14,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { GitError, git, gitRead, writeAtomic } from "../tools/platform/node.ts";
+import { writeAtomic } from "../tools/platform/fs.ts";
+import { GitError, git, gitRead } from "../tools/platform/git.ts";
 import {
   extractDescriptionFromReadme,
   extractVersionFromReadme,

@@ -5,7 +5,7 @@ import { readdir, stat, mkdir, readlink, readFile, writeFile, unlink, cp } from 
 import { homedir } from "node:os";
 import { join, dirname, basename } from "node:path";
 
-import { rename, writeAtomic } from "./lib/platform/node.ts";
+import { rename, writeAtomic } from "./lib/platform/fs.ts";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");

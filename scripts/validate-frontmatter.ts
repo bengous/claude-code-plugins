@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { GitError, git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/git.ts";
 import { checkKeys, classifyComponent, validateFrontmatter } from "./lib/frontmatter-validation";
 import { workingTreeFiles } from "./lib/working-tree-files.ts";
 

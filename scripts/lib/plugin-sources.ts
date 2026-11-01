@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 
 import { $ } from "bun";
 
-import { GitError, git as runGit, gitRead } from "../../tools/platform/node.ts";
+import { GitError, git as runGit, gitRead } from "../../tools/platform/git.ts";
 
 const TRUNK = "dev";
 

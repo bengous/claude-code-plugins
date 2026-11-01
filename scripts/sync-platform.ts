@@ -20,7 +20,8 @@ import { existsSync, lstatSync, readFileSync, rmSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
 import { CONSUMERS } from "../tools/platform/consumers.ts";
-import { gitRead, writeAtomic } from "../tools/platform/node.ts";
+import { writeAtomic } from "../tools/platform/fs.ts";
+import { gitRead } from "../tools/platform/git.ts";
 import { isInsideRelative, isUnder } from "../tools/platform/pure.ts";
 
 export const SOURCE_DIR = "tools/platform";

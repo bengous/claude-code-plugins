@@ -25,7 +25,7 @@ import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { GitError, git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/git.ts";
 import { retryReported } from "./flaky-report.ts";
 import { TYPES_DIR } from "./lib/claude-code-types-paths.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";

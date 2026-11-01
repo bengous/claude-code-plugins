@@ -8,7 +8,7 @@
  * carries a brand that says what was checked.
  */
 
-import { gitReadSync } from "../tools/platform/node.ts";
+import { gitReadSync } from "../tools/platform/git.ts";
 import { type CommitId, type SourceDir, type Version, versionAt } from "./check-plugin-bumps.ts";
 import type { ValidationResult } from "./lib/marketplace-validation.ts";
 import type { PluginDir } from "./lib/plugin-sources.ts";

@@ -1,7 +1,7 @@
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, posix } from "node:path";
 
-import { gitSync } from "../platform/node.ts";
+import { gitSync } from "../platform/git.ts";
 import { errnoOf, isErrno } from "../platform/pure.ts";
 
 // The files of a repository, for inventory.ts: the ones git lists, .gitignore applied, or outside a

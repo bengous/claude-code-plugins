@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { gitRead } from "../../platform/node.ts";
+import { gitRead } from "../../platform/git.ts";
 import { messageOf } from "../../platform/pure.ts";
 import type { ParseResult } from "../../workshop/paths.ts";
 import { installedCommit, vellumBuildOf } from "../../workshop/vellum-build.ts";

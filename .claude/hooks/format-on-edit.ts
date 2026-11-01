@@ -20,7 +20,7 @@ import { basename, dirname, join, relative as relativeTo, sep } from "node:path"
 
 import { $ } from "bun";
 
-import { GitError, git } from "../../tools/platform/node.ts";
+import { GitError, git } from "../../tools/platform/git.ts";
 import { isInsideRelative } from "../../tools/platform/pure.ts";
 import { placeOf } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";

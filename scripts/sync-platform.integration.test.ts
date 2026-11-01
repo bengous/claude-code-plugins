@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { gitSync, run } from "../tools/platform/node.ts";
+import { gitSync } from "../tools/platform/git.ts";
+import { run } from "../tools/platform/process.ts";
 import { problemsIn, WRITE_COMMAND, writeCopies } from "./sync-platform.ts";
 
 const REPO = join(import.meta.dir, "..");

@@ -4,7 +4,7 @@
  * Lefthook pre-commit hook — blocks direct commits to protected branches.
  */
 
-import { gitSync } from "../../tools/platform/node.ts";
+import { gitSync } from "../../tools/platform/git.ts";
 
 const PROTECTED_BRANCHES: ReadonlySet<string> = new Set(["main", "master"]);
 

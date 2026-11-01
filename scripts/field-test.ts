@@ -27,7 +27,7 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
-import { GitError, git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/git.ts";
 import { messageOf, shellQuote } from "../tools/platform/pure.ts";
 import { installDependencies } from "./lib/plugin-sources.ts";
 

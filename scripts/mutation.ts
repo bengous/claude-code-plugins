@@ -27,7 +27,7 @@ import type { Stryker } from "@stryker-mutator/core";
 import { $ } from "bun";
 
 import config from "../stryker.config.ts";
-import { git, gitRead } from "../tools/platform/node.ts";
+import { git, gitRead } from "../tools/platform/git.ts";
 import { type Base, baseOf, DEFAULT_BASE, type Env, mergeBaseWith } from "./affected.ts";
 
 export interface LineRange {

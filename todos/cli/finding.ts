@@ -9,7 +9,8 @@ import {
   formatRecord,
   parseTarget,
 } from "../hooks/findings.ts";
-import { createExclusiveSync, gitSync } from "../lib/platform/node.ts";
+import { createExclusiveSync } from "../lib/platform/fs.ts";
+import { gitSync } from "../lib/platform/git.ts";
 import { isErrno, isInsideRelative, messageOf } from "../lib/platform/pure.ts";
 
 const USAGE = `Usage:

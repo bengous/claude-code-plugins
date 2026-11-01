@@ -7,7 +7,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { GitError, git, gitRead } from "../tools/platform/node.ts";
+import { GitError, git, gitRead } from "../tools/platform/git.ts";
 import { CHANGELOG, changelogVerdict, versionCommits } from "./changelog.ts";
 import { commitAt, sourceDirOf, type Version } from "./check-plugin-bumps.ts";
 import {

@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { Argv, RunResult as ProcessResult } from "./lib/platform/node.ts";
-import { LaunchError, run as runProcess } from "./lib/platform/node.ts";
+import type { Argv, RunResult as ProcessResult } from "./lib/platform/process.ts";
+import { LaunchError, run as runProcess } from "./lib/platform/process.ts";
 
-export type { Argv } from "./lib/platform/node.ts";
+export type { Argv } from "./lib/platform/process.ts";
 
-export { OUTPUT_GRACE_MS } from "./lib/platform/node.ts";
+export { OUTPUT_GRACE_MS } from "./lib/platform/process.ts";
 
 export type RunOptions = {
   readonly cwd: string;

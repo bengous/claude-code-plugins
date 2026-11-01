@@ -22,7 +22,8 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
-import { GitError, git, renameSync } from "../../tools/platform/node.ts";
+import { renameSync } from "../../tools/platform/fs.ts";
+import { GitError, git } from "../../tools/platform/git.ts";
 import { isErrno, messageOf } from "../../tools/platform/pure.ts";
 import { NO_PROMPT } from "./auto-sweep.ts";
 import { checkoutRoot, gitDiscoveryEnv } from "./checkout.ts";

@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 
-import { writeAtomic } from "../lib/platform/node.ts";
+import { writeAtomic } from "../lib/platform/fs.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 import { git, localRef } from "./git.ts";
 import { type CleanupManifest, type KeptEntry, parseHandoff, parseManifest } from "./manifest.ts";

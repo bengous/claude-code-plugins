@@ -2,7 +2,7 @@ import { watch } from "node:fs";
 import { appendFile, readdir, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 
-import { isHeld, rename, writeAtomic } from "../../platform/node.ts";
+import { isHeld, rename, writeAtomic } from "../../platform/fs.ts";
 import { isErrno } from "../../platform/pure.ts";
 import { rewriteLinks } from "../../workshop/links.ts";
 import type { FinalDir, ParseResult, ProjectPath, Slug, WipDir } from "../../workshop/paths.ts";

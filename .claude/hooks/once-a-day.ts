@@ -7,7 +7,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { gitRead } from "../../tools/platform/node.ts";
+import { gitRead } from "../../tools/platform/git.ts";
 import { isErrno } from "../../tools/platform/pure.ts";
 
 const pad = (value: number): string => String(value).padStart(2, "0");

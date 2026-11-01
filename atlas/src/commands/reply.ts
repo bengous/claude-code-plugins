@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 import { THREADS_LOCK } from "../model/folder.ts";
 import type { Threads, Who } from "../model/threads.ts";
 import { appendEntry, formatThreads, readThreads } from "../model/threads.ts";
-import { withLock, writeAtomic } from "../platform/node.ts";
+import { writeAtomic } from "../platform/fs.ts";
+import { withLock } from "../platform/lock.ts";
 
 // Adds an entry to the thread of an open point in a map folder's threads.json, for
 // `cli.ts reply`. An agent always writes as `agent`. serve.ts runs `cli.ts reply` for a reply

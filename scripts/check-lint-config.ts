@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 
 import config from "../oxlint.config.ts";
-import { gitRead } from "../tools/platform/node.ts";
+import { gitRead } from "../tools/platform/git.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 export interface JsonObject {

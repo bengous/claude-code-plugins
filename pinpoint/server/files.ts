@@ -1,7 +1,7 @@
 import { lstat, mkdir, readdir, readFile, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
 
-import { createExclusiveSync, writeAtomic } from "../lib/platform/node.ts";
+import { createExclusiveSync, writeAtomic } from "../lib/platform/fs.ts";
 import { isErrno } from "../lib/platform/pure.ts";
 import type { Delivery, Outcome } from "../shared/wire.ts";
 import { parseDelivery } from "./parse.ts";

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { isRecord, stringField } from "../agent-hooks/json.ts";
-import { gitReadSync } from "../tools/platform/node.ts";
+import { gitReadSync } from "../tools/platform/git.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import {
   CHANGELOG,

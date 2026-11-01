@@ -27,7 +27,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { type GitResult, gitSync, writeAtomicSync } from "../lib/platform/node.ts";
+import { writeAtomicSync } from "../lib/platform/fs.ts";
+import { type GitResult, gitSync } from "../lib/platform/git.ts";
 import { isErrno, messageOf, shellQuote } from "../lib/platform/pure.ts";
 
 // ---------------------------------------------------------------------------

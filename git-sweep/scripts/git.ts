@@ -6,7 +6,7 @@ import {
   GitMissingError,
   git as runGit,
   type GitResult as RunResult,
-} from "../lib/platform/node.ts";
+} from "../lib/platform/git.ts";
 
 export { GitError };
 

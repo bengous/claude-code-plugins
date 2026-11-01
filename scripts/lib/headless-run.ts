@@ -9,7 +9,7 @@ import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from
 
 import type { Subprocess } from "bun";
 
-import { renameSync, writeAtomicSync } from "../../tools/platform/node.ts";
+import { renameSync, writeAtomicSync } from "../../tools/platform/fs.ts";
 import { isErrno, messageOf } from "../../tools/platform/pure.ts";
 import { tryLock, unlock } from "./flock.ts";
 import { pluginDirAt, readWorktrees } from "./plugin-sources.ts";

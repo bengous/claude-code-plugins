@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import type { NodeAnswer } from "./cli.ts";
 import { THREADS_FILE } from "./model/folder.ts";
 import { readThreads } from "./model/threads.ts";
-import { gitReadSync } from "./platform/node.ts";
+import { gitReadSync } from "./platform/git.ts";
 import { bunFlags } from "./server/wire.ts";
 
 const CLI = join(import.meta.dir, "cli.ts");

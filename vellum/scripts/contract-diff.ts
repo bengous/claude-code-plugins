@@ -25,7 +25,7 @@ import { dirname, join, relative } from "node:path";
 
 import { diffWordsWithSpace } from "diff";
 
-import { gitReadSync, gitSync } from "../src/platform/node.ts";
+import { gitReadSync, gitSync } from "../src/platform/git.ts";
 
 type FileChange = {
   readonly status: "A" | "D" | "M" | "R";
