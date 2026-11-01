@@ -155,7 +155,8 @@ export function hostView(tree: Tree, journey: Journey): string | null {
 /**
  * The view a journey's step is played in: the journey's host view when it draws both its ends;
  * else the deepest view that draws both, the first depth-first among the deepest; else the view
- * it opens on its own (stepView). `host` is the journey's (hostView).
+ * it opens on its own (stepView), which, no view drawing both, is their lowest common
+ * container's. `host` is the journey's (hostView).
  */
 export function playView(tree: Tree, host: string | null, step: Step): string | null {
   if (drawsBoth(tree, host, step)) {

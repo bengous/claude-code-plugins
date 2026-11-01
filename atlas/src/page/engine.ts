@@ -77,15 +77,17 @@ import { cellMark, covers, ribbonHtml } from "./ribbon.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc, text as svgText } from "./svg.ts";
-import type { Curve, Pinned } from "./trace.ts";
+import type { Copies, Course, Curve, Head, Pinned } from "./trace.ts";
 import {
   TRAVEL,
-  curveOf,
+  coursesOf,
   formAt,
   frameOf,
+  headOf,
+  headPx,
+  lengthOf,
   pathOf,
   pointAt,
-  repeatsOf,
   travelled,
 } from "./trace.ts";
 import { captionShown, edgePush, panned, pushed, strayed, zoomed } from "./zoom.ts";
@@ -567,7 +569,13 @@ let painted = new Set<SVGGElement>();
 
 // The stage's width is read before the viewBox is written, so a frame forces no layout.
 function paint(img: Image): void {
-  const scale = svg.getBoundingClientRect().width / img.vb.w;
+  const { width } = svg.getBoundingClientRect();
+  const scale = width / img.vb.w;
+
+  if (trace !== null) {
+    traceFitPx = fitPxOf(trace.d, width);
+  }
+
   svg.setAttribute("viewBox", `${img.vb.x} ${img.vb.y} ${img.vb.w} ${img.vb.h}`);
   const own = drawn(img.space);
   paintView(own, img.op, "", scale);
@@ -882,32 +890,37 @@ function playedNow(): Played | null {
   return journey === null || at === undefined ? null : { journey, at };
 }
 
-// A step of the section shown that a view traces (tracedIn): the rects of its ends'
-// representatives and its curve, bowed further for each step before it between the same two.
-type Leg = Traced & { readonly a: Rect; readonly b: Rect; readonly curve: Curve };
+// A step of the section shown that a view traces (tracedIn): its course (coursesOf), and for an
+// entry the box of its pill, in screen pixels around the top of its start (entryBox).
+type Leg = Traced & Course & { readonly entry: Rect | null };
 
-// A ghost drawn twice: a step forward leaves its "in" copy and reaches its "out" one, as the
-// view's arrows do; a step back leaves the "out" copy and reaches the "in" one.
-const rectIn = (d: Drawn, id: string, copy: "in" | "out"): Rect | undefined =>
-  d.rects.get(id) ?? d.chips.get(id) ?? d.ghosts.get(id)?.[copy];
+// The copies of what stands for a node in a view: both copies of a ghost or of a card drawn
+// twice, and the one rect of any other.
+function copiesIn(d: Drawn, id: string): Copies | undefined {
+  const r = d.rects.get(id) ?? d.chips.get(id);
+
+  return d.copies.get(id) ?? (r === undefined ? undefined : { in: r, out: r });
+}
 
 function legsOf(d: Drawn, played: Played): Leg[] {
   const traced = tracedIn(tree, d.view.id, played.journey, played.at.s);
-  const repeats = repeatsOf(traced.map(({ from, to }) => JSON.stringify([from, to])));
+
+  const courses = coursesOf(
+    traced.map(({ at, from, to }) => ({ from, to, back: at.step.back === true })),
+    (id) => copiesIn(d, id),
+  );
 
   return traced.flatMap((t, i): Leg[] => {
-    const back = t.at.step.back === true;
-    const a = rectIn(d, t.from, back ? "out" : "in");
-    const b = rectIn(d, t.to, back ? "in" : "out");
+    const course = courses[i] ?? null;
+    const entry = isEntry(t.at.step) ? entryBox(t.at.step) : null;
 
-    return a === undefined || b === undefined
-      ? []
-      : [{ ...t, a, b, curve: curveOf(a, b, repeats[i] ?? 0) }];
+    return course === null ? [] : [{ ...t, ...course, entry }];
   });
 }
 
 // The legs of the section shown in a view, kept while the view, the journey and the section stay:
-// a turn of the wheel asks for the rest frame.
+// a pointer's move, a turn of the wheel and a push frame ask for the rest frame, which measures
+// no text then.
 let legsFor: {
   readonly d: Drawn;
   readonly journey: Journey;
@@ -946,7 +959,7 @@ function entryBox(step: EntryStep): Rect {
 }
 
 // An entry's pill stands over the middle of its start's top edge.
-const entryAt = ({ a }: Leg): Point => [a.x + a.w / 2, a.y];
+const entryAt = ({ a }: Course): Point => [a.x + a.w / 2, a.y];
 
 const FRAME_MARGIN_PX = 60;
 
@@ -967,8 +980,8 @@ function framedIn(d: Drawn, played: Played): Framed {
     return [leg.a, leg.b, { x, y, w: 0, h: 0 }];
   });
 
-  const pinned = legs.flatMap((leg): Pinned[] =>
-    isEntry(leg.at.step) ? [{ at: entryAt(leg), box: entryBox(leg.at.step) }] : [],
+  const pinned = legs.flatMap(({ entry, ...leg }): Pinned[] =>
+    entry === null ? [] : [{ at: entryAt(leg), box: entry }],
   );
 
   return { rects, pinned };
@@ -1017,6 +1030,20 @@ let framedBy = "";
 // A mark that keeps its size on screen, at `at` in its view's units.
 type Pin = { readonly g: SVGGElement; readonly at: Point };
 
+// A step's head keeps on screen the length the markers of the view's arrows give it at the view's
+// fit, HEAD.strokes widths of the stroke (svg.ts, atlas.html: 1.8, or 3.2 for the step shown), its
+// tip at the curve's end; never longer than the curve on screen (headPx). `path` points along x,
+// HEAD.length long.
+const HEAD = { strokes: 5.5, stroke: 1.8, shown: 3.2, path: "M0 0 L-10 -5 L-10 5 z", length: 10 };
+
+// `strokes`, its length at the fit in the view's units; `length`, its curve's.
+type Arrowhead = {
+  readonly g: SVGGElement;
+  readonly head: Head;
+  readonly length: number;
+  readonly strokes: number;
+};
+
 // The travelling pill along the step shown: the data's form before the step during the first
 // half of its way, then after it (formAt).
 type Traveller = {
@@ -1038,11 +1065,18 @@ type Trace = {
   readonly g: SVGGElement;
   readonly legs: ReadonlyMap<number, SVGGElement>;
   readonly pins: readonly Pin[];
+  readonly heads: readonly Arrowhead[];
   readonly traveller: Traveller | null;
   readonly since: number;
 };
 
 let trace: Trace | null = null;
+
+// The screen pixels a unit of the traced view spans at its fit, read where the stage's width is
+// read, before a frame writes the viewBox (paint, showTrace).
+let traceFitPx = 1;
+
+const fitPxOf = (d: Drawn, width: number): number => width / imageOf(d.view.id).vb.w;
 
 let travelRaf = 0;
 
@@ -1074,12 +1108,15 @@ function pillIn(
   return [rect, label];
 }
 
+// Each step's number at its middle; the step shown's, when it carries a data's form, which a pill
+// shows there, only while its cell of the ribbon is under the pointer (atlas.html).
 function drawLeg(
   g: SVGGElement,
   leg: Leg,
   current: number,
-  numbered: boolean,
+  carrying: boolean,
   pins: Pin[],
+  heads: Arrowhead[],
 ): SVGGElement {
   const { n, step } = leg.at;
   const back = step.back === true;
@@ -1089,27 +1126,27 @@ function drawLeg(
     n < current ? "past" : n === current ? "current" : "next",
     ...(back ? ["back"] : []),
     ...(step.when === undefined ? [] : ["when"]),
+    ...(n === current && carrying ? ["carrying"] : []),
     ...(n === peeked ? ["peek"] : []),
   ];
 
   const s = el("g", { class: cls.join(" ") }, g);
   const d = pathOf(leg.curve);
-  const head = back ? "url(#arr-back)" : n === current ? "url(#arr-ink)" : "url(#arr-hot)";
   el("path", { d, class: "trace-halo" }, s);
-  el("path", { d, class: "trace-line", "marker-end": head }, s);
-
-  if (numbered) {
-    const badge = pinIn(s, "trace-number", pointAt(leg.curve, 0.5), pins);
-    el("circle", { r: ON_SCREEN.number }, badge);
-    svgText(badge, { class: "trace-number-t" }, String(n));
-  }
+  el("path", { d, class: "trace-line" }, s);
+  const head = el("g", { class: "trace-head" }, s);
+  el("path", { d: HEAD.path }, head);
+  const strokes = HEAD.strokes * (n === current ? HEAD.shown : HEAD.stroke);
+  heads.push({ g: head, head: headOf(leg.curve), length: lengthOf(leg.curve), strokes });
+  const badge = pinIn(s, "trace-number", pointAt(leg.curve, 0.5), pins);
+  el("circle", { r: ON_SCREEN.number }, badge);
+  svgText(badge, { class: "trace-number-t" }, String(n));
 
   return s;
 }
 
-function drawEntry(g: SVGGElement, leg: Leg, step: EntryStep, pins: Pin[]): void {
+function drawEntry(g: SVGGElement, leg: Leg, step: EntryStep, box: Rect, pins: Pin[]): void {
   const { pad, icon, after } = ON_SCREEN.entry;
-  const box = entryBox(step);
   const pill = pinIn(g, "trace-entry", entryAt(leg), pins);
   el("rect", { x: box.x, y: box.y, width: box.w, height: box.h, rx: box.h / 2 }, pill);
 
@@ -1131,6 +1168,7 @@ function drawTrace(d: Drawn, played: Played, since: number): Trace {
   const { journey, at } = played;
   const g = el("g", { class: "trace" }, d.layer);
   const pins: Pin[] = [];
+  const heads: Arrowhead[] = [];
   const all = legsIn(d, played);
   const leg = all.find((l) => l.at.n === at.n);
   const form = formAfter(journey, at.n);
@@ -1156,12 +1194,12 @@ function drawTrace(d: Drawn, played: Played, since: number): Trace {
   const legs = new Map(
     all.map((l): [number, SVGGElement] => [
       l.at.n,
-      drawLeg(g, l, at.n, l.at.n !== at.n || form === null, pins),
+      drawLeg(g, l, at.n, form !== null, pins, heads),
     ]),
   );
 
   if (leg === undefined) {
-    return { d, journey, n: at.n, g, legs, pins, traveller: null, since };
+    return { d, journey, n: at.n, g, legs, pins, heads, traveller: null, since };
   }
 
   const middle = pointAt(leg.curve, 0.5);
@@ -1175,8 +1213,8 @@ function drawTrace(d: Drawn, played: Played, since: number): Trace {
     pillIn(when, "trace-when-t", words.when(at.step.when), null, gap, whenRadius);
   }
 
-  if (isEntry(at.step)) {
-    drawEntry(g, leg, at.step, pins);
+  if (isEntry(at.step) && leg.entry !== null) {
+    drawEntry(g, leg, at.step, leg.entry, pins);
   }
 
   const traveller = el("g", { class: "trace-traveller trace-mark" }, g);
@@ -1200,6 +1238,7 @@ function drawTrace(d: Drawn, played: Played, since: number): Trace {
     g,
     legs,
     pins,
+    heads,
     traveller: {
       g: traveller,
       pill,
@@ -1232,14 +1271,16 @@ function carry(traveller: Traveller, form: string | null): void {
   }
 }
 
-// Every mark at its size on screen, from the scale its layer was last painted at; the travelling
-// pill where it is at `now`, at the end of its way under a reduced motion.
+// Every mark at its size on screen, from the scale its layer was last painted at, and each head at
+// its fit's; the travelling pill where it is at `now`, at the end of its way under a reduced
+// motion.
 function placeTrace(now: number): void {
   if (trace === null) {
     return;
   }
 
-  const perPx = 1 / (scales.get(trace.d.layer) ?? 1);
+  const pxPerUnit = scales.get(trace.d.layer) ?? 1;
+  const perPx = 1 / pxPerUnit;
 
   const pinAt = (g: SVGGElement, [x, y]: Point): void => {
     g.setAttribute("transform", `translate(${x} ${y}) scale(${perPx})`);
@@ -1247,6 +1288,12 @@ function placeTrace(now: number): void {
 
   for (const pin of trace.pins) {
     pinAt(pin.g, pin.at);
+  }
+
+  for (const { g, head, length, strokes } of trace.heads) {
+    const k = (headPx(strokes * traceFitPx, length, pxPerUnit) / HEAD.length) * perPx;
+    const [x, y] = head.at;
+    g.setAttribute("transform", `translate(${x} ${y}) rotate(${head.angle}) scale(${k})`);
   }
 
   const { traveller } = trace;
@@ -1309,10 +1356,13 @@ function showTrace(d: Drawn, played: Played | null): void {
   }
 
   if (at === null) {
+    legsFor = null;
+
     return;
   }
 
   trace = drawTrace(d, at, kept?.since ?? performance.now());
+  traceFitPx = fitPxOf(d, svg.getBoundingClientRect().width);
   const section = stepsOf(at.journey).filter(({ s }) => s === at.at.s);
 
   const touched = new Set(
@@ -1650,12 +1700,14 @@ function showCell(step: number): void {
 
 // On a journey, the ribbon shows it whole: written once per journey (ribbonHtml), its marks set in
 // place at each step, so the focus stays where it was, and the step's cell scrolled into sight.
+// A cell written anew, or gone, is under no pointer until the pointer moves: no trace stands out.
 function renderRibbon(played: Journey | null, step: number): void {
   ribbon.hidden = played === null;
 
   if (played === null) {
     ribbonShown = null;
     ribbonSteps.replaceChildren();
+    peeked = null;
 
     return;
   }
@@ -1664,6 +1716,7 @@ function renderRibbon(played: Journey | null, step: number): void {
 
   if (!written) {
     ribbonSteps.innerHTML = ribbonHtml(tree, played);
+    peeked = null;
   }
 
   if (!written || ribbonShown?.step !== step) {

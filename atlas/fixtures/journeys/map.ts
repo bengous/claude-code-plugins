@@ -3,7 +3,7 @@ import type { AtlasMap, Filled } from "../../src/model/atlas.ts";
 const map = {
   root: {
     title: "Journeys",
-    lead: "A bookshop whose root declares three journeys. The Parcours menu in the header plays one step by step: each step opens the deepest view that shows both its ends and lights its arrow. Pay and confirm runs in two sections, each opened by an entry, and carries its data's form along its steps, one of them a return from the card network and one under a condition. Data's leaves have cards, to start a journey from them, and the arrow of Place an order's step 7 comes after the phase MVP.",
+    lead: "A bookshop whose root declares three journeys. The Parcours menu in the header plays one step by step: a step plays in its journey's host view, the root here, when that view draws both its ends, else in the deepest view that draws both, as Checkout does for Pay and confirm's first four, else in the view of their lowest common container. There each step of the section shown is traced between what stands for its ends, and a pill carries the data along the step shown. Pay and confirm runs in two sections, each opened by an entry, and carries its data's form along its steps, one of them a return from the card network and one under a condition. Data's leaves have cards, to start a journey from them, and the arrow of Place an order's step 7 comes after the phase MVP.",
     journeys: [
       {
         id: "place-order",

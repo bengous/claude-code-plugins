@@ -47,6 +47,7 @@ import {
 import type { Block, Cell, Packed, Spotted } from "./placement.ts";
 import { OUT, banded, copyOf, flank, labelSpots, realId, wrap } from "./placement.ts";
 import { arrowPath, el, onActivate, openBadge, rounded, text } from "./svg.ts";
+import type { Copies } from "./trace.ts";
 
 export type Mode = "packed" | "layered";
 
@@ -97,15 +98,16 @@ export type Drawn = {
   readonly size: Size;
   /** Where the view's boxes stand: what the camera aligns with the box of this view's container. */
   readonly frame: Rect;
-  /** Each box's and card's rect, by its id. */
+  /** Each box's and card's rect, by its id; for a card drawn twice, the copy its arrows leave. */
   readonly rects: ReadonlyMap<string, Rect>;
   /** Each chip's rect, by its node's id. */
   readonly chips: ReadonlyMap<string, Rect>;
   /**
-   * Each ghost's rect, by its id: the copy its arrows leave (`in`) and the one they reach (`out`),
-   * the same rect for a ghost drawn once.
+   * The copies of each ghost and of each card drawn twice (an outside leaf on both sides), by its
+   * id: the one its arrows leave (`in`) and the one they reach (`out`), the same rect for a ghost
+   * drawn once.
    */
-  readonly ghosts: ReadonlyMap<string, { readonly in: Rect; readonly out: Rect }>;
+  readonly copies: ReadonlyMap<string, Copies>;
   readonly items: Registry;
   readonly arrows: readonly ArrowEl[];
   readonly captions: readonly Caption[];
@@ -819,11 +821,16 @@ export async function drawView(
 
   const rects = new Map(view.boxes.map((b): [string, Rect] => [b.id, rectOf(b.id)]));
 
-  const ghosts = new Map(
-    view.ghosts.map((g): [string, { in: Rect; out: Rect }] => {
-      const first = rectOf(g.id);
+  const twice = [
+    ...view.ghosts.map((g) => g.id),
+    ...view.boxes.flatMap((b) => (b.column === "both" ? [b.id] : [])),
+  ];
 
-      return [g.id, { in: first, out: laid.rects.get(g.id + OUT) ?? first }];
+  const copies = new Map(
+    twice.map((id): [string, Copies] => {
+      const first = rectOf(id);
+
+      return [id, { in: first, out: laid.rects.get(id + OUT) ?? first }];
     }),
   );
 
@@ -835,7 +842,7 @@ export async function drawView(
     frame: laid.frame,
     rects,
     chips,
-    ghosts,
+    copies,
     items: registry,
     arrows,
     captions,

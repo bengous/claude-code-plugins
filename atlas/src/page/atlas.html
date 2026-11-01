@@ -69,7 +69,8 @@
     per journey. Picking one plays it step by step, numbered across its
     sections, in its host view, the deepest that draws every end of every
     step; a step whose ends it does not draw plays in the deepest view
-    that draws both. There the map traces each step of the section shown
+    that draws both, else in their lowest common container's view. There
+    the map traces each step of the section shown
     between what draws or holds its ends, forward in the accent, back in
     the colour of a return, dashed under a condition, the step shown
     darker, with its number, the data's form and its condition in pills,
@@ -83,8 +84,9 @@
     buttons, which the arrow keys press too, and a button that leaves the
     journey for the place it started from, as Escape or a click on the
     empty sheet does once the camera is back at its mode's frame; a click
-    on an arrow or on the trace does nothing, and any other move leaves it
-    from the step's view. Until it is left, a ribbon over the foot of the
+    on an arrow, or on a number or a pill of the trace, does nothing, one
+    on a line of the trace reaches what lies beneath it, and any other move
+    leaves it from the step's view. Until it is left, a ribbon over the foot of the
     stage shows it whole, the view framed above it: a column per section, a
     cell per step, which a click plays and the pointer brings out on the
     map, the data's forms under the cells, and a button that plays the
@@ -514,7 +516,7 @@ button:focus-visible, .hit:focus-visible { outline: 2px solid var(--accent); out
 .panel .src { font-family: var(--f-mono); font-size: 12px; color: var(--ink-3); margin-top: 16px; overflow-wrap: anywhere; }
 .panel .nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
 .panel .nav button:disabled { color: var(--ink-3); border-color: var(--line); cursor: default; }
-/* A journey's step (panel.ts): its section and its place in the journey, the label of the arrow it lights over its ends, an entry's trigger, then its direction, the data's form and its condition. */
+/* A journey's step (panel.ts): its section and its place in the journey, its `carries` or the label of the link it follows over its ends, an entry's trigger, then its direction, the data's form and its condition. */
 .panel .journey-section { font-family: var(--f-display); font-weight: 600; font-size: 17px; letter-spacing: 0.04em; color: var(--ink); margin: 0; }
 .panel .journey-step { font-family: var(--f-display); font-weight: 600; font-size: 17px; letter-spacing: 0.04em; color: var(--ink-2); margin: 0 0 12px; }
 .panel .journey-arrow {
@@ -610,23 +612,27 @@ svg text.illegible { visibility: hidden; }
 .arrowhead { fill: var(--ink-3); }
 .arrowhead.deny { fill: var(--deny); }
 .arrowhead.hot { fill: var(--accent); }
-.arrowhead.ink { fill: var(--ink); }
-.arrowhead.back { fill: var(--back); }
 
-/* A journey's trace (engine.ts, trace.ts), over every item of the view its step is played in: each step of the section shown, forward in the accent, back in the colour of a return, dashed under a condition, a band of the sheet under it; those played lighter, those to come lighter still, the step shown thicker and darker; its lines take no pointer. */
-.trace-halo, .trace-line, .trace-pulse { pointer-events: none; }
+/* A journey's trace (engine.ts, trace.ts), over every item of the view its step is played in: each step of the section shown, forward in the accent, back in the colour of a return, dashed under a condition, a band of the sheet under it, its head at its end; those played lighter, those to come lighter still, the step shown thicker and darker, its number hidden when a pill shows its data's form; its lines and heads take no pointer. */
+.trace-halo, .trace-line, .trace-head, .trace-pulse { pointer-events: none; }
 .trace-halo { fill: none; stroke: var(--sheet); stroke-width: 6; opacity: 0.9; }
 .trace-line { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.trace-head { fill: var(--accent); }
 .trace-step.back .trace-line { stroke: var(--back); }
+.trace-step.back .trace-head { fill: var(--back); }
 .trace-step.when .trace-line { stroke-dasharray: 5 4; }
-.trace-step.past .trace-line { opacity: 0.7; }
-.trace-step.next .trace-line { opacity: 0.28; }
+.trace-step.past :is(.trace-line, .trace-head) { opacity: 0.7; }
+.trace-step.next :is(.trace-line, .trace-head) { opacity: 0.28; }
 .trace-step.next .trace-number { opacity: 0.45; }
-/* A cell of the ribbon under the pointer brings its step out. */
-.trace-step.peek .trace-line { opacity: 1; stroke-width: 2.6; }
-.trace-step.peek .trace-number { opacity: 1; }
 .trace-step.current .trace-line { stroke: var(--ink); stroke-width: 3.2; }
+.trace-step.current .trace-head { fill: var(--ink); }
 .trace-step.current.back .trace-line { stroke: var(--back); }
+.trace-step.current.back .trace-head { fill: var(--back); }
+.trace-step.current.carrying:not(.peek) .trace-number { display: none; }
+/* A cell of the ribbon under the pointer brings its step out, number shown, the step shown's too. */
+.trace-step.peek :is(.trace-line, .trace-head) { opacity: 1; }
+.trace-step.peek .trace-line { stroke-width: 2.6; }
+.trace-step.peek .trace-number { opacity: 1; }
 /* Its marks keep their size on screen (engine.ts scales them): a step's number in its circle, the data's form in a pill, the condition under the step shown, the travelling pill, an entry's pill. measure.ts measures their texts by these classes. */
 .trace-number circle { fill: var(--sheet); stroke: var(--accent); stroke-width: 1.3; }
 .trace-step.back .trace-number circle { stroke: var(--back); }

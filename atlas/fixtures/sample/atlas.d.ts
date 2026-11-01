@@ -135,8 +135,8 @@ type Entry = { readonly trigger: string; readonly kind: "manual" | "auto" };
  * something: neither is empty or blank (`atlas check`). An end that names no node is refused
  * wherever the map is loaded. The page plays it in its journey's host view, the deepest that draws
  * every end of every step, when that view draws both its ends; else in the deepest view that draws
- * both; else in the deepest view that shows both and draws its arrow, else in their lowest common
- * container's view. There it traces it between what draws or holds its ends.
+ * both; else, no view drawing both, in their lowest common container's view, where each end is a
+ * child of its own or lies in one. There it traces it between what draws or holds its ends.
  */
 export type Step = StepBase & (Entry | { readonly trigger?: never; readonly kind?: never });
 

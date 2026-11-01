@@ -1,6 +1,6 @@
 // A journey's trace, pure: the curve of each step between the rects of its ends' representatives,
-// the point the travelling pill has reached along it, and the camera's frame of a mode. engine.ts
-// draws them over the view a step is played in (trace.spec.ts runs them).
+// its head, the point the travelling pill has reached along it, and the camera's frame of a mode.
+// engine.ts draws them over the view a step is played in (trace.spec.ts runs them).
 import type { Point, Rect, Size } from "./geometry.ts";
 import { center } from "./geometry.ts";
 import { MAX_ZOOM, clamped } from "./zoom.ts";
@@ -80,6 +80,77 @@ export function repeatsOf(pairs: readonly string[]): number[] {
     return k;
   });
 }
+
+/**
+ * The copies of an item a view draws: the one its arrows leave (`in`) and the one they reach
+ * (`out`), the same rect for an item drawn once.
+ */
+export type Copies = { readonly in: Rect; readonly out: Rect };
+
+/** A step a view traces: what stands for its ends there, and whether it goes back. */
+export type Way = { readonly from: string; readonly to: string; readonly back: boolean };
+
+/** A step's trace: the rects it joins, from `a` to `b`, and its curve. */
+export type Course = { readonly a: Rect; readonly b: Rect; readonly curve: Curve };
+
+/**
+ * The trace of each of a section's traced steps, in order, from the copies of what stands for its
+ * ends (`copiesOf`, undefined for none): a step forward leaves the `in` copy of an item drawn
+ * twice and reaches its `out` copy, as the view's arrows do (`Side`, atlas.ts), a step back the
+ * reverse; each bowed further for each step before it on the same ordered pair (repeatsOf). Null
+ * for a step an end of which has no copy.
+ */
+export function coursesOf(
+  ways: readonly Way[],
+  copiesOf: (id: string) => Copies | undefined,
+): (Course | null)[] {
+  const repeats = repeatsOf(ways.map(({ from, to }) => JSON.stringify([from, to])));
+
+  return ways.map((way, i) => {
+    const from = copiesOf(way.from);
+    const to = copiesOf(way.to);
+
+    if (from === undefined || to === undefined) {
+      return null;
+    }
+
+    const [a, b] = way.back ? [from.out, to.in] : [from.in, to.out];
+
+    return { a, b, curve: curveOf(a, b, repeats[i] ?? 0) };
+  });
+}
+
+/** A curve's head: its end, and the angle, in degrees, of its way into it. */
+export type Head = { readonly at: Point; readonly angle: number };
+
+export function headOf({ p0, c, p1 }: Curve): Head {
+  const [fx, fy] = c[0] === p1[0] && c[1] === p1[1] ? p0 : c;
+
+  return { at: p1, angle: (Math.atan2(p1[1] - fy, p1[0] - fx) * 180) / Math.PI };
+}
+
+const PIECES = 24;
+
+/** A curve's length, in its view's units, measured along PIECES chords. */
+export function lengthOf(curve: Curve): number {
+  let length = 0;
+  let [x, y] = curve.p0;
+
+  for (let i = 1; i <= PIECES; i += 1) {
+    const [nx, ny] = pointAt(curve, i / PIECES);
+    length += Math.hypot(nx - x, ny - y);
+    [x, y] = [nx, ny];
+  }
+
+  return length;
+}
+
+/**
+ * The length on screen, in pixels, of a step's head: `atFit`, the length it has at the view's fit,
+ * whatever the zoom, but never longer than its curve on screen, `length` units at `pxPerUnit`.
+ */
+export const headPx = (atFit: number, length: number, pxPerUnit: number): number =>
+  Math.min(atFit, length * pxPerUnit);
 
 /** The travelling pill: it waits `delay` ms after its step shows, then travels for `ms` ms. */
 export const TRAVEL = { delay: 250, ms: 1000 };

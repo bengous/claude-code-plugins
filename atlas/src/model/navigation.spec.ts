@@ -19,7 +19,6 @@ import {
   paramsOfHash,
   placeOfHash,
   shownPlace,
-  stepShown,
 } from "./navigation.ts";
 import type { Tree } from "./tree.ts";
 import { chainOf, treeOf } from "./tree.ts";
@@ -701,19 +700,15 @@ describe("a journey", () => {
     ]);
   });
 
-  test("the step shown, numbered across the sections, the first for a step past the last; none off a journey", () => {
-    expect(stepShown(onJourneys, playing(2))).toEqual({ from: "proxy", to: "web" });
-    expect(stepShown(onJourneys, playing(4))).toEqual({ from: "orders", to: "db" });
-    expect(stepShown(onJourneys, playing(5))).toEqual(stepShown(onJourneys, playing(1)));
-    expect(stepShown(onJourneys, playing(9))).toEqual({
-      from: "browser",
-      to: "proxy",
-      trigger: "Open the shop",
-      kind: "manual",
-    });
-    expect(stepShown(onJourneys, DEFAULTS)).toBeNull();
-    expect(stepShown(onJourneys, { ...DEFAULTS, journey: "empty" })).toBeNull();
-    expect(stepShown(onSample, playing(2))).toBeNull();
+  test("a step past the last shows the first's view; a journey without a step, or undeclared, shows the place", () => {
+    const start = at(["server", "app"], "orders");
+
+    expect(shownPlace(onJourneys, start, playing(5))).toEqual(HOME);
+    expect(shownPlace(onJourneys, start, playing(9))).toEqual(
+      shownPlace(onJourneys, start, playing(1)),
+    );
+    expect(shownPlace(onJourneys, start, { ...DEFAULTS, journey: "empty" })).toBe(start);
+    expect(shownPlace(onSample, start, playing(2))).toBe(start);
   });
 
   test("the page's state shows the step's view, the fragment the place it started from", () => {

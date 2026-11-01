@@ -107,8 +107,8 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      (joins); what a view draws, a child, a chip or a ghost (drawnIn), and what
                      stands for a node there (representativeIn); the journey's host view, the
                      deepest that draws every end (hostView), the view a step plays in, the
-                     host, else the deepest that draws both ends, else the one it opens on its
-                     own (playView, stepView), and the steps of a section a view traces
+                     host, else the deepest that draws both ends, else their lowest common
+                     container's (playView, stepView), and the steps of a section a view traces
                      (tracedIn) (journeys.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
@@ -165,9 +165,9 @@ src/page/            what runs in the browser
                      panned, or pushed toward an edge the mouse rests at, kept within the rect
                      that fits the view, whether it strayed from the rest frame, and the
                      captions a scale leaves readable (zoom.spec.ts)
-  trace.ts           a journey's trace, pure: a step's curve between the rects of its ends'
-                     representatives, the travelling pill's way along it, and the camera's
-                     frame of a mode (trace.spec.ts)
+  trace.ts           a journey's trace, pure: a step's curve between the copies of its ends'
+                     representatives, its head, the travelling pill's way along it, and the
+                     camera's frame of a mode (trace.spec.ts)
   layout.ts          runs ELK's layered layout, flat, in the map's direction, its rows wrapped to an
                      aspect or its layers partitioned by rank, a ghost held to the first or the last
                      layer (layout.spec.ts, which runs ELK under Bun)
@@ -326,7 +326,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   numbered across its sections. Picking one plays it from its first step, nothing selected, in
   its host view, the deepest that draws every end of every step as a box, a card, a chip or a
   ghost (`hostView` in `journeys.ts`); a step whose ends the host does not both draw plays in the
-  deepest view that does, else in the view `stepView` opens (`playView`). The panel shows the
+  deepest view that does, else, no view drawing both, in the view of their lowest common container
+  (`playView`, `stepView`). The panel shows the
   journey's label, the step's section and its place in the journey, the step's `carries` or the
   label of the link it follows over its ends, for an entry the icon of its nature beside its
   trigger and the word of its nature, the step's direction, the data's form once it is done
@@ -340,20 +341,24 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   representatives of its ends, what draws each end or else the box or ghost that holds it
   (`representativeIn`, `tracedIn`), a step whose ends share one, or with an end without one,
   untraced: a quadratic curve from border to border, bowed to the right of its way, further for
-  each step before it on the same pair (`curveOf` in `trace.ts`), a ghost drawn twice left by its
-  "in" copy and reached at its "out" one going forward, the other way back. Forward in `--accent`,
-  back in `--back`, dashed under a condition, a band of `--sheet` under each; the steps played
-  lighter, those to come lighter still, the step shown thicker, in `--ink` forward; each with its
-  number at its middle, but the step shown when it has a data's form, which a pill shows over its
-  middle, its condition in a pill under it. A pill travels along the step shown, the data's form
+  each step before it on the same pair (`curveOf`, `coursesOf` in `trace.ts`); an item drawn
+  twice, a ghost or an outside leaf on both sides, is left by its "in" copy and reached at its
+  "out" one going forward, as its links' arrows are (`Side` in `atlas.ts`), the other way back
+  (`copies` of `Drawn` in `draw.ts`). Forward in `--accent`, back in `--back`, dashed under a
+  condition, a band of `--sheet` under each, a head at its end; the steps played lighter, those to
+  come lighter still, the step shown thicker, in `--ink` forward; each with its number at its
+  middle, but the step shown when it has a data's form, which a pill shows over its middle, its
+  condition in a pill under it. A pill travels along the step shown, the data's form
   before the step for the first half of its way, the dot alone when the section gave the data no
   form yet, then the form after it (`travelled`, `formAt`, `formBefore`); over an
   entry's start, a pill of its nature and trigger, and the start pulses twice. The items the
   section touches are outlined, the step's two ends darker, the view's other chips, cards and
   ghosts faded, never a box; the view's own arrows stay, dimmed, no arrow hot. Numbers, pills and
-  the travelling dot keep their size on screen at any zoom (`placeTrace` in `engine.ts`); a cell
-  of the ribbon under the pointer brings its step's trace out; the legend has a line for each kind
-  of step traced, forward, back, under a condition. Under `prefers-reduced-motion`, the pill sits
+  the travelling dot keep their size on screen at any zoom, and each head the size it has at the
+  view's fit, never longer than its curve on screen (`placeTrace` in `engine.ts`, `headPx`); a
+  cell of the ribbon under the pointer brings its step's trace out, its number shown, the step
+  shown's too; the legend has a line for each kind of step traced, forward, back, under a
+  condition. Under `prefers-reduced-motion`, the pill sits
   at its end, the camera jumps and nothing pulses.
 - On a journey the stage's controls choose what the camera frames, remembered per browser under
   `atlas.camera`, `section` for any other value: `plan`, the view's fit; `section`, every step of
@@ -363,7 +368,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   journey's rest frame (`restOf` in `engine.ts`) where the fit is off a journey: where a move
   ends, where a resize or a new layout lands, what the fit button, Escape and a click on the empty
   sheet bring back, the edge push sliding only once the reader looked away from it. A move to the
-  step's view, or a mode picked, heads straight for that frame, in `DUR`.
+  step's view, or a mode picked, heads straight for that frame: in `DUR` within a view or between
+  a view and one of its ancestors, at once between two views neither of which holds the other.
 - On a journey, a ribbon over the foot of the stage shows it whole (`ribbon.ts`): a column per
   section with a step, as wide as its count of steps; a cell per step, at least 22 px wide, marked
   as an entry, a return, a condition, played or shown, which a click plays; under the cells, each

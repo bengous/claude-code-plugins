@@ -2,14 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import type { Point, Rect } from "./geometry.ts";
 import { center } from "./geometry.ts";
-import type { Pinned } from "./trace.ts";
+import type { Copies, Pinned } from "./trace.ts";
 import {
   TRAVEL,
   bendOf,
   borderToward,
+  coursesOf,
   curveOf,
   formAt,
   frameOf,
+  headOf,
+  headPx,
+  lengthOf,
   pathOf,
   pointAt,
   repeatsOf,
@@ -81,6 +85,87 @@ describe("curveOf and pointAt", () => {
 describe("repeatsOf", () => {
   test("how many steps before each have the same ordered pair", () => {
     expect(repeatsOf(["a>b", "b>a", "a>b", "a>c", "a>b"])).toEqual([0, 0, 1, 0, 2]);
+  });
+});
+
+describe("coursesOf", () => {
+  // X drawn twice, as an outside leaf on both sides at the root: its "in" copy on the left, where
+  // its arrows leave, its "out" copy on the right, where they arrive; a3 in the middle.
+  const X_IN: Rect = { x: 177, y: 300, w: 121, h: 52 };
+  const X_OUT: Rect = { x: 1229, y: 300, w: 121, h: 52 };
+  const A3: Rect = { x: 600, y: 300, w: 150, h: 60 };
+
+  const copies = new Map<string, Copies>([
+    ["X", { in: X_IN, out: X_OUT }],
+    ["A1", { in: A3, out: A3 }],
+  ]);
+
+  const copiesOf = (id: string): Copies | undefined => copies.get(id);
+
+  test("a step forward reaches the copy of an item drawn twice its arrows reach, and leaves the one they leave", () => {
+    const [to, from] = coursesOf(
+      [
+        { from: "A1", to: "X", back: false },
+        { from: "X", to: "A1", back: false },
+      ],
+      copiesOf,
+    );
+
+    expect(to?.b).toBe(X_OUT);
+    expect(to?.curve.p1[0]).toBe(X_OUT.x);
+    expect(from?.a).toBe(X_IN);
+    expect(from?.curve.p0[0]).toBe(X_IN.x + X_IN.w);
+  });
+
+  test("a step back leaves the copy the arrows reach, and reaches the one they leave", () => {
+    const [back, toward] = coursesOf(
+      [
+        { from: "X", to: "A1", back: true },
+        { from: "A1", to: "X", back: true },
+      ],
+      copiesOf,
+    );
+
+    expect(back?.a).toBe(X_OUT);
+    expect(toward?.b).toBe(X_IN);
+  });
+
+  test("a second step on the same ordered pair bows further; one with an end of no copy is null", () => {
+    const [first, again, none] = coursesOf(
+      [
+        { from: "A1", to: "X", back: false },
+        { from: "A1", to: "X", back: false },
+        { from: "A1", to: "nowhere", back: false },
+      ],
+      copiesOf,
+    );
+
+    expect(again?.curve).toEqual(curveOf(A3, X_OUT, 1));
+    expect(first?.curve).toEqual(curveOf(A3, X_OUT, 0));
+    expect(none).toBeNull();
+  });
+});
+
+describe("headOf, lengthOf and headPx", () => {
+  test("the head stands at the curve's end, turned along its way in", () => {
+    const head = headOf(curveOf(A, B, 0));
+    const bend = bendOf(300, 0);
+
+    expect(head.at).toEqual([400, 20]);
+    expect(head.angle).toBeCloseTo((Math.atan2(-bend, 150) * 180) / Math.PI);
+    expect(headOf({ p0: [0, 0], c: [10, 0], p1: [10, 0] }).angle).toBe(0);
+  });
+
+  test("a straight curve's length is its chord; a bowed one's is longer", () => {
+    expect(lengthOf({ p0: [0, 0], c: [50, 0], p1: [100, 0] })).toBeCloseTo(100);
+    expect(lengthOf(curveOf(A, B, 0))).toBeGreaterThan(300);
+  });
+
+  test("the head keeps its length at the fit whatever the zoom, but never runs past its curve on screen", () => {
+    expect(headPx(10, 300, 0.5)).toBe(10);
+    expect(headPx(10, 300, 4)).toBe(10);
+    expect(headPx(10, 9, 0.6)).toBeCloseTo(5.4);
+    expect(headPx(10, 9, 6.8)).toBe(10);
   });
 });
 

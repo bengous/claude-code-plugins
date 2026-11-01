@@ -1,4 +1,4 @@
-import type { Journey, Step } from "./atlas.ts";
+import type { Journey } from "./atlas.ts";
 import { cardsOf } from "./cards.ts";
 import { hostView, journeyOf, playView, stepsOf } from "./journeys.ts";
 import type { Tree } from "./tree.ts";
@@ -206,13 +206,6 @@ function shownAt({ tree, phases }: Scope, place: Place, params: Params): Params 
     journey: played?.journey.id ?? DEFAULTS.journey,
     step: played?.step ?? DEFAULTS.step,
   };
-}
-
-/** The step of a journey the parameters show, as the map can show them; null off a journey. */
-export function stepShown(scope: Scope, params: Params): Step | null {
-  const played = playedOf(scope.tree, params);
-
-  return played === null ? null : (stepsOf(played.journey)[played.step - 1]?.step ?? null);
 }
 
 /**
