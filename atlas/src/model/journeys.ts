@@ -1,6 +1,6 @@
 import type { Journey, Link, Section, Step } from "./atlas.ts";
 import type { Tree } from "./tree.ts";
-import { chainOf, isLeaf, itemIn, liftIn } from "./tree.ts";
+import { chainOf, holds, isLeaf, itemIn, liftIn } from "./tree.ts";
 import { showsIn } from "./view.ts";
 
 /**
@@ -199,3 +199,54 @@ export function formBefore(journey: Journey, n: number): string | null {
 
   return n > 1 && steps[n - 2]?.s === steps[n - 1]?.s ? formAfter(journey, n - 1) : null;
 }
+
+/** The index of `box`: the journey's steps, across its sections, whose two ends are below it. */
+export const indexOf = (tree: Tree, journey: Journey, box: string): readonly Numbered[] =>
+  stepsOf(journey).filter(({ step }) =>
+    [step.from, step.to].every((end) => end !== box && holds(tree, box, end)),
+  );
+
+/**
+ * How an index shows a step's number while section `s` is shown: a step of that section, a return
+ * of that section, or a step of another section.
+ */
+export type IndexMark = "current" | "back" | "other";
+
+export const indexMark = (at: Numbered, s: number): IndexMark =>
+  at.s === s ? (at.step.back === true ? "back" : "current") : "other";
+
+/** Steps `first` to `last` of an index, one after another, of one mark. */
+export type Range = { readonly first: number; readonly last: number; readonly mark: IndexMark };
+
+/**
+ * An index's steps in ranges while section `s` is shown: two numbers or more one after another, of
+ * one mark (indexMark), make one range; a step of another mark starts the next.
+ */
+export function rangesOf(steps: readonly Numbered[], s: number): readonly Range[] {
+  const ranges: Range[] = [];
+
+  for (const at of steps) {
+    const mark = indexMark(at, s);
+    const before = ranges.at(-1);
+
+    if (before !== undefined && before.mark === mark && before.last === at.n - 1) {
+      ranges[ranges.length - 1] = { ...before, last: at.n };
+    } else {
+      ranges.push({ first: at.n, last: at.n, mark });
+    }
+  }
+
+  return ranges;
+}
+
+export const RANGE_DASH = "–";
+
+export const RANGE_JOINT = ", ";
+
+/** A range written: its number alone, or its first and last numbers joined by an en dash. */
+export const rangeText = ({ first, last }: Range): string =>
+  first === last ? String(first) : `${first}${RANGE_DASH}${last}`;
+
+/** Ranges written one after another, `, ` between. */
+export const rangesText = (ranges: readonly Range[]): string =>
+  ranges.map((range) => rangeText(range)).join(RANGE_JOINT);

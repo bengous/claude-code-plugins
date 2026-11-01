@@ -50,6 +50,8 @@ export type Words = {
   /** The stage's choice of what the camera frames on a journey, and its three modes. */
   readonly cameraLabel: string;
   readonly camera: { readonly plan: string; readonly section: string; readonly step: string };
+  /** The first line of the tooltip of a box's index on a journey: the box's label. */
+  readonly indexTitle: (label: string) => string;
   /** The panel's view of the lines a clicked marker cites. */
   readonly viewerClose: string;
   readonly viewerLoading: string;
@@ -117,6 +119,7 @@ const fr: Words = {
   entryPill: (kind, trigger) => `${kind} : ${trigger}`,
   cameraLabel: "Caméra",
   camera: { plan: "Plan entier", section: "Section", step: "Étape" },
+  indexTitle: (label) => `Étapes du parcours dans ${label}`,
   viewerClose: "Fermer",
   viewerLoading: "Lecture des lignes…",
   viewerFailed: (why) => `Lignes indisponibles : ${why}`,
@@ -209,6 +212,7 @@ const en: Words = {
   entryPill: (kind, trigger) => `${kind}: ${trigger}`,
   cameraLabel: "Camera",
   camera: { plan: "Whole view", section: "Section", step: "Step" },
+  indexTitle: (label) => `Journey steps in ${label}`,
   viewerClose: "Close",
   viewerLoading: "Reading the lines…",
   viewerFailed: (why) => `Lines unavailable: ${why}`,

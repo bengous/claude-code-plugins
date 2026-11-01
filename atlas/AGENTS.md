@@ -108,8 +108,9 @@ src/model/           the map and what is read from it, pure or Node-only, no bro
                      stands for a node there (representativeIn); the journey's host view, the
                      deepest that draws every end (hostView), the view a step plays in, the
                      host, else the deepest that draws both ends, else their lowest common
-                     container's (playView, stepView), and the steps of a section a view traces
-                     (tracedIn) (journeys.spec.ts)
+                     container's (playView, stepView), the steps of a section a view traces
+                     (tracedIn), and a box's index, the steps whose two ends it holds, written
+                     in ranges of one mark (indexOf, rangesOf) (journeys.spec.ts)
   navigation.ts      where the reader stands at any depth: the path to the open container and the
                      selection, their events, the breadcrumb and its fold to one line, the URL
                      fragment that carries both and the parameters of the reading state (its
@@ -361,6 +362,14 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   shown's too; the legend has a line for each kind of step traced, forward, back, under a
   condition. Under `prefers-reduced-motion`, the pill sits
   at its end, the camera jumps and nothing pulses.
+- On a journey, each box of the view a step is played in carries its index on its top edge, when
+  it has one: the numbers of the steps of every section whose two ends it holds, those a trace
+  leaves out as their ends share the box among them (`indexOf`), in ranges, two numbers or more one
+  after another written `6–8` (`rangesOf`); those of the section shown in `--accent`, its returns
+  in `--back`, the others in `--ink-3`, a range holding numbers of one of them only. Its tooltip
+  names the box, then each step over its ends' labels. In the view's units as the open points'
+  badge, left of it, it is drawn in the box's group, so that a click on it enters the box and
+  leaves the journey; it is drawn anew at a new section, view or layout, and lays nothing out.
 - On a journey the stage's controls choose what the camera frames, remembered per browser under
   `atlas.camera`, `section` for any other value: `plan`, the view's fit; `section`, every step of
   the section traced there, the pills of its entries and 60 px on screen around, moving only at a

@@ -24,10 +24,16 @@ import { citationOf, citationText, mapCitations } from "../model/citations.ts";
 import { drawableOf } from "../model/drawable.ts";
 import type { EntryStep, Numbered, Traced } from "../model/journeys.ts";
 import {
+  RANGE_DASH,
+  RANGE_JOINT,
   formAfter,
   formBefore,
+  indexOf,
   isEntry,
   journeyOf,
+  rangeText,
+  rangesOf,
+  rangesText,
   representativeIn,
   stepsOf,
   tracedIn,
@@ -49,7 +55,7 @@ import { arrowDimmed, dimmedBy, dimsIn, labelAt } from "../model/phases.ts";
 import type { PaletteRule } from "../model/settings.ts";
 import { paletteRules } from "../model/settings.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "../model/threads.ts";
-import { chainOf, holds } from "../model/tree.ts";
+import { chainOf, holds, nodeOf } from "../model/tree.ts";
 import { coupledIn, lights, viewOf } from "../model/view.ts";
 import type { Selected, SourceLines } from "../server/wire.ts";
 import { SELECTION_PATH, SOURCE_PATH } from "../server/wire.ts";
@@ -65,6 +71,7 @@ import {
   ICONS,
   cardsHtml,
   journeysHtml,
+  lineLabel,
   linesAround,
   renderCrumbs,
   renderJourney,
@@ -74,7 +81,7 @@ import {
 } from "./panel.ts";
 import type { Copies } from "./placement.ts";
 import type { Span } from "./ribbon.ts";
-import { cellMark, covers, ribbonHtml } from "./ribbon.ts";
+import { cellMark, covers, ribbonHtml, stepLine } from "./ribbon.ts";
 import type { Priority, Stage, StageEvent } from "./stage.ts";
 import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc, text as svgText } from "./svg.ts";
@@ -1407,6 +1414,79 @@ function peek(n: number | null): void {
   placeTrace(performance.now());
 }
 
+// A box's index, in the view's units as its open points' badge (openBadge): `h` high, centred on
+// the box's top edge, its right edge `right` from the box's, or `open` beside that badge.
+const INDEX = { cls: "box-index-t", h: 24, pad: 9, right: 16, open: 31 };
+
+// The index badges of the view a step is played in, for the journey and the section they show.
+let indexed: {
+  readonly d: Drawn;
+  readonly journey: Journey;
+  readonly s: number;
+  readonly badges: readonly SVGGElement[];
+} | null = null;
+
+// Each box of the view whose index has a step (indexOf) carries it in ranges (rangesOf), in its
+// own group, so that a click on it is one on the box; its tooltip names the box, then each step
+// over its ends' labels.
+function drawIndex(d: Drawn, played: Played): SVGGElement[] {
+  return d.view.boxes.flatMap((box): SVGGElement[] => {
+    const index = box.kind === "container" ? indexOf(tree, played.journey, box.id) : [];
+    const r = d.rects.get(box.id);
+    const g = d.items.get(box.id)?.[0];
+
+    if (index.length === 0 || r === undefined || g === undefined) {
+      return [];
+    }
+
+    const ranges = rangesOf(index, played.at.s);
+    const w = textWidth(rangesText(ranges), INDEX.cls) + 2 * INDEX.pad;
+    const x = r.x + r.w - (box.open > 0 ? INDEX.open : INDEX.right) - w;
+    const badge = el("g", { class: "box-index" }, g);
+
+    const lines = [
+      words.indexTitle(lineLabel(nodeOf(tree, box.id))),
+      ...index.map((at) => stepLine(tree, at)),
+    ];
+
+    el("title", {}, badge).textContent = lines.join("\n");
+    el("rect", { x, y: r.y - INDEX.h / 2, width: w, height: INDEX.h, rx: INDEX.h / 2 }, badge);
+    const label = svgText(badge, { x: x + INDEX.pad, y: r.y, class: INDEX.cls }, "");
+
+    for (const [i, range] of ranges.entries()) {
+      if (i > 0) {
+        label.append(RANGE_JOINT);
+      }
+
+      el("tspan", { class: range.mark }, label).textContent = rangeText(range);
+    }
+
+    return [badge];
+  });
+}
+
+// On a journey, the view its step is played in carries the boxes' index, drawn anew when the
+// view, its layout, the journey or the section shown changes, and gone off a journey.
+function showIndex(d: Drawn, played: Played | null): void {
+  if (
+    played !== null &&
+    indexed?.d === d &&
+    indexed.journey === played.journey &&
+    indexed.s === played.at.s
+  ) {
+    return;
+  }
+
+  for (const badge of indexed?.badges ?? []) {
+    badge.remove();
+  }
+
+  indexed =
+    played === null
+      ? null
+      : { d, journey: played.journey, s: played.at.s, badges: drawIndex(d, played) };
+}
+
 // Selecting a node lights its arrows, their labels shown at any size, and outlines its couplings,
 // lifted to the view's items. A journey's step selects nothing: the view's own arrows stay dimmed
 // under its trace (showTrace).
@@ -1434,6 +1514,7 @@ function highlight(d: Drawn, p: Place, played: Played | null): void {
 
   d.layer.classList.toggle("selecting", selected !== null || played !== null);
   showTrace(d, played);
+  showIndex(d, played);
   showCaptions(d);
 }
 
@@ -2717,9 +2798,12 @@ const FACES = [
   '400 12px "IBM Plex Sans"',
 ];
 
-// A journey's texts, the ribbon's numbers and words, the camera's, and the trace's pills.
+// A journey's texts, the ribbon's numbers and words, the camera's, the trace's pills, and the
+// boxes' index.
 const journeyText = (): string[] =>
   journeys.flatMap((journey) => [
+    RANGE_DASH,
+    RANGE_JOINT,
     words.play,
     words.pause,
     words.cameraLabel,

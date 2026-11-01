@@ -4,15 +4,21 @@ import JOURNEYS from "../../fixtures/journeys/map.ts";
 import SAMPLE from "../../fixtures/sample/map.ts";
 import { DEEP, randomMap } from "../../fixtures/trees.ts";
 import type { Journey, Node, Section, Step } from "./atlas.ts";
+import type { Numbered } from "./journeys.ts";
 import {
   drawnIn,
   formAfter,
   formBefore,
   hostView,
+  indexMark,
+  indexOf,
   isEntry,
   joins,
   journeyOf,
   playView,
+  rangeText,
+  rangesOf,
+  rangesText,
   reachedBefore,
   representativeIn,
   stepView,
@@ -307,6 +313,113 @@ describe("tracedIn", () => {
     ]);
     expect(traced("data", 1)).toEqual([[5, "app", "db"]]);
     expect(traced("edge", 1)).toEqual([]);
+  });
+});
+
+// Rocky's example: with its first section shown, the box offres carries "2, 5, 6–8, 10", 2 and
+// 6–8 of that section, 5 a return of it, 10 of the next section.
+const OFFERS = treeOf({
+  root: {
+    title: "Offers",
+    children: [
+      holder("offres", [node("o1"), node("o2"), node("o3")]),
+      holder("cand", [node("c1"), node("c2")]),
+    ],
+  },
+  links: [],
+});
+
+const OFFERING: Journey = {
+  id: "offering",
+  label: "Offering",
+  sections: [
+    {
+      label: "Find",
+      steps: [
+        { from: "c1", to: "o1", trigger: "Look", kind: "manual" },
+        step("o1", "o2"),
+        step("o2", "c1"),
+        step("c1", "c2"),
+        { from: "o2", to: "o1", back: true },
+        step("o1", "o3"),
+        step("o3", "o2"),
+        step("o2", "o3"),
+        step("o3", "c2"),
+      ],
+    },
+    {
+      label: "Apply",
+      steps: [{ from: "o1", to: "o2", trigger: "Apply", kind: "manual" }, step("o2", "c1")],
+    },
+  ],
+};
+
+const numbers = (tree: Tree, journey: Journey, box: string): number[] =>
+  indexOf(tree, journey, box).map(({ n }) => n);
+
+function offering(n: number): Numbered {
+  const found = stepsOf(OFFERING)[n - 1];
+
+  if (found === undefined) {
+    throw new Error(`no step ${n}`);
+  }
+
+  return found;
+}
+
+describe("a box's index", () => {
+  test("the steps of every section whose two ends are below the box, in order", () => {
+    const pay = journeyOn(shop, "pay-and-confirm");
+
+    expect(numbers(OFFERS, OFFERING, "offres")).toEqual([2, 5, 6, 7, 8, 10]);
+    expect(numbers(OFFERS, OFFERING, "cand")).toEqual([4]);
+    expect(numbers(shop, pay, "app")).toEqual([1, 2]);
+    expect(numbers(shop, pay, "shop")).toEqual([1, 2]);
+    expect(numbers(shop, pay, "checkout")).toEqual([2]);
+    expect(numbers(shop, pay, "data")).toEqual([6]);
+    expect(numbers(shop, pay, "edge")).toEqual([]);
+  });
+
+  test("a step with an end outside the box, or at the box itself, is not in its index", () => {
+    const walk = walking([step("checkout", "cart"), step("cart", "db")]);
+
+    expect(numbers(shop, walk, "checkout")).toEqual([]);
+    expect(numbers(shop, walk, "shop")).toEqual([1]);
+    expect(numbers(shop, walk, "app")).toEqual([1]);
+    expect(numbers(shop, walk, "data")).toEqual([]);
+  });
+
+  test("a number is the section shown's, a return of that section's, or another section's", () => {
+    expect([2, 5, 10].map((n) => indexMark(offering(n), 1))).toEqual(["current", "back", "other"]);
+    expect([2, 5, 10].map((n) => indexMark(offering(n), 2))).toEqual(["other", "other", "current"]);
+  });
+
+  test("in ranges: numbers one after another merge, two of them too, only those of one mark", () => {
+    const offres = indexOf(OFFERS, OFFERING, "offres");
+    const app = indexOf(shop, journeyOn(shop, "pay-and-confirm"), "app");
+
+    expect(rangesOf(offres, 1)).toEqual([
+      { first: 2, last: 2, mark: "current" },
+      { first: 5, last: 5, mark: "back" },
+      { first: 6, last: 8, mark: "current" },
+      { first: 10, last: 10, mark: "other" },
+    ]);
+    expect(rangesOf(offres, 2)).toEqual([
+      { first: 2, last: 2, mark: "other" },
+      { first: 5, last: 8, mark: "other" },
+      { first: 10, last: 10, mark: "current" },
+    ]);
+    expect(rangesOf(app, 1)).toEqual([{ first: 1, last: 2, mark: "current" }]);
+    expect(rangesOf([], 1)).toEqual([]);
+  });
+
+  test("written: a range's ends joined by an en dash, the ranges by a comma, no prefix", () => {
+    const offres = indexOf(OFFERS, OFFERING, "offres");
+
+    expect(rangesText(rangesOf(offres, 1))).toBe("2, 5, 6–8, 10");
+    expect(rangesText(rangesOf(offres, 2))).toBe("2, 5–8, 10");
+    expect(rangeText({ first: 6, last: 7, mark: "current" })).toBe("6–7");
+    expect(rangeText({ first: 4, last: 4, mark: "other" })).toBe("4");
   });
 });
 

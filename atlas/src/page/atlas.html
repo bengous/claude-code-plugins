@@ -75,7 +75,10 @@
     the colour of a return, dashed under a condition, the step shown
     darker, with its number, the data's form and its condition in pills,
     a pill travelling along it, and an entry's trigger over its start; the
-    view's own arrows stay, dimmed, and the legend explains the trace. The
+    view's own arrows stay, dimmed, and the legend explains the trace. Each
+    box there carries, on its top edge, the numbers of the steps whose two
+    ends it holds, every section's, in ranges, those of the section shown in
+    the accent, its returns in the colour of a return. The
     camera frames the whole view, the section's steps or the step alone,
     the reader's choice in the stage's controls, remembered per browser.
     The panel shows the journey, the step's section and its place in the
@@ -655,6 +658,11 @@ svg text.illegible { visibility: hidden; }
 .view.tracing :is(.card, .chip, .ghost):not(.touched) { opacity: 0.4; }
 .box.touched .box-bg, .card.touched rect, .chip.touched rect, .ghost.touched rect { stroke: var(--accent); stroke-width: 1.6; }
 .box.end .box-bg, .card.end rect, .chip.end rect, .ghost.end rect { stroke: var(--ink); stroke-width: 2.2; }
+/* A box's index on a journey (engine.ts): the steps whose two ends it holds, in ranges, on its top edge, in the view's units as the open points' badge, in the box's group, so that a click on it enters the box; the numbers of the section shown in the accent, its returns in the colour of a return, the others pale. engine.ts measures its text by this class. */
+.box-index rect { fill: var(--surface); stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.box-index-t { font-family: var(--f-mono); font-size: 14px; font-weight: 500; fill: var(--ink-3); dominant-baseline: central; }
+.box-index-t .current { fill: var(--accent); }
+.box-index-t .back { fill: var(--back); }
 
 /* A node or an arrow that comes after the phase picked (phases.ts, engine.ts), and its legend line: faded and dotted over every other state, after them here, a pattern apart from the dashes of kind "off", of outside nodes and of couplings. */
 .box.later, .card.later, .chip.later, .ghost.later { opacity: 0.4; }
