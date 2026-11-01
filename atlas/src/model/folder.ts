@@ -26,6 +26,9 @@ export const THREADS_LOCK = `.${THREADS_FILE}.lock`;
 /** threads.json's scratch files, as writeAtomic names them: `.<base>.<pid>.<uuid>.tmp`. */
 const THREADS_SCRATCH = /^\.threads\.json\.\d+\.[\da-f-]+\.tmp$/u;
 
+/** The same scratch files as a .gitignore pattern. */
+export const THREADS_SCRATCH_GLOB = `.${THREADS_FILE}.*.tmp`;
+
 /** Whether a file name is threads.json, or what a reply leaves beside it for a moment: its lock, its scratch files. */
 export const isThreadsFile = (name: string): boolean =>
   name === THREADS_FILE || name === THREADS_LOCK || THREADS_SCRATCH.test(name);

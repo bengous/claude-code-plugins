@@ -12,12 +12,13 @@ import { dirname, join, resolve } from "node:path";
 import { checkCitations, checkMap, openReport } from "./commands/check.ts";
 import {
   DraftError,
+  IGNORED_LINES,
   TSCONFIG_FILE,
   TYPES_FILE,
   adoptDraft,
   dataFilesOf,
   dropDraft,
-  ignoreDrafts,
+  ignoreLocalFiles,
   makeDraft,
 } from "./commands/drafts.ts";
 import { ReplyError, appendReply } from "./commands/reply.ts";
@@ -42,7 +43,8 @@ const TEMPLATE = join(ROOT, "template");
 const USAGE = `usage: bun ${CLI} <command> …
   new <dir>                                         scaffold an empty map folder
   sync <dir>                                        write the plugin's atlas.d.ts and tsconfig.json into it,
-                                                    and drafts/ into its .gitignore
+                                                    and drafts/ and threads.json's lock and scratch files
+                                                    into its .gitignore
   check <dir> [--open]                              validate the map, type-check, lint and format-check it,
                                                     compare atlas.d.ts and tsconfig.json with the plugin's;
                                                     --open lists the open points
@@ -128,7 +130,7 @@ async function readJson(file: string): Promise<unknown> {
 function sync(dir: string): void {
   copyFileSync(TYPES_SOURCE, join(dir, TYPES_FILE));
   copyFileSync(join(TEMPLATE, TSCONFIG_FILE), join(dir, TSCONFIG_FILE));
-  ignoreDrafts(dir);
+  ignoreLocalFiles(dir);
 }
 
 function scaffold(arg: string): string {
@@ -431,7 +433,9 @@ async function run(command: Command, args: readonly string[]): Promise<number> {
     case "sync": {
       const dir = mapFolder(one(parse(args, []).positionals));
       sync(dir);
-      console.log(`${dir}: wrote ${TYPES_FILE} and ${TSCONFIG_FILE}; .gitignore lists ${DRAFTS}/`);
+      console.log(
+        `${dir}: wrote ${TYPES_FILE} and ${TSCONFIG_FILE}; .gitignore lists ${IGNORED_LINES.join(", ")}`,
+      );
 
       return 0;
     }

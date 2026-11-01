@@ -13,7 +13,13 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 
-import { DRAFTS, MAP_FILE, THREADS_FILE } from "../model/folder.ts";
+import {
+  DRAFTS,
+  MAP_FILE,
+  THREADS_FILE,
+  THREADS_LOCK,
+  THREADS_SCRATCH_GLOB,
+} from "../model/folder.ts";
 import { renameSync } from "../platform/node.ts";
 import { messageOf } from "../platform/pure.ts";
 
@@ -53,18 +59,34 @@ const sourcesOf = (dir: string): string[] => walk(dir, "").toSorted();
 export const dataFilesOf = (dir: string): string[] =>
   sourcesOf(dir).filter((file) => file !== TYPES_FILE);
 
-const IGNORED = new Set([DRAFTS, `${DRAFTS}/`, `/${DRAFTS}`, `/${DRAFTS}/`]);
+/**
+ * What a map folder keeps out of git: its drafts, and the lock and scratch files a reply killed
+ * in its write leaves beside threads.json, which a commit would carry to every clone, where the
+ * lock would refuse each reply. Each line comes with the lines that state the same rule.
+ */
+const IGNORES: readonly { readonly line: string; readonly same: readonly string[] }[] = [
+  { line: `${DRAFTS}/`, same: [DRAFTS, `${DRAFTS}/`, `/${DRAFTS}`, `/${DRAFTS}/`] },
+  ...[THREADS_LOCK, THREADS_SCRATCH_GLOB].map((line) => ({ line, same: [line, `/${line}`] })),
+];
 
-export function ignoreDrafts(dir: string): void {
+export const IGNORED_LINES: readonly string[] = IGNORES.map(({ line }) => line);
+
+/** Appends to the map folder's .gitignore each line of IGNORES it lacks, the rest left as it is. */
+export function ignoreLocalFiles(dir: string): void {
   const file = join(dir, IGNORE_FILE);
   const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const present = new Set(text.split("\n").map((line) => line.trim()));
 
-  if (text.split("\n").some((line) => IGNORED.has(line.trim()))) {
+  const missing = IGNORES.flatMap(({ line, same }) =>
+    same.some((one) => present.has(one)) ? [] : [`${line}\n`],
+  );
+
+  if (missing.length === 0) {
     return;
   }
 
   const separator = text === "" || text.endsWith("\n") ? "" : "\n";
-  writeFileSync(file, `${text}${separator}${DRAFTS}/\n`);
+  writeFileSync(file, `${text}${separator}${missing.join("")}`);
 }
 
 const isPresent = (path: string): boolean =>
@@ -145,7 +167,7 @@ export function makeDraft(dir: string, name: string): string {
     throw new DraftError(`${path} exists: adopt it (--adopt) or drop it (--drop) first`);
   }
 
-  ignoreDrafts(dir);
+  ignoreLocalFiles(dir);
 
   const files = [
     ...sourcesOf(dir),

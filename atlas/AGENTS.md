@@ -14,7 +14,9 @@ human's selection in the page to the agent, and gives the agent its tools on the
 Content lives only in a map folder; the engine's modules change only for behaviour. A map folder
 holds `map.ts` (its AtlasMap, the default export), `atlas.config.ts` (its Config, the default
 export), `threads.json` (the thread of each open point, by open id), a `.gitignore` that lists
-`drafts/`, and the two files `sync` writes and `check` compares byte for byte: `atlas.d.ts`, a
+`drafts/` and the lock and scratch files a reply killed in its write leaves beside `threads.json`
+(a committed lock would refuse every reply on every clone), and the two files `sync` writes and
+`check` compares byte for byte: `atlas.d.ts`, a
 copy of `atlas.ts` its data imports its types from, and `tsconfig.json`, a copy of the
 template's. It needs no `package.json`: its data imports types only. Its data files are its `.ts`
 files but `atlas.d.ts`, in sub-folders too: a large map keeps each branch in `parts/<branch>.ts`,
@@ -232,7 +234,7 @@ Every command runs from the repository root.
 ```bash
 bun install --cwd atlas --frozen-lockfile       # once; Claude Code does it at the plugin's cache
 bun atlas/src/cli.ts new <dir>                  # scaffold a map folder in an empty or new folder
-bun atlas/src/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin, and drafts/ into .gitignore
+bun atlas/src/cli.ts sync <map folder>          # write atlas.d.ts and tsconfig.json from the plugin, and drafts/ and threads.json's lock and scratch files into .gitignore
 bun atlas/src/cli.ts check <map folder>         # the map and its citations, tsgo, oxlint, oxfmt, the two copies; exit 1 on any failure
 bun atlas/src/cli.ts check <map folder> --open  # list the open points and whom each waits for
 bun atlas/src/cli.ts fmt <map folder>           # format in place the files check format-checks

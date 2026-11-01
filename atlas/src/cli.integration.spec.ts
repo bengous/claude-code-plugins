@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import type { NodeAnswer } from "./cli.ts";
 import { THREADS_FILE } from "./model/folder.ts";
 import { readThreads } from "./model/threads.ts";
+import { gitReadSync } from "./platform/node.ts";
 import { bunFlags } from "./server/wire.ts";
 
 const CLI = join(import.meta.dir, "cli.ts");
@@ -29,6 +30,9 @@ const TYPES_SOURCE = join(import.meta.dir, "model", "atlas.ts");
 const SAMPLE = join(import.meta.dir, "..", "fixtures", "sample");
 
 const TEMPLATE = join(import.meta.dir, "..", "template");
+
+/** The .gitignore sync writes into a map folder that has none. */
+const IGNORED = "drafts/\n.threads.json.lock\n.threads.json.*.tmp\n";
 
 const TMP = realpathSync(mkdtempSync(join(tmpdir(), "atlas-cli-")));
 
@@ -134,7 +138,7 @@ describe("new", () => {
       "tsconfig.json",
     ]);
     expect(await Bun.file(join(dir, THREADS_FILE)).text()).toBe("{}\n");
-    expect(await Bun.file(join(dir, ".gitignore")).text()).toBe("drafts/\n");
+    expect(await Bun.file(join(dir, ".gitignore")).text()).toBe(IGNORED);
 
     expect(cli("check", dir)).toEqual({
       code: 0,
@@ -248,7 +252,7 @@ describe("check", () => {
 
     expect(cli("sync", dir)).toEqual({
       code: 0,
-      stdout: `${dir}: wrote atlas.d.ts and tsconfig.json; .gitignore lists drafts/\n`,
+      stdout: `${dir}: wrote atlas.d.ts and tsconfig.json; .gitignore lists drafts/, .threads.json.lock, .threads.json.*.tmp\n`,
       stderr: "",
     });
     expect(cli("check", dir).code).toBe(0);
@@ -359,24 +363,59 @@ describe("fmt", () => {
 });
 
 describe("sync", () => {
-  test("adds drafts/ to the map's .gitignore once, as draft does", () => {
+  test("adds drafts/, threads.json's lock and its scratch files to the map's .gitignore once, as draft does", () => {
     const dir = sampleCopy();
     const ignore = join(dir, ".gitignore");
     rmSync(ignore);
     cli("sync", dir);
 
-    expect(readFileSync(ignore, "utf8")).toBe("drafts/\n");
+    expect(readFileSync(ignore, "utf8")).toBe(IGNORED);
 
     cli("sync", dir);
 
-    expect(readFileSync(ignore, "utf8")).toBe("drafts/\n");
+    expect(readFileSync(ignore, "utf8")).toBe(IGNORED);
 
     const other = sampleCopy();
     writeFileSync(join(other, ".gitignore"), "node_modules");
     cli("draft", other, "first");
     cli("draft", other, "second");
 
-    expect(readFileSync(join(other, ".gitignore"), "utf8")).toBe("node_modules\ndrafts/\n");
+    expect(readFileSync(join(other, ".gitignore"), "utf8")).toBe(`node_modules\n${IGNORED}`);
+  });
+
+  test("adds to a .gitignore that lists drafts/ only the lines it lacks, and leaves the rest", () => {
+    const dir = sampleCopy();
+    const ignore = join(dir, ".gitignore");
+    writeFileSync(ignore, "drafts/\n");
+    cli("sync", dir);
+
+    expect(readFileSync(ignore, "utf8")).toBe(IGNORED);
+
+    writeFileSync(ignore, "/drafts\n*.log\n/.threads.json.lock\n");
+    cli("draft", dir, "kept");
+
+    expect(readFileSync(ignore, "utf8")).toBe(
+      "/drafts\n*.log\n/.threads.json.lock\n.threads.json.*.tmp\n",
+    );
+  });
+
+  test("the .gitignore it writes keeps from git what a reply killed in its write leaves", () => {
+    const dir = sampleCopy();
+    rmSync(join(dir, ".gitignore"));
+    cli("sync", dir);
+
+    const git = {
+      cwd: dir,
+      scrubGitEnv: true,
+      env: { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+    };
+
+    gitReadSync(["init", "-q"], git);
+    const scratch = `.${THREADS_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+
+    expect(
+      gitReadSync(["check-ignore", THREADS_FILE, ".threads.json.lock", scratch], git).split("\n"),
+    ).toEqual([".threads.json.lock", scratch]);
   });
 });
 
