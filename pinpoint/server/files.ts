@@ -8,10 +8,12 @@ import { parseDelivery } from "./parse.ts";
 
 /**
  * What a server keeps on disk, under `<dir>` (`~/.claude/pinpoint` outside the tests):
- * `sessions/<session>/seq`, the last batch number given; `sessions/<session>/pending/<seq>.json`,
- * each batch not yet handed to the session, so a server started again on the same session tells
- * it again, empty from the moment its number is taken until the batch is kept, which `pending`
- * skips; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
+ * `sessions/<session>/taken/<seq>`, an empty file for each batch number given, created exclusively
+ * and never removed, so no server of the session gives a number twice; `sessions/<session>/seq`,
+ * a recent number given, where the next search starts, which two servers writing at once may leave
+ * behind the last; `sessions/<session>/pending/<seq>.json`, each batch not yet handed to the
+ * session, so a server started again on the same session tells it again;
+ * `sessions/<session>/settled.json`, what the module reported of the last batches, so a
  * page asks after its own across a restart; `sessions/<session>/images/<id>.png`, each zone's image
  * a page handed over, until the session's directory goes: at `/pinpoint:stop`, or at the start of
  * another session's server once nothing in it changed, its own server's heartbeat included, for
@@ -24,8 +26,8 @@ export type Pending = { readonly seq: number; readonly text: string };
 export type SessionFiles = {
   /**
    * The next batch number, kept across servers of one session, and past `after`; the caller asks
-   * one at a time. The number is taken by creating its pending file, so two servers of one session
-   * asking at once get two numbers.
+   * one at a time. The number is taken by creating its `taken/` file, which outlives the batch, so
+   * no two servers of one session ever get the same number.
    */
   readonly nextSeq: (after: number) => Promise<number>;
   readonly keepPending: (pending: Pending) => Promise<void>;
@@ -151,6 +153,7 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
   const sessions = join(dir, "sessions");
   const own = join(sessions, session);
   const pendingDir = join(own, "pending");
+  const takenDir = join(own, "taken");
   const seqFile = join(own, "seq");
   const settledFile = join(own, "settled.json");
   const imagesDir = join(own, "images");
@@ -164,7 +167,7 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
 
   return {
     nextSeq: async (after) => {
-      await mkdir(pendingDir, { recursive: true });
+      await mkdir(takenDir, { recursive: true });
 
       const kept = await readFile(seqFile, "utf8").catch((cause: unknown) => {
         if (isMissing(cause)) return "0";
@@ -175,12 +178,12 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
       const first = Math.max(Number.isNaN(last) ? 0 : last, after) + 1;
 
       const next = Array.from({ length: SEQ_TRIES }, (_, n) => first + n).find((seq) =>
-        createExclusiveSync(join(pendingDir, `${seq}.json`), ""),
+        createExclusiveSync(join(takenDir, `${seq}`), ""),
       );
 
       if (next === undefined) {
         throw new Error(
-          `pinpoint: batch numbers ${first} to ${first + SEQ_TRIES - 1} are all taken in ${pendingDir}`,
+          `pinpoint: batch numbers ${first} to ${first + SEQ_TRIES - 1} are all taken in ${takenDir}`,
         );
       }
 
