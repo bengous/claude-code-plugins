@@ -33,7 +33,7 @@ Five kinds of folder, each with its own job. Only the parts share a form:
 - the platform, `src/platform/`: the repository's file, path and process helpers, a copy of
   `tools/platform/` that `bun ./scripts/sync-platform.ts --write` writes, never edited here. A
   leaf, it imports nothing of the plugin: `pure.ts` names no Node and no Bun, so the hooks module
-  may load it; `node.ts` the server and `scripts/` alone.
+  may load it; the other modules the server and `scripts/` alone.
 
 ```
 hooks/hooks.json            Claude Code's folder: it names the hooks module, nothing else lives there
@@ -55,7 +55,7 @@ src/runtime/extension.ts    what a part's page and server halves fill (a hooks h
                             the runtimes' own representation of a part, which the registries make from them
 src/runtime/*/slices.ts     each runtime's registry, the only way it reaches a part
 src/platform/               a copy of tools/platform/, never edited here: pure.ts quoting, errno, messages and
-                            lexical paths; node.ts writes, renames, the lock, processes and git
+                            lexical paths; fs.ts writes and renames; process.ts processes; git.ts git
 src/steps/<name>/           a step Vellum follows, or the proposal that offers them: grill/, agent-review/, proposal/
 src/formats/<name>/         a format a document is read in: markdown/, html/, image/
 src/proof.ts                the proof of the table, the tests' alone: each part's walk.ts, alone, then in pairs

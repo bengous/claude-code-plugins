@@ -120,7 +120,7 @@ export const noRawRenameRule = defineRule({
     },
     messages: {
       rawRename:
-        "`{{name}}` from `{{source}}` renames without the platform helpers: use `rename`, `renameSync` or `writeAtomic` from `tools/platform/node.ts` (the directory's own copy in a plugin).",
+        "`{{name}}` from `{{source}}` renames without the platform helpers: use `rename`, `renameSync` or `writeAtomic` from `tools/platform/fs.ts` (the directory's own copy in a plugin).",
     },
   },
   create(context) {

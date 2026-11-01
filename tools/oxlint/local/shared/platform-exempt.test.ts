@@ -6,9 +6,9 @@ const exempt = (path: string): boolean => isPlatformExempt("/repo", `/repo/${pat
 
 describe("isPlatformExempt", () => {
   test("exempts the source and every copy directory", () => {
-    expect(exempt("tools/platform/node.ts")).toBe(true);
+    expect(exempt("tools/platform/git.ts")).toBe(true);
     expect(exempt("todos/lib/platform/pure.ts")).toBe(true);
-    expect(exempt("vellum/src/platform/node.ts")).toBe(true);
+    expect(exempt("vellum/src/platform/fs.ts")).toBe(true);
   });
 
   test("keeps a platform directory deeper than a copy lives", () => {

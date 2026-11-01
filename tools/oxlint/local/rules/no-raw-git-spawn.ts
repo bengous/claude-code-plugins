@@ -171,7 +171,7 @@ export const noRawGitSpawnRule = defineRule({
     },
     messages: {
       rawGitSpawn:
-        "git started through {{how}}: use `git`, `gitRead` or their sync forms from `tools/platform/node.ts` (the directory's own copy in a plugin).",
+        "git started through {{how}}: use `git`, `gitRead` or their sync forms from `tools/platform/git.ts` (the directory's own copy in a plugin).",
     },
   },
   create(context) {

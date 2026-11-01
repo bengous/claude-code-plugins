@@ -69,8 +69,8 @@ const SOURCES = {
     "const Bun = { spawnSync: (argv: string[]) => argv };",
     'Bun.spawnSync(["git", "status"]);',
   ].join("\n"),
-  "todos/lib/platform/node.ts": 'Bun.spawnSync(["git", "status"]);\n',
-  "tools/platform/node.ts": 'Bun.spawnSync(["git", "status"]);\n',
+  "todos/lib/platform/git.ts": 'Bun.spawnSync(["git", "status"]);\n',
+  "tools/platform/git.ts": 'Bun.spawnSync(["git", "status"]);\n',
   "scripts/literal.test.ts": 'Bun.spawnSync(["git", "status"]);\n',
   "agent-hooks/test-support.ts": 'Bun.spawnSync(["git", "init"]);\n',
 } as const;
@@ -78,12 +78,19 @@ const SOURCES = {
 type SourceName = keyof typeof SOURCES;
 
 interface OxlintReport {
-  diagnostics: { code: string; filename: string; labels: { span: { line: number } }[] }[];
+  diagnostics: {
+    code: string;
+    message: string;
+    filename: string;
+    labels: { span: { line: number } }[];
+  }[];
 }
 
 let dir = "";
 
 const reported = new Map<string, number[]>();
+
+const messages = new Set<string>();
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "no-raw-git-spawn-"));
@@ -114,6 +121,7 @@ beforeAll(async () => {
     expect(diagnostic.code).toBe("local(no-raw-git-spawn)");
     const name = diagnostic.filename.replaceAll("\\", "/");
     reported.set(name, [...(reported.get(name) ?? []), diagnostic.labels[0]?.span.line ?? 0]);
+    messages.add(diagnostic.message);
   }
 });
 
@@ -158,9 +166,15 @@ describe("no-raw-git-spawn", () => {
     expect(lines("scripts/local-bun.ts")).toEqual([]);
   });
 
+  test("names the module that holds the helpers", () => {
+    expect(messages).toContain(
+      "git started through Bun.spawn: use `git`, `gitRead` or their sync forms from `tools/platform/git.ts` (the directory's own copy in a plugin).",
+    );
+  });
+
   test("leaves the platform helpers, at their source and in a copy", () => {
-    expect(lines("todos/lib/platform/node.ts")).toEqual([]);
-    expect(lines("tools/platform/node.ts")).toEqual([]);
+    expect(lines("todos/lib/platform/git.ts")).toEqual([]);
+    expect(lines("tools/platform/git.ts")).toEqual([]);
   });
 
   test("leaves a test and a test's support file", () => {

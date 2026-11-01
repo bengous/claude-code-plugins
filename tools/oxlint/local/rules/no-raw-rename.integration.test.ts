@@ -91,8 +91,8 @@ const SOURCES = {
     'looped.rename("a", "b");',
     "nested(deeper);",
   ].join("\n"),
-  "todos/lib/platform/node.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
-  "tools/platform/node.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
+  "todos/lib/platform/fs.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
+  "tools/platform/fs.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
   "scripts/named.test.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
   "vellum/src/fixtures/tree.ts": 'import { renameSync } from "node:fs";\nrenameSync("a", "b");\n',
 } as const;
@@ -100,12 +100,19 @@ const SOURCES = {
 type SourceName = keyof typeof SOURCES;
 
 interface OxlintReport {
-  diagnostics: { code: string; filename: string; labels: { span: { line: number } }[] }[];
+  diagnostics: {
+    code: string;
+    message: string;
+    filename: string;
+    labels: { span: { line: number } }[];
+  }[];
 }
 
 let dir = "";
 
 const reported = new Map<string, number[]>();
+
+const messages = new Set<string>();
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "no-raw-rename-"));
@@ -136,6 +143,7 @@ beforeAll(async () => {
     expect(diagnostic.code).toBe("local(no-raw-rename)");
     const name = diagnostic.filename.replaceAll("\\", "/");
     reported.set(name, [...(reported.get(name) ?? []), diagnostic.labels[0]?.span.line ?? 0]);
+    messages.add(diagnostic.message);
   }
 });
 
@@ -204,9 +212,15 @@ describe("no-raw-rename", () => {
     expect(lines("scripts/unrelated.ts")).toEqual([]);
   });
 
+  test("names the module that holds the helpers", () => {
+    expect(messages).toContain(
+      "`rename` from `node:fs/promises` renames without the platform helpers: use `rename`, `renameSync` or `writeAtomic` from `tools/platform/fs.ts` (the directory's own copy in a plugin).",
+    );
+  });
+
   test("leaves the platform helpers, at their source and in a copy", () => {
-    expect(lines("todos/lib/platform/node.ts")).toEqual([]);
-    expect(lines("tools/platform/node.ts")).toEqual([]);
+    expect(lines("todos/lib/platform/fs.ts")).toEqual([]);
+    expect(lines("tools/platform/fs.ts")).toEqual([]);
   });
 
   test("leaves a test and a fixture", () => {

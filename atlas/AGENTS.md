@@ -32,7 +32,7 @@ of its layer, never at a root, its spec beside it. `platform/` is a leaf: a copy
 `tools/platform/` that `bun ./scripts/sync-platform.ts --write` writes, never edited here, and
 that imports nothing of the plugin. `model/` imports nothing outside itself but `platform/`;
 `inventory/` imports nothing outside itself but `platform/`; `page/` and `commands/` import
-`model/`; the mod imports `platform/pure.ts` alone of it, since `node.ts` needs Node and Bun;
+`model/`; the mod imports `platform/pure.ts` alone of it, since the other modules need Node and Bun;
 `server/wire.ts` is the one module the page, `serve.ts`, `cli.ts` and the mod all import.
 
 ```
@@ -178,7 +178,10 @@ src/server/          what crosses processes
 src/platform/        the repository's file, path and process helpers, a leaf: a copy of
                      tools/platform/, never edited here, its tests kept at the source
   pure.ts            quoting, errno, messages, lexical paths; no Node, no Bun: the mod may import it
-  node.ts            writes, renames, the lock, processes, git
+  fs.ts              writes, renames
+  lock.ts            the lock
+  process.ts         processes
+  git.ts             git
 
 child.bunfig.toml    the empty Bun configuration bunFlags names
 template/            the map folder `new` copies; its tsconfig.json is the one `sync` writes

@@ -118,11 +118,6 @@ export default defineConfig({
       rules: { "max-lines": "off" },
     },
     {
-      // A copy of tools/platform/, whose size its source sets: no edit here can cut it.
-      files: ["vellum/src/platform/**"],
-      rules: { "max-lines": "off" },
-    },
-    {
       // Over the size today, each a cut still to make:
       // - runtime/page/state.ts: the page's one store; the review's actions and the documents' and
       //   the shell's read each other both ways (loadReview settles the edit, decide loads again).
@@ -155,11 +150,6 @@ export default defineConfig({
     {
       // Over the size on purpose: the Bash parser, one scanner whose closures share its state.
       files: ["agent-hooks/guard/shell.ts"],
-      rules: { "max-lines": "off" },
-    },
-    {
-      // A copy of tools/platform/, whose size its source sets: no edit here can cut it.
-      files: ["agent-hooks/lib/platform/**"],
       rules: { "max-lines": "off" },
     },
   ],
