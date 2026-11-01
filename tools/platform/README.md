@@ -29,8 +29,8 @@ A mod runs in Claude Code's engine, which has no Node, no `process` and no `Bun`
   - a listed file a copy lacks or git ignores, or a file git lists there beyond its list;
   - a consumer whose owner does not exist, a `dir` of another form, or a list without `pure.ts`;
   - a `lib/platform/` or `src/platform/` directory `consumers.ts` does not list;
-  - a value import, from a catalog plugin or a consumer's owner, that resolves outside that
-    directory: into another plugin, `scripts/`, `.claude/` or `tools/platform/`
+  - a value import, from a catalog plugin, its source at any depth, or a consumer's owner, that
+    resolves outside that directory: into another plugin, `scripts/`, `.claude/` or `tools/platform/`
     (`Bun.Transpiler.scanImports`, so an import marked `type` passes, while an unmarked import
     used only as a type counts).
 - The tests stay here and run against the source: a mod's kit collects every `*.test.ts` under its

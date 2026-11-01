@@ -159,17 +159,22 @@ function unlistedCopyDirs(files: readonly string[], consumers: readonly Consumer
     );
 }
 
-/** The plugins of the catalog and the consumers' owners: the directories that stand alone. */
-function standaloneDirs(root: string, consumers: readonly Consumer[]): ReadonlySet<string> {
+/**
+ * The plugins of the catalog, at any depth, and the consumers' owners: the directories that stand
+ * alone, the deepest first, so the first one a file lies under is the one it belongs to.
+ */
+function standaloneDirs(root: string, consumers: readonly Consumer[]): readonly string[] {
   // SAFETY: validate-marketplace holds marketplace.json to this form.
   const catalog = JSON.parse(
     readFileSync(join(root, ".claude-plugin/marketplace.json"), "utf8"),
   ) as Catalog;
 
-  return new Set([
-    ...catalog.plugins.map((plugin) => plugin.source.replace(/^\.\//u, "").replace(/\/$/u, "")),
+  const dirs = new Set([
+    ...catalog.plugins.map((plugin) => posix.normalize(plugin.source).replace(/\/$/u, "")),
     ...consumers.map((consumer) => ownerOf(consumer.dir)),
   ]);
+
+  return [...dirs].toSorted((a, b) => b.length - a.length);
 }
 
 /** What the file loads at run time: the transpiler drops every type-only import, and reads no shebang. */
@@ -183,9 +188,7 @@ function valueImports(file: string): string[] {
     .map(({ path }) => path);
 }
 
-function outsideImport(file: string, specifier: string, target: string): string {
-  const owner = ownerOf(file);
-
+function outsideImport(file: string, owner: string, specifier: string, target: string): string {
   return isInsideRelative(posix.relative(SOURCE_DIR, target), ["/"])
     ? `${file} imports ${specifier}: a plugin imports the copy in its own directory, listed in tools/platform/consumers.ts and written by ${WRITE_COMMAND}; ${NEVER_A_COPY}`
     : `${file} imports ${specifier}, outside ${owner}/: a plugin stands alone once installed, so no import leaves its directory`;
@@ -199,20 +202,22 @@ function outsideImports(
 ): string[] {
   const owners = standaloneDirs(root, consumers);
 
-  return files
-    .filter((file) => owners.has(ownerOf(file)))
-    .flatMap((file) =>
-      valueImports(join(root, file))
-        .filter((specifier) => specifier.startsWith(".") || isAbsolute(specifier))
-        .flatMap((specifier) => {
-          const resolved = resolve(dirname(join(root, file)), specifier);
+  return files.flatMap((file) => {
+    const owner = owners.find((dir) => file.startsWith(`${dir}/`));
 
-          if (isInsideRelative(relative(join(root, ownerOf(file)), resolved), [sep])) return [];
-          const target = relative(root, resolved).split(sep).join("/");
+    if (owner === undefined) return [];
 
-          return [outsideImport(file, specifier, target)];
-        }),
-    );
+    return valueImports(join(root, file))
+      .filter((specifier) => specifier.startsWith(".") || isAbsolute(specifier))
+      .flatMap((specifier) => {
+        const resolved = resolve(dirname(join(root, file)), specifier);
+
+        if (isInsideRelative(relative(join(root, owner), resolved), [sep])) return [];
+        const target = relative(root, resolved).split(sep).join("/");
+
+        return [outsideImport(file, owner, specifier, target)];
+      });
+  });
 }
 
 /** Every refusal of the gate, in the order a fix takes them: the manifest, the copies, the strays, the imports. */

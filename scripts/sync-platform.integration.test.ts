@@ -177,6 +177,35 @@ describe("the check", () => {
     ]);
   });
 
+  test("refuses an import that leaves a plugin whose source is nested, into a sibling or above", async () => {
+    write(
+      ".claude-plugin/marketplace.json",
+      JSON.stringify({
+        plugins: [{ source: "./plugins/nested" }, { source: "./plugins/sibling/" }],
+      }),
+    );
+
+    write("plugins/sibling/y.ts", "export const y = 1;\n");
+    write("plugins/nested/b.ts", "export const b = 1;\n");
+
+    write(
+      "plugins/nested/a.ts",
+      [
+        'import { b } from "./b.ts";',
+        'import { y } from "../sibling/y.ts";',
+        'import { x } from "../../peer/x.ts";',
+        "export const all = [b, y, x];",
+      ].join("\n"),
+    );
+
+    expect(await problems([])).toEqual(
+      ["../sibling/y.ts", "../../peer/x.ts"].map(
+        (specifier) =>
+          `plugins/nested/a.ts imports ${specifier}, outside plugins/nested/: a plugin stands alone once installed, so no import leaves its directory`,
+      ),
+    );
+  });
+
   test("leaves a type-only import, a copy's import and a directory no catalog names", async () => {
     await writeCopies(root, [PLUG]);
     write("plug/hooks/a.ts", 'import type { pure } from "../../tools/platform/pure.ts";\n');
