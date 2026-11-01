@@ -15,6 +15,25 @@ A mod runs in Claude Code's engine, which has no Node, no `process` and no `Bun`
 ([Hook tests](../../docs/plugin-testing/hooks.md)): a directory whose code runs only in mods copies
 `pure.ts` alone.
 
+## Why copies, not a package
+
+Claude Code installs a marketplace plugin by copying its directory alone into its cache, so an
+import that leaves the plugin finds nothing once installed
+([In-place and copied plugins](https://code.claude.com/docs/en/plugins/loading#in-place-and-copied-plugins)).
+Each way to share code without a copy fails a target this repository has:
+
+- **An npm package.** Claude Code installs a plugin's `package.json` dependencies when it caches
+  it, but the helpers would need a registry and releases of their own, every consumer a
+  `package.json` and a `bun.lock`, and a plugin loaded in place gets no install
+  ([Node.js package dependencies](https://code.claude.com/docs/en/plugins/loading#node-js-package-dependencies)).
+- **A plugin dependency.** `dependencies` in `plugin.json` installs and enables another plugin, and
+  gives no path to its files ([Plugin dependencies](https://code.claude.com/docs/en/plugins/dependencies)).
+- **A symlink inside the plugin.** Dereferenced when Claude Code copies a plugin from a git
+  marketplace, but skipped from a local-path one
+  ([Share files with symlinks](https://code.claude.com/docs/en/plugins/host-marketplace#share-files-within-a-marketplace-with-symlinks));
+  on Windows a symlink needs Developer Mode, and Git for Windows checks one out as a plain file
+  unless `core.symlinks` is on. vellum and the `win32` CI job target Windows.
+
 ## Copies
 
 - `consumers.ts` lists each copy: `dir` is `<owner>/lib/platform` or `<owner>/src/platform`, its
