@@ -442,7 +442,7 @@ export async function readPlugins(root: PluginDir): Promise<PluginRow[]> {
 if (import.meta.main) {
   const root = pluginDirAt(join(import.meta.dir, "..", ".."));
 
-  if (root === null) throw new Error("plugin-sources: no directory above scripts/sessions");
+  if (root === null) throw new Error("plugin-sources: no directory above scripts/lib");
 
   const [named] = process.argv.slice(2);
 
