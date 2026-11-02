@@ -8,9 +8,10 @@
 // answers back in as a plan on stdin.
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
+import { writeAtomic } from "../lib/platform/fs.ts";
 import { GitError, type GitResult, git as runGit, gitRead } from "../lib/platform/git.ts";
 import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 
@@ -641,7 +642,7 @@ async function buildTodo(steps: Step[], dir: string): Promise<string[]> {
 
     if (step.message === null) continue;
     const path = join(dir, `message-${index}.txt`);
-    await writeFile(path, `${step.message.trimEnd()}\n`);
+    await writeAtomic(path, `${step.message.trimEnd()}\n`);
     lines.push(`exec git commit --amend --file=${shellQuote(path)}`);
   }
 
@@ -711,9 +712,9 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
   const dir = await messageDir();
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "backup-ref"), `${backupRef}\n`);
+  await writeAtomic(join(dir, "backup-ref"), `${backupRef}\n`);
   const todoPath = join(dir, "todo");
-  await writeFile(todoPath, `${(await buildTodo(steps, dir)).join("\n")}\n`);
+  await writeAtomic(todoPath, `${(await buildTodo(steps, dir)).join("\n")}\n`);
 
   // GIT_EDITOR=true keeps squash and reword from opening an editor; the `exec`
   // lines set the final messages afterwards.
