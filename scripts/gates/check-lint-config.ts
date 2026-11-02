@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 
 import config from "../../oxlint.config.ts";
+import { writeAtomic } from "../../tools/platform/fs.ts";
 import { gitRead } from "../../tools/platform/git.ts";
 import { hooksModulePlugins } from "./hooks-modules.ts";
 
@@ -502,7 +503,7 @@ if (import.meta.main) {
   const contract = buildContract(authored);
 
   if (process.argv.includes("--update")) {
-    await Bun.write(snapshotPath, contract);
+    await writeAtomic(snapshotPath, contract);
     console.log(`Snapshot rewritten: ${snapshotPath}`);
     process.exit(0);
   }

@@ -800,7 +800,7 @@ async function runPipeline(start: string): Promise<void> {
   writeSync(log, `${outcomeLine(outcome)}\n`);
   writeWhole(state.outcome, JSON.stringify(outcome));
 
-  if (settles(outcome)) writeFileSync(state.settled, installed);
+  if (settles(outcome)) writeWhole(state.settled, installed);
 
   if (outcome.kind === "pr" || (outcome.kind === "failed" && settles(outcome))) {
     notify("Claude Code types", outcomeLine(outcome), outcome.kind === "failed", log);

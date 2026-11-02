@@ -8,11 +8,12 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { isRecord, stringField } from "../../agent-hooks/json.ts";
+import { writeAtomicSync } from "../../tools/platform/fs.ts";
 import { gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { BREAKING } from "../lib/breaking-subject.ts";
@@ -569,8 +570,7 @@ export function sealPlan(repo: PluginDir, plan: ReleasePlan): Sealed {
   const path = join(dir, `${plan.target}.json`);
   const text = `${JSON.stringify(plan, null, 2)}\n`;
 
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path, text);
+  writeAtomicSync(path, text, { mkdir: true });
 
   return { path, digest: digestOf(text) };
 }

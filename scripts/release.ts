@@ -22,11 +22,12 @@
  * back from it. Never: a tag before the push landed, a tag moved.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { styleText } from "node:util";
 
+import { writeAtomicSync } from "../tools/platform/fs.ts";
 import { messageOf } from "../tools/platform/pure.ts";
 import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./landing/ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
@@ -307,7 +308,7 @@ function commitBump(tree: PluginDir, bump: PlannedBump): string | null {
   const manifest = `${bump.source}/${MANIFEST}`;
   const files = [manifest];
 
-  writeFileSync(
+  writeAtomicSync(
     join(tree, manifest),
     withVersion(readFileSync(join(tree, manifest), "utf8"), bump.from, bump.to, manifest),
   );
@@ -315,7 +316,7 @@ function commitBump(tree: PluginDir, bump: PlannedBump): string | null {
   if (bump.section !== null) {
     const changelog = `${bump.source}/${CHANGELOG}`;
 
-    writeFileSync(
+    writeAtomicSync(
       join(tree, changelog),
       withSection(readFileSync(join(tree, changelog), "utf8"), bump.section),
     );

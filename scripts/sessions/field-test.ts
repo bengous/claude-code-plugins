@@ -27,6 +27,7 @@ import { parseArgs } from "node:util";
 
 import { $ } from "bun";
 
+import { writeAtomic } from "../../tools/platform/fs.ts";
 import { GitError, git, gitRead } from "../../tools/platform/git.ts";
 import { messageOf, shellQuote } from "../../tools/platform/pure.ts";
 import { installDependencies } from "../lib/plugin-sources.ts";
@@ -456,7 +457,7 @@ async function start(name: string, args: string[]): Promise<void> {
     isOwnWork: values.cwd === undefined,
   };
 
-  await Bun.write(join(scratch, "state.json"), `${JSON.stringify(state, null, 2)}\n`);
+  await writeAtomic(join(scratch, "state.json"), `${JSON.stringify(state, null, 2)}\n`);
 
   // The binary, never the owner's shell function, which injects --dangerously-skip-permissions.
   const claude = Bun.which("claude") ?? fail("claude is not on PATH");

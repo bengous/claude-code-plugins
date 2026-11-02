@@ -24,6 +24,7 @@ import { isAbsolute, join } from "node:path";
 
 import { $ } from "bun";
 
+import { writeAtomic } from "../../tools/platform/fs.ts";
 import type { Env } from "../gates/affected.ts";
 
 export const LABEL = "flaky";
@@ -398,8 +399,9 @@ export async function retryReported(
 }
 
 async function write(dir: string, name: string, written: Report): Promise<void> {
-  await mkdir(dir, { recursive: true });
-  await Bun.write(join(dir, `${name}.json`), `${JSON.stringify(written, null, 2)}\n`);
+  await writeAtomic(join(dir, `${name}.json`), `${JSON.stringify(written, null, 2)}\n`, {
+    mkdir: true,
+  });
 
   for (const flake of written.flakes) {
     console.error(`flaky-report: ${flake.id} failed, then passed on the retry`);
