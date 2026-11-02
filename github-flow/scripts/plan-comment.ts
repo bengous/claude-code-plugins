@@ -234,6 +234,7 @@ export async function upsertPlanComment(
   const existing = findPlanComment(comments.stdout, login.stdout);
   // Outside the repository: a body file inside it would land in the next commit.
   const file = join(tmpdir(), `plan-comment-${pr.number}-${process.pid}.md`);
+  // oxlint-disable-next-line local/no-raw-write -- a scratch body file named by this pid, which gh reads only after the write returns
   await Bun.write(file, buildBody(plan, executedBy));
 
   try {

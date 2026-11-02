@@ -183,6 +183,7 @@ async function runFixer(fixer: Fixer, context: FixContext): Promise<RunResult | 
     // stdin: an edit made to the user's source while the fixer ran is lost. A rename over it would turn a symlink into
     // a file, drop the executable bit and break hard links, so the fix is not writeAtomic: keep the text read, read the
     // file again just before this write, and skip the write when the two differ.
+    // oxlint-disable-next-line local/no-raw-write -- the user's source keeps its mode, its symlink and its hard links, which a rename over it would drop
     writeFileSync(context.target.file, result.stdout);
   }
 

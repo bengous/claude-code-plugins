@@ -112,8 +112,18 @@ Each way to share code without a copy fails a target this repository has:
 
 ## What the lint holds
 
-Two rules, `local/no-raw-rename` and `local/no-raw-git-spawn` (`tools/oxlint/local/`), report a
-`rename` from `node:fs` and a git spawned by hand outside this directory, its copies and the tests,
-wherever `oxlint.config.ts` sets them to `error`. They are the only guarantee that code goes
-through these helpers: no rule sees a hand-written shell quote, errno test, error message, path
-check or in-place write, so those families use the helpers by review alone.
+Three rules (`tools/oxlint/local/`), at `error` for the whole repository in `oxlint.config.ts`,
+report outside this directory, its copies and the tests:
+
+- `local/no-raw-rename`: a `rename` or `renameSync` from `node:fs`;
+- `local/no-raw-write`: a whole file written in place, `writeFile` or `writeFileSync` from
+  `node:fs` (but to a numbered fd or with an append flag), `Bun.write` to a path or a `Bun.file` of
+  one, `Bun.file(…).write`; a write that stays in place says why in a disable comment at its line:
+  a file whose mode or link must survive, a scratch file nothing reads before the write returns;
+- `local/no-raw-git-spawn`: a git spawned by hand.
+
+They are the only guarantee that code goes through these helpers. No rule sees a hand-written
+shell quote, errno test, error message or path check, nor a file written through what it opens by
+hand: `appendFile`, `createWriteStream`, an fd from `open`, `Bun.file(…).writer()`, which append
+or rewrite in place as their flags say. Those families use the helpers, or stay outside them, by
+review alone.

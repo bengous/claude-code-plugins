@@ -224,6 +224,7 @@ async function rewriteTree(root: string, from: WipDir, to: FinalDir): Promise<vo
     const text = await Bun.file(path).text();
     const rewritten = rewriteLinks(text, from, to);
 
+    // oxlint-disable-next-line local/no-raw-write -- a read-only file must refuse the rewrite before the directory's rename, as fs.spec.ts holds, where a rename over it succeeds
     if (rewritten !== text) await Bun.write(path, rewritten);
   }
 }

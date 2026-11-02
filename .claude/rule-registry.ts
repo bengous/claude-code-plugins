@@ -74,7 +74,12 @@ export const REGISTRY: Registry = {
     },
     fa2b6c3a: {
       quote: "File, path and process code goes through the platform",
-      held: ["lint local/no-raw-rename", "lint local/no-raw-git-spawn", "gate platform-copies"],
+      held: [
+        "lint local/no-raw-rename",
+        "lint local/no-raw-write",
+        "lint local/no-raw-git-spawn",
+        "gate platform-copies",
+      ],
     },
     c7b55ea9: {
       quote: "Ship sources, never compiled binaries. `bun` is the runtime.",

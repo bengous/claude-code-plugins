@@ -74,6 +74,12 @@ const SOURCES = {
   "scripts/promises-const.ts": [
     'const fsp = require("fs").promises;',
     'await fsp.rename("a", "b");',
+    'const { promises } = require("fs");',
+    'await promises.rename("a", "b");',
+    'const { default: fs } = await import("node:fs");',
+    'fs.renameSync("a", "b");',
+    'const { readFileSync } = require("fs");',
+    'readFileSync.rename("a", "b");',
   ].join("\n"),
   "scripts/unrelated.ts": [
     'import { rename } from "./local.ts";',
@@ -204,8 +210,8 @@ describe("no-raw-rename", () => {
     expect(lines("scripts/nested-destructured.ts")).toEqual([1]);
   });
 
-  test("reports rename read off a const that holds the promises of a require of fs", () => {
-    expect(lines("scripts/promises-const.ts")).toEqual([2]);
+  test("reports rename read off a const that holds, or destructures, fs or its promises", () => {
+    expect(lines("scripts/promises-const.ts")).toEqual([2, 4, 6]);
   });
 
   test("leaves a rename of another module, required, loaded or imported, and a property spelled rename", () => {

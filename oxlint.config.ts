@@ -79,6 +79,7 @@ export default defineConfig({
 
     "local/no-raw-git-spawn": "error",
     "local/no-raw-rename": "error",
+    "local/no-raw-write": "error",
 
     // Off until the docs and comments it reports are rewritten.
     "local/no-frozen-facts": "off",

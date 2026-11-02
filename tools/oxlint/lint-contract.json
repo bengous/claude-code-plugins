@@ -154,6 +154,7 @@
     "local/no-frozen-facts": "off",
     "local/no-raw-git-spawn": "error",
     "local/no-raw-rename": "error",
+    "local/no-raw-write": "error",
     "max-depth": "off",
     "max-lines": "off",
     "max-lines-per-function": "off",

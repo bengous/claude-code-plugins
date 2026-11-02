@@ -1,7 +1,13 @@
 import type { ESTree, SourceCode } from "@oxlint/plugins";
 import { defineRule } from "@oxlint/plugins";
 
-import { constValueOf, importOf, isGlobalNamed, unwrapTs } from "../shared/import-binding.ts";
+import {
+  WHOLE_MODULE,
+  importOf,
+  isGlobalNamed,
+  propertyName,
+  valueOf,
+} from "../shared/import-binding.ts";
 import { isPlatformExempt } from "../shared/platform-exempt.ts";
 
 const BUN_SPAWNS = new Set(["spawn", "spawnSync"]);
@@ -13,27 +19,10 @@ const NODE_SPAWNS = new Set(["spawn", "spawnSync", "execFile", "execFileSync"]);
 /** `node:child_process`'s spawners that take a shell line, not a program. */
 const NODE_SHELLS = new Set(["exec", "execSync"]);
 
-const WHOLE_MODULE = new Set(["*", "default"]);
-
 /** A shell line that runs git: `git`, alone or before a space. */
 const GIT_LINE = /^\s*git(?:\s|$)/u;
 
 type Spawner = "bun" | "node" | "node shell";
-
-function propertyName(node: ESTree.MemberExpression): string | null {
-  if (!node.computed) return node.property.type === "Identifier" ? node.property.name : null;
-
-  return node.property.type === "Literal" && node.property.value !== null
-    ? String(node.property.value)
-    : null;
-}
-
-/** `node` past `as` and `satisfies`, or the `const` value it names. */
-function valueOf(sourceCode: SourceCode, node: ESTree.Node): ESTree.Node {
-  const value = unwrapTs(node);
-
-  return value.type === "Identifier" ? (constValueOf(sourceCode, value) ?? value) : value;
-}
 
 /**
  * A shell line that starts with `git`: a string, a template's head, a concatenation that starts

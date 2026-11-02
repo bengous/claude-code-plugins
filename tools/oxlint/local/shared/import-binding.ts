@@ -118,14 +118,13 @@ export function unwrapTs(node: ESTree.Node): ESTree.Node {
   return value;
 }
 
-/**
- * The value a `const` binding read by `identifier` is initialised with, past `as` and
- * `satisfies`; `null` for any other binding.
- */
-export function constValueOf(
+type ConstDeclarator = { readonly id: ESTree.VariableDeclarator["id"]; readonly init: ESTree.Node };
+
+/** The pattern and the initialiser of the `const` binding `identifier` reads. */
+function constDeclaratorOf(
   sourceCode: SourceCode,
   identifier: IdentifierNode,
-): ESTree.Node | null {
+): ConstDeclarator | null {
   const variable = referencedVariable(sourceCode, identifier);
   const [definition] = variable?.defs ?? [];
 
@@ -137,8 +136,94 @@ export function constValueOf(
     definition.parent.kind !== "const"
   )
     return null;
+  const { id, init } = definition.node;
 
-  const { init } = definition.node;
-
-  return init === null ? null : unwrapTs(init);
+  return init === null ? null : { id, init };
 }
+
+/**
+ * The value a `const` binding read by `identifier` is initialised with, past `as` and
+ * `satisfies`; `null` for any other binding, a destructured one included.
+ */
+export function constValueOf(
+  sourceCode: SourceCode,
+  identifier: IdentifierNode,
+): ESTree.Node | null {
+  const declarator = constDeclaratorOf(sourceCode, identifier);
+
+  return declarator?.id.type === "Identifier" ? unwrapTs(declarator.init) : null;
+}
+
+/** `node` past `as` and `satisfies`, or the `const` value it names. */
+export function valueOf(sourceCode: SourceCode, node: ESTree.Node): ESTree.Node {
+  const value = unwrapTs(node);
+
+  return value.type === "Identifier" ? (constValueOf(sourceCode, value) ?? value) : value;
+}
+
+export function literalOf(node: ESTree.Node): string | null {
+  return node.type === "Literal" && node.value !== null ? String(node.value) : null;
+}
+
+export function propertyName(node: ESTree.MemberExpression): string | null {
+  if (!node.computed) return node.property.type === "Identifier" ? node.property.name : null;
+
+  return literalOf(node.property);
+}
+
+export function keyName(property: ESTree.ObjectPattern["properties"][number]): string | null {
+  if (property.type !== "Property" || property.computed) return null;
+
+  return property.key.type === "Identifier" ? property.key.name : literalOf(property.key);
+}
+
+/** A `const` that takes one property of a value, `const { <key>: <name> } = <init>`. */
+export type Destructured = { readonly key: string; readonly init: ESTree.Node };
+
+/** What `identifier` was destructured from, at the top of a `const` pattern; `null` for any other binding. */
+export function destructuredOf(
+  sourceCode: SourceCode,
+  identifier: IdentifierNode,
+): Destructured | null {
+  const declarator = constDeclaratorOf(sourceCode, identifier);
+
+  if (declarator?.id.type !== "ObjectPattern") return null;
+
+  for (const property of declarator.id.properties) {
+    if (property.type !== "Property") continue;
+
+    const target =
+      property.value.type === "AssignmentPattern" ? property.value.left : property.value;
+
+    const key = keyName(property);
+
+    if (target.type === "Identifier" && target.name === identifier.name && key !== null)
+      return { key, init: unwrapTs(declarator.init) };
+  }
+
+  return null;
+}
+
+/** The module a `require("<module>")` or an `await import("<module>")` loads; `null` for any other node. */
+export function loadedModule(sourceCode: SourceCode, node: ESTree.Node): string | null {
+  const value = unwrapTs(node);
+
+  if (value.type === "AwaitExpression") {
+    const awaited = unwrapTs(value.argument);
+
+    return awaited.type === "ImportExpression" ? literalOf(awaited.source) : null;
+  }
+
+  if (
+    value.type !== "CallExpression" ||
+    value.callee.type !== "Identifier" ||
+    !isGlobalNamed(sourceCode, value.callee, "require")
+  )
+    return null;
+  const [specifier] = value.arguments;
+
+  return specifier === undefined ? null : literalOf(specifier);
+}
+
+/** The names an import takes a whole module under: `import * as m`, `import m`. */
+export const WHOLE_MODULE: ReadonlySet<string> = new Set(["*", "default"]);

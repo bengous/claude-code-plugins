@@ -57,6 +57,7 @@ export async function runPreEdit(context: HookContext): Promise<Verdict> {
   const scratch = path.join(scratchDir, path.basename(absolute));
 
   try {
+    // oxlint-disable-next-line local/no-raw-write -- the file is new, in a directory mkdtemp just made for this call alone: no reader can meet it half written
     writeFileSync(scratch, pending.content);
 
     const failures = await runFixers(

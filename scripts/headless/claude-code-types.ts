@@ -324,6 +324,7 @@ export async function regenerate(
   try {
     for (const [path, content] of Object.entries(EMPTY_MOD)) {
       await mkdir(join(mod, path, ".."), { recursive: true });
+      // oxlint-disable-next-line local/no-raw-write -- a scratch mod in a fresh mkdtemp directory, read by nothing until claude is spawned after the loop
       await writeFile(join(mod, path), content);
     }
 
@@ -339,6 +340,7 @@ export async function regenerate(
     // so the session's own SessionStart reaches no hook.
     await mkdir(config);
 
+    // oxlint-disable-next-line local/no-raw-write -- a scratch config in a fresh mkdtemp directory, read by nothing until claude is spawned below
     await writeFile(
       join(config, ".claude.json"),
       JSON.stringify({
@@ -768,6 +770,7 @@ async function runPipeline(start: string): Promise<void> {
   }
 
   const logFile = logPath(state, installed);
+  // oxlint-disable-next-line local/no-raw-write -- truncates the log in place, under the run lock, before the run appends to it through one fd
   writeFileSync(logFile, "");
   // Append mode, so the lines of the children that share this descriptor follow each other.
   const log = openSync(logFile, "a");
