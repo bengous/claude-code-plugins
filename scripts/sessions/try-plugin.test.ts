@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { type PluginDir, type PluginName, pluginDirAt, pluginNameIn } from "./plugin-sources.ts";
+import {
+  type PluginDir,
+  type PluginName,
+  pluginDirAt,
+  pluginNameIn,
+} from "../lib/plugin-sources.ts";
 import { claudeArgv, pluginTable, sourceTable, table } from "./try-plugin.ts";
 
 let scratch = "";

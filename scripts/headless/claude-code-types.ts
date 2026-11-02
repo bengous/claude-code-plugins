@@ -44,8 +44,8 @@ import type { Subprocess } from "bun";
 
 import { messageOf } from "../../tools/platform/pure.ts";
 import { isE2ePath } from "../gates/check-e2e-green.ts";
+import { hooksModulePlugins } from "../gates/hooks-modules.ts";
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "../lib/claude-code-types-paths.ts";
-import { hooksModulePlugins } from "../lib/hooks-modules.ts";
 import {
   command,
   commonDirOf,

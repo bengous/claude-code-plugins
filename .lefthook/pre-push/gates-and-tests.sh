@@ -23,7 +23,7 @@ git_env_list="$(git rev-parse --local-env-vars)"
 mapfile -t git_env_vars <<<"${git_env_list}"
 unset "${git_env_vars[@]}"
 
-bun ./scripts/release/check-plugin-bumps.ts --pre-push <<<"${pushed_refs}"
+bun ./scripts/releasing/check-plugin-bumps.ts --pre-push <<<"${pushed_refs}"
 bun ./scripts/gates/check-e2e-green.ts <<<"${pushed_refs}"
 bun ./scripts/gates/run-gates.ts
 bun ./scripts/gates/affected.ts test

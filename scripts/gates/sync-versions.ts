@@ -24,7 +24,7 @@ import {
   validateDescriptionCell,
   type PluginEntry,
   type PluginJson,
-} from "./marketplace-validation.ts";
+} from "../lib/marketplace-validation.ts";
 
 const SHOW_TOPLEVEL = ["rev-parse", "--show-toplevel"];
 

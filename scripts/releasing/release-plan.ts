@@ -15,9 +15,9 @@ import { join, resolve } from "node:path";
 import { isRecord, stringField } from "../../agent-hooks/json.ts";
 import { gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
-import { withoutSessionIdentity } from "../headless/session-env.ts";
 import { BREAKING } from "../lib/breaking-subject.ts";
-import type { PluginDir } from "../sessions/plugin-sources.ts";
+import type { PluginDir } from "../lib/plugin-sources.ts";
+import { withoutSessionIdentity } from "../lib/session-env.ts";
 import {
   CHANGELOG,
   changelogVerdict,

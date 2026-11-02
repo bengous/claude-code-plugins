@@ -60,7 +60,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 
 ## Non-Obvious Directories
 
-- `scripts/` - the repo's own tooling, one directory per concern (`gates/`, `landing/`, `release/`, `ci/`, `headless/`, `sessions/`, `reports/`, `lib/` for what two of them share). `land.ts` and `release.ts` stay at the root: the agent-hooks guard reads them there (`agent-hooks/guard/repo.ts`, `guard/argv.ts`).
+- `scripts/` - the repo's own tooling, one directory per concern (`gates/`, `landing/`, `releasing/`, `ci/`, `headless/`, `sessions/`, `reports/`), `lib/` for the helpers that belong to none. `land.ts` and `release.ts` stay at the root, and no directory is named `release/`: the agent-hooks guard reads `scripts/land.ts` and `scripts/release` by convention (`agent-hooks/guard/repo.ts`, `guard/argv.ts`, `guard/mentions.ts`).
 - `archive/` - retired plugins, not in the marketplace.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
 - `tools/platform/` - the file, path and process helpers; edit here, then `bun ./scripts/gates/sync-platform.ts --write`; never edit a copy.

@@ -26,7 +26,7 @@ export const REGISTRY: Registry = {
     e720734e: {
       quote: "Agents never bump a version or write a `CHANGELOG.md`",
       held: [
-        "hook scripts/release/check-plugin-bumps.ts",
+        "hook scripts/releasing/check-plugin-bumps.ts",
         "test scripts/release.integration.test.ts",
       ],
     },
@@ -110,9 +110,9 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/anti-slop/` - vendored lint plugin. Do not",
       held: ["gate lint-config"],
     },
-    "9d592292": {
+    "9018ee0e": {
       quote: "`scripts/` - the repo's own tooling, one directory per",
-      prose: "a fact about the layout; agent-hooks' tests hold the two root paths",
+      prose: "a fact about the layout; the convention is agent-hooks', read in its guard",
     },
     "667fb01a": {
       quote: "`tools/platform/` - the file, path and process helpers; edit",
@@ -187,7 +187,7 @@ export const REGISTRY: Registry = {
       quote: "The Stop and each subagent's SubagentStop are the",
       held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
     },
-    "42bf516c": {
+    "7fe9d962": {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",
       held: ["gate lint-config"],
     },

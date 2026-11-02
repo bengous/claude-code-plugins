@@ -29,7 +29,7 @@ import { parse } from "yaml";
 
 import config from "../../oxlint.config.ts";
 import { gitRead } from "../../tools/platform/git.ts";
-import { hooksModulePlugins } from "../lib/hooks-modules.ts";
+import { hooksModulePlugins } from "./hooks-modules.ts";
 
 export interface JsonObject {
   [key: string]: JsonValue;

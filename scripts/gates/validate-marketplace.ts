@@ -8,9 +8,6 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { GitError, git, gitRead } from "../../tools/platform/git.ts";
-import { CHANGELOG, changelogVerdict, versionCommits } from "../release/changelog.ts";
-import { commitAt, sourceDirOf, type Version } from "../release/check-plugin-bumps.ts";
-import { pluginDirAt } from "../sessions/plugin-sources.ts";
 import {
   validateNameMatch,
   validateVersionSync,
@@ -25,7 +22,10 @@ import {
   type PluginEntry,
   type PluginJson,
   type ValidationResult,
-} from "./marketplace-validation.ts";
+} from "../lib/marketplace-validation.ts";
+import { pluginDirAt } from "../lib/plugin-sources.ts";
+import { CHANGELOG, changelogVerdict, versionCommits } from "../releasing/changelog.ts";
+import { commitAt, sourceDirOf, type Version } from "../releasing/check-plugin-bumps.ts";
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;

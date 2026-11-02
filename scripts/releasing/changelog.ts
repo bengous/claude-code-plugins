@@ -9,8 +9,8 @@
  */
 
 import { gitReadSync } from "../../tools/platform/git.ts";
-import type { ValidationResult } from "../gates/marketplace-validation.ts";
-import type { PluginDir } from "../sessions/plugin-sources.ts";
+import type { ValidationResult } from "../lib/marketplace-validation.ts";
+import type { PluginDir } from "../lib/plugin-sources.ts";
 import { type CommitId, type SourceDir, type Version, versionAt } from "./check-plugin-bumps.ts";
 
 export const CHANGELOG = "CHANGELOG.md";

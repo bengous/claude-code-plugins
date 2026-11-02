@@ -42,9 +42,9 @@ const NO_ACTIONS = {};
 describe("changedRanges", () => {
   test("the lines each file gains or rewrites, a one-line hunk included", () => {
     const diff = [
-      "diff --git a/scripts/release/changelog.ts b/scripts/release/changelog.ts",
-      "--- a/scripts/release/changelog.ts",
-      "+++ b/scripts/release/changelog.ts",
+      "diff --git a/scripts/releasing/changelog.ts b/scripts/releasing/changelog.ts",
+      "--- a/scripts/releasing/changelog.ts",
+      "+++ b/scripts/releasing/changelog.ts",
       "@@ -10,2 +10,3 @@ export function semverOf(",
       "-old",
       "+new",
@@ -60,9 +60,9 @@ describe("changedRanges", () => {
     ].join("\n");
 
     expect(changedRanges(diff)).toEqual([
-      { file: "scripts/release/changelog.ts", start: 10, end: 12 },
-      { file: "scripts/release/changelog.ts", start: 41, end: 41 },
-      { file: "scripts/release/changelog.ts", start: 101, end: 112 },
+      { file: "scripts/releasing/changelog.ts", start: 10, end: 12 },
+      { file: "scripts/releasing/changelog.ts", start: 41, end: 41 },
+      { file: "scripts/releasing/changelog.ts", start: 101, end: 112 },
       { file: "agent-hooks/config.ts", start: 8, end: 9 },
     ]);
   });
@@ -230,8 +230,8 @@ describe("parseArgs", () => {
 
 describe("testFileOf", () => {
   test("is the .test.ts beside the module, or its .integration.test.ts when that one exists", () => {
-    expect(testFileOf("scripts/release/changelog.ts", () => false)).toBe(
-      "scripts/release/changelog.test.ts",
+    expect(testFileOf("scripts/releasing/changelog.ts", () => false)).toBe(
+      "scripts/releasing/changelog.test.ts",
     );
     expect(
       testFileOf("scripts/land.ts", (path) => path === "scripts/land.integration.test.ts"),

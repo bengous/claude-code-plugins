@@ -8,7 +8,7 @@ type StrykerOptions = ConstructorParameters<typeof Stryker>[0];
  * tests alone, and fails on a survivor on a
  * changed line or one the base's tests killed. A module joins once a run of it kills by assertion
  * alone: a git fixture under Stryker's parallel runs can kill a mutant by timing out. Issue #323
- * splits the pure tests of `scripts/release/changelog.ts` and `scripts/land.ts` from their fixtures.
+ * splits the pure tests of `scripts/releasing/changelog.ts` and `scripts/land.ts` from their fixtures.
  */
 export default {
   mutate: ["agent-hooks/config.ts"],

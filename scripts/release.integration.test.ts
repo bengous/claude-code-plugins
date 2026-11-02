@@ -17,6 +17,7 @@ import { parse, stringify } from "yaml";
 
 import { releaseScriptOf } from "../agent-hooks/guard/argv.ts";
 import type { Gh } from "./landing/ci-wait.ts";
+import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import {
   type Context,
   describeDryRun,
@@ -32,13 +33,13 @@ import {
   type ShipOutcome,
   type View,
 } from "./release.ts";
-import { type Semver, semverOf } from "./release/changelog.ts";
+import { type Semver, semverOf } from "./releasing/changelog.ts";
 import {
   type CommitId,
   commitAt,
   type MarketplaceName,
   type SourceDir,
-} from "./release/check-plugin-bumps.ts";
+} from "./releasing/check-plugin-bumps.ts";
 import {
   loadPlan,
   localDate,
@@ -46,8 +47,7 @@ import {
   planRelease,
   type ReleasePlan,
   sealPlan,
-} from "./release/release-plan.ts";
-import { type PluginDir, pluginDirAt } from "./sessions/plugin-sources.ts";
+} from "./releasing/release-plan.ts";
 
 let root = "";
 
@@ -183,10 +183,10 @@ function installSyncVersions() {
   );
 
   write("lefthook.yml", stringify({ "pre-commit": { jobs: [job] } }));
-  mkdirSync(join(repo, "scripts", "gates"), { recursive: true });
 
-  for (const file of ["sync-versions.ts", "marketplace-validation.ts"]) {
-    copyFileSync(join(import.meta.dir, "gates", file), join(repo, "scripts", "gates", file));
+  for (const file of ["gates/sync-versions.ts", "lib/marketplace-validation.ts"]) {
+    mkdirSync(dirname(join(repo, "scripts", file)), { recursive: true });
+    copyFileSync(join(import.meta.dir, file), join(repo, "scripts", file));
   }
 
   chmodSync(join(repo, "scripts", "gates", "sync-versions.ts"), 0o755);

@@ -29,6 +29,7 @@ import { styleText } from "node:util";
 
 import { messageOf } from "../tools/platform/pure.ts";
 import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./landing/ci-wait.ts";
+import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import { run as command } from "./lib/run.ts";
 import {
   CHANGELOG,
@@ -37,7 +38,7 @@ import {
   type Semver,
   semverOf,
   versionCommits,
-} from "./release/changelog.ts";
+} from "./releasing/changelog.ts";
 import {
   catalogAt,
   type CommitId,
@@ -45,7 +46,7 @@ import {
   type MarketplaceName,
   unbumped,
   versionAt,
-} from "./release/check-plugin-bumps.ts";
+} from "./releasing/check-plugin-bumps.ts";
 import {
   type JudgeEvent,
   JUDGE_MODEL,
@@ -59,8 +60,7 @@ import {
   sealPlan,
   withSection,
   withVersion,
-} from "./release/release-plan.ts";
-import { type PluginDir, pluginDirAt } from "./sessions/plugin-sources.ts";
+} from "./releasing/release-plan.ts";
 
 const REMOTE = "origin";
 

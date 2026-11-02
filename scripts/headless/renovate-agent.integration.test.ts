@@ -206,7 +206,7 @@ const renovateCommit = { sha: SHA, author: RENOVATE_EMAIL };
 const scriptsRisky: RiskyPath = (path) => path.startsWith("scripts/");
 
 describe("fixerVerdict", () => {
-  const fixed = ["scripts/release/release-plan.ts", "pinpoint/overlay/main.ts"];
+  const fixed = ["scripts/releasing/release-plan.ts", "pinpoint/overlay/main.ts"];
 
   const renovatePaths = ["package.json", "bun.lock"];
 
@@ -218,7 +218,7 @@ describe("fixerVerdict", () => {
         fixed,
         isRisky: scriptsRisky,
       }),
-    ).toEqual({ kind: "record", risky: ["scripts/release/release-plan.ts"] });
+    ).toEqual({ kind: "record", risky: ["scripts/releasing/release-plan.ts"] });
   });
 
   test("needs no verdict for a repair off the risky paths", () => {
@@ -237,7 +237,7 @@ describe("fixerVerdict", () => {
       }),
     ).toEqual({
       kind: "human",
-      why: "touches risky paths (scripts/release/release-plan.ts) through the lint and format fixers' repair, which the run vouches for only on Renovate's commits: cccccccc is by t@t",
+      why: "touches risky paths (scripts/releasing/release-plan.ts) through the lint and format fixers' repair, which the run vouches for only on Renovate's commits: cccccccc is by t@t",
     });
   });
 
@@ -251,7 +251,7 @@ describe("fixerVerdict", () => {
       }),
     ).toEqual({
       kind: "human",
-      why: "touches risky paths (scripts/release/release-plan.ts) through the lint and format fixers' repair, which the run vouches for only on Renovate's commits: those change risky paths too (scripts/lib/run.ts)",
+      why: "touches risky paths (scripts/releasing/release-plan.ts) through the lint and format fixers' repair, which the run vouches for only on Renovate's commits: those change risky paths too (scripts/lib/run.ts)",
     });
 
     expect(fixerVerdict({ under: [], renovatePaths: [], fixed, isRisky: scriptsRisky }).kind).toBe(

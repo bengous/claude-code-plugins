@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 import { runState, takeFile } from "../../scripts/headless/headless-run.ts";
 import { reportLines, type StatePaths, statePaths } from "../../scripts/headless/renovate-agent.ts";
-import { withoutSessionIdentity } from "../../scripts/headless/session-env.ts";
+import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";

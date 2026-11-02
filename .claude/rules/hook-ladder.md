@@ -7,7 +7,7 @@ paths:
   - ".lefthook/**"
   - "scripts/gates/run-gates.ts"
   - "scripts/gates/check-lint-config.ts"
-  - "scripts/release/check-plugin-bumps.ts"
+  - "scripts/releasing/check-plugin-bumps.ts"
   - "scripts/gates/check-e2e-green.ts"
 ---
 
@@ -63,7 +63,7 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   when the change reaches its directory (`kitsOf` in `scripts/gates/affected.ts`),
   every module's with `--all`; parity still demands them all.
   The exception is a check of what a push moves: the release guard,
-  `scripts/release/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
+  `scripts/releasing/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
   e2e gate, `scripts/gates/check-e2e-green.ts`, on a push to `dev`, are each one
   line of `.lefthook/pre-push/gates-and-tests.sh`, fed git's pushed-ref
   lines. As an entry the release guard would run at every Stop and on every

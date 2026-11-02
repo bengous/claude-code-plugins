@@ -9,8 +9,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { GitError, git, gitRead } from "../../tools/platform/git.ts";
-import { workingTreeFiles } from "../lib/working-tree-files.ts";
 import { checkKeys, classifyComponent, validateFrontmatter } from "./frontmatter-validation.ts";
+import { workingTreeFiles } from "./working-tree-files.ts";
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;

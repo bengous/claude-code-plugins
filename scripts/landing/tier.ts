@@ -24,7 +24,7 @@ import { parseArgs } from "node:util";
 import { isRecord, stringField } from "../../agent-hooks/json.ts";
 import { type GitReadOptions, gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
-import { withoutSessionIdentity } from "../headless/session-env.ts";
+import { withoutSessionIdentity } from "../lib/session-env.ts";
 import { VERSION_BUMP } from "../reports/sample-review.ts";
 import { BASE, short } from "./review-verdict.ts";
 import {

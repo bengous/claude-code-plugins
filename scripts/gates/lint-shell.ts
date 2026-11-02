@@ -7,8 +7,8 @@
  * paths it checks only those, after applying the same exclusions.
  */
 
-import { isShellScript } from "../lib/shell-scripts.ts";
-import { workingTreeFiles } from "../lib/working-tree-files.ts";
+import { isShellScript } from "./shell-scripts.ts";
+import { workingTreeFiles } from "./working-tree-files.ts";
 
 const SHFMT_FLAGS = ["-i", "2", "-ci"] as const;
 

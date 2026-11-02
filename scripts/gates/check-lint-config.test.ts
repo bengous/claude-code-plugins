@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { hooksModulePlugins } from "../lib/hooks-modules.ts";
 import {
   buildContract,
   checkAntiSlopRules,
@@ -23,6 +22,7 @@ import {
   UNMANIFESTED,
   unifiedDiff,
 } from "./check-lint-config.ts";
+import { hooksModulePlugins } from "./hooks-modules.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 

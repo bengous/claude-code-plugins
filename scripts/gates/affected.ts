@@ -28,7 +28,7 @@ import { parseArgs } from "node:util";
 import { GitError, git, gitRead } from "../../tools/platform/git.ts";
 import { retryReported } from "../ci/flaky-report.ts";
 import { TYPES_DIR } from "../lib/claude-code-types-paths.ts";
-import { hooksModulePlugins } from "../lib/hooks-modules.ts";
+import { hooksModulePlugins } from "./hooks-modules.ts";
 
 /** A top-level directory, or `.claude/hooks`. */
 export type Unit = string;

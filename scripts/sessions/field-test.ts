@@ -29,7 +29,7 @@ import { $ } from "bun";
 
 import { GitError, git, gitRead } from "../../tools/platform/git.ts";
 import { messageOf, shellQuote } from "../../tools/platform/pure.ts";
-import { installDependencies } from "./plugin-sources.ts";
+import { installDependencies } from "../lib/plugin-sources.ts";
 
 const USAGE = [
   "usage: field-test.ts <command> <name> ...",

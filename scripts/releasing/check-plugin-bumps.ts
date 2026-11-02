@@ -5,8 +5,8 @@
  * commits while its `plugin.json` `version` did not. Claude Code keys its
  * plugin cache on that version, so an installed copy would never see the change.
  *
- *   bun ./scripts/release/check-plugin-bumps.ts <base-ref> <head-ref>
- *   bun ./scripts/release/check-plugin-bumps.ts --pre-push < <git's pushed-ref lines>
+ *   bun ./scripts/releasing/check-plugin-bumps.ts <base-ref> <head-ref>
+ *   bun ./scripts/releasing/check-plugin-bumps.ts --pre-push < <git's pushed-ref lines>
  *
  * `--pre-push` checks each line whose remote ref is `refs/heads/main`, from its
  * remote oid to its local oid, with no fetch; a push to any other ref passes.
@@ -18,7 +18,7 @@ import { posix } from "node:path";
 
 import { gitReadSync, gitSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
-import { type PluginDir, pluginDirAt } from "../sessions/plugin-sources.ts";
+import { type PluginDir, pluginDirAt } from "../lib/plugin-sources.ts";
 
 const CATALOG = ".claude-plugin/marketplace.json";
 
@@ -333,7 +333,7 @@ if (import.meta.main) {
 
     if (releases === null) {
       console.error(
-        "Usage: bun ./scripts/release/check-plugin-bumps.ts <base-ref> <head-ref> | --pre-push",
+        "Usage: bun ./scripts/releasing/check-plugin-bumps.ts <base-ref> <head-ref> | --pre-push",
       );
       process.exitCode = 2;
     } else {

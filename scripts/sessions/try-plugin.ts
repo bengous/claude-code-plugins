@@ -30,7 +30,7 @@ import {
   readSources,
   readWorktrees,
   worktreePathFor,
-} from "./plugin-sources.ts";
+} from "../lib/plugin-sources.ts";
 
 const USAGE = "usage: try-plugin.ts [<plugin>...] [-- <claude args>] | --list";
 

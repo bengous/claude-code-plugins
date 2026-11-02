@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "../lib/claude-code-types-paths.ts";
-import { holdLock } from "../lib/flock.fixture.ts";
 import { stubbedEnv, write } from "./claude-code-types.fixture.ts";
 import {
   type Holder,
@@ -15,6 +14,7 @@ import {
   ROLLING_BRANCH,
   statePaths,
 } from "./claude-code-types.ts";
+import { holdLock } from "./flock.fixture.ts";
 import { runState as runStateOf } from "./headless-run.ts";
 
 const runState = (paths: Parameters<typeof runStateOf>[0]) => runStateOf<Holder>(paths);

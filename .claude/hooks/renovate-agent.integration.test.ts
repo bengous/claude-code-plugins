@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { write } from "../../scripts/headless/claude-code-types.fixture.ts";
+import { holdLock } from "../../scripts/headless/flock.fixture.ts";
 import { runState } from "../../scripts/headless/headless-run.ts";
 import { statePaths } from "../../scripts/headless/renovate-agent.ts";
-import { holdLock } from "../../scripts/lib/flock.fixture.ts";
 import { dayOf } from "./once-a-day.ts";
 
 const HOOK = join(import.meta.dir, "renovate-agent.ts");

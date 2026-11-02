@@ -6,7 +6,7 @@
  * rewritten, so a ref can sit at the same version as `dev` and still hold
  * three commits `dev` never saw.
  *
- * Run it to read the repo it lives in: `bun scripts/sessions/plugin-sources.ts
+ * Run it to read the repo it lives in: `bun scripts/lib/plugin-sources.ts
  * [<plugin>]` prints the plugin rows, or one plugin's sources, as JSON.
  */
 

@@ -11,9 +11,9 @@ import type { Subprocess } from "bun";
 
 import { renameSync, writeAtomicSync } from "../../tools/platform/fs.ts";
 import { isErrno, messageOf } from "../../tools/platform/pure.ts";
-import { tryLock, unlock } from "../lib/flock.ts";
+import { pluginDirAt, readWorktrees } from "../lib/plugin-sources.ts";
 import { runRaw } from "../lib/run.ts";
-import { pluginDirAt, readWorktrees } from "../sessions/plugin-sources.ts";
+import { tryLock, unlock } from "./flock.ts";
 
 const LOCK_TRIES = 10;
 

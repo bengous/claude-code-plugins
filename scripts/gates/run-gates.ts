@@ -12,9 +12,9 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
-import { hooksModulePlugins } from "../lib/hooks-modules.ts";
 import { currentScope, kitsOf, type Scope } from "./affected.ts";
 import { EXPECTED_COMMANDS, hooksModuleGates } from "./check-lint-config.ts";
+import { hooksModulePlugins } from "./hooks-modules.ts";
 
 export interface GateResult {
   gate: string;

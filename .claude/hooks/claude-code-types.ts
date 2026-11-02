@@ -31,7 +31,7 @@ import {
   statePaths,
 } from "../../scripts/headless/claude-code-types.ts";
 import { commonDirOf, runState, takeFile } from "../../scripts/headless/headless-run.ts";
-import { withoutSessionIdentity } from "../../scripts/headless/session-env.ts";
+import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";

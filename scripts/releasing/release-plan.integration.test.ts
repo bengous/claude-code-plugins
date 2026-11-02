@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { type PluginDir, pluginDirAt } from "../sessions/plugin-sources.ts";
+import { type PluginDir, pluginDirAt } from "../lib/plugin-sources.ts";
 import { parseChangelog, type Semver } from "./changelog.ts";
 import {
   type CommitId,

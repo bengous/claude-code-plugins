@@ -10,7 +10,7 @@
  * (used by the lefthook pre-commit job).
  */
 
-import { workingTreeFiles } from "../lib/working-tree-files.ts";
+import { workingTreeFiles } from "./working-tree-files.ts";
 
 const EXCLUDED_PREFIXES = ["archive/", "node_modules/", "tools/oxlint/anti-slop/"] as const;
 

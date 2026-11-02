@@ -39,6 +39,6 @@ describe("isPlatformExempt", () => {
 
   test("reads a Windows path and a cwd with a trailing separator", () => {
     expect(isPlatformExempt("C:\\repo\\", "C:\\repo\\todos\\lib\\platform\\pure.ts")).toBe(true);
-    expect(isPlatformExempt("C:\\repo", "C:\\repo\\scripts\\affected.ts")).toBe(false);
+    expect(isPlatformExempt("C:\\repo", "C:\\repo\\scripts\\gates\\affected.ts")).toBe(false);
   });
 });

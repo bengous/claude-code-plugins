@@ -12,8 +12,8 @@
 import { $ } from "bun";
 
 import { frozenFactsIn } from "../../tools/oxlint/local/shared/frozen-facts.ts";
-import { isShellScript, SHELL_SHEBANG_RE } from "../lib/shell-scripts.ts";
-import { workingTreeFiles } from "../lib/working-tree-files.ts";
+import { isShellScript, SHELL_SHEBANG_RE } from "./shell-scripts.ts";
+import { workingTreeFiles } from "./working-tree-files.ts";
 
 const EXCLUDED_PREFIXES = [
   "archive/",
