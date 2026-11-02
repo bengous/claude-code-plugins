@@ -10,6 +10,7 @@ const DEADLINES: ReadonlyMap<string, number> = new Map([
   ["pre-edit", DEADLINES_MS["pre-edit"]],
   ["pre-bash", DEADLINES_MS["pre-bash"]],
   ["stop", DEADLINES_MS.stop],
+  ["user-prompt-expansion", DEADLINES_MS["user-prompt-expansion"]],
 ]);
 
 const manifest: unknown = JSON.parse(
@@ -34,7 +35,14 @@ const commands = Object.entries(
 describe("hooks/hooks.json", () => {
   test("wires every subcommand of the kit's hooks", () => {
     expect(new Set(commands.map(([, subcommand]) => subcommand))).toEqual(
-      new Set(["session-start", "pre-edit", "pre-bash", "stop", "session-end"]),
+      new Set([
+        "session-start",
+        "pre-edit",
+        "pre-bash",
+        "stop",
+        "session-end",
+        "user-prompt-expansion",
+      ]),
     );
   });
 

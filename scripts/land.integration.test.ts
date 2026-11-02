@@ -2013,7 +2013,36 @@ describe("land, a number", () => {
       "feature/s-1, the base of #468, heads 2 open pull requests (#467, #471): close the extra ones, then land again",
     );
   });
+
+  test("stack.ts resolve prints the layers a number lands, and refuses on stderr", () => {
+    buildStack();
+    serveStack();
+
+    const resolved = resolveCli("470");
+
+    expect(resolved.exitCode).toBe(0);
+    expect(JSON.parse(resolved.stdout.toString())).toEqual({
+      stack: 470,
+      layers: STACK_BRANCHES.map((branch, index) => ({ number: 467 + index, branch })),
+    });
+
+    const refused = resolveCli("999");
+
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stdout.toString()).toBe("");
+    expect(refused.stderr.toString().trim()).toBe(
+      "stack: #999 is neither an open pull request nor a stack with open pull requests",
+    );
+  });
 });
+
+/** `stack.ts resolve <target> --json` run from the checkout, as a label command's targets runs it. */
+function resolveCli(target: string) {
+  return Bun.spawnSync(
+    [process.execPath, join(import.meta.dir, "landing", "stack.ts"), "resolve", target, "--json"],
+    { cwd: work, env: process.env, stdout: "pipe", stderr: "pipe" },
+  );
+}
 
 /** The landing of `target` as `--dry-run` runs it, the judge never asked. */
 function dryRun(target: string): Promise<Landing> {

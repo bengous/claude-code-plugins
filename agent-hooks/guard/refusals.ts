@@ -1,4 +1,4 @@
-import type { Approval, LandingProfile } from "../profile.ts";
+import type { Approval, LabelApproval, LandingProfile } from "../profile.ts";
 import { escapeRegExp } from "../text.ts";
 import type { PushTarget } from "./argv.ts";
 import { EVERY_BRANCH } from "./argv.ts";
@@ -282,12 +282,24 @@ export function dispatchRefusal(workflow: Approval, human: HumanMessage): string
         `Ask the human whether to run it, and dispatch it once their own message says so.`;
 }
 
-/** Why adding `label` to pull requests `prs` is refused; null when the human's latest typed message approves each. */
+/**
+ * Why adding `label` to pull requests `prs` is refused; null when the human's latest typed message approves each. A
+ * label a command owns is refused whatever the message: only the human's own command puts it on.
+ */
 export function labelRefusal(
-  label: Approval,
+  label: LabelApproval,
   prs: readonly number[] | null,
   human: HumanMessage,
 ): string | null {
+  if (label.command !== null) {
+    const target = prs?.length === 1 ? String(prs[0]) : "<number>";
+
+    return (
+      `agent-hooks: the label ${label.name} is the human's ok, and only their own /${label.command.name} <number> puts it on: the agent never adds it. ` +
+      `Ask the human to type /${label.command.name} ${target}.`
+    );
+  }
+
   if (prs === null) {
     return (
       `agent-hooks: the label ${label.name} is the human's ok on one pull request, and this command does not name each it labels by its number. ` +

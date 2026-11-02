@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { Config } from "./config.ts";
 import { DEFAULT_CAP, loadConfig } from "./config.ts";
+import { encode } from "./encode.ts";
 import { messageOf } from "./errors.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
@@ -31,7 +32,14 @@ export const HARNESSES = ["claude", "codex"] as const;
 
 export type Harness = (typeof HARNESSES)[number];
 
-export const HOOK_KINDS = ["session-start", "pre-edit", "post-edit", "stop", "pre-bash"] as const;
+export const HOOK_KINDS = [
+  "session-start",
+  "pre-edit",
+  "post-edit",
+  "stop",
+  "pre-bash",
+  "user-prompt-expansion",
+] as const;
 
 export type HookKind = (typeof HOOK_KINDS)[number];
 
@@ -47,15 +55,7 @@ export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   "post-edit": 50_000,
   stop: 200_000,
   "pre-bash": 25_000,
-};
-
-/** The event name a hook's `hookSpecificOutput` carries, under Claude Code and Codex alike. */
-const HOOK_EVENTS: Readonly<Record<HookKind, string>> = {
-  "session-start": "SessionStart",
-  "pre-edit": "PreToolUse",
-  "post-edit": "PostToolUse",
-  stop: "Stop",
-  "pre-bash": "PreToolUse",
+  "user-prompt-expansion": 25_000,
 };
 
 /** A killed command's output grace, then the time to blame, record and encode the run. */
@@ -473,8 +473,8 @@ function persist(state: SessionState, now: number): void {
 }
 
 /**
- * A root hook never blocks: an invalid config is a note the user must act on; a crash is reported on stderr and lets
- * the tool run as asked.
+ * A root hook's own failure never blocks: an invalid config is a note the user must act on; a crash, or a run past
+ * the deadline, is reported on stderr and lets the tool run or the command expand as asked.
  */
 async function rootVerdict(
   options: RootRun,
@@ -541,55 +541,4 @@ async function pastDeadline(
   await Bun.sleep(deadline.remaining());
 
   throw new Error(`${hook} ran past its ${deadlineMs} ms deadline`);
-}
-
-/** The wire shape of a verdict. Key order is part of the contract: the tests pin the bytes. */
-export function encode(verdict: Verdict, harness: Harness, hook: HookKind): string | null {
-  switch (verdict.kind) {
-    case "allow": {
-      return harness === "codex" && hook === "stop" ? JSON.stringify({ continue: true }) : null;
-    }
-
-    case "note": {
-      return harness === "codex" && hook === "stop"
-        ? JSON.stringify({ continue: true, systemMessage: verdict.text })
-        : JSON.stringify({ systemMessage: verdict.text });
-    }
-
-    case "context": {
-      return JSON.stringify({
-        hookSpecificOutput: { hookEventName: HOOK_EVENTS[hook], additionalContext: verdict.text },
-      });
-    }
-
-    case "block": {
-      return JSON.stringify({ decision: "block", reason: verdict.reason });
-    }
-
-    case "deny": {
-      return JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: verdict.reason,
-        },
-      });
-    }
-
-    case "rewrite": {
-      if (harness !== "claude" || hook !== "pre-edit") {
-        return null;
-      }
-
-      return JSON.stringify({
-        hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: verdict.updatedInput },
-        systemMessage: verdict.text,
-      });
-    }
-
-    default: {
-      const unreachable: never = verdict;
-      throw new Error(`unhandled verdict: ${JSON.stringify(unreachable)}`);
-    }
-  }
 }

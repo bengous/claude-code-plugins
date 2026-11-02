@@ -6,10 +6,11 @@ import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
+import { encode } from "./encode.ts";
 import type { Runner } from "./exec.ts";
 import { run } from "./exec.ts";
 import type { HookKind, StopHandler } from "./hook.ts";
-import { encode, heartbeat, runHook, searchStarts } from "./hook.ts";
+import { heartbeat, runHook, searchStarts } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import type { Input } from "./payload.ts";
 import { parseInput } from "./payload.ts";
@@ -273,12 +274,15 @@ describe("encode", () => {
       expect(encode(context, harness, "session-start")).toBe(
         `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":${textJson}}}`,
       );
+      expect(encode(context, harness, "user-prompt-expansion")).toBe(
+        `{"hookSpecificOutput":{"hookEventName":"UserPromptExpansion","additionalContext":${textJson}},"systemMessage":${textJson}}`,
+      );
     }
   });
 
   test("block", () => {
     for (const harness of ["claude", "codex"] as const) {
-      for (const hook of [...editHooks, "stop"] as const) {
+      for (const hook of [...editHooks, "stop", "user-prompt-expansion"] as const) {
         expect(encode(block, harness, hook)).toBe(`{"decision":"block","reason":${textJson}}`);
       }
     }

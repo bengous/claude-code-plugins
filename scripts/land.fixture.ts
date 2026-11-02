@@ -1,6 +1,7 @@
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { tryLock } from "./headless/flock.ts";
 import type { Comment } from "./landing/review-verdict.ts";
 
 // Stands in for `gh` in land.integration.test.ts: one pull request and the ci.yml runs of
@@ -635,6 +636,11 @@ async function answer(
 
 if (import.meta.main) {
   const [file = "", ...args] = process.argv.slice(2);
+  // land.ts reads several pull requests at once: each call reads and rewrites the whole state, one at a time.
+  const lock = openSync(`${file}.lock`, "a");
+
+  while (!tryLock(lock, "exclusive")) Bun.sleepSync(2);
+
   const github = readGitHub(file);
 
   const call = args.join(" ");
@@ -646,6 +652,7 @@ if (import.meta.main) {
     : await answer(github, args);
 
   writeFileSync(file, JSON.stringify(github));
+  closeSync(lock);
 
   if (out === null) {
     console.error(`fake gh: no answer for gh ${args.join(" ")}`);

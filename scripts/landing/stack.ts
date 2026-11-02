@@ -4,11 +4,16 @@
  * branch's open pull request, or the open layers of a GitHub stack. A number is read both ways, since a stack takes
  * its number from the pull requests' sequence; one that is both is refused. The stacks endpoint is a public preview:
  * a field it stops answering is refused here, never guessed.
+ *
+ *   bun ./scripts/landing/stack.ts resolve <n> --json   {"stack": <n>|null, "layers": [{"number", "branch"}, …]}
+ *
+ * The `targets` an agent-hooks label command can name, to know which pull requests `n` lands: a refusal goes to
+ * stderr, exit 1.
  */
 
 import { isRecord, recordField, stringField } from "../../agent-hooks/json.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
-import type { Gh } from "./ci-wait.ts";
+import { type Gh, ghCli } from "./ci-wait.ts";
 import { DEV } from "./review-verdict.ts";
 
 /** One pull request of what lands: its branch, the base it is open against, its head on GitHub. */
@@ -255,4 +260,34 @@ export async function resolveTarget(gh: Gh, n: number): Promise<Target> {
   if (pr.state !== "OPEN") return refused(`#${n} is ${pr.state.toLowerCase()}, not open`);
 
   return chainOf(gh, pr);
+}
+
+if (import.meta.main) {
+  const usage = "Usage: bun ./scripts/landing/stack.ts resolve <n> --json";
+  const [command, target, format, ...rest] = process.argv.slice(2);
+  const number = /^#?(\d+)$/u.exec(target ?? "")?.[1];
+
+  if (command !== "resolve" || number === undefined || format !== "--json" || rest.length > 0) {
+    console.error(usage);
+    process.exit(2);
+  }
+
+  try {
+    const resolved = await resolveTarget((args) => ghCli(args), Number(number));
+
+    if (resolved.kind === "refused") {
+      console.error(`stack: ${resolved.why}`);
+      process.exitCode = 1;
+    } else {
+      console.log(
+        JSON.stringify({
+          stack: resolved.stack,
+          layers: resolved.layers.map(({ number: layer, branch }) => ({ number: layer, branch })),
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(`stack: ${messageOf(error)}`);
+    process.exitCode = 1;
+  }
 }

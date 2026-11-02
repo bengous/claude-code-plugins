@@ -264,9 +264,12 @@ function judgeGated(
   }
 
   const wanted = new Set(door.labels.map((label) => label.toLowerCase()));
-  const label = read.value.labels.find((entry) => wanted.has(entry.name.toLowerCase()));
 
-  return label === undefined ? ALLOW : refusal(labelRefusal(label, door.prs, context.human()));
+  return combine(
+    read.value.labels
+      .filter((entry) => wanted.has(entry.name.toLowerCase()))
+      .map((label) => refusal(labelRefusal(label, door.prs, context.human()))),
+  );
 }
 
 /**

@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing and per-task worktree guards on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, whether its tasks take their own worktrees or whether Haiku judges agent commit messages (commit judge), to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), when the kit says another session is live in the checkout, or when the landing guard refuses a push, a merge or a release.
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing and per-task worktree guards on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, whether its tasks take their own worktrees or whether Haiku judges agent commit messages (commit judge), to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), when the kit says another session is live in the checkout, when the landing guard refuses a push, a merge or a release, or when a workflow dispatch or a label waits for the human's approval, or the kit blocks a slash command.
 argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -15,8 +15,8 @@ that does not move with the plugin's version. A repository opts in with one file
 never redeclare its hooks in a `.claude/settings.json` or `.codex/config.toml`: a hook declared at two
 levels runs twice.
 
-A key the kit adds lands in two steps: first the kit's version that reads it, then the repository's
-file, once the plugin installed where the repository's agents run is at that version (a catalog that
+A key the kit adds, or a new form of a key's value, lands in two steps: first the kit's version that
+reads it, then the repository's file, once the plugin installed where the repository's agents run is at that version (a catalog that
 installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
 and, for a key under `profile`, a kit before 1.4.0 also refuses every door in a checkout holding it, its
 landing guard reading the whole profile; from 1.4.0 the guard reads `profile.landing` alone.
@@ -93,8 +93,8 @@ a note to the user at SessionStart and an error of the config at the Stop and in
 guard, which reads `profile.landing` alone, is not affected.
 
 A session is live in a checkout while one of its beats there is live: the kit hooks write the beats, and the
-Stop of its main session settles them. Every kit hook (SessionStart, pre-edit, pre-bash, Stop,
-SubagentStop) beats for its agent in the checkout around its cwd, when a root encloses it: it writes
+Stop of its main session settles them. Every kit hook (SessionStart, pre-edit, pre-bash,
+UserPromptExpansion, Stop, SubagentStop) beats for its agent in the checkout around its cwd, when a root encloses it: it writes
 `~/.local/state/agent-hooks/<agent>__<checkout hash>.beat` empty, the agent working, and refreshes its
 mtime. The Stop of the main session then settles the session's beats:
 
@@ -306,6 +306,33 @@ What the model bounds and the kit does not try to cross:
   naming the error. A prompt suggestion the human accepted counts as typed. Not gated: a rerun of a
   past run of a listed workflow (`gh run rerun`, `actions/runs/<id>/rerun`), whose workflow the guard
   cannot tell without asking GitHub.
+- A label may name a command in place of phrases: `"labels": { "<label>": { "command": "<name>",
+  "targets": "<command with {args}>" } }`, `<name>` written without its slash (`land`). Then the agent
+  never adds it: the guard refuses every addition of it, whatever the message, and names `/<name> n`
+  for the human to type. The human's own `/<name> n` puts it on: Claude Code fires
+  UserPromptExpansion on a command the human typed, a queued one included, and on no peer message,
+  task notification or Skill call of the model's (measured in the terminal; Desktop not measured).
+  The kit's `user-prompt-expansion` hook takes one number, `n` or `#n`, and runs `targets` from the
+  root, split into words with no shell (no pipe, `&&` or variable), `{args}` replaced by the number's
+  digits. Its stdout is one JSON object: `"layers"`, each with a numeric `"number"`, and an optional
+  numeric `"stack"`. The hook puts the label on each of those pull requests, one at a time, taken off
+  first when it is on so GitHub dates it anew, and its `additionalContext` names them for the agent.
+  The same line goes to the human as a `systemMessage`. An argument other than one number, `targets`
+  failing or printing another shape, or a label that does not go on blocks the command, the reason
+  shown to the human; the pull requests already labelled keep it, and the reason names them. An error
+  anywhere in the repo file, not only in `approvals`, is a `systemMessage` instead, and the command
+  expands with no label put on. A crash or a run past the hook's deadline lets the command expand with
+  no line at all: the pull requests labelled before it keep the label, and one the hook took it off
+  stays without it. The command is a skill of the repository itself, written with
+  `disable-model-invocation: true`: the kit does not check it, and a skill the model can invoke runs
+  with no label on. pre-bash also refuses a command that runs the kit's `user-prompt-expansion` hook
+  itself (`agent-hooks.ts`, or its `agent-hooks` symlink, followed by that word or a word known only
+  when it runs), in any repository; and, where the cwd's profile names a label command, a line that
+  hands a prompt to a Claude Code session (`claude`, `tmux`, `screen`, the repository's
+  `field-test.ts`) while one of its words or heredocs holds `/<name>` at a prompt's start or after a
+  space: that session takes it as the human's typing. Not covered: a prompt held in a variable or a
+  file, keys sent one character at a time, another program that drives a terminal, a script written
+  then run, a checkout whose profile names no such command, a tool other than Bash.
 - `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
   clean review verdict for that exact change. The kit validates the list and enforces nothing with it:
   the repository's own land script reads it. A glob is relative to the repository root, as git names a

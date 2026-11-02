@@ -40,6 +40,7 @@
         ".claude/settings.json",
         ".claude/agent-hooks.jsonc",
         "agent-hooks/pre-bash.ts",
+        "agent-hooks/user-prompt-expansion.ts",
         "agent-hooks/guard/**",
         "agent-hooks/profile.ts",
         "agent-hooks/reader.ts",

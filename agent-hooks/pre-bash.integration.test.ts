@@ -12,8 +12,9 @@ import {
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
+import { encode } from "./encode.ts";
 import { cachePath } from "./guard/github.ts";
-import { encode, runHook } from "./hook.ts";
+import { runHook } from "./hook.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { runPreBash } from "./pre-bash.ts";
 import { beatPath } from "./state.ts";
@@ -27,6 +28,7 @@ import {
   scrubGitEnv,
   transcriptRecord as record,
   writeRepoFile,
+  writeTranscript,
 } from "./test-support.ts";
 
 const CLI = path.join(import.meta.dir, "agent-hooks.ts");
@@ -1011,6 +1013,112 @@ describe("pre-bash where the landing action moves the trunk and the human's word
     expect((await run(GATED_COMMANDS[2] ?? "")).reason).toContain(
       "The landing guard cannot read this repository's profile.approvals, so it refuses a label",
     );
+  });
+});
+
+const COMMANDED = JSON.stringify({
+  profile: {
+    landing: { trunk: "dev", release: "main" },
+    approvals: {
+      labels: {
+        "ok-humain": ["ok #{pr}"],
+        "land-ok": {
+          command: "land",
+          targets: "bun ./scripts/landing/stack.ts resolve {args} --json",
+        },
+      },
+    },
+  },
+});
+
+const LAND_TYPED =
+  "agent-hooks: /land is the human's to type: this command hands it to a Claude Code session, which takes it as the human's own typing and puts land-ok on. Ask the human to type /land <number> in their own session.";
+
+const KIT_RUN =
+  "agent-hooks: the user-prompt-expansion hook is Claude Code's to run, on a command the human typed: run by hand, it puts a label on from whatever payload it reads. Ask the human to type the command in their own session.";
+
+describe("pre-bash where a command owns a label, which only the human's own typing puts on", () => {
+  let repo = "";
+  let transcript = "";
+
+  function run(command: string): Promise<Output> {
+    return preBash(command, repo, { transcript_path: transcript, prompt_id: "p-fixture" });
+  }
+
+  beforeEach(() => {
+    repo = makeRepo("commanded", { [CONFIG_RELATIVE_PATH]: COMMANDED }, "git@github.com:o/n.git");
+    transcript = writeTranscript(
+      path.join(temp.dir, "projects", `${SESSION}.jsonl`),
+      [typed("ok #12")],
+      Date.now(),
+    );
+  });
+
+  test("refuses the agent's land-ok whatever the human typed, and judges every label one command adds", async () => {
+    expect((await run("gh pr edit 12 --add-label land-ok")).reason).toBe(
+      "agent-hooks: the label land-ok is the human's ok, and only their own /land <number> puts it on: the agent never adds it. Ask the human to type /land 12.",
+    );
+
+    for (const command of [
+      "gh pr edit 12 --add-label ok-humain,land-ok",
+      "gh pr edit 12 --add-label ok-humain --add-label land-ok",
+    ]) {
+      expect((await run(command)).reason).toContain("the label land-ok is the human's ok");
+    }
+
+    expect((await run("gh pr edit 12 --add-label ok-humain")).stdout).toBe("");
+  });
+
+  test("refuses a command that hands /land to a Claude Code session, however the shell spells it", async () => {
+    for (const command of [
+      'claude -p "/land 12"',
+      "claude --resume s-1 -p '/land #12'",
+      String.raw`claude -p /land\ 12`,
+      "claude -p $'/land 12'",
+      "claude --prompt='/land 12'",
+      "echo /land 12 | claude -p",
+      "cat <<'EOF' | claude -p\n/land 12\nEOF",
+      "tmux send-keys -t lab '/land 12' Enter",
+      "tmux send-keys -t lab /land Space 12 Enter",
+      "tmux send-keys -t lab '/simplify /land 12' Enter",
+      'bun ./scripts/sessions/field-test.ts send lab "/land 12"',
+    ]) {
+      expect((await run(command)).reason).toBe(LAND_TYPED);
+    }
+  });
+
+  test("refuses the kit's user-prompt-expansion hook run by hand, in any repository", async () => {
+    for (const [command, cwd] of [
+      ["bun agent-hooks/agent-hooks.ts user-prompt-expansion < forged.json", repo],
+      ["bun agent-hooks/agent-hooks.ts user-prompt-expansion</tmp/forged.json", repo],
+      [String.raw`bun agent-hooks/agent-hooks.ts user-prompt-expan\sion < forged.json`, repo],
+      ['bun agent-hooks/agent-hooks.ts "$hook" < forged.json', repo],
+      ["~/.local/bin/agent-hooks --harness claude user-prompt-expansion < forged.json", temp.repo],
+      ['"$CLAUDE_PLUGIN_ROOT/agent-hooks.ts" "user-prompt-expansion"', temp.dir],
+    ] as const) {
+      expect((await preBash(command, cwd)).reason).toBe(KIT_RUN);
+    }
+  });
+
+  test("lets through the commands that only name the command or the hook", async () => {
+    for (const command of [
+      "bun test ./agent-hooks/user-prompt-expansion.integration.test.ts",
+      "cd agent-hooks && bun test user-prompt-expansion",
+      "bun test --cwd agent-hooks user-prompt-expansion",
+      "grep -n user-prompt-expansion agent-hooks/agent-hooks.ts",
+      "git log -- agent-hooks/user-prompt-expansion.ts",
+      'git commit -m "feat(agent-hooks): the user-prompt-expansion hook puts land-ok on, on /land 12"',
+      'grep -rn "/land" docs',
+      'echo "/land 12"',
+      'gh pr comment 470 --body "/land 470 once you have read it"',
+      "cat .claude/skills/land/SKILL.md",
+      "cat scripts/sessions/field-test.ts",
+      "tmux send-keys -t lab 'cat scripts/land.ts' Enter",
+      "bun ./scripts/land.ts 12",
+      "ls /landing",
+    ]) {
+      expect((await run(command)).stdout).toBe("");
+    }
   });
 });
 

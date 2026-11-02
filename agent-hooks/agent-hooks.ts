@@ -15,11 +15,12 @@ import { ConfigError } from "./reader.ts";
 import { findRoot, realPathOf } from "./scope.ts";
 import { runSessionEnd, runSessionStart } from "./session-start.ts";
 import { runStop } from "./stop.ts";
+import { runUserPromptExpansion } from "./user-prompt-expansion.ts";
 import { runVerify } from "./verify.ts";
 
 const USAGE = [
   "usage:",
-  "  agent-hooks <session-start|pre-edit|post-edit|stop|pre-bash> [--harness claude|codex]   (payload on stdin)",
+  "  agent-hooks <session-start|pre-edit|post-edit|stop|pre-bash|user-prompt-expansion> [--harness claude|codex]   (payload on stdin)",
   "  agent-hooks session-end   (Claude Code SessionEnd payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
@@ -49,6 +50,10 @@ function hookRun(hook: HookKind): HookRun {
 
     case "pre-bash": {
       return { hook, handler: runPreBash };
+    }
+
+    case "user-prompt-expansion": {
+      return { hook, handler: runUserPromptExpansion };
     }
 
     default: {

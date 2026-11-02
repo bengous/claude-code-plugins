@@ -48,6 +48,11 @@ function expectConfigError(jsonc: string, keyPath: string): void {
   );
 }
 
+/** A repo file whose profile gives the label land-ok the entry `entry`. */
+function labelled(entry: string): string {
+  return `{ "profile": { "approvals": { "labels": { "land-ok": ${entry} } } } }`;
+}
+
 function fixer(fixers: readonly Fixer[], name: string): Fixer {
   const found = fixers.find((candidate) => candidate.name === name);
 
@@ -533,12 +538,25 @@ describe("profile.landing.by and profile.approvals", () => {
   test("reads the workflows and the labels that wait for the human's words", () => {
     expect(load(`{ "profile": { ${APPROVALS} } }`).profile.approvals).toEqual({
       workflows: [{ name: "release.yml", phrases: ["on publie", "release"] }],
-      labels: [{ name: "ok-humain", phrases: ["ok #{pr}", "ok pour la #{pr}"] }],
+      labels: [{ name: "ok-humain", phrases: ["ok #{pr}", "ok pour la #{pr}"], command: null }],
     });
     expect(
       load(`{ "profile": { "approvals": { "labels": { "ok-humain": ["ok #{pr}"] } } } }`).profile
         .approvals,
-    ).toEqual({ workflows: [], labels: [{ name: "ok-humain", phrases: ["ok #{pr}"] }] });
+    ).toEqual({
+      workflows: [],
+      labels: [{ name: "ok-humain", phrases: ["ok #{pr}"], command: null }],
+    });
+    expect(
+      load(
+        `{ "profile": { "approvals": { "labels": { "land-ok": { "command": "land", "targets": "resolve {args}" } } } } }`,
+      ).profile.approvals,
+    ).toEqual({
+      workflows: [],
+      labels: [
+        { name: "land-ok", phrases: [], command: { name: "land", targets: "resolve {args}" } },
+      ],
+    });
     expect(
       load(`{ "profile": { "approvals": { "workflows": { "release.yaml": ["go"] } } } }`).profile
         .approvals,
@@ -578,6 +596,39 @@ describe("profile.landing.by and profile.approvals", () => {
     expectConfigError(
       `{ "profile": { "approvals": { "pushes": { "dev": ["go"] } } } }`,
       "profile.approvals.pushes",
+    );
+  });
+
+  test("refuses a label command with no name, a name that is no command, targets without {args}, an unknown key", () => {
+    expectConfigError(
+      labelled(`{ "targets": "resolve {args}" }`),
+      "profile.approvals.labels.land-ok.command",
+    );
+    expectConfigError(
+      labelled(`{ "command": "/land", "targets": "resolve {args}" }`),
+      "profile.approvals.labels.land-ok.command",
+    );
+    expectConfigError(
+      labelled(`{ "command": "land", "targets": "resolve 12" }`),
+      "profile.approvals.labels.land-ok.targets",
+    );
+    expectConfigError(
+      labelled(`{ "command": "land", "targets": "resolve {args}", "phrases": [] }`),
+      "profile.approvals.labels.land-ok.phrases",
+    );
+  });
+
+  test("refuses a label command on a blank label, and a command that owns two labels", () => {
+    expectConfigError(
+      `{ "profile": { "approvals": { "labels": { " ": { "command": "land", "targets": "resolve {args}" } } } } }`,
+      "profile.approvals.labels. ",
+    );
+    expect(
+      configErrorOf(
+        `{ "profile": { "approvals": { "labels": { "land-ok": { "command": "land", "targets": "resolve {args}" }, "ship-ok": { "command": "land", "targets": "resolve {args}" } } } } }`,
+      ).message,
+    ).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.approvals.labels.ship-ok.command: /land already puts land-ok on: one command owns one label`,
     );
   });
 

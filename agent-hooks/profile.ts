@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { isStringArray } from "./json.ts";
+import { isRecord, isStringArray } from "./json.ts";
 import type { Reader } from "./reader.ts";
 import {
   ConfigError,
@@ -28,12 +28,26 @@ export type LandingProfile = {
 export type Approval = { readonly name: string; readonly phrases: readonly string[] };
 
 /**
+ * The human's own slash command that puts a label on, `/<name> <n>`: `targets`, with `{args}` in place of `n`, prints
+ * the pull requests that take it, as `{"layers": [{"number": …}, …]}`.
+ */
+export type LabelCommand = { readonly name: string; readonly targets: string };
+
+/**
+ * A label that is the human's ok on a pull request: opened by phrases of the human's latest typed message, or, when a
+ * command owns it, by that command alone, which the agent never adds the label in place of.
+ */
+export type LabelApproval =
+  | (Approval & { readonly command: null })
+  | { readonly name: string; readonly phrases: readonly []; readonly command: LabelCommand };
+
+/**
  * The doors that wait for the human's words: dispatching each workflow, named by its file, and adding each label to a
- * pull request, whose phrases name it by `{pr}`.
+ * pull request, whose phrases name it by `{pr}`, or whose command the human types.
  */
 export type ApprovalsProfile = {
   readonly workflows: readonly Approval[];
-  readonly labels: readonly Approval[];
+  readonly labels: readonly LabelApproval[];
 };
 
 /** The paths a change lands through only with a clean review verdict for exactly that change. */
@@ -75,6 +89,12 @@ const LANDING_KEYS = new Set(["trunk", "release", "by"]);
 const APPROVALS_KEYS = new Set(["workflows", "labels"]);
 
 const PR_PLACEHOLDER = "{pr}";
+
+const ARGS_PLACEHOLDER = "{args}";
+
+const COMMAND_KEYS = new Set(["command", "targets"]);
+
+const COMMAND_NAME = /^[a-z][\w-]*$/u;
 
 const WORKFLOW_FILE = /^[\w.-]+\.ya?ml$/u;
 
@@ -176,13 +196,80 @@ function readApprovals(profile: Reader): ApprovalsProfile | null {
   const approvals = child(profile, "approvals");
   rejectUnknownKeys(approvals, APPROVALS_KEYS);
   const workflows = readApprovalTable(child(approvals, "workflows"), "workflow");
-  const labels = readApprovalTable(child(approvals, "labels"), "label");
+  const labels = readLabelTable(child(approvals, "labels"));
 
   if (workflows.length === 0 && labels.length === 0) {
     throw new ConfigError(profile.file, approvals.keyPath, "expected workflows or labels");
   }
 
   return { workflows, labels };
+}
+
+function requiredString(reader: Reader, key: string): string {
+  const value = string(reader, key);
+
+  if (value === undefined || value.trim() === "") {
+    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected a string");
+  }
+
+  return value;
+}
+
+/** A table of labels to phrases, or to the command that alone puts the label on, `{"command", "targets"}`. */
+function readLabelTable(reader: Reader): LabelApproval[] {
+  const byPhrases = Object.fromEntries(
+    Object.entries(reader.record).filter(([, value]) => !isRecord(value)),
+  );
+
+  const phrased = readApprovalTable({ ...reader, record: byPhrases }, "label").map(
+    (approval): LabelApproval => ({ ...approval, command: null }),
+  );
+
+  const owners = new Map<string, string>();
+
+  const commanded = Object.keys(reader.record)
+    .filter((name) => isRecord(reader.record[name]))
+    .map((name): LabelApproval => {
+      if (name.trim() === "") {
+        throw new ConfigError(reader.file, keyPathOf(reader, name), "expected a label name");
+      }
+
+      const entry = child(reader, name);
+      rejectUnknownKeys(entry, COMMAND_KEYS);
+      const command = requiredString(entry, "command");
+      const targets = requiredString(entry, "targets");
+      const owner = owners.get(command);
+
+      if (owner !== undefined) {
+        throw new ConfigError(
+          entry.file,
+          keyPathOf(entry, "command"),
+          `/${command} already puts ${owner} on: one command owns one label`,
+        );
+      }
+
+      owners.set(command, name);
+
+      if (!COMMAND_NAME.test(command)) {
+        throw new ConfigError(
+          entry.file,
+          keyPathOf(entry, "command"),
+          `expected a slash command's name, as land, not "${command}"`,
+        );
+      }
+
+      if (!targets.includes(ARGS_PLACEHOLDER)) {
+        throw new ConfigError(
+          entry.file,
+          keyPathOf(entry, "targets"),
+          `"${targets}" takes no number: write ${ARGS_PLACEHOLDER} where /${command}'s goes`,
+        );
+      }
+
+      return { name, phrases: [], command: { name: command, targets } };
+    });
+
+  return [...phrased, ...commanded];
 }
 
 /** A table of names to phrases: a workflow is its file name, and only a label's phrases name the pull request. */

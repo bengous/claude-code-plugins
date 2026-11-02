@@ -1,5 +1,5 @@
 {
-  "description": "Fixers before each write and Stop lanes on the session scope, a subagent's at its own SubagentStop, in every repository that holds .claude/agent-hooks.jsonc, and on Bash in every repository a landing guard and a per-task worktree guard",
+  "description": "Fixers before each write and Stop lanes on the session scope, a subagent's at its own SubagentStop, in every repository that holds .claude/agent-hooks.jsonc, the labels a human's own slash command puts on, and on Bash in every repository a landing guard and a per-task worktree guard",
   "hooks": {
     "SessionStart": [
       {
@@ -29,6 +29,17 @@
           {
             "type": "command",
             "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" pre-bash",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" user-prompt-expansion",
             "timeout": 30
           }
         ]

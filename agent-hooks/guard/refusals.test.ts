@@ -246,7 +246,13 @@ describe("approvingPhrase", () => {
 
 describe("dispatchRefusal and labelRefusal", () => {
   const release = { name: "release.yml", phrases: ["on publie", "release"] };
-  const okHumain = { name: "ok-humain", phrases: ["ok #{pr}", "ok pour la #{pr}"] };
+  const okHumain = { name: "ok-humain", phrases: ["ok #{pr}", "ok pour la #{pr}"], command: null };
+
+  const landOk = {
+    name: "land-ok",
+    phrases: [],
+    command: { name: "land", targets: "bun ./scripts/landing/stack.ts resolve {args} --json" },
+  } as const;
 
   test("pass on the human's latest message", () => {
     expect(dispatchRefusal(release, { kind: "read", text: "on publie" })).toBeNull();
@@ -279,6 +285,15 @@ describe("dispatchRefusal and labelRefusal", () => {
     expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12\nok #13" })).toBeNull();
     expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12, ok #13" })).toContain(
       "the label ok-humain on #13",
+    );
+  });
+
+  test("refuse a label a command owns whatever the human typed, naming the command to type", () => {
+    expect(labelRefusal(landOk, [12], { kind: "read", text: "land #12" })).toBe(
+      "agent-hooks: the label land-ok is the human's ok, and only their own /land <number> puts it on: the agent never adds it. Ask the human to type /land 12.",
+    );
+    expect(labelRefusal(landOk, null, { kind: "read", text: "/land 12" })).toContain(
+      "Ask the human to type /land <number>.",
     );
   });
 });

@@ -1,7 +1,8 @@
 import { messageOf } from "./errors.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import type { GuardContext } from "./guard/judge-doors.ts";
-import { combine, humanOf, judgeLine, note } from "./guard/judge-doors.ts";
+import { combine, humanOf, judgeLine, note, refusal } from "./guard/judge-doors.ts";
+import { labelCommandRefusal } from "./guard/label-commands.ts";
 import type { HumanMessage } from "./guard/refusals.ts";
 import { worktreeLine } from "./guard/worktree.ts";
 import type { PreBashContext } from "./hook.ts";
@@ -38,6 +39,12 @@ export async function runPreBash(context: PreBashContext): Promise<PreBashAnswer
  */
 async function landingVerdict(context: PreBashContext): Promise<PreBashVerdict> {
   const { input, command, cwd, deadline } = context;
+  const typed = labelCommandRefusal(command, cwd);
+
+  if (typed !== null) {
+    return refusal(typed);
+  }
+
   let human: HumanMessage | null = null;
 
   const guard: GuardContext = {
