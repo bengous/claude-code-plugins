@@ -63,7 +63,6 @@ import {
   removeFile,
   removeWhole,
   renameFile,
-  writeText,
   writeWhole,
 } from "./fs.ts";
 
@@ -158,7 +157,8 @@ export class Queue {
 
     this.ports = {
       recordVersion: () => this.recordVersion(),
-      writeFile: async (file, text) => writeText(project, await this.doc(file), text),
+      writeFile: async (file, text) =>
+        writeWhole(project, await this.doc(file), text, this.heldRetryMs()),
       appendFile: async (file, text) => appendText(project, await this.doc(file), text),
       exists: async (file) => fileExists(project, await this.doc(file)),
       removeFile: async (file) => removeFile(project, await this.doc(file)),
@@ -312,7 +312,8 @@ export class Queue {
       const workspace = await this.workspace();
       const text = await readTextIfAny(project, await this.doc(CHANNEL_FILE));
 
-      if (text === null) await writeText(project, await this.doc(CHANNEL_FILE), "");
+      if (text === null)
+        await writeWhole(project, await this.doc(CHANNEL_FILE), "", this.heldRetryMs());
       else {
         const names = await listReview(project, workspace.dir);
 
@@ -325,7 +326,7 @@ export class Queue {
 
       if (id !== "") return id;
       const minted = crypto.randomUUID();
-      await writeText(project, idDoc, minted);
+      await writeWhole(project, idDoc, minted, this.heldRetryMs());
 
       return minted;
     });
@@ -350,7 +351,8 @@ export class Queue {
       await renameFile(project, from, to);
       const text = await readTextIfAny(project, channel);
 
-      if (text !== null) await writeText(project, channel, renamedIn(text, from, to));
+      if (text !== null)
+        await writeWhole(project, channel, renamedIn(text, from, to), this.heldRetryMs());
     }
   }
 
@@ -390,7 +392,7 @@ export class Queue {
     const version = parseVersion(workspace.kind === "drafting" ? 1 : workspace.version + 1);
 
     if (!version.ok) throw new Error(version.error);
-    await writeText(project, this.planDoc(version.value), plan);
+    await writeWhole(project, this.planDoc(version.value), plan, this.heldRetryMs());
     this.memory = { kind: "none" };
   }
 
@@ -410,9 +412,20 @@ export class Queue {
 
     // A `null` writes nothing and keeps a notes file already there: a retry carries no note.
     if (notes !== null)
-      await writeText(project, projectPath(`${workdir}${notesFile(version)}`), notes);
+      await writeWhole(
+        project,
+        projectPath(`${workdir}${notesFile(version)}`),
+        notes,
+        this.heldRetryMs(),
+      );
     await removeWhole(project, this.draftDoc());
-    await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), await this.planText(version));
+
+    await writeWhole(
+      project,
+      projectPath(`${workdir}${PLAN_FILE}`),
+      await this.planText(version),
+      this.heldRetryMs(),
+    );
     const renamed = await renameWorkspace(project, workdir, dir, this.heldRetryMs());
 
     if (!renamed.ok) {

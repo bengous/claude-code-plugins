@@ -122,14 +122,11 @@ export function readText(project: string, path: ProjectPath): Promise<string> {
   return Bun.file(join(project, path)).text();
 }
 
-export async function writeText(project: string, path: ProjectPath, text: string): Promise<void> {
-  await Bun.write(join(project, path), text);
-}
-
 /**
- * Writes through a scratch file renamed over the file, so a write cut short leaves the old text
- * whole; a rename Windows refuses as held is retried for `heldRetryMs`. Only under `.review/`:
- * anywhere else in the working directory the scratch file would reach `watchFiles`.
+ * Writes through a scratch file renamed over the file, so a reader meets the old text or the new,
+ * whole, and a write cut short leaves the old text; a rename Windows refuses as held is retried for
+ * `heldRetryMs`. In the working directory the scratch file is one more event of the write to
+ * `watchFiles`, and `listFiles` keeps no `.tmp`.
  */
 export async function writeWhole(
   project: string,
