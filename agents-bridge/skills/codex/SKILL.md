@@ -26,6 +26,13 @@ Without `--role` or `-m`, the run uses the codex configuration default. Pick a
 role when the work calls for a tier; pass `-m <slug>` only when the user names
 a model, with a slug from the list above.
 
+`gpt-daybreak-blue-latest` is served only to a Codex session that `codex login`
+opened with the user's hardware key: a run on a session logged in by password
+or Google fails with "this session was not authenticated with one of your
+authorized hardware keys". The user re-runs `codex login`, cancels a password
+manager's passkey prompt if one appears, and picks the USB security key in the
+browser's own dialog (PIN, then touch). Nothing on the agent's side fixes it.
+
 | Work | Role |
 |------|------|
 | Implementation, debugging, judgment on code | `coding` |
