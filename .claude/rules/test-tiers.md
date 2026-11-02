@@ -1,9 +1,7 @@
 ---
 paths:
   - "**/*.test.ts"
-  - "**/*.test.tsx"
   - "**/*.spec.ts"
-  - "**/*.spec.tsx"
   - "scripts/gates/affected.ts"
 ---
 
