@@ -1,6 +1,6 @@
 {
   "name": "goalify",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Turn a rough task into the completion condition a /goal evaluator can judge: end state, proof command, constraints, blocker, turn cap. Draft-first by default, or interactive clause by clause.",
   "author": {
     "name": "Augustin BENGOLEA",
