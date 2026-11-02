@@ -103,7 +103,7 @@ State lives on GitHub, in labels, so a pass is idempotent:
 | `dispatched` | issue | A worker opened its PR. |
 | `blocked` | issue | A worker stopped; the failing output is a comment. |
 | `shift` | PR | The loop owns this PR and maintains it. |
-| `needs-human` | PR | Two fix rounds were not enough. The loop stops touching it. |
+| `needs-human` | PR, issue | On a PR, two fix rounds were not enough. On an issue, it waits for the human's decision, as a lead an automated pipeline filed does. The loop stops touching either. |
 | `tier:low` | PR | Lands on green checks without a human. |
 | `tier:human` | PR | Waits for the human's `land #<n>`. |
 | `land-ok` | PR | The human typed `land #<n>` in a session; only the agent-hooks guard lets an agent add it. |
