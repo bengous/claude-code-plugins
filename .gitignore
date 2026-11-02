@@ -25,6 +25,9 @@ vellum/test-results/
 # The reports scripts/ci/flaky-report.ts writes in CI
 flaky-reports/
 
+# The leads pipeline's run files and scan worktrees (scripts/leads/)
+/.leads/
+
 # Python
 __pycache__/
 *.py[cod]

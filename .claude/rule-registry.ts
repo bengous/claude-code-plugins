@@ -239,10 +239,10 @@ export const REGISTRY: Registry = {
       quote: '`description` ends with a "Use when ..." clause naming the',
       prose: "`validate-frontmatter` does not read a description's wording",
     },
-    e8f93bdb: {
+    "501841b6": {
       quote: "A skill whose effect leaves the machine or rewrites history",
       prose:
-        "whether an effect can be undone is a judgement; the exception's push is land.ts's, whose tier gate scripts/land.integration.test.ts holds",
+        "whether an effect can be undone is a judgement; the exception's push is land.ts's, whose tier gate scripts/land.integration.test.ts holds, and the leads skills' writes are scripts/leads/'s, to which scripts/leads/guard.test.ts holds their hook",
     },
   },
   ".claude/rules/test-tiers.md": {

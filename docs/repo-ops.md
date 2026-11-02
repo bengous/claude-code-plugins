@@ -12,6 +12,7 @@ choice; these pages own the operational details.
 | Read a `flaky` issue, or a test CI passed on its retry | [Flaky tests](repo-ops/checks.md#flaky-tests) |
 | Diagnose a server rejection or recover a ruleset | [GitHub branch protections](repo-ops/protections.md) |
 | Inspect plugin synchronization after a landing | [Managed catalog](plugin-testing/catalog.md) |
+| Set up, run or pause the leads pipeline; sort the leads it files | [Leads pipeline](repo-ops/leads.md) |
 
 Landings are remote-first. Read the Git procedure before any push or release.
 `main` remains the human-controlled release channel.

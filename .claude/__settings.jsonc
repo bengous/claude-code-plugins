@@ -173,6 +173,19 @@
       "Bash(bun ./scripts/gates/run-gates.ts *)",
       "Bash(bun test *)",
 
+      // The leads pipeline (docs/repo-ops/leads.md), run by cloud scheduled tasks: these scripts are
+      // its only writers to GitHub (issues, comments, labels through `gh api`, under the user's
+      // identity), and gate.ts alone fires the scan tasks. Each refuses any file but its own under
+      // .leads/, and scan.ts acts only on the scan issue its claim holds. scripts/leads/guard.ts, a
+      // PreToolUse hook of the leads skills, denies every other Bash command and every other write.
+      "Bash(bun ./scripts/leads/gate.ts collect)",
+      "Bash(bun ./scripts/leads/gate.ts collect *)",
+      "Bash(bun ./scripts/leads/gate.ts decide --file .leads/verdicts.json)",
+      "Bash(bun ./scripts/leads/scan.ts claim *)",
+      "Bash(bun ./scripts/leads/scan.ts search *)",
+      "Bash(bun ./scripts/leads/scan.ts publish *)",
+      "Bash(bun ./scripts/leads/scan.ts release *)",
+
       // Blankets that also reach past this machine (a publish, an install, a
       // POST): kept as they are until a measured use narrows them.
       "Bash(npm:*)",
