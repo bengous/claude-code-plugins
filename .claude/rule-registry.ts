@@ -148,7 +148,7 @@ export const REGISTRY: Registry = {
       quote: "Branch — several concerns, big work (large feature, large",
       prose: "the lane, the split into PRs and when to rebase are judgements of scope",
     },
-    "7805585a": {
+    "5dd47724": {
       quote: "Review: one agent review of each branch, before",
       held: ["test scripts/land.integration.test.ts", "hook agent-hooks/agent-hooks.ts"],
     },
@@ -239,7 +239,7 @@ export const REGISTRY: Registry = {
       quote: '`description` ends with a "Use when ..." clause naming the',
       prose: "`validate-frontmatter` does not read a description's wording",
     },
-    "501841b6": {
+    "94ac23b2": {
       quote: "A skill whose effect leaves the machine or rewrites history",
       prose:
         "whether an effect can be undone is a judgement; the exception's push is land.ts's, whose tier gate scripts/land.integration.test.ts holds, and the leads skills' writes are scripts/leads/'s, to which scripts/leads/guard.test.ts holds their hook",

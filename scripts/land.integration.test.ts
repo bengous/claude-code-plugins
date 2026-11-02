@@ -1338,15 +1338,15 @@ describe("land, the tier", () => {
 
     expect(await landing()).toEqual({
       kind: "refused",
-      why: "#7 is tier:human (adds, removes or renames a plugin component: skills/x/SKILL.md), with no land-ok label: it lands once the human types « land #7 » in a session; stop",
+      why: "#7 is tier:human (adds, removes or renames a plugin component: skills/x/SKILL.md), with no land-ok label: it lands once the human types /land 7 in a session; stop",
     });
     expect(runListings()).toBe(0);
     expect(tierEdits()).toEqual(["pr edit feature/x --add-label tier:human"]);
     expect(github().calls).toContain(
-      "label create tier:human --force --color D93F0B --description Waits for the human's land #N",
+      "label create tier:human --force --color D93F0B --description Waits for the human's /land N",
     );
     expect(github().calls).toContain(
-      "label create land-ok --force --color 5319E7 --description The human typed land #N in a session",
+      "label create land-ok --force --color 5319E7 --description The human typed /land N in a session",
     );
     expect(git(origin, "rev-parse", "dev")).toBe(before);
   });
@@ -1383,7 +1383,7 @@ describe("land, the tier", () => {
     expect(github().comment).toBe(
       [
         `<!-- land-ok: void approved=${earlier} head=${branchHead()} -->`,
-        `The human's \`land-ok\` covered ${earlier.slice(0, 8)}; 1 commit since changed the patch, so the label is off. To read before the next « land #7 »: ${compare}`,
+        `The human's \`land-ok\` covered ${earlier.slice(0, 8)}; 1 commit since changed the patch, so the label is off. To read before the next /land 7: ${compare}`,
         `- ${branchHead().slice(0, 8)} feat: a skill (https://github.com/o/r/commit/${branchHead()})`,
       ].join("\n"),
     );
@@ -1449,7 +1449,7 @@ describe("land, the tier", () => {
       `the label is off; no new commit, the patch amended or reset, to read at https://github.com/o/r/compare/${okHead}..${branchHead()}`,
     );
     expect(github().comment).toContain(
-      `the patch changed with no new commit, amended or reset, so the label is off. To read before the next « land #7 »: the two heads' own diff, https://github.com/o/r/compare/${okHead}..${branchHead()}`,
+      `the patch changed with no new commit, amended or reset, so the label is off. To read before the next /land 7: the two heads' own diff, https://github.com/o/r/compare/${okHead}..${branchHead()}`,
     );
     expect(github().comment).not.toContain("\n- ");
   });
@@ -1568,7 +1568,7 @@ describe("land, the tier", () => {
     serve({ pr: { labels: ["tier:human"] } });
 
     expect(why(await landing())).toBe(
-      "#7 is tier:human (its tier:human label, left by an earlier pass; tier.ts now says low: the stub judge finds it low), with no land-ok label: it lands once the human types « land #7 » in a session; stop",
+      "#7 is tier:human (its tier:human label, left by an earlier pass; tier.ts now says low: the stub judge finds it low), with no land-ok label: it lands once the human types /land 7 in a session; stop",
     );
     expect(tierEdits()).toEqual([]);
   });
@@ -1742,7 +1742,7 @@ describe("land, a stack", () => {
     expect(git(origin, "rev-parse", "dev")).toBe(before);
   });
 
-  test("refuses a layer the human has not approved, naming it, before any run is listed", async () => {
+  test("refuses a layer the human has not approved, naming it and the /land that lands the whole stack, before any run is listed", async () => {
     buildStack(["s-1.txt", "skills/x/SKILL.md", "s-3.txt"]);
     serveStack();
 
@@ -1752,6 +1752,7 @@ describe("land, a stack", () => {
     expect(refusal).toStartWith(
       "layer 2 of 3, #468 (feature/s-2): #468 is tier:human (adds, removes or renames a plugin component: skills/x/SKILL.md), with no land-ok label",
     );
+    expect(refusal).toEndWith("it lands once the human types /land 470 in a session; stop");
     expect(runListings()).toBe(0);
     expect(git(origin, "rev-parse", "dev")).toBe(before);
   });
@@ -1944,7 +1945,7 @@ describe("land, a stack", () => {
     );
     expect(github().layers[1]?.labels).not.toContain("land-ok");
     expect(github().comment).toContain(
-      `To read before the next « land #468 »: the commits below\n- ${dropped.slice(0, 8)} an extra commit on layer 1 (https://github.com/o/r/commit/${dropped})`,
+      `To read before the next /land 470: the commits below\n- ${dropped.slice(0, 8)} an extra commit on layer 1 (https://github.com/o/r/commit/${dropped})`,
     );
     expect(github().comment).not.toContain(`compare/${top}`);
     expect(git(origin, "rev-parse", "dev")).toBe(before);

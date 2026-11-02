@@ -39,10 +39,11 @@
  * of its tier. A human one lands only with a `land-ok` label given to its
  * change: the head GitHub held when the label was added, by its push times,
  * has the patch, against the pull request's base, of the head the landing
- * starts from. The agent-hooks guard lets an agent add the label
- * only on the human's words. A `land-ok` whose change is no longer the head's
+ * starts from. Only the human puts the label on, by their own `/land <n>`
+ * (`.claude/skills/land`) or by hand on GitHub, and the agent-hooks guard
+ * refuses an agent that adds it. A `land-ok` whose change is no longer the head's
  * comes off, with a comment naming the commits since and GitHub's compare view
- * of the two heads: the human reads those alone, then says « land #n » again,
+ * of the two heads: the human reads those alone, then types `/land <n>` again,
  * which adds the label anew. A low one without it is refused while a `red-dev`
  * issue is open.
  * Renovate's branches and the types branch have guards of their own.
@@ -179,7 +180,7 @@ export const TIER_LABELS: Readonly<
   Record<Tier, { readonly name: string; readonly color: string; readonly description: string }>
 > = {
   low: { name: "tier:low", color: "0E8A16", description: "Lands on green checks without a human" },
-  human: { name: "tier:human", color: "D93F0B", description: "Waits for the human's land #N" },
+  human: { name: "tier:human", color: "D93F0B", description: "Waits for the human's /land N" },
 };
 
 const TIER_LINE = /^(low|human) (.+)$/u;
@@ -261,6 +262,8 @@ interface Lander {
   readonly rerun: Set<number>;
   /** The head the landing started from, whose patch a `land-ok` must have been given to. */
   readonly reviewed: string;
+  /** The number the human's `/land` names to land every layer this landing holds; null for one pull request, its own. */
+  readonly landsAs: number | null;
   /** How the branch is tiered, its verdict once read; null for a branch with guards of its own. */
   readonly tiering: { readonly of: Tiering; verdict: Verdict | null } | null;
 }
@@ -477,7 +480,7 @@ interface Label {
 const LAND_OK_LABEL: Label = {
   name: LAND_OK,
   color: "5319E7",
-  description: "The human typed land #N in a session",
+  description: "The human typed /land N in a session",
 };
 
 /** Creates `label` in the repository, or sets its color and description when it exists. */
@@ -700,7 +703,7 @@ function patchedCommits(checkout: string, base: string, head: string): readonly 
 }
 
 /**
- * Takes off a `land-ok` whose change is no longer the pull request's: the human's next « land #n » adds it again,
+ * Takes off a `land-ok` whose change is no longer the pull request's: the human's next `/land <n>` adds it again,
  * as a new event GitHub dates, which a label left on would not be. The comment, posted first so a failed removal
  * loses nothing, leaves the human what to read before that: the commits of the change now, from the base to the
  * head, with no patch among those of the change the ok covered, from `baseThen` to its head, each linked, so a
@@ -765,7 +768,7 @@ async function voidApproval(
     "--body",
     [
       `<!-- land-ok: void approved=${approved} head=${reviewed} -->`,
-      `The human's \`${LAND_OK}\` covered ${short(approved)}; ${changed}, so the label is off. To read before the next « land #${pr.number} »: ${toRead}`,
+      `The human's \`${LAND_OK}\` covered ${short(approved)}; ${changed}, so the label is off. To read before the next /land ${lander.landsAs ?? pr.number}: ${toRead}`,
       ...commits,
     ].join("\n"),
   ]);
@@ -831,14 +834,14 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
     if (approval === null) return null;
 
-    // The agent adds land-ok on the human's next words, outside any shift pass that would create it.
+    // The human's next /land puts land-ok on, outside any shift pass that would create the label.
     if (!labels.has(LAND_OK) && !lander.readOnly) await createLabel(lander, LAND_OK_LABEL);
 
     const why = raised
       ? `its tier:human label, left by an earlier pass; tier.ts now says low: ${tiering.verdict.reason}`
       : tiering.verdict.reason;
 
-    return `#${pr.number} is tier:human (${why}), ${approval}: it lands once the human types « land #${pr.number} » in a session; stop`;
+    return `#${pr.number} is tier:human (${why}), ${approval}: it lands once the human types /land ${lander.landsAs ?? pr.number} in a session; stop`;
   }
 
   const red = await redDevIssues(lander);
@@ -1405,6 +1408,7 @@ async function landFrom(
     deadline: waiting.clock.now() + waiting.timeoutMs,
     rerun: new Set(),
     reviewed,
+    landsAs: null,
     tiering:
       BOT_BRANCH.test(branch) || branch === ROLLING_BRANCH
         ? null
@@ -1621,6 +1625,7 @@ async function stackFrom(landing: StackLanding): Promise<Landing> {
     deadline: waiting.clock.now() + waiting.timeoutMs,
     rerun,
     reviewed: layer.head,
+    landsAs: landing.stack ?? top.number,
     tiering: { of: deps.tier, verdict: null },
   }));
 

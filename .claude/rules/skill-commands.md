@@ -42,7 +42,7 @@ recipes in [Skill permissions and prompts](../../docs/plugin-testing/skills.md).
   exception, since a scheduled fire invokes only a model-invocable skill:
   their only push to a shared branch goes through the repository's landing
   command, which a code gate holds to the change's tier, green CI and, for a
-  `tier:human` change, the `land-ok` the human's own words allow. So are this
+  `tier:human` change, the `land-ok` only the human puts on. So are this
   repository's `leads-gate` and `leads-scan`, which scheduled cloud tasks fire:
   they push nothing, and write to GitHub only through `scripts/leads/`, to
   which their PreToolUse hook (`scripts/leads/guard.ts`) holds them.

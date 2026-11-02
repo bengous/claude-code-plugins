@@ -7,12 +7,19 @@
   // move what lands, releases or guards, this file and the gate's own scripts included, and the lint and format
   // configuration whose fixes scripts/headless/renovate-agent.ts vouches for without a review, and what sets a change's
   // tier: the tier scripts, the github-flow skills that publish, dispatch and land, and the commands they read.
-  // scripts/land.ts lands a tier:human pull request only once it carries land-ok, which an agent adds only when the
-  // human's latest typed message says "land #<n>". Each task takes a worktree of its own: a session starting in a
-  // checkout another session works in is told so.
+  // scripts/land.ts lands a tier:human pull request only once it carries land-ok, which only the human puts on: their
+  // own /land <n> (.claude/skills/land) on each pull request <n> lands, or by hand on GitHub; no agent adds it. Each
+  // task takes a worktree of its own: a session starting in a checkout another session works in is told so.
   "profile": {
     "landing": { "trunk": "dev", "release": "main" },
-    "approvals": { "labels": { "land-ok": ["land #{pr}", "land {pr}"] } },
+    "approvals": {
+      "labels": {
+        "land-ok": {
+          "command": "land",
+          "targets": "bun ./scripts/landing/stack.ts resolve {args} --json",
+        },
+      },
+    },
     "review": {
       "risky": [
         "scripts/land.ts",
@@ -41,6 +48,7 @@
         ".claude/agent-hooks.jsonc",
         "agent-hooks/pre-bash.ts",
         "agent-hooks/user-prompt-expansion.ts",
+        ".claude/skills/land/**",
         "agent-hooks/guard/**",
         "agent-hooks/profile.ts",
         "agent-hooks/reader.ts",

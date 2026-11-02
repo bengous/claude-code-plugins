@@ -96,7 +96,6 @@
       "Bash(chmod:*)",
       "Bash(sed:*)",
       "Bash(bun ./scripts/land.ts *)",
-      "Bash(gh pr edit * --add-label land-ok)",
       "Bash(bun ./scripts/landing/tier.ts --pr *)",
       "Bash(bun ./scripts/landing/review-verdict.ts record feature/*)",
       "Bash(bun ./scripts/landing/review-verdict.ts record fix/*)",
