@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { writeAtomic } from "../lib/platform/fs.ts";
 import { gradeCase, loadCases, type RunResult } from "./flow.ts";
 import { lineScores } from "./grade.ts";
 
@@ -60,6 +61,6 @@ for (const row of rows) {
   }
 }
 
-await writeFile(resultsPath, regraded.map((row) => JSON.stringify(row)).join("\n") + "\n");
+await writeAtomic(resultsPath, regraded.map((row) => JSON.stringify(row)).join("\n") + "\n");
 
 console.error(`${regraded.length} rows rewritten in ${resultsPath}`);

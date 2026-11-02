@@ -13,6 +13,7 @@ export const CONSUMERS: readonly string[] = [
   "git/lib/platform",
   "git-sweep/lib/platform",
   "github-flow/lib/platform",
+  "goalify/lib/platform",
   "pinpoint/lib/platform",
   "secret-pane/lib/platform",
   "session-archive/lib/platform",
