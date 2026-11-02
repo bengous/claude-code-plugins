@@ -4,9 +4,9 @@
  * the job last started, claimed before the start.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 
+import { writeAtomicSync } from "../../tools/platform/fs.ts";
 import { gitRead } from "../../tools/platform/git.ts";
 import { isErrno } from "../../tools/platform/pure.ts";
 
@@ -56,8 +56,7 @@ export function claimToday(dayFile: string): boolean {
 
   if (lastDay(dayFile) === today) return false;
 
-  mkdirSync(dirname(dayFile), { recursive: true });
-  writeFileSync(dayFile, today);
+  writeAtomicSync(dayFile, today, { mkdir: true });
 
   return true;
 }
