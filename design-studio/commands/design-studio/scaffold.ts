@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 
-import { mkdir, exists, writeFile } from "node:fs/promises";
+import { mkdir, exists } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { $ } from "bun";
+
+import { writeAtomic } from "../../lib/platform/fs.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Templates
@@ -97,13 +99,13 @@ async function writeTemplates(projectPath: string): Promise<string[]> {
 
   // Write main.tsx
   const mainPath = join(projectPath, "src", "main.tsx");
-  await writeFile(mainPath, mainTemplate());
+  await writeAtomic(mainPath, mainTemplate());
   createdFiles.push(mainPath);
 
   // Write page templates
   for (let i = 1; i <= 5; i++) {
     const pagePath = join(pagesDir, `${i}.tsx`);
-    await writeFile(pagePath, pageTemplate(i));
+    await writeAtomic(pagePath, pageTemplate(i));
     createdFiles.push(pagePath);
   }
 

@@ -9,6 +9,7 @@ export const CONSUMERS: readonly string[] = [
   "atlas/src/platform",
   "clean-comments/lib/platform",
   "context-management/lib/platform",
+  "design-studio/lib/platform",
   "git/lib/platform",
   "git-sweep/lib/platform",
   "github-flow/lib/platform",
