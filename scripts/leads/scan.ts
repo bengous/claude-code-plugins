@@ -57,6 +57,7 @@ import {
   parseScanMarker,
   publicFacts,
   removeLabel,
+  removeLeadsFile,
   renovatePrOf,
   sanitizeIssueText,
   textBlock,
@@ -295,6 +296,11 @@ export async function claim(
 
   removeWorktree(ctx, found.number);
   git(ctx, "worktree", "add", "--detach", worktreeOf(found.number), tree);
+
+  // The model writes these afresh: Claude Code's Write refuses to overwrite a file the session never read.
+  for (const kind of ["query", "leads", "release"] as const) {
+    removeLeadsFile(ctx, scanFile(found.number, kind).slice(`${LEADS_DIR}/`.length));
+  }
 
   const base = await baseFacts(ctx, commitOf(ctx, ref.sha), change, renovatePrOf(ctx, ref.sha));
   const typed = typedDiff(ctx, change);

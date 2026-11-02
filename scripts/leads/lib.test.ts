@@ -17,6 +17,7 @@ import {
   changelogSection,
   type Comment,
   compareUrl,
+  declaredName,
   deterministicSkip,
   dryRun,
   existingLeads,
@@ -212,7 +213,7 @@ describe("usage", () => {
       codeSites: 2,
       docSites: 0,
       files: ["vellum/src/runtime/page/state.ts", "vellum/src/x.ts"],
-      markers: ["vellum/src/x.ts:9"],
+      markers: ["vellum/src/x.ts:9: // workaround until zustand fixes it"],
     });
   });
 });
@@ -318,10 +319,26 @@ describe("readTypedDiff", () => {
     expect(types.added).toContain('unanswered?: "skipped" | "replied_in_chat" | "dismissed";');
     expect(types.added).toContain("disableAutoMode?: 'disable';");
     expect(types.added.some((line) => line.startsWith("*") || line.startsWith("/**"))).toBe(false);
-    expect(types.removed).toEqual([
-      "export declare const USAGE_TRANSITION_PREFIXES: readonly [\"You're now using usage credits\", 'Now using usage credits'];",
-    ]);
+    expect(types.removed).toEqual([]);
     expect(types.deprecated).toEqual(["/** @deprecated read `unanswered` instead */"]);
+  });
+
+  test("a declaration whose name no added line declares again is removed; a changed one is not", () => {
+    const diff = [
+      "diff --git a/index.d.ts b/index.d.ts",
+      "-export declare function legacy(): void;",
+      "-export declare function load(path: string): Data;",
+      "+export declare function load(path: string, options?: Options): Data;",
+      "-    retries?: number;",
+      "-};",
+    ].join("\n");
+
+    expect(readTypedDiff(diff).removed).toEqual([
+      "export declare function legacy(): void;",
+      "retries?: number;",
+    ]);
+    expect(declaredName("readonly retries?: number;")).toBe("retries");
+    expect(declaredName("};")).toBeNull();
   });
 });
 
@@ -515,6 +532,16 @@ describe("sanitizeIssueText", () => {
     expect(JSON.parse(block.split("\n").slice(1, -1).join("\n"))).toEqual({
       text: "````<!-- leads-scan -->",
     });
+  });
+
+  test("a JSON block shows a format or control character as its escape, never raw", () => {
+    const hidden = `a${String.fromCodePoint(0x20_2e, 0x20_0b, 0x85, 0xe_00_41)}b`;
+    const block = jsonBlock({ text: hidden });
+
+    const escaped = ["202e", "200b", "0085", "db40", "dc41"].map((hex) => `\\u${hex}`).join("");
+
+    expect(block).toContain(`a${escaped}b`);
+    expect(JSON.parse(block.split("\n").slice(1, -1).join("\n"))).toEqual({ text: hidden });
   });
 });
 

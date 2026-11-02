@@ -277,6 +277,11 @@ export function writeLeadsFile(ctx: Context, name: string, content: string): voi
   writeAtomicSync(leadsPath(ctx, name), content, { mkdir: true });
 }
 
+/** Removes a file of `.leads/` an earlier run left; one that is not there is fine. */
+export function removeLeadsFile(ctx: Context, name: string): void {
+  rmSync(leadsPath(ctx, name), { force: true });
+}
+
 // ---------------------------------------------------------------------------
 // Renovate's commits and the versions they changed
 // ---------------------------------------------------------------------------
@@ -479,7 +484,7 @@ export interface Usage {
   readonly codeSites: number;
   readonly docSites: number;
   readonly files: readonly string[];
-  /** `path:line` of the sites whose line reads like a workaround or a pending upstream fix. */
+  /** `path:line: text` of the sites whose line reads like a workaround or a pending upstream fix. */
   readonly markers: readonly string[];
 }
 
@@ -517,6 +522,8 @@ const NOT_USAGE = [
 const MAX_FILES = 20;
 
 const MAX_MARKERS = 10;
+
+const MARKER_TEXT_MAX = 120;
 
 /** `git grep`'s lines on a tree, `<tree>:<path>:<line>:<text>`, read back. */
 export function hitsOf(output: string, tree: string): Hit[] {
@@ -625,7 +632,11 @@ export function usageOf(hits: readonly Hit[]): Usage {
     docSites: docs.length,
     files: [...new Set(code.map((hit) => hit.path))].toSorted().slice(0, MAX_FILES),
     markers: [...code, ...docs]
-      .flatMap((hit) => (MARKER.test(hit.text) ? [`${hit.path}:${hit.line}`] : []))
+      .flatMap((hit) =>
+        MARKER.test(hit.text)
+          ? [`${hit.path}:${hit.line}: ${clip(hit.text.trim(), MARKER_TEXT_MAX)}`]
+          : [],
+      )
       .slice(0, MAX_MARKERS),
   };
 }
@@ -920,6 +931,7 @@ export interface Types {
   readonly source: "npm-diff" | "unavailable";
   readonly files: number;
   readonly added: readonly string[];
+  /** The declarations whose name no added line declares again: gone, not changed. */
   readonly removed: readonly string[];
   readonly deprecated: readonly string[];
 }
@@ -954,16 +966,32 @@ export function readTypedDiff(diff: string): Types {
       .map((line) => line.slice(1).trim());
 
   const added = changed("+");
+  const redeclared = new Set(added.flatMap((line) => declaredName(line) ?? []));
+
+  // A changed signature is its old line removed and its new one added: only a name no added line declares is gone.
+  const removed = changed("-").filter((line) => {
+    const name = declaredName(line);
+
+    return name !== null && !redeclared.has(name);
+  });
 
   return {
     source: "npm-diff",
     files: lines.filter((line) => line.startsWith("diff --git ")).length,
     added: added.filter((line) => isDeclaration(line)).slice(0, 20),
-    removed: changed("-")
-      .filter((line) => isDeclaration(line))
-      .slice(0, 20),
+    removed: removed.slice(0, 20),
     deprecated: added.filter((line) => line.includes("@deprecated")).slice(0, 10),
   };
+}
+
+/** The name a `.d.ts` line declares, a binding or a member; null for a line that declares none. */
+export function declaredName(line: string): string | null {
+  const match =
+    /^(?:export\s+)?(?:declare\s+)?(?:default\s+)?(?:abstract\s+)?(?:function\*?|const|let|var|class|interface|type|enum|namespace)\s+([A-Za-z_$][\w$]*)/u.exec(
+      line,
+    ) ?? /^(?:readonly\s+)?(?:static\s+)?([A-Za-z_$][\w$]*)\??\s*[:(<]/u.exec(line);
+
+  return match?.[1] ?? null;
 }
 
 export function typedDiff(ctx: Context, change: VersionChange): TypedDiff {
@@ -1509,9 +1537,24 @@ export function textBlock(text: string): string {
   return `${fence}text\n${text}\n${fence}`;
 }
 
-/** A JSON value in a fenced block that no backtick run in it can close, and no `<` in it can open a marker. */
+/** `char` as JSON's `\uXXXX` escapes, one per UTF-16 unit. */
+function jsonEscape(char: string): string {
+  return Array.from(
+    { length: char.length },
+    // oxlint-disable-next-line unicorn/prefer-code-point -- JSON's \u escape takes UTF-16 units, which charCodeAt returns.
+    (_, index) => `\\u${char.charCodeAt(index).toString(16).padStart(4, "0")}`,
+  ).join("");
+}
+
+/**
+ * A JSON value in a fenced block that no backtick run in it can close, no `<` in it can open a marker, and no control,
+ * format or bidi character in it can hide or reorder what renders.
+ */
 export function jsonBlock(value: Json): string {
-  const text = JSON.stringify(value, null, 2).replaceAll("<", "\\u003c");
+  const text = JSON.stringify(value, null, 2)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(INVISIBLE, (char) => (char === "\n" ? char : jsonEscape(char)));
+
   const longest = Math.max(3, ...[...text.matchAll(/`+/gu)].map((run) => run[0].length + 1));
   const fence = "`".repeat(longest);
 

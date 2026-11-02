@@ -66,6 +66,7 @@ import {
   parseScanMarker,
   publicFacts,
   releaseNotes,
+  removeLeadsFile,
   type RenovatePr,
   renovateCommits,
   renovatePrOf,
@@ -90,6 +91,8 @@ const GATE_FILE = "gate.json";
 export const VERDICTS_FILE = ".leads/verdicts.json";
 
 const DEFAULT_SINCE_DAYS = 7;
+
+const SKIPPED_SHOWN = 20;
 
 const REASON_MAX = 200;
 
@@ -277,6 +280,8 @@ function countBy(values: readonly string[]): string {
 
 export async function collect(ctx: Context, options: CollectOptions, now: number): Promise<number> {
   announceDryRun(ctx);
+  // The model writes the verdicts afresh: Claude Code's Write refuses to overwrite a file the session never read.
+  removeLeadsFile(ctx, "verdicts.json");
   fetchDev(ctx);
   ensureLabels(ctx);
 
@@ -350,7 +355,9 @@ export async function collect(ctx: Context, options: CollectOptions, now: number
   ctx.print(
     tagged("leads-facts", {
       since,
-      skipped: skipped.map((entry) => ({ ...entry })),
+      // A wide first window skips many updates: their list stays short, so the facts stay within what a session shows.
+      skippedTotal: skipped.length,
+      skipped: skipped.slice(0, SKIPPED_SHOWN).map((entry) => ({ ...entry })),
       refired: refired.map((entry) => ({ ...entry })),
       deferred,
       candidates: factsForModel(candidates, FACTS_BUDGET),

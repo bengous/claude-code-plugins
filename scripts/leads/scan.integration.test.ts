@@ -111,6 +111,19 @@ describe("claim", () => {
     expect(printed.at(-1)).toBe(`write leads to: .leads/${scan.number}-leads.json`);
   });
 
+  test("removes the query, leads and release files an earlier run left for the issue", async () => {
+    const stale = ["query.txt", "leads.json", "release.json"].map((kind) =>
+      join(box.root, ".leads", `${scan.number}-${kind}`),
+    );
+
+    mkdirSync(join(box.root, ".leads"), { recursive: true });
+
+    for (const file of stale) writeFileSync(file, "{}");
+
+    expect(await claimed()).toBe(0);
+    expect(stale.filter((file) => existsSync(file))).toEqual([]);
+  });
+
   test("without --issue it takes the oldest free scan of its tier", async () => {
     const { ctx, printed } = world();
 

@@ -13,7 +13,7 @@
  */
 
 import { realpathSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 import { isRecord, stringField } from "../../agent-hooks/json.ts";
 import { isErrno, isInsideRelative, messageOf } from "../../tools/platform/pure.ts";
@@ -71,13 +71,16 @@ function deny(reason: string): Decision {
   return { kind: "deny", reason: `leads guard: ${reason}` };
 }
 
+/** The path with every link resolved: a file not written yet resolves through its nearest existing directory. */
 function realOrSame(path: string): string {
   try {
     return realpathSync(path);
   } catch (error) {
-    // A path that does not exist yet, a file to write, is judged as written.
-    if (isErrno(error, "ENOENT")) return path;
-    throw error;
+    if (!isErrno(error, "ENOENT")) throw error;
+
+    const parent = dirname(path);
+
+    return parent === path ? path : join(realOrSame(parent), basename(path));
   }
 }
 
