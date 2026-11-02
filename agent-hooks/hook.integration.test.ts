@@ -425,13 +425,16 @@ describe("runHook", () => {
     expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
   });
 
-  test("a main Stop with a background task running or pending, of any type, leaves the session waiting: live past the cap", async () => {
+  test("a main Stop with a background task running or pending, of any type, leaves the session waiting around its cwd: live there past the cap", async () => {
     writeConfig(temp.repo, VALID_CONFIG);
+    const left = path.join(temp.dir, "left");
 
     for (const [type, status] of [
       ["shell", "running"],
       ["monitor", "pending"],
     ] as const) {
+      beat("s1", left);
+
       await runHook({
         hook: "stop",
         harness: "claude",
@@ -444,8 +447,10 @@ describe("runHook", () => {
 
       const at = new Date(Date.now() - 61 * MINUTE_MS);
       utimesSync(beatPath("s1", temp.repo), at, at);
+      utimesSync(beatPath("s1", left), at, at);
 
       expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
+      expect(liveOthers(left, "s2", Date.now())).toEqual([]);
     }
   });
 

@@ -22,7 +22,7 @@ import {
   loadState,
   saveState,
   statesOf,
-  waitBeats,
+  waitBeat,
 } from "./state.ts";
 import type { PreBashAnswer, Verdict } from "./verdict.ts";
 import { ALLOW } from "./verdict.ts";
@@ -190,14 +190,14 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   const now = options.now ?? Date.now();
   heartbeat(input);
 
-  if (options.hook !== "stop") {
-    const verdict = await runRootHook(options, input, now);
+  const verdict =
+    options.hook === "stop"
+      ? await runStopHook(options, input, now)
+      : await runRootHook(options, input, now);
 
-    return verdict === null ? null : encode(verdict, harness, options.hook);
+  if (options.hook === "stop") {
+    settleBeats(input, verdict);
   }
-
-  const verdict = await runStopHook(options, input, now);
-  settleBeats(input, verdict);
 
   return verdict === null ? null : encode(verdict, harness, options.hook);
 }
@@ -230,8 +230,9 @@ export function heartbeat(input: Input): void {
 
 /**
  * The main session's beats once its Stop answered. A block keeps it working. A turn that ends with a background task
- * running or pending, of any type, leaves it waiting, live until its session ends; one that ends without leaves it
- * idle in every checkout until a hook of its next turn beats. A subagent's Stop leaves every beat as it is.
+ * running or pending, of any type, leaves it waiting in the checkout around its cwd, live there until its session
+ * ends, its other beats working; one that ends without leaves it idle in every checkout until a hook of its next turn
+ * beats. A subagent's Stop leaves every beat as it is.
  */
 function settleBeats(input: Input, verdict: Verdict | null): void {
   if (input.agentId !== undefined || verdict?.kind === "block") {
@@ -239,10 +240,16 @@ function settleBeats(input: Input, verdict: Verdict | null): void {
   }
 
   try {
-    if (input.backgroundTasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))) {
-      waitBeats(input.sessionId);
-    } else {
+    if (!input.backgroundTasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))) {
       endBeats(input.sessionId);
+
+      return;
+    }
+
+    const checkout = cwdCheckout(input);
+
+    if (checkout !== null) {
+      waitBeat(input.sessionId, checkout);
     }
   } catch (error) {
     console.error(`agent-hooks: beats not settled: ${messageOf(error)}`);

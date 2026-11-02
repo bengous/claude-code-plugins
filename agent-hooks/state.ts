@@ -420,13 +420,10 @@ export function liveOthers(checkout: string, sessionId: string, now: number): st
   );
 }
 
-/** Marks every beat of a session and of its subagents waiting: its turn ended while a background task runs. */
-export function waitBeats(sessionId: string): void {
-  for (const { file, key } of beatFiles()) {
-    if (isOfSession(key, sessionId)) {
-      writeFileSync(path.join(stateDir(), file), WAITING);
-    }
-  }
+/** Marks agent `key` waiting in the checkout: its turn ended there while a background task runs. */
+export function waitBeat(key: string, checkout: string): void {
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(beatPath(key, checkout), WAITING);
 }
 
 /** Removes the beats of a session and of its subagents, in every checkout: it ended, or its turn did, idle. */

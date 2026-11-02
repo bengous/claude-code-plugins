@@ -129,7 +129,7 @@ describe("worktreeLine", () => {
     }
   });
 
-  test("global flags before the subcommand, and any segment of a compound line: one line", () => {
+  test("global flags before the subcommand, any segment of a compound line, --git-dir and env -C: one line", () => {
     beatAgo("s2", main, MINUTE_MS);
 
     for (const command of [
@@ -138,6 +138,8 @@ describe("worktreeLine", () => {
       `false || git -C ${main} pull --rebase`,
       `echo start; git -C ${main} commit -m x`,
       `echo start\ngit -C ${main} commit -m x`,
+      `git --git-dir=${main}/.git commit -m x`,
+      `env -C ${main} git commit -m x`,
     ]) {
       expect(lineFor(command, temp.repo)).toBe(lineOf(main, "dev"));
     }

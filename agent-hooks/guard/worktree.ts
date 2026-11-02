@@ -28,51 +28,52 @@ export function worktreeLine(
     return null;
   }
 
-  const checkouts = new Set<string>();
+  const tops = new Set<string>();
   const views = viewsOf(parseLine(command), command, cwd, { exists: existsSync }, {});
 
   for (const view of views.values()) {
     const invocation = gitCommandOf(texts(view.unwrapped.argv));
 
-    const checkout =
+    const top =
       invocation === null || !CHECKOUT_WRITES.has(invocation.subcommand) || view.cwd === null
         ? null
-        : mainCheckoutOf(view.cwd, invocation.location);
+        : rootOf(view.cwd, invocation.location);
 
-    if (checkout !== null) {
-      checkouts.add(checkout);
+    if (top !== null) {
+      tops.add(top);
     }
   }
 
-  const lines = [...checkouts].flatMap((checkout) => lineFor(checkout, sessionId, now) ?? []);
+  const lines = [...tops].flatMap((top) => lineFor(top, sessionId, now) ?? []);
 
   return lines.length === 0 ? null : lines.join("\n");
 }
 
-/** The main checkout a git invocation acts on, symlinks resolved; null in a linked worktree or outside git. */
-function mainCheckoutOf(dir: string, location: readonly string[]): string | null {
-  const top = rootOf(dir, location);
-
-  if (top === null) {
-    return null;
-  }
-
+/** Whether the work tree at `top` is its repository's main checkout, not a linked worktree. */
+function isMainCheckout(top: string): boolean {
   const [gitDir, commonDir] =
     git(top, [], ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])?.split(
       "\n",
     ) ?? [];
 
-  return gitDir !== undefined && gitDir === commonDir ? realPathOf(top) : null;
+  return gitDir !== undefined && gitDir === commonDir;
 }
 
-function lineFor(checkout: string, sessionId: string, now: number): string | null {
-  const profile = loadProfile(configPath(checkout));
+/** The line for the work tree at `top`: its own profile first, which spares a git run in a shared repository. */
+function lineFor(top: string, sessionId: string, now: number): string | null {
+  const profile = loadProfile(configPath(top));
 
   if (
     profile.worktree.kind !== "read" ||
     profile.worktree.value !== "per-task" ||
-    liveOthers(checkout, sessionId, now).length === 0
+    !isMainCheckout(top)
   ) {
+    return null;
+  }
+
+  const checkout = realPathOf(top);
+
+  if (liveOthers(checkout, sessionId, now).length === 0) {
     return null;
   }
 

@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, whether its tasks take their own worktrees or whether Haiku judges agent commit messages (commit judge), to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing and per-task worktree guards on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, whether its tasks take their own worktrees or whether Haiku judges agent commit messages (commit judge), to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), when the kit says another session is live in the checkout, or when the landing guard refuses a push, a merge or a release.
 argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -92,22 +92,25 @@ says the agents share the checkout. Like `landing`, it is read from the repo fil
 a note to the user at SessionStart and an error of the config at the Stop and in `doctor`; the landing
 guard, which reads `profile.landing` alone, is not affected.
 
-A session is live in a checkout from its first kit hook there until the end of its turn. Every kit hook
-(SessionStart, pre-edit, pre-bash, Stop, SubagentStop) beats for its agent in the checkout around its cwd,
-when a root encloses it: it writes `~/.local/state/agent-hooks/<agent>__<checkout hash>.beat` empty, the
-agent working, and refreshes its mtime. The Stop of the main session then settles the session's beats:
+A session is live in a checkout while one of its beats there is live: the kit hooks write the beats, and the
+Stop of its main session settles them. Every kit hook (SessionStart, pre-edit, pre-bash, Stop,
+SubagentStop) beats for its agent in the checkout around its cwd, when a root encloses it: it writes
+`~/.local/state/agent-hooks/<agent>__<checkout hash>.beat` empty, the agent working, and refreshes its
+mtime. The Stop of the main session then settles the session's beats:
 
-- A Stop that blocks leaves them working: the turn goes on.
+- A Stop that blocks settles nothing: the turn goes on.
 - A turn that ends with a background task running or pending, of any type (`shell`, `subagent`,
-  `workflow`, `monitor`, `teammate`), marks every beat of the session and its subagents `waiting`.
+  `workflow`, `monitor`, `teammate`), writes `waiting` into the session's beat in the checkout around its
+  cwd; its beats elsewhere stay working.
 - A turn that ends without one removes them, in every checkout: the session is idle until a hook of its
   next turn beats again.
 
-A SubagentStop leaves every beat as it is. SessionEnd, `/clear` included, removes the beats of the session
-and its subagents. A waiting session reads as live with no time limit; the state TTL of 7 days removes a
-beat no SessionEnd removed. A working session reads as live for 60 minutes past its last kit hook; past
-them, a turn cut before its Stop (a crash, a kill, a turn the user interrupted) reads as gone. The 60
-minutes are a judgment, not a measurement.
+A SubagentStop beats for its subagent and settles nothing. SessionEnd, `/clear` included, removes the beats
+of the session and its subagents. A waiting beat stays live with no time limit; the state TTL of 7 days
+removes one no SessionEnd removed. A working beat stays live for 60 minutes past the last kit hook of its
+agent; past them, a turn cut before its Stop (a crash, a kill, a turn the user interrupted) reads as not
+live, and so does a turn that runs no kit hook for that long (reads and searches alone, a permission prompt
+the user leaves open). The 60 minutes are a judgment, not a measurement.
 
 Two hooks read this definition, and neither blocks:
 
@@ -119,17 +122,20 @@ Two hooks read this definition, and neither blocks:
   of a Bash line, in any segment of a compound line, global flags before the subcommand included, where
   `git -C`, an earlier `cd` of the line or the cwd puts it, as the landing guard reads a line. When that
   place is the main checkout of a repository whose own file declares `per-task`, and another session is
-  live in that checkout, the command runs and the agent reads one line of `additionalContext` beside its
-  result: the checkout, the policy, and `git -C <checkout> worktree add <path> -b <branch> <trunk>`, the
-  trunk being `profile.landing.trunk` when set, else the checkout's current branch. A linked worktree
-  never counts, and the repository of the session's own cwd plays no part. A refusal of the landing guard
-  or the commit judge wins, without the line; a note of theirs joins the line, read by the agent.
+  live in that checkout, the command runs and the agent reads one line of `additionalContext` per such
+  checkout beside its result: the checkout, the policy, and
+  `git -C <checkout> worktree add <path> -b <branch> <trunk>`, the trunk being `profile.landing.trunk`
+  when the repo file declares `landing`, else the checkout's current branch (`HEAD` when detached). A
+  linked worktree never counts, and the profile read is the one of the checkout the command acts in,
+  whatever repository the session runs in. A refusal of the landing guard or the commit judge wins,
+  without the line; a note of theirs joins the line, read by the agent and not shown to the user.
 
 SessionEnd hooks share Claude Code's 1.5-second budget, which a plugin's own `timeout` does not raise
 ([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` ran in 98 to 118 ms over 200
 beats (10 runs, bun 1.4.3, Linux, 2026-10-17). The SessionStart payload names no session that `/clear`
 replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
-measured, and a SessionEnd that ran late or not at all costs one needless worktree line, never a block.
+measured. A SessionEnd that ran late costs one needless line at SessionStart; one that never ran leaves a
+waiting session live until the 7-day TTL, with its lines; neither blocks.
 
 ## Commit judge
 

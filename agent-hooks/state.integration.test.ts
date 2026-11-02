@@ -27,7 +27,7 @@ import {
   stateDir,
   statePath,
   statesOf,
-  waitBeats,
+  waitBeat,
 } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import { beatAgo, createTempRepo, MINUTE_MS, removeTempRepo, scrubGitEnv } from "./test-support.ts";
@@ -462,19 +462,26 @@ describe("heartbeats", () => {
     expect(WORKING_CAP_MS).toBe(60 * MINUTE_MS);
   });
 
-  test("a waiting agent stays live past the cap, until its beats go", () => {
-    beatAgo("s2", temp.repo, MINUTE_MS);
+  test("an agent waiting in a checkout stays live there past the cap, until its beats go", () => {
+    const other = path.join(temp.dir, "other");
     beatAgo("s2.a1", temp.repo, MINUTE_MS);
+    beatAgo("s2", other, MINUTE_MS);
     beatAgo("s3", temp.repo, MINUTE_MS);
 
-    waitBeats("s2");
+    waitBeat("s2", temp.repo);
 
-    for (const key of ["s2", "s2.a1", "s3"]) {
+    for (const [key, checkout] of [
+      ["s2", temp.repo],
+      ["s2.a1", temp.repo],
+      ["s2", other],
+      ["s3", temp.repo],
+    ] as const) {
       const at = new Date(Date.now() - 2 * WORKING_CAP_MS);
-      utimesSync(beatPath(key, temp.repo), at, at);
+      utimesSync(beatPath(key, checkout), at, at);
     }
 
-    expect(liveOthers(temp.repo, "s1", Date.now()).toSorted()).toEqual(["s2", "s2.a1"]);
+    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
+    expect(liveOthers(other, "s1", Date.now())).toEqual([]);
 
     endBeats("s2");
 
@@ -482,8 +489,7 @@ describe("heartbeats", () => {
   });
 
   test("a beat after the wait marks its agent working again, under the cap", () => {
-    beat("s2", temp.repo);
-    waitBeats("s2");
+    waitBeat("s2", temp.repo);
     beatAgo("s2", temp.repo, 61 * MINUTE_MS);
 
     expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
