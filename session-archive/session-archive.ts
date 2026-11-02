@@ -85,6 +85,7 @@ export async function acquireLock(
 
   while (Date.now() < deadline) {
     try {
+      // FIXME: a lock judged stale (too old, a dead pid, unreadable) is removed by path, so a worker that judged it so can remove the lock another worker created since, and both then hold it; remove it only while it is still the lock judged stale (rename it aside, then check its pid), and never take over one older than LOCK_STALE_MS whose pid still runs.
       // Check for stale lock
       if (existsSync(lockfile)) {
         const lockStat = await stat(lockfile);
