@@ -10,9 +10,7 @@
  * the next approval in that session.
  */
 
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-
+import { writeAtomic } from "../lib/platform/fs.ts";
 import type { HookPayload } from "./plan-comment.ts";
 import {
   harnessPlanFile,
@@ -31,8 +29,7 @@ export async function capturePlan(payload: HookPayload, plan: string, home: stri
   if (file === null) return;
 
   const content = withSessionLine(plan, session);
-  await mkdir(dirname(file), { recursive: true });
-  await Bun.write(file, content);
+  await writeAtomic(file, content, { mkdir: true });
 
   // The harness re-injects its own copy into a fresh-context session; tagging it
   // is what carries the planning session's id across that handoff. stamp-plan.ts
@@ -40,7 +37,7 @@ export async function capturePlan(payload: HookPayload, plan: string, home: stri
   const harness = await harnessPlanFile(home, plan);
 
   if (harness !== null && (await Bun.file(harness).text()) !== content) {
-    await Bun.write(harness, content);
+    await writeAtomic(harness, content);
   }
 
   const cwd = payload.cwd ?? process.cwd();

@@ -17,10 +17,11 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
+import { writeAtomic } from "../lib/platform/fs.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 import { capturePlan } from "./capture-plan.ts";
 import type { HookPayload } from "./plan-comment.ts";
@@ -85,8 +86,7 @@ export async function gate(
   if (result.kind === "pass") await rm(state, { force: true });
 
   if (result.kind !== "deny") return null;
-  await mkdir(dirname(state), { recursive: true });
-  await Bun.write(state, digest);
+  await writeAtomic(state, digest, { mkdir: true });
 
   return result.reason;
 }
