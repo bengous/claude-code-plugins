@@ -13,6 +13,12 @@ const DEADLINES: ReadonlyMap<string, number> = new Map([
   ["user-prompt-expansion", DEADLINES_MS["user-prompt-expansion"]],
 ]);
 
+/** The subcommands that run no handler, so the kit gives them no deadline. */
+const UNDEADLINED = new Set(["user-prompt-submit", "session-end"]);
+
+/** Claude Code's default timeout for a UserPromptSubmit command hook, in seconds. */
+const PROMPT_DEFAULT_TIMEOUT_S = 30;
+
 const manifest: unknown = JSON.parse(
   readFileSync(path.join(import.meta.dir, "hooks", "hooks.json"), "utf8"),
 );
@@ -37,6 +43,7 @@ describe("hooks/hooks.json", () => {
     expect(new Set(commands.map(([, subcommand]) => subcommand))).toEqual(
       new Set([
         "session-start",
+        "user-prompt-submit",
         "pre-edit",
         "pre-bash",
         "stop",
@@ -46,7 +53,7 @@ describe("hooks/hooks.json", () => {
     );
   });
 
-  test.each(commands.filter(([, subcommand]) => subcommand !== "session-end"))(
+  test.each(commands.filter(([, subcommand]) => !UNDEADLINED.has(subcommand)))(
     "%s %s: its timeout outlasts the kit's deadline, so the kit answers before the harness cuts it",
     (_event, subcommand, timeout) => {
       expect(timeout).toBeNumber();
@@ -62,5 +69,13 @@ describe("hooks/hooks.json", () => {
         .filter(([, subcommand]) => subcommand === "session-end")
         .map(([, , timeout]) => timeout),
     ).toEqual([undefined]);
+  });
+
+  test("user-prompt-submit runs at UserPromptSubmit alone, under a timeout shorter than that event's default: the prompt waits for it", () => {
+    const wired = commands.filter(([, subcommand]) => subcommand === "user-prompt-submit");
+
+    expect(wired.map(([event]) => event)).toEqual(["UserPromptSubmit"]);
+    expect(wired[0]?.[2]).toBeNumber();
+    expect(Number(wired[0]?.[2])).toBeLessThan(PROMPT_DEFAULT_TIMEOUT_S);
   });
 });

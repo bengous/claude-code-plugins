@@ -22,7 +22,7 @@ const PLUGIN_ID_PREFIX = "agent-hooks@";
  * name is a whole word, so `agent-hooks stop-gates` is none.
  */
 const KIT_COMMAND =
-  /agent-hooks(?:\.ts)?["']?\s+(stop|pre-edit|post-edit|session-start|pre-bash)(?=\s|["']|$)/u;
+  /agent-hooks(?:\.ts)?["']?\s+(stop|pre-edit|post-edit|session-start|user-prompt-submit|pre-bash)(?=\s|["']|$)/u;
 
 export type DoctorOptions = {
   readonly cwd: string;

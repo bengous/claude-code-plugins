@@ -81,6 +81,17 @@ describe("claudeWiring", () => {
     );
   });
 
+  test("a user-prompt-submit hook in project settings beside the plugin counts as a second wiring", () => {
+    const project = settings(
+      "project.json",
+      hook("UserPromptSubmit", 'bun "/cache/agent-hooks/agent-hooks.ts" user-prompt-submit'),
+    );
+
+    expect(claudeWiring([user({ enabledPlugins: { [PLUGIN]: true } }), project]).line).toStartWith(
+      `WARN    claude wiring: plugin ${PLUGIN} and a hook in ${project}`,
+    );
+  });
+
   test("a pre-edit hook in project settings beside the plugin counts as a second wiring", () => {
     const project = settings("project.json", hook("PreToolUse", "agent-hooks pre-edit"));
 

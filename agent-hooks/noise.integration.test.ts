@@ -216,6 +216,7 @@ describe("kitCommands", () => {
     expect(kit(KIT_STOP)).toBeTrue();
     expect(kit(KIT_PRE_EDIT)).toBeTrue();
     expect(kit('bun "${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts" pre-bash')).toBeTrue();
+    expect(kit('bun "${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts" user-prompt-submit')).toBeTrue();
     expect(kit('bun "${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts" session-end')).toBeTrue();
     expect(kit(String.raw`bun "C:\plugins\agent-hooks\agent-hooks.ts" stop`)).toBeTrue();
     expect(kit("~/.local/bin/agent-hooks stop --harness codex")).toBeTrue();

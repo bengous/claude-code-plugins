@@ -93,17 +93,23 @@ a note to the user at SessionStart and an error of the config at the Stop and in
 guard, which reads `profile.landing` alone, is not affected.
 
 A session is live in a checkout while one of its beats there is live: the kit hooks write the beats, and the
-Stop of its main session settles them. Every kit hook (SessionStart, pre-edit, pre-bash,
-UserPromptExpansion, Stop, SubagentStop) beats for its agent in the checkout around its cwd, when a root encloses it: it writes
-`~/.local/state/agent-hooks/<agent>__<checkout hash>.beat` empty, the agent working, and refreshes its
-mtime. The Stop of the main session then settles the session's beats:
+Stop of its main session settles them. Every kit hook (SessionStart, UserPromptSubmit, UserPromptExpansion,
+pre-edit, post-edit, pre-bash, Stop, SubagentStop) beats for its agent in the checkout around its cwd, when a
+root encloses it: it writes `~/.local/state/agent-hooks/<agent>__<checkout hash>.beat` empty, the agent
+working, and refreshes its mtime. UserPromptSubmit does nothing else and adds nothing to the context. The
+prompt waits for it, 5 s at most. The Stop of the main session then settles the session's beats:
 
 - A Stop that blocks settles nothing: the turn goes on.
 - A turn that ends with a background task running or pending, of any type (`shell`, `subagent`,
   `workflow`, `monitor`, `teammate`), writes `waiting` into the session's beat in the checkout around its
   cwd; its beats elsewhere stay working.
-- A turn that ends without one removes them, in every checkout: the session is idle until a hook of its
-  next turn beats again.
+- A turn that ends without one removes them, in every checkout: the session is idle there until a kit
+  hook of its next turn beats again. In Claude Code, the UserPromptSubmit of each turn beats in the
+  checkout around its cwd, before any tool of that turn runs.
+
+The Codex wiring calls no `user-prompt-submit`: a Codex session is idle from its Stop until its next kit
+hook. A Codex config that wires it needs an entry that knows the subcommand: an older one prints its usage
+and exits 2, which blocks every prompt.
 
 A SubagentStop beats for its subagent and settles nothing. SessionEnd, `/clear` included, removes the beats
 of the session and its subagents. A waiting beat stays live with no time limit; the state TTL of 7 days

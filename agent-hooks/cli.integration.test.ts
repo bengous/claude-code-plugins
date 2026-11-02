@@ -146,6 +146,24 @@ describe("agent-hooks CLI", () => {
     expect(existsSync(statePath("s1", temp.repo))).toBe(true);
   });
 
+  test("user-prompt-submit beats for the session in the checkout around its cwd, under either harness, exits 0 without output", async () => {
+    for (const harness of ["claude", "codex"]) {
+      const result = await hook(
+        "user-prompt-submit",
+        {
+          session_id: `s-${harness}`,
+          cwd: temp.repo,
+          hook_event_name: "UserPromptSubmit",
+          prompt: "go on",
+        },
+        harness,
+      );
+
+      expect(result).toMatchObject({ code: 0, stdout: "" });
+      expect(existsSync(beatPath(`s-${harness}`, temp.repo))).toBe(true);
+    }
+  });
+
   test("session-end removes the beats session-start left, exits 0 without output", async () => {
     await hook("session-start", fixtureIn("claude", "session-start-startup", temp.repo));
 

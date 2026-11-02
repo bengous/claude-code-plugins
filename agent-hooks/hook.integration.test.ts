@@ -14,7 +14,7 @@ import { heartbeat, runHook, searchStarts } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import type { Input } from "./payload.ts";
 import { parseInput } from "./payload.ts";
-import { runSessionStart } from "./session-start.ts";
+import { runSessionStart, runUserPromptSubmit } from "./session-start.ts";
 import { beat, beatPath, liveOthers, statePath } from "./state.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
@@ -427,6 +427,29 @@ describe("runHook", () => {
     expect(existsSync(beatPath("s1.a1", temp.repo))).toBeFalse();
     expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
     expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
+  });
+
+  test("a UserPromptSubmit makes a session its idle Stop left live again in the checkout around its cwd, before any tool", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: allow });
+
+    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
+
+    runUserPromptSubmit({ ...payload(), hook_event_name: "UserPromptSubmit", prompt: "go on" });
+
+    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
+  });
+
+  test("a UserPromptSubmit with no session_id beats nothing and says so on stderr", () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    runUserPromptSubmit({ cwd: temp.repo, hook_event_name: "UserPromptSubmit", prompt: "go on" });
+
+    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
+    expect(errors.mock.calls.flat().join("\n")).toContain(
+      "agent-hooks: user-prompt-submit payload has no session_id",
+    );
   });
 
   test("a main Stop with a background task running or pending, of any type, leaves the session waiting around its cwd: live there past the cap", async () => {

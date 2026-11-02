@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import path from "node:path";
 
 import type { HookContext } from "./hook.ts";
-import { DEADLINES_MS } from "./hook.ts";
+import { DEADLINES_MS, heartbeat } from "./hook.ts";
 import { isRecord } from "./json.ts";
 import { parseInput } from "./payload.ts";
 import { staleScratchDirs, takePhoto } from "./scope.ts";
@@ -55,6 +55,23 @@ function worktreeNote(context: HookContext): Verdict {
     kind: "context",
     text: `agent-hooks: another session is live in ${checkout}, and this repository takes one worktree per task: do this task in a worktree of its own (EnterWorktree, or git worktree add), not in this checkout.`,
   };
+}
+
+/**
+ * UserPromptSubmit, the first hook of every turn: the agent is live again in the checkout around its cwd before any
+ * tool runs, whatever its last Stop settled. Prints nothing.
+ */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- the hook payload arrives as parsed JSON from stdin; this function is where it is narrowed.
+export function runUserPromptSubmit(payload: unknown): void {
+  const input = isRecord(payload) ? parseInput(payload) : null;
+
+  if (input === null) {
+    console.error("agent-hooks: user-prompt-submit payload has no session_id");
+
+    return;
+  }
+
+  heartbeat(input);
 }
 
 /** SessionEnd, `/clear` included: the session and its subagents are no longer live anywhere. */

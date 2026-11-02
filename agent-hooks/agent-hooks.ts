@@ -13,7 +13,7 @@ import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { ConfigError } from "./reader.ts";
 import { findRoot, realPathOf } from "./scope.ts";
-import { runSessionEnd, runSessionStart } from "./session-start.ts";
+import { runSessionEnd, runSessionStart, runUserPromptSubmit } from "./session-start.ts";
 import { runStop } from "./stop.ts";
 import { runUserPromptExpansion } from "./user-prompt-expansion.ts";
 import { runVerify } from "./verify.ts";
@@ -21,6 +21,7 @@ import { runVerify } from "./verify.ts";
 const USAGE = [
   "usage:",
   "  agent-hooks <session-start|pre-edit|post-edit|stop|pre-bash|user-prompt-expansion> [--harness claude|codex]   (payload on stdin)",
+  "  agent-hooks user-prompt-submit   (UserPromptSubmit payload on stdin)",
   "  agent-hooks session-end   (Claude Code SessionEnd payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
@@ -99,6 +100,12 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   switch (command) {
+    case "user-prompt-submit": {
+      runUserPromptSubmit(await readPayload());
+
+      return 0;
+    }
+
     case "session-end": {
       runSessionEnd(await readPayload());
 
