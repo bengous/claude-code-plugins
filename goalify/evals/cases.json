@@ -44,7 +44,7 @@
     "tags": ["deps", "hard"],
     "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
     "expected": "condition",
-    "hints": "Repo gates exist (bun ./scripts/run-gates.ts, bun test --parallel). Constraints: no pin lowered, no lockfile hand-edited. Blocker: a major with a breaking change the user must decide on.",
+    "hints": "Repo gates exist (bun ./scripts/gates/run-gates.ts, bun test --parallel). Constraints: no pin lowered, no lockfile hand-edited. Blocker: a major with a breaking change the user must decide on.",
     "input": "mets a jour toutes les libs et frameworks de claude-code-plugins, traite les nouveaux cas et les conflits"
   },
   {
