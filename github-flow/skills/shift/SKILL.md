@@ -22,12 +22,13 @@ One pass over the tracker with nobody watching. The state lives on GitHub, in la
 
    ```bash
    gh label create needs-info --description "Missing evidence or acceptance criteria"
+   gh label create needs-human --description "Waits for the human"
    gh label create tier:low --description "Lands on green checks without a human"
    gh label create tier:human --description "Waits for the human's land #N"
    gh label create land-ok --description "The human typed land #N in a session"
    ```
 
-2. **Triage.** `gh issue list --state open --json number,title,labels,createdAt`. Drop the ones already labelled `dispatched`, `blocked`, `needs-info`, `needs-human` or `epic`. Oldest first, `bug` before the rest. Read `${CLAUDE_PLUGIN_ROOT}/skills/triage/SKILL.md` and apply its protocol to each: it verifies the issue against the current code and closes or comments as its verdict fixes. Read it, do not invoke it: `github-flow:triage` is a manual skill. `unclear` → label `needs-info`. `valid` → candidate.
+2. **Triage.** `gh issue list --state open --search "-label:needs-human" --limit 100 --json number,title,labels,createdAt`: an issue labelled `needs-human` waits for the human, and the search leaves it out, so a pile of them never crowds older issues out of the list. Drop the ones already labelled `dispatched`, `blocked`, `needs-info` or `epic`. Oldest first, `bug` before the rest. Read `${CLAUDE_PLUGIN_ROOT}/skills/triage/SKILL.md` and apply its protocol to each: it verifies the issue against the current code and closes or comments as its verdict fixes. Read it, do not invoke it: `github-flow:triage` is a manual skill. `unclear` → label `needs-info`. `valid` → candidate.
 3. **Dispatch.** The first `--max` candidates, in one call to `github-flow:dispatch` with their numbers.
 4. **Maintain.** `gh pr list --state open --label shift --json number,url,headRefName,headRefOid,mergeable,statusCheckRollup,reviewDecision,comments,labels`. Skip the ones labelled `needs-human`: two fix rounds were not enough.
    - **Fix.** A PR with a red check, `mergeable: CONFLICTING`, or an unanswered comment goes to one worker in `fix <pr>` mode: `${CLAUDE_PLUGIN_ROOT}/skills/dispatch/references/worker-brief.md` filled as `github-flow:dispatch` fills it, in a `general-purpose` subagent, `model: opus` and `isolation: worktree` on the call. A comment counts only when its `authorAssociation` is `OWNER`, `MEMBER` or `COLLABORATOR` and its first line is no `<!-- … -->` marker. Count the PR's comments whose first line is `<!-- shift-fix -->` first: at two, label `needs-human` and leave the PR alone.
