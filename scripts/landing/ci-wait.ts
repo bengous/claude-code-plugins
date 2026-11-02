@@ -43,7 +43,7 @@ export const REGISTRATION_MS = 60_000;
 
 export type Gh = (args: readonly string[]) => Promise<string>;
 
-export type CiEvent = "push" | "pull_request";
+export type CiEvent = "push" | "pull_request" | "workflow_dispatch";
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
@@ -203,6 +203,33 @@ export async function waitFor(
   }
 
   return decision;
+}
+
+/**
+ * Starts a `ci.yml` run on `branch`'s head by `workflow_dispatch`, every job included, `e2e` among them: the id of
+ * the run GitHub answers with (`return_run_details`).
+ */
+export async function dispatchRun(gh: Gh, branch: string): Promise<number> {
+  const out = await gh([
+    "api",
+    "-X",
+    "POST",
+    `repos/{owner}/{repo}/actions/workflows/${WORKFLOW}/dispatches`,
+    "-f",
+    `ref=${branch}`,
+    "-F",
+    "return_run_details=true",
+    "--jq",
+    ".workflow_run_id",
+  ]);
+
+  const id = out.trim();
+
+  if (!RUN_ID.test(id)) {
+    throw new Error(`the dispatch of ${WORKFLOW} on ${branch} answered no run id: ${id}`);
+  }
+
+  return Number(id);
 }
 
 /** `gh` run from `cwd`, whose checkout gives the `{owner}/{repo}` of `gh api`. */

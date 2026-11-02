@@ -1,11 +1,21 @@
 #!/usr/bin/env bun
 
 /**
- * Land a reviewed branch on `dev`: the "Land a branch" procedure of
- * `docs/repo-ops/git.md` as one command an agent runs once, in the background,
- * without a prompt. It waits by itself and ends on one verdict line.
+ * Land a reviewed branch, a pull request or a stack on `dev`: the "Land a
+ * branch" procedure of `docs/repo-ops/git.md` as one command an agent runs
+ * once, in the background, without a prompt. It waits by itself and ends on
+ * one verdict line.
  *
- *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types>
+ *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types|n|#n> [--dry-run]
+ *
+ * A number is a pull request or a GitHub stack (`scripts/landing/stack.ts`).
+ * A pull request, or a branch whose pull request, based on `dev`, lands as
+ * described below. One based on another branch lands with the open pull
+ * requests under it down to `dev`, and a stack with its open layers, as one
+ * stack: see the last paragraph. `--dry-run` runs every check that comes
+ * before the lock, writes nothing to GitHub or to a checkout, adds no
+ * checkout, reads the tier from the pull request's `tier:` label without the
+ * judge, prints what it would do, and exits 0, or 1 on the first refusal.
  *
  * Runs `origin/dev`'s copy of itself, on the arguments as given: after a
  * fetch, `origin/dev`'s whole tree is extracted to a temporary directory and
@@ -67,11 +77,24 @@
  * reads its pull request merged within a minute and no open pull request is
  * based on it; its local branch and checkout stay, and a remote branch kept
  * is named, with why, on the verdict line of a landing that still succeeded.
+ *
+ * A stack lands from the checkout holding its top branch, the layers under it
+ * read on origin, never moved locally. Each layer, bottom to top, must pass
+ * the checks before any wait against its own base, and the top must hold
+ * `origin/dev`: a stack is never rebased here, `gh stack rebase` and
+ * `gh stack push` do that. One wait: a `workflow_dispatch` run of `ci.yml` on
+ * the top's head, every job and `e2e` included, one dispatched when the head
+ * has none; one already there is waited for, re-run once when red in its e2e
+ * jobs alone, as a pull request's run is. Then one atomic push moves `dev` to the top
+ * and each lower branch to it under a lease on the head it was read at, so
+ * GitHub reads every pull request merged; a refusal moves nothing. A pull
+ * request still open a minute later is named and no branch is deleted.
  */
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { parseArgs } from "node:util";
 
 import { messageOf } from "../tools/platform/pure.ts";
 import { LABEL as RED_DEV } from "./ci/red-dev.ts";
@@ -89,6 +112,7 @@ import {
   type CiRun,
   type Clock,
   ciVerdict,
+  dispatchRun,
   type Gh,
   ghCli,
   REGISTRATION_MS,
@@ -107,6 +131,7 @@ import {
   short,
   verdictsOf,
 } from "./landing/review-verdict.ts";
+import { type Layer, layerNumber, resolveTarget, type Target } from "./landing/stack.ts";
 import { riskyOf, riskyPaths, type Tier, type Verdict } from "./landing/tier-floor.ts";
 import { run } from "./lib/run.ts";
 
@@ -131,6 +156,18 @@ const E2E_LABEL = "e2e";
 const GREEN_JOB = new Set(["success", "skipped", "neutral"]);
 
 const PR_NUMBER = /^\d+$/u;
+
+/** `land.ts <n>` or `land.ts #<n>`: a pull request or a stack. */
+const NUMBER_TARGET = /^#?(\d+)$/u;
+
+/** The branches a pull request based on another branch can have, as a layer of a stack. */
+const LAYER_BRANCH = /^(?:feature|fix)\//u;
+
+/** The gh calls that write to GitHub, which `--dry-run` refuses to make. */
+const GH_WRITES =
+  /^(?:pr (?:edit|comment|create|merge|close|ready)|label create|run rerun|workflow run|issue (?:edit|comment|create|close))\b/u;
+
+const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
 /** Renovate's branches: `scripts/headless/renovate-agent.ts` and the verdict it posts guard them, not the tier. */
 const BOT_BRANCH = /^renovate\//u;
@@ -192,6 +229,17 @@ export type Landing =
       readonly pr: number;
       readonly remote: RemoteBranch;
     }
+  | {
+      readonly kind: "landedStack";
+      readonly dev: string;
+      readonly stack: number | null;
+      readonly layers: readonly {
+        readonly number: number;
+        readonly branch: string;
+        readonly remote: RemoteBranch;
+      }[];
+    }
+  | { readonly kind: "planned"; readonly lines: readonly string[] }
   | { readonly kind: "refused"; readonly why: string };
 
 type Refused = Extract<Landing, { readonly kind: "refused" }>;
@@ -201,6 +249,10 @@ type Ready = { readonly kind: "ready"; readonly pr: PullRequest } | Refused;
 /** What one landing carries through its waits. */
 interface Lander {
   readonly branch: string;
+  /** The branch its pull request must be open against: `dev`, or the layer under it in a stack. */
+  readonly base: string;
+  /** A `--dry-run`: GitHub is read, never written, and the tier comes from the pull request's label. */
+  readonly readOnly: boolean;
   readonly checkout: string;
   readonly gh: Gh;
   readonly waiting: Waiting;
@@ -274,14 +326,17 @@ export function samePath(a: string, b: string, resolvePath = resolve): boolean {
   return resolvePath(a) === resolvePath(b);
 }
 
-/** Why a branch may not land through `pr`, whatever its head and its runs; null when it may. */
-export function refusalOf(pr: PullRequest): string | null {
+/**
+ * Why a branch may not land through `pr`, whatever its head and its runs; null when it may. `base` is the branch it
+ * must be open against: `dev`, or the layer under it in a stack.
+ */
+export function refusalOf(pr: PullRequest, base: string): string | null {
   const name = `#${pr.number}`;
 
   if (pr.state !== "OPEN") return `${name} is ${pr.state.toLowerCase()}, not open`;
 
-  if (pr.baseRefName !== DEV) {
-    return `${name} targets ${pr.baseRefName}, not ${DEV}: a stacked layer lands with gh stack (docs/repo-ops/git.md)`;
+  if (pr.baseRefName !== base) {
+    return `${name} targets ${pr.baseRefName}, not ${base}: land it by its number, bun ./scripts/land.ts ${pr.number}, which lands the pull requests under it too`;
   }
 
   return null;
@@ -458,11 +513,14 @@ async function labelTier(lander: Lander, labels: ReadonlySet<string>, tier: Tier
  * The branch's head on GitHub when `added`: the last push GitHub lists before that time. Read from the server's push
  * times, not a commit's date, which its author sets.
  */
-async function headPushedBefore(lander: Lander, added: string): Promise<string | null> {
+async function headPushedBefore(
+  read: Pick<Lander, "gh" | "branch">,
+  added: string,
+): Promise<string | null> {
   const before = Date.parse(added);
   let last: Push | null = null;
 
-  for (const push of await pushesOf(lander)) {
+  for (const push of await pushesOf(read)) {
     if (push.at < before && COMMIT.test(push.after) && (last === null || push.at > last.at)) {
       last = push;
     }
@@ -495,11 +553,22 @@ async function pushesOf({ gh, branch }: Pick<Lander, "gh" | "branch">): Promise<
   });
 }
 
+/** Why `sha` is neither here nor fetched from origin, or null once it is here. */
+function unserved(checkout: string, sha: string): string | null {
+  if (run(["git", "cat-file", "-e", `${sha}^{commit}`], checkout).ok) return null;
+
+  const fetched = run(["git", "fetch", "--quiet", REMOTE, sha], checkout);
+
+  return fetched.ok ? null : `which ${REMOTE} no longer serves: ${fetched.err.trim()}`;
+}
+
 /**
  * Null when the pull request carries a `land-ok` given to the change that lands: the head GitHub held when the label
  * was added has the patch of the head this landing started from. A rebase that keeps the patch, `land.ts`'s own
- * included, keeps the ok; a commit after it does not, and that ok comes off (`voidApproval`). An ok whose head or
- * patch cannot be read is refused as it is: nothing is taken off on a read that failed.
+ * included, keeps the ok; a commit after it does not, and that ok comes off (`voidApproval`). The patch is read
+ * against the pull request's base: for a layer of a stack, the ok's against the base's head GitHub held when the
+ * label was added, so a cascade that keeps every layer's patch keeps it too. An ok whose head or patch cannot be read
+ * is refused as it is: nothing is taken off on a read that failed.
  */
 async function approvalOf(
   lander: Lander,
@@ -529,17 +598,39 @@ async function approvalOf(
     return `with a ${LAND_OK} added at ${added}, before any push of ${lander.branch} GitHub lists`;
   }
 
-  if (approved === lander.reviewed) return null;
+  if (approved === lander.reviewed && pr.baseRefName === DEV) return null;
 
   const given = `with a ${LAND_OK} given to ${short(approved)}`;
+  const missing = unserved(lander.checkout, approved);
 
-  if (!run(["git", "cat-file", "-e", `${approved}^{commit}`], lander.checkout).ok) {
-    const fetched = run(["git", "fetch", "--quiet", REMOTE, approved], lander.checkout);
+  if (missing !== null) return `${given}, ${missing}`;
 
-    if (!fetched.ok) return `${given}, which ${REMOTE} no longer serves: ${fetched.err.trim()}`;
+  let baseThen = baseRefOf(pr);
+
+  if (pr.baseRefName !== DEV) {
+    const held = await headPushedBefore({ gh: lander.gh, branch: pr.baseRefName }, added);
+
+    if (held === null) {
+      return `${given}, before any push of its base ${pr.baseRefName} GitHub lists`;
+    }
+
+    const baseMissing = unserved(lander.checkout, held);
+
+    if (baseMissing !== null)
+      return `${given} on ${pr.baseRefName} at ${short(held)}, ${baseMissing}`;
+
+    // The same head over a base rewound or rewritten since carries a patch the ok never covered.
+    const baseNow = run(
+      ["git", "rev-parse", "--verify", "--quiet", `${baseRefOf(pr)}^{commit}`],
+      lander.checkout,
+    ).out;
+
+    if (approved === lander.reviewed && held === baseNow) return null;
+
+    baseThen = held;
   }
 
-  const then = patchIdOf(lander.checkout, baseRefOf(pr), approved);
+  const then = patchIdOf(lander.checkout, baseThen, approved);
 
   if (then.kind === "failed") return `${given}, whose patch does not read: ${then.why}`;
 
@@ -549,50 +640,101 @@ async function approvalOf(
 
   if (then.id === now.id) return null;
 
-  return voidApproval(lander, pr, approved);
+  return voidApproval(lander, pr, approved, baseThen);
+}
+
+interface PatchedCommit {
+  readonly sha: string;
+  readonly subject: string;
+  /** Its `git patch-id --stable`; undefined for a commit that changes nothing. */
+  readonly patch: string | undefined;
+}
+
+/** The commits `base..head` holds, merges aside, newest first, each with its patch-id. */
+function patchedCommits(checkout: string, base: string, head: string): readonly PatchedCommit[] {
+  const range = `${base}..${head}`;
+  const listed = run(["git", "log", "--no-merges", "--format=%H%x00%s", range], checkout);
+
+  const patches = run(
+    [
+      "git",
+      "log",
+      "-p",
+      "--no-merges",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--format=commit %H",
+      range,
+    ],
+    checkout,
+  );
+
+  if (!listed.ok || !patches.ok) {
+    throw new Error(`git log ${range}: ${(listed.ok ? patches.err : listed.err).trim()}`);
+  }
+
+  const ids = run(["git", "patch-id", "--stable"], checkout, patches.raw);
+
+  if (!ids.ok) throw new Error(`git patch-id of ${range}: ${ids.err.trim()}`);
+
+  const patchOf = new Map(
+    ids.out
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => {
+        const [patch = "", sha = ""] = line.split(" ");
+
+        return [sha, patch] as const;
+      }),
+  );
+
+  return listed.out
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => {
+      const [sha = "", subject = ""] = line.split("\0");
+
+      return { sha, subject, patch: patchOf.get(sha) };
+    });
 }
 
 /**
  * Takes off a `land-ok` whose change is no longer the pull request's: the human's next « land #n » adds it again,
  * as a new event GitHub dates, which a label left on would not be. The comment, posted first so a failed removal
- * loses nothing, leaves the human what to read before that: the commits since the head the ok covered, those with
- * no patch among the ones it covered and not on `origin/dev`, which a rebase brings in, each linked; and GitHub's
- * compare view of the two heads when the ok's head leads to this one, since after a rebase that view starts from
- * the old base and shows the rebase too.
+ * loses nothing, leaves the human what to read before that: the commits of the change now, from the base to the
+ * head, with no patch among those of the change the ok covered, from `baseThen` to its head, each linked, so a
+ * rebase brings none in and a base rewound under the head names what it let in; and GitHub's compare view of the
+ * two heads when the ok's head leads to this one over the same base, since otherwise that view shows the rebase too
+ * or nothing at all.
  */
-async function voidApproval(lander: Lander, pr: PullRequest, approved: string): Promise<string> {
+async function voidApproval(
+  lander: Lander,
+  pr: PullRequest,
+  approved: string,
+  baseThen: string,
+): Promise<string> {
   const { branch, checkout, reviewed } = lander;
-
-  const since = run(
-    [
-      "git",
-      "log",
-      "--right-only",
-      "--cherry-pick",
-      "--no-merges",
-      "--format=%H %s",
-      `${approved}...${reviewed}`,
-      `^${baseRefOf(pr)}`,
-    ],
-    checkout,
-  );
-
-  if (!since.ok) {
-    throw new Error(`git log ${short(approved)}...${short(reviewed)}: ${since.err.trim()}`);
-  }
-
+  const covered = new Set(patchedCommits(checkout, baseThen, approved).map(({ patch }) => patch));
   const repo = pr.url.replace(/\/pull\/\d+$/u, "");
 
-  const commits = since.out
-    .split("\n")
-    .filter((line) => line !== "")
-    .map((line) => {
-      const [sha = "", ...subject] = line.split(" ");
+  const commits = patchedCommits(checkout, baseRefOf(pr), reviewed).flatMap(
+    ({ sha, subject, patch }) =>
+      patch === undefined || covered.has(patch)
+        ? []
+        : [`- ${short(sha)} ${subject} (${repo}/commit/${sha})`],
+  );
 
-      return `- ${short(sha)} ${subject.join(" ")} (${repo}/commit/${sha})`;
-    });
+  const sameBase =
+    pr.baseRefName === DEV ||
+    run(["git", "rev-parse", "--verify", "--quiet", `${baseRefOf(pr)}^{commit}`], checkout).out ===
+      baseThen;
 
-  const linear = run(["git", "merge-base", "--is-ancestor", approved, reviewed], checkout).ok;
+  const linear =
+    sameBase &&
+    approved !== reviewed &&
+    run(["git", "merge-base", "--is-ancestor", approved, reviewed], checkout).ok;
+
   const compare = `${repo}/compare/${approved}...${reviewed}`;
   // Two dots: the two heads' trees compared as they are, for a change with no commit to list.
   const direct = `${repo}/compare/${approved}..${reviewed}`;
@@ -606,9 +748,15 @@ async function voidApproval(lander: Lander, pr: PullRequest, approved: string): 
     ? compare
     : commits.length === 0
       ? `the two heads' own diff, ${direct}`
-      : `the commits below; the compare view ${compare} would show the rebase too`;
+      : approved === reviewed
+        ? "the commits below"
+        : `the commits below; the compare view ${compare} would show the rebase too`;
 
   const where = linear ? compare : commits.length === 0 ? direct : "the commits its comment links";
+
+  if (lander.readOnly) {
+    return `with a ${LAND_OK} given to ${short(approved)}, whose change is not that of its head ${short(reviewed)}: land.ts would take the label off; to read at ${where}`;
+  }
 
   await lander.gh([
     "pr",
@@ -647,6 +795,15 @@ async function redDevIssues(lander: Lander): Promise<readonly string[]> {
     .map((number) => `#${number}`);
 }
 
+/** The tier a `--dry-run` reads from the pull request's labels, never asking the judge. */
+function labelledTier(labels: ReadonlySet<string>): Verdict {
+  if (labels.has(TIER_LABELS.low.name)) return { tier: "low", reason: "its tier:low label" };
+
+  return labels.has(TIER_LABELS.human.name)
+    ? { tier: "human", reason: "its tier:human label" }
+    : { tier: "human", reason: "no tier label, not judged in a dry run" };
+}
+
 /**
  * Why `pr` may not land at its tier, or null when it may: a human one without a `land-ok` given to its change, a low
  * one without it while `dev` is red. The tier is the branch's, read once per landing, raised by a `tier:human` label
@@ -658,13 +815,16 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
   if (tiering === null) return null;
 
-  tiering.verdict ??= await tiering.of(lander.checkout, pr.number, baseRefOf(pr), lander.reviewed);
-
   const labels = new Set(pr.labels.map((label) => label.name));
+
+  tiering.verdict ??= lander.readOnly
+    ? labelledTier(labels)
+    : await tiering.of(lander.checkout, pr.number, baseRefOf(pr), lander.reviewed);
+
   const raised = tiering.verdict.tier === "low" && labels.has(TIER_LABELS.human.name);
   const tier: Tier = raised ? "human" : tiering.verdict.tier;
 
-  await labelTier(lander, labels, tier);
+  if (!lander.readOnly) await labelTier(lander, labels, tier);
 
   if (tier === "human") {
     const approval = await approvalOf(lander, pr, labels);
@@ -672,7 +832,7 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
     if (approval === null) return null;
 
     // The agent adds land-ok on the human's next words, outside any shift pass that would create it.
-    if (!labels.has(LAND_OK)) await createLabel(lander, LAND_OK_LABEL);
+    if (!labels.has(LAND_OK) && !lander.readOnly) await createLabel(lander, LAND_OK_LABEL);
 
     const why = raised
       ? `its tier:human label, left by an earlier pass; tier.ts now says low: ${tiering.verdict.reason}`
@@ -696,6 +856,14 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
 function remaining(lander: Lander): number {
   return Math.max(0, lander.deadline - lander.waiting.clock.now());
+}
+
+/**
+ * `lander` with a minute of its own once its push to `dev` went through: GitHub reads the push within seconds,
+ * whatever the landing's hour has left, and a wait that used that hour up must not read the pull request just once.
+ */
+function afterPush(lander: Lander): Lander {
+  return { ...lander, deadline: lander.waiting.clock.now() + REGISTRATION_MS };
 }
 
 /** What `read` gives once `done` holds of it, or its last read once a minute, or the landing's time, runs out. */
@@ -722,10 +890,10 @@ async function pullRequestAt(lander: Lander, sha: string): Promise<Ready> {
   const pr = await pollUntil(
     lander,
     () => readPullRequest(lander),
-    (read) => read.headRefOid === sha || refusalOf(read) !== null,
+    (read) => read.headRefOid === sha || refusalOf(read, lander.base) !== null,
   );
 
-  const refusal = refusalOf(pr);
+  const refusal = refusalOf(pr, lander.base);
 
   if (refusal !== null) return refused(refusal);
 
@@ -789,7 +957,7 @@ async function settle(lander: Lander, query: CiQuery): Promise<CiOutcome> {
 
 function notGreen(
   lander: Lander,
-  pr: PullRequest,
+  pr: Pick<PullRequest, "number">,
   sha: string,
   outcome: Exclude<CiOutcome, { readonly kind: "green" }>,
 ): string {
@@ -1031,10 +1199,11 @@ function addCheckout(cwd: string, porcelain: string, branch: string): Added {
 /**
  * Brings a clean checkout to its pull request's head: fast-forwarded when behind it, as a worker's kept worktree is
  * once a `fix` worker pushed on it, reset when its head is one a push to GitHub already replaced, as after a `fix`
- * worker's rebase. A head GitHub never held is left for the landing to refuse.
+ * worker's rebase. A head GitHub never held is left for the landing to refuse. A dry run moves nothing: a checkout
+ * apart from its pull request's head is refused.
  */
 async function caughtUp(
-  { gh, branch }: Pick<Lander, "gh" | "branch">,
+  { gh, branch, readOnly }: Pick<Lander, "gh" | "branch" | "readOnly">,
   checkout: string,
 ): Promise<string | null> {
   const unfetched = fetchOrigin(checkout);
@@ -1048,6 +1217,10 @@ async function caughtUp(
   const { headRefOid } = await readPullRequest({ gh, branch });
 
   if (headRefOid === head) return null;
+
+  if (readOnly) {
+    return `${checkout} is at ${short(head)} and the pull request of ${branch} at ${short(headRefOid)}: land.ts would bring it there first`;
+  }
 
   if (run(["git", "merge-base", "--is-ancestor", head, headRefOid], checkout).ok) {
     const merged = run(["git", "merge", "--ff-only", "--quiet", headRefOid], checkout);
@@ -1067,11 +1240,68 @@ async function caughtUp(
   return reset.ok ? null : `git reset --hard ${short(headRefOid)} in ${checkout}: ${reset.err}`;
 }
 
+/** Whether `args` write to GitHub: a call `--dry-run` refuses to make. */
+function writes(args: readonly string[]): boolean {
+  const flag = args.findIndex((arg) => arg === "-X" || arg === "--method");
+  const method = flag === -1 ? undefined : args[flag + 1]?.toUpperCase();
+
+  return GH_WRITES.test(args.join(" ")) || (method !== undefined && WRITE_METHODS.has(method));
+}
+
+/** `gh` as `--dry-run` runs it: a call that would write to GitHub is refused, never made. */
+function readOnlyGh(gh: Gh): Gh {
+  return (args) =>
+    writes(args)
+      ? Promise.reject(new Error(`--dry-run: land.ts would run gh ${args.join(" ")}`))
+      : gh(args);
+}
+
+/**
+ * Lands `target`: a branch, or a number, the pull request it names with those under it, or the stack it names. A
+ * branch whose pull request is based on another branch lands as the pull request it is.
+ */
 export async function land(
-  branch: string,
+  target: string,
   cwd: string,
   waiting: Waiting = WAITING,
   deps: Deps = DEPS,
+  dryRun = false,
+): Promise<Landing> {
+  const plain: Gh = (args) => ghCli(args, cwd);
+  const gh = dryRun ? readOnlyGh(plain) : plain;
+  let number = NUMBER_TARGET.exec(target)?.[1];
+
+  if (number === undefined && LAYER_BRANCH.test(target) && LANDABLE.test(target)) {
+    number = (await layerNumber(gh, target))?.toString();
+  }
+
+  if (number === undefined) return landBranch(target, cwd, waiting, deps, dryRun);
+
+  let resolved: Target;
+
+  try {
+    resolved = await resolveTarget(gh, Number(number));
+  } catch (error) {
+    return refused(messageOf(error));
+  }
+
+  if (resolved.kind === "refused") return resolved;
+
+  const [only, ...above] = resolved.layers;
+
+  if (only !== undefined && above.length === 0) {
+    return landBranch(only.branch, cwd, waiting, deps, dryRun);
+  }
+
+  return landStack(resolved.layers, resolved.stack, cwd, waiting, deps, dryRun);
+}
+
+async function landBranch(
+  branch: string,
+  cwd: string,
+  waiting: Waiting,
+  deps: Deps,
+  dryRun: boolean,
 ): Promise<Landing> {
   if (!LANDABLE.test(branch) && branch !== ROLLING_BRANCH) {
     return refused(`${branch} is not a ${LANDABLE_NAMES}: only those land on ${DEV}`);
@@ -1083,13 +1313,15 @@ export async function land(
 
   const held = checkoutOf(worktrees.out, branch);
 
+  if (held === null && dryRun) return landFrom(branch, cwd, false, waiting, deps, true);
+
   if (held === null) {
     const added = addCheckout(cwd, worktrees.out, branch);
 
     if (added.kind === "refused") return added;
 
     try {
-      return await landFrom(branch, added.path, waiting, deps);
+      return await landFrom(branch, added.path, true, waiting, deps, false);
     } finally {
       removeCheckout(cwd, added.path);
     }
@@ -1101,40 +1333,72 @@ export async function land(
     );
   }
 
-  return landFrom(branch, held, waiting, deps);
+  return landFrom(branch, held, true, waiting, deps, dryRun);
 }
 
-/** The landing of `branch` from `checkout`, the clean checkout that holds it. */
-async function landFrom(
-  branch: string,
+/**
+ * The head the landing starts from in `checkout`: the one it holds, brought to its pull request's head first, or, in
+ * a dry run from a checkout that does not hold `branch`, the pull request's head as GitHub shows it.
+ */
+async function startingHead(
+  read: Pick<Lander, "gh" | "branch" | "readOnly">,
   checkout: string,
-  waiting: Waiting,
-  deps: Deps,
-): Promise<Landing> {
-  const dirty = dirtyOf(checkout);
-
-  if (dirty !== null) return refused(dirty);
-
-  const gh: Gh = (args) => ghCli(args, checkout);
-
+  holds: boolean,
+): Promise<{ readonly kind: "head"; readonly head: string } | Refused> {
   try {
-    const behind = await caughtUp({ gh, branch }, checkout);
+    if (!holds) {
+      const unfetched = fetchOrigin(checkout);
+
+      if (unfetched !== null) return refused(unfetched);
+
+      return { kind: "head", head: (await readPullRequest(read)).headRefOid };
+    }
+
+    const behind = await caughtUp(read, checkout);
 
     if (behind !== null) return refused(behind);
   } catch (error) {
     return refused(messageOf(error));
   }
 
-  const reviewed = headOf(checkout);
+  const head = headOf(checkout);
 
-  if (reviewed === null) return refused(`git rev-parse HEAD failed in ${checkout}`);
+  return head === null
+    ? refused(`git rev-parse HEAD failed in ${checkout}`)
+    : { kind: "head", head };
+}
 
+/**
+ * The landing of `branch` from `checkout`, the clean checkout that holds it; in a dry run, any checkout of the
+ * repository, which `holds` says.
+ */
+async function landFrom(
+  branch: string,
+  checkout: string,
+  holds: boolean,
+  waiting: Waiting,
+  deps: Deps,
+  readOnly: boolean,
+): Promise<Landing> {
+  const dirty = holds ? dirtyOf(checkout) : null;
+
+  if (dirty !== null) return refused(dirty);
+
+  const plain: Gh = (args) => ghCli(args, checkout);
+  const gh = readOnly ? readOnlyGh(plain) : plain;
+  const start = await startingHead({ gh, branch, readOnly }, checkout, holds);
+
+  if (start.kind === "refused") return start;
+
+  const reviewed = start.head;
   const touched = changedPaths(checkout, BASE, reviewed);
 
   if (touched.kind === "failed") return refused(touched.why);
 
   const lander: Lander = {
     branch,
+    base: DEV,
+    readOnly,
     checkout,
     gh,
     waiting,
@@ -1147,9 +1411,11 @@ async function landFrom(
         : { of: deps.tier, verdict: null },
   };
 
-  const unready = await refusalBeforeWait(lander);
+  const passed = await readyBeforeWait(lander);
 
-  if (unready !== null) return refused(unready);
+  if (passed.kind === "refused") return passed;
+
+  if (readOnly) return branchPlan(lander, passed);
 
   const url = run(["git", "remote", "get-url", "--push", REMOTE], checkout);
 
@@ -1161,35 +1427,391 @@ async function landFrom(
   );
 }
 
+type Checked =
+  | { readonly kind: "ready"; readonly pr: PullRequest; readonly paths: readonly string[] }
+  | Refused;
+
 /**
- * Why the branch may not land, read before any wait so that a landing the human or a review still holds back waits
- * for nothing: the pull request at the head the landing starts from, its tier, and the review verdict of a branch
- * that touches a risky path.
+ * The pull request and the paths it changes against its base, once the checks that come before any wait pass, so
+ * that a landing the human or a review still holds back waits for nothing: the pull request at the head the landing
+ * starts from, its tier, and the review verdict of a branch that touches a risky path.
  */
-async function refusalBeforeWait(lander: Lander): Promise<string | null> {
+async function readyBeforeWait(lander: Lander): Promise<Checked> {
   const { branch, checkout, reviewed } = lander;
 
   try {
     const at = await pullRequestAt(lander, reviewed);
 
-    if (at.kind === "refused") return at.why;
+    if (at.kind === "refused") return at;
 
     const tiered = await tierRefusal(lander, at.pr);
 
-    if (tiered !== null) return tiered;
+    if (tiered !== null) return refused(tiered);
 
     const changed = changedPaths(checkout, baseRefOf(at.pr), reviewed);
 
-    if (changed.kind === "failed") return changed.why;
+    if (changed.kind === "failed") return refused(changed.why);
 
-    return reviewRefusal(branch, at.pr, checkout, {
+    const verdict = reviewRefusal(branch, at.pr, checkout, {
       reviewed,
       rebased: reviewed,
       paths: changed.paths,
     });
+
+    return verdict === null ? { kind: "ready", pr: at.pr, paths: changed.paths } : refused(verdict);
   } catch (error) {
-    return messageOf(error);
+    return refused(messageOf(error));
   }
+}
+
+/** One pull request as a dry run found it: its head, base, tier, and why its review lets it through. */
+function readyLine(lander: Lander, { pr, paths }: Extract<Checked, { kind: "ready" }>): string {
+  const verdict = lander.tiering?.verdict ?? null;
+  const approved = pr.labels.some((label) => label.name === LAND_OK);
+
+  const tier =
+    verdict === null
+      ? "not tiered, its own guards hold it"
+      : `tier ${verdict.tier} (${verdict.reason})${approved ? `, a ${LAND_OK} given to its change` : ""}`;
+
+  const review =
+    riskyPaths(paths, riskyOf(lander.checkout, BASE)).length > 0
+      ? "a clean review verdict holds its patch"
+      : "no risky path";
+
+  return `#${pr.number} ${lander.branch} at ${short(lander.reviewed)}, based on ${pr.baseRefName}: ${tier}; ${review}`;
+}
+
+/** What a dry run prints for one branch that passed the checks before any wait. */
+async function branchPlan(
+  lander: Lander,
+  passed: Extract<Checked, { kind: "ready" }>,
+): Promise<Landing> {
+  const { branch, checkout, gh, reviewed } = lander;
+  const holds = run(["git", "merge-base", "--is-ancestor", BASE, reviewed], checkout).ok;
+  const runs = await ciVerdict(gh, { sha: reviewed, event: "pull_request" });
+
+  return {
+    kind: "planned",
+    lines: [
+      readyLine(lander, passed),
+      holds
+        ? `its head holds ${BASE}`
+        : `its head does not hold ${BASE}: land.ts would rebase it after the wait`,
+      `its pull_request runs of ci.yml: ${runs.kind}`,
+      `land.ts would take the landing lock, wait for CI, rebase on ${BASE}, push ${branch}, push it to ${DEV} and delete the remote branch`,
+    ],
+  };
+}
+
+function layerName(index: number, layers: readonly Layer[]): string {
+  const layer = layers[index];
+
+  return `layer ${index + 1} of ${layers.length}, #${layer?.number} (${layer?.branch})`;
+}
+
+/**
+ * Lands `layers`, bottom to top, from the checkout holding the top branch, one added for the landing when none
+ * holds it; in a dry run, from `cwd` when none holds it.
+ */
+async function landStack(
+  layers: readonly Layer[],
+  stack: number | null,
+  cwd: string,
+  waiting: Waiting,
+  deps: Deps,
+  dryRun: boolean,
+): Promise<Landing> {
+  const top = layers.at(-1);
+
+  if (top === undefined) return refused("no open pull request to land");
+
+  const outside = layers.find((layer) => !LANDABLE.test(layer.branch));
+
+  if (outside !== undefined) {
+    return refused(
+      `#${outside.number}'s branch ${outside.branch} is not a ${LANDABLE_NAMES}: only those land on ${DEV}`,
+    );
+  }
+
+  const worktrees = run(["git", "worktree", "list", "--porcelain"], cwd);
+
+  if (!worktrees.ok) return refused(`git worktree list: ${worktrees.err}`);
+
+  const held = checkoutOf(worktrees.out, top.branch);
+  const from = { layers, stack, top, waiting, deps, readOnly: dryRun };
+
+  if (held !== null) return stackFrom({ ...from, checkout: held, holds: true });
+
+  if (dryRun) return stackFrom({ ...from, checkout: cwd, holds: false });
+
+  const added = addCheckout(cwd, worktrees.out, top.branch);
+
+  if (added.kind === "refused") return added;
+
+  try {
+    return await stackFrom({ ...from, checkout: added.path, holds: true });
+  } finally {
+    removeCheckout(cwd, added.path);
+  }
+}
+
+interface StackLanding {
+  readonly layers: readonly Layer[];
+  readonly stack: number | null;
+  readonly top: Layer;
+  readonly checkout: string;
+  readonly holds: boolean;
+  readonly waiting: Waiting;
+  readonly deps: Deps;
+  readonly readOnly: boolean;
+}
+
+/** The checks of every layer before any wait, then the landing of the stack under the lock. */
+async function stackFrom(landing: StackLanding): Promise<Landing> {
+  const { layers, top, checkout, holds, waiting, deps, readOnly } = landing;
+  const dirty = holds ? dirtyOf(checkout) : null;
+
+  if (dirty !== null) return refused(dirty);
+
+  const plain: Gh = (args) => ghCli(args, checkout);
+  const gh = readOnly ? readOnlyGh(plain) : plain;
+  const start = await startingHead({ gh, branch: top.branch, readOnly }, checkout, holds);
+
+  if (start.kind === "refused") return start;
+
+  const { head } = start;
+
+  if (head !== top.head) {
+    return refused(
+      `${top.branch} is at ${short(head)} here and ${short(top.head)} on #${top.number}: push it, then land again`,
+    );
+  }
+
+  // Each lower branch moves to the top: a commit of a layer the layer above does not hold would be dropped from it.
+  for (const [index, layer] of layers.entries()) {
+    const above = layers[index + 1];
+    const missing = unserved(checkout, layer.head);
+
+    if (missing !== null) {
+      return refused(
+        `#${layer.number} (${layer.branch}) at ${short(layer.head)}, ${missing}: it moved since it was read; land again`,
+      );
+    }
+
+    if (
+      above !== undefined &&
+      !run(["git", "merge-base", "--is-ancestor", layer.head, above.head], checkout).ok
+    ) {
+      return refused(
+        `#${layer.number} (${layer.branch}) at ${short(layer.head)} is not in #${above.number} (${above.branch}) at ${short(above.head)} above it: gh stack rebase, then gh stack push (github-flow:stacked-prs), then land again`,
+      );
+    }
+  }
+
+  const rerun = new Set<number>();
+
+  const landers = layers.map((layer): Lander => ({
+    branch: layer.branch,
+    base: layer.base,
+    readOnly,
+    checkout,
+    gh,
+    waiting,
+    deadline: waiting.clock.now() + waiting.timeoutMs,
+    rerun,
+    reviewed: layer.head,
+    tiering: { of: deps.tier, verdict: null },
+  }));
+
+  const passed: Extract<Checked, { kind: "ready" }>[] = [];
+
+  for (const [index, lander] of landers.entries()) {
+    // oxlint-disable-next-line no-await-in-loop -- bottom to top, the first layer refused stops the landing and is named.
+    const checked = await readyBeforeWait(lander);
+
+    if (checked.kind === "refused") return refused(`${layerName(index, layers)}: ${checked.why}`);
+
+    passed.push(checked);
+  }
+
+  if (!run(["git", "merge-base", "--is-ancestor", BASE, head], checkout).ok) {
+    return refused(
+      `the stack's top ${short(head)} does not hold ${BASE}: gh stack rebase, then gh stack push (github-flow:stacked-prs), then land again`,
+    );
+  }
+
+  if (readOnly) return stackPlan(landing, landers, passed);
+
+  const url = run(["git", "remote", "get-url", "--push", REMOTE], checkout);
+
+  if (!url.ok) return refused(`git remote get-url --push ${REMOTE}: ${url.err}`);
+
+  // The hour the landing waits at most starts once it holds the lock.
+  return withLandingLock(url.out, top.branch, waiting, () => {
+    const deadline = waiting.clock.now() + waiting.timeoutMs;
+
+    return stackLocked(
+      landing,
+      landers.map((lander) => ({ ...lander, deadline })),
+    );
+  });
+}
+
+/** What a dry run prints for a stack whose layers passed the checks before any wait. */
+async function stackPlan(
+  { layers, stack, top }: StackLanding,
+  landers: readonly Lander[],
+  passed: readonly Extract<Checked, { kind: "ready" }>[],
+): Promise<Landing> {
+  const [first] = landers;
+
+  const runs =
+    first === undefined
+      ? { kind: "none" }
+      : await ciVerdict(first.gh, { sha: top.head, event: "workflow_dispatch" });
+
+  const lower = layers.slice(0, -1).map((layer) => layer.branch);
+
+  return {
+    kind: "planned",
+    lines: [
+      `${stack === null ? `#${top.number} and the pull requests under it` : `stack #${stack}`}: ${layers.map((layer) => `#${layer.number} ${layer.branch}`).join(", ")}, bottom first`,
+      ...landers.map((lander, index) => {
+        const checked = passed[index];
+
+        return `layer ${index + 1} of ${layers.length}: ${checked === undefined ? "" : readyLine(lander, checked)}`;
+      }),
+      `the top ${short(top.head)} holds ${BASE}`,
+      `its workflow_dispatch runs of ci.yml: ${runs.kind}`,
+      `land.ts would take the landing lock, ${runs.kind === "none" ? `dispatch ci.yml on ${top.branch}, wait for it` : runs.kind === "green" ? "reuse the green run" : "wait for the run on the top's head"}, push ${short(top.head)} to ${DEV} and to ${lower.join(", ")} in one atomic push, then delete the remote branches`,
+    ],
+  };
+}
+
+/**
+ * The stack's landing under the lock: one `workflow_dispatch` run on the top's head, the layers read again, one
+ * atomic push of `dev` and the lower branches to the top, every pull request read merged, the remote branches deleted.
+ */
+async function stackLocked(
+  { layers, stack, top, checkout }: StackLanding,
+  landers: readonly Lander[],
+): Promise<Landing> {
+  const topLander = landers.at(-1);
+
+  if (topLander === undefined) return refused("no open pull request to land");
+
+  const head = top.head;
+  const query: CiQuery = { sha: head, event: "workflow_dispatch" };
+
+  try {
+    const found = await ciVerdict(topLander.gh, query);
+
+    // A red run on this head stays red until it is re-run, as a pull request's does: settle re-runs it when its e2e
+    // jobs alone failed, and names it otherwise; a run dispatched beside it would not clear it.
+    if (found.kind === "none") await dispatchRun(topLander.gh, top.branch);
+
+    const outcome: CiOutcome = found.kind === "green" ? found : await settle(topLander, query);
+
+    if (outcome.kind !== "green") return refused(notGreen(topLander, top, head, outcome));
+
+    for (const [index, lander] of landers.entries()) {
+      // oxlint-disable-next-line no-await-in-loop -- bottom to top, the first layer refused stops the landing and is named.
+      const at = await pullRequestAt(lander, lander.reviewed);
+
+      if (at.kind === "refused") return refused(`${layerName(index, layers)}: ${at.why}`);
+
+      // oxlint-disable-next-line no-await-in-loop -- as above: a land-ok taken off during the wait refuses that layer.
+      const tiered = await tierRefusal(lander, at.pr);
+
+      if (tiered !== null) return refused(`${layerName(index, layers)}: ${tiered}`);
+    }
+  } catch (error) {
+    return refused(messageOf(error));
+  }
+
+  const unfetched = fetchOrigin(checkout);
+
+  if (unfetched !== null) return refused(unfetched);
+
+  if (!run(["git", "merge-base", "--is-ancestor", BASE, head], checkout).ok) {
+    return refused(
+      `${DEV} moved while the stack waited, and its top ${short(head)} no longer holds ${BASE}: gh stack rebase, then gh stack push, then land again`,
+    );
+  }
+
+  const drift = driftFrom(topLander, head);
+
+  if (drift !== null) return refused(drift);
+
+  const lower = landers.slice(0, -1);
+
+  const pushed = run(
+    [
+      "git",
+      "push",
+      "--atomic",
+      "--quiet",
+      ...lower.map((lander) => `--force-with-lease=refs/heads/${lander.branch}:${lander.reviewed}`),
+      REMOTE,
+      `${head}:refs/heads/${DEV}`,
+      ...lower.map((lander) => `${head}:refs/heads/${lander.branch}`),
+    ],
+    checkout,
+    undefined,
+    { [HOLDER_ENV]: String(process.pid) },
+  );
+
+  if (!pushed.ok) {
+    return refused(
+      movedOn(pushed.err)
+        ? `${DEV} moved before the push, nothing moved: gh stack rebase, then gh stack push, then land again:\n${pushed.err}`
+        : `the atomic push of ${short(head)} to ${DEV} and to the layers under the top was refused, nothing moved; fix what it names, then land again:\n${pushed.err}`,
+    );
+  }
+
+  let states: readonly string[];
+
+  try {
+    states = await pollUntil(
+      afterPush(topLander),
+      () => Promise.all(layers.map((layer) => stateOf(topLander, layer.number))),
+      (read) => read.every((state) => state === "MERGED"),
+    );
+  } catch (error) {
+    return refused(
+      `pushed ${short(head)} to ${DEV} and the layers, but the pull requests' states do not read: ${messageOf(error)}; no remote branch deleted`,
+    );
+  }
+
+  const open = layers.filter((_, index) => states[index] !== "MERGED");
+
+  if (open.length > 0) {
+    return refused(
+      `pushed ${short(head)} to ${DEV} and the layers, but GitHub reads ${open.map((layer) => `#${layer.number}`).join(", ")} not merged a minute later: no remote branch deleted; delete them once GitHub reads them merged`,
+    );
+  }
+
+  const landed: { number: number; branch: string; remote: RemoteBranch }[] = [];
+
+  for (const [index, lander] of landers.entries()) {
+    const layer = layers[index];
+
+    if (layer !== undefined) {
+      landed.push({
+        ...layer,
+        // oxlint-disable-next-line no-await-in-loop -- one deletion at a time, each under its own lease.
+        remote: await deleteRemote(afterPush(lander), layer.number, head),
+      });
+    }
+  }
+
+  return {
+    kind: "landedStack",
+    dev: head,
+    stack,
+    layers: landed.map(({ number, branch, remote }) => ({ number, branch, remote })),
+  };
 }
 
 /** The landing once it holds the lock: the wait for CI, the rebase and the pushes, `touched` the paths its head changes. */
@@ -1344,7 +1966,7 @@ async function landLocked(lander: Lander, touched: readonly string[]): Promise<L
         kind: "landed",
         dev: rebased,
         pr: pr.number,
-        remote: await deleteRemote(lander, pr.number, rebased),
+        remote: await deleteRemote(afterPush(lander), pr.number, rebased),
       };
     }
 
@@ -1406,12 +2028,24 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const [branch] = args;
+  const usage = `Usage: bun ./scripts/land.ts <feature/...|fix/...|renovate/...|${ROLLING_BRANCH}|n|#n> [--dry-run]`;
+  let parsed;
 
-  if (branch === undefined || args.length > 1) {
-    console.error(
-      `Usage: bun ./scripts/land.ts <feature/...|fix/...|renovate/...|${ROLLING_BRANCH}>`,
-    );
+  try {
+    parsed = parseArgs({
+      args,
+      options: { "dry-run": { type: "boolean" } },
+      allowPositionals: true,
+    });
+  } catch {
+    console.error(usage);
+    process.exit(2);
+  }
+
+  const [target, ...rest] = parsed.positionals;
+
+  if (target === undefined || rest.length > 0) {
+    console.error(usage);
     process.exit(2);
   }
 
@@ -1420,19 +2054,47 @@ if (import.meta.main) {
   // Read once: a command the landing runs, the pre-push gates' tests included, must not inherit it.
   delete process.env[LAND_CWD];
 
-  const landing = await land(branch, from);
+  const landing = await land(target, from, WAITING, DEPS, parsed.values["dry-run"] === true);
+  const runOnDev = `its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`;
 
-  if (landing.kind === "landed") {
-    const remote =
-      landing.remote.kind === "deleted"
-        ? "remote branch deleted"
-        : `remote branch kept: ${landing.remote.why}`;
+  switch (landing.kind) {
+    case "landed": {
+      const remote =
+        landing.remote.kind === "deleted"
+          ? "remote branch deleted"
+          : `remote branch kept: ${landing.remote.why}`;
 
-    console.log(
-      `landed ${branch} on ${DEV} at ${short(landing.dev)} (#${landing.pr}); ${remote}; its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`,
-    );
-  } else {
-    console.error(`land: ${landing.why}`);
-    process.exitCode = 1;
+      const name = NUMBER_TARGET.test(target) ? `#${landing.pr}` : `${target}`;
+      const pr = NUMBER_TARGET.test(target) ? "" : ` (#${landing.pr})`;
+
+      console.log(`landed ${name} on ${DEV} at ${short(landing.dev)}${pr}; ${remote}; ${runOnDev}`);
+      break;
+    }
+
+    case "landedStack": {
+      const keptBranches = landing.layers.flatMap(({ branch, remote }) =>
+        remote.kind === "kept" ? [`${branch} kept: ${remote.why}`] : [],
+      );
+
+      const remote =
+        keptBranches.length === 0
+          ? "remote branches deleted"
+          : `remote branches deleted but ${keptBranches.join("; ")}`;
+
+      const stack = landing.stack === null ? "" : ` (stack #${landing.stack})`;
+
+      console.log(
+        `landed ${landing.layers.map(({ number }) => `#${number}`).join(" ")}${stack} on ${DEV} at ${short(landing.dev)}; ${remote}; ${runOnDev}`,
+      );
+      break;
+    }
+
+    case "planned":
+      console.log(landing.lines.join("\n"));
+      break;
+
+    case "refused":
+      console.error(`land: ${landing.why}`);
+      process.exitCode = 1;
   }
 }
