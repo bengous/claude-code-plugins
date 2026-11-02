@@ -1,6 +1,7 @@
 import {
   type Argv,
   type BufferOutput,
+  type EnvOverlay,
   type RunOptions,
   runSync,
 } from "../../tools/platform/process.ts";
@@ -28,12 +29,20 @@ function argvOf(cmd: readonly string[]): Argv {
   return [program, ...args];
 }
 
-/** Runs `cmd` in `cwd` to its end, `stdin` fed to it when given; a program the PATH lacks throws. */
-export function runRaw(cmd: readonly string[], cwd: string, stdin?: string | Uint8Array): Ran {
+/**
+ * Runs `cmd` in `cwd` to its end, `stdin` fed to it when given, `env` laid over this process's environment; a
+ * program the PATH lacks throws.
+ */
+export function runRaw(
+  cmd: readonly string[],
+  cwd: string,
+  stdin?: string | Uint8Array,
+  env: EnvOverlay = {},
+): Ran {
   const argv = argvOf(cmd);
 
   const options: RunOptions & BufferOutput =
-    stdin === undefined ? { cwd, stdout: "buffer" } : { cwd, stdout: "buffer", stdin };
+    stdin === undefined ? { cwd, stdout: "buffer", env } : { cwd, stdout: "buffer", stdin, env };
 
   const result = runSync(argv, options);
 
@@ -48,9 +57,17 @@ export function runRaw(cmd: readonly string[], cwd: string, stdin?: string | Uin
   return { code: result.code, raw: result.stdout, err: result.stderr };
 }
 
-/** Runs `cmd` in `cwd` to its end, `stdin` fed to it when given; a program the PATH lacks throws. */
-export function run(cmd: readonly string[], cwd: string, stdin?: Uint8Array): Run {
-  const { code, raw, err } = runRaw(cmd, cwd, stdin);
+/**
+ * Runs `cmd` in `cwd` to its end, `stdin` fed to it when given, `env` laid over this process's environment; a
+ * program the PATH lacks throws.
+ */
+export function run(
+  cmd: readonly string[],
+  cwd: string,
+  stdin?: Uint8Array,
+  env: EnvOverlay = {},
+): Run {
+  const { code, raw, err } = runRaw(cmd, cwd, stdin, env);
 
   return { ok: code === 0, raw, out: raw.toString().trim(), err: err.trim() };
 }

@@ -3,12 +3,13 @@
 /**
  * The review tier of a change: `low` lands once its checks are green, `human` waits for the human's word.
  *
- *   bun ./scripts/landing/tier.ts [--base origin/dev] [--pr <n>] [--checkout <path>]   one line, low|human <reason>; exit 0
+ *   bun ./scripts/landing/tier.ts [--base <ref>] [--head <rev>] [--pr <n>] [--checkout <path>]   one line, low|human <reason>; exit 0
  *   bun ./scripts/landing/tier.ts --history <n>                     the tier of each of dev's last n commits, bumps aside
  *   bun ./scripts/landing/tier.ts --eval scripts/landing/tier.cases.json    each case judged 3 times: agreement, false lows, 3/n
  *
- * The floor (`scripts/landing/tier-floor.ts`) decides first, the risky paths read from the base's profile so a branch cannot
- * loosen them. Past it, Haiku reads the change, headless, with no tool, hook, setting file or MCP server, from a
+ * The change runs from `--base` to `--head`, `HEAD` by default; the base is the pull request's own on origin with
+ * `--pr`, else `origin/dev`. The floor (`scripts/landing/tier-floor.ts`) decides first, the risky paths read from
+ * `origin/dev`'s profile so a branch cannot loosen them. Past it, Haiku reads the change, headless, with no tool, hook, setting file or MCP server, from a
  * private empty directory: a CLAUDE.md planted in the shared tmpdir would be read. With `--pr`, a change that reads low
  * is read again with the pull request's *Left open* section, which can thus raise the tier and never lower it. The judge answers only with the model and the prompt that
  * `scripts/landing/tier.cases.json` was validated with; anything else, and any failure, answers `human` with its reason: the
@@ -26,7 +27,7 @@ import { type GitReadOptions, gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { withoutSessionIdentity } from "../lib/session-env.ts";
 import { VERSION_BUMP } from "../reports/sample-review.ts";
-import { BASE, short } from "./review-verdict.ts";
+import { BASE, baseRefOf, short } from "./review-verdict.ts";
 import {
   type Change,
   changesOf,
@@ -504,8 +505,8 @@ export function lineOf(verdict: Verdict): string {
   return `${verdict.tier} ${verdict.reason.replaceAll(/\s+/gu, " ").trim()}`;
 }
 
-function prBodyOf(cwd: string, pr: string): string {
-  const view = Bun.spawnSync(["gh", "pr", "view", pr, "--json", "body", "--jq", ".body"], {
+function prFieldOf(cwd: string, pr: string, field: "body" | "baseRefName"): string {
+  const view = Bun.spawnSync(["gh", "pr", "view", pr, "--json", field, "--jq", `.${field}`], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -724,7 +725,7 @@ async function evaluate(cwd: string, file: string, ask: Ask): Promise<number> {
 
 async function main(argv: readonly string[]): Promise<number> {
   const usage =
-    "Usage: bun ./scripts/landing/tier.ts [--base <ref>] [--pr <n>] [--checkout <path>] | --history <n> | --eval <cases.json>";
+    "Usage: bun ./scripts/landing/tier.ts [--base <ref>] [--head <rev>] [--pr <n>] [--checkout <path>] | --history <n> | --eval <cases.json>";
 
   let values;
 
@@ -733,6 +734,7 @@ async function main(argv: readonly string[]): Promise<number> {
       args: [...argv],
       options: {
         base: { type: "string" },
+        head: { type: "string" },
         pr: { type: "string" },
         checkout: { type: "string" },
         history: { type: "string" },
@@ -749,7 +751,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const modes = [
     values.history !== undefined,
     values.eval !== undefined,
-    values.pr !== undefined || values.base !== undefined,
+    values.pr !== undefined || values.base !== undefined || values.head !== undefined,
   ].filter(Boolean).length;
 
   if (modes > 1) {
@@ -776,18 +778,24 @@ async function main(argv: readonly string[]): Promise<number> {
 
   if (values.eval !== undefined) return evaluate(cwd, values.eval, askClaude);
 
-  const base = values.base ?? BASE;
+  const head = values.head ?? "HEAD";
 
   try {
+    const base =
+      values.base ??
+      (values.pr === undefined
+        ? BASE
+        : baseRefOf({ baseRefName: prFieldOf(cwd, values.pr, "baseRefName").trim() }));
+
     const evidence = evidenceOf({
       cwd,
-      diff: [`${base}...HEAD`],
-      messages: messagesOf(cwd, `${base}..HEAD`),
+      diff: [`${base}...${head}`],
+      messages: messagesOf(cwd, `${base}..${head}`),
     });
 
-    const leftOpen = values.pr === undefined ? null : leftOpenOf(prBodyOf(cwd, values.pr));
+    const leftOpen = values.pr === undefined ? null : leftOpenOf(prFieldOf(cwd, values.pr, "body"));
 
-    console.log(lineOf(await tierOf(evidence, riskyOf(cwd, base), leftOpen, judgeFromFiles())));
+    console.log(lineOf(await tierOf(evidence, riskyOf(cwd, BASE), leftOpen, judgeFromFiles())));
   } catch (error) {
     console.log(lineOf({ tier: "human", reason: firstLine(messageOf(error)) }));
   }

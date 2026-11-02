@@ -8,9 +8,9 @@
  *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types>
  *
  * Runs `origin/dev`'s copy of itself, on the arguments as given: after a
- * fetch, `scripts/`, `agent-hooks/` and `tools/` as `origin/dev` holds them are
- * extracted to a temporary directory and run there, so a branch that edits
- * the landing lands under the rule already on `dev`.
+ * fetch, `origin/dev`'s whole tree is extracted to a temporary directory and
+ * this script run there, so a branch that edits the landing lands under the
+ * rule already on `dev`.
  *
  * Refused before any push: a branch outside `feature/`, `fix/`, `renovate/`
  * and `chore/claude-code-types`, the types branch held where the types run
@@ -22,18 +22,29 @@
  * fast-forwarded to it first.
  *
  * The tier: a `feature/` or `fix/` branch is tiered by the `tier.ts` beside
- * this script, so `origin/dev`'s, once per landing, on the pull request read
- * before and after the wait for CI; a `tier:human` label already on the pull
- * request keeps it human. The pull request gets the label of its tier. A human
- * one lands only with a `land-ok` label given to its change: the head GitHub
- * held when the label was added, by its push times, has the patch of the head
- * the landing starts from. The agent-hooks guard lets an agent add the label
+ * this script, so `origin/dev`'s, once per landing, on the change from the
+ * pull request's base to the head the landing starts from, and checked on the
+ * pull request read before and after the wait for CI; a `tier:human` label
+ * already on the pull request keeps it human. The pull request gets the label
+ * of its tier. A human one lands only with a `land-ok` label given to its
+ * change: the head GitHub held when the label was added, by its push times,
+ * has the patch, against the pull request's base, of the head the landing
+ * starts from. The agent-hooks guard lets an agent add the label
  * only on the human's words. A `land-ok` whose change is no longer the head's
  * comes off, with a comment naming the commits since and GitHub's compare view
  * of the two heads: the human reads those alone, then says « land #n » again,
  * which adds the label anew. A low one without it is refused while a `red-dev`
  * issue is open.
  * Renovate's branches and the types branch have guards of their own.
+ *
+ * Before any wait, refused unless the pull request shows the head, its tier
+ * lets it land, and a branch that touches a path of `origin/dev`'s
+ * `profile.review.risky` carries a clean review verdict for its patch on the
+ * pull request (`scripts/landing/review-verdict.ts`); while that profile does
+ * not read, every path is risky. Then it takes the landing lock
+ * (`scripts/landing/landing-lock.ts`), which every checkout of the repository
+ * on this machine shares, waited for an hour at most and held to the end; the
+ * pre-push hook refuses any other push to `dev` meanwhile.
  *
  * Then it waits, an hour at most in all, until
  * every `ci.yml` run of that head is green (`scripts/landing/ci-wait.ts`), a run red
@@ -44,10 +55,8 @@
  * first, as `dev` would only take a new commit. Then, in the checkout holding
  * the branch, refused before each rebase and each push unless it is still
  * clean at the head the landing left there: fetch, rebase on `origin/dev`,
- * refuse a rebased branch that touches a path of
- * `origin/dev`'s `profile.review.risky` without a clean review verdict for
- * its patch on the pull request (`scripts/landing/review-verdict.ts`); while that
- * profile does not read, every path is risky. Then install the lockfile when
+ * refuse a rebased branch whose patch no verdict holds any more when it
+ * touches a risky path. Then install the lockfile when
  * the rebase changed it, push the branch with a lease on the head last
  * pushed, push it to `dev`. A rebase that makes a new commit on a branch
  * touching the e2e paths waits again for that commit's runs and its own e2e
@@ -86,8 +95,10 @@ import {
   SYSTEM_CLOCK,
   waitFor,
 } from "./landing/ci-wait.ts";
+import { HOLDER_ENV, withLandingLock } from "./landing/landing-lock.ts";
 import {
   BASE,
+  baseRefOf,
   type Comment,
   DEV,
   REMOTE,
@@ -104,9 +115,6 @@ const DEV_COPY = "LAND_DEV_COPY";
 
 /** Set in the environment of `origin/dev`'s copy: the directory the landing was asked from. */
 const LAND_CWD = "LAND_CWD";
-
-/** The directories `origin/dev`'s copy needs: this script, its imports, the profile's parser, the platform helpers. */
-const DEV_COPY_PATHS = ["scripts", "agent-hooks", "tools"];
 
 const LANDABLE = /^(?:feature|fix|renovate)\/[\w./-]+$/u;
 
@@ -142,8 +150,13 @@ const TIER_LINE = /^(low|human) (.+)$/u;
 /** A commit's oid, not git's zero oid, which is the `after` of a branch's deletion. */
 const COMMIT = /^(?!0+$)[0-9a-f]{40,64}$/u;
 
-/** The tier of the branch held in `checkout`, whose pull request is `pr`. */
-export type Tiering = (checkout: string, pr: number) => Promise<Verdict>;
+/** The tier of the change from `base` to `head` in `checkout`, the pull request `pr`'s. */
+export type Tiering = (
+  checkout: string,
+  pr: number,
+  base: string,
+  head: string,
+) => Promise<Verdict>;
 
 export interface Deps {
   readonly tier: Tiering;
@@ -294,10 +307,10 @@ export function changedPaths(checkout: string, base: string, head = "HEAD"): Pat
 }
 
 /**
- * Why the branch, `reviewed` on its pull request and `rebased` on `origin/dev` here, changing `paths`, may not land
- * without another review; null when it touches no risky path or a clean verdict holds its patch. Read from
- * `origin/dev`, never the checkout, so a branch cannot loosen the rule it lands under; while that profile does not
- * read, every path is risky, and a verdict still lands the branch that repairs it.
+ * Why the branch, `reviewed` on its pull request and `rebased` here, changing `paths`, may not land without another
+ * review; null when it touches no risky path or a clean verdict holds its patch against the pull request's base. The
+ * risky paths are read from `origin/dev`, never the checkout, so a branch cannot loosen the rule it lands under;
+ * while that profile does not read, every path is risky, and a verdict still lands the branch that repairs it.
  */
 function reviewRefusal(
   branch: string,
@@ -310,7 +323,8 @@ function reviewRefusal(
 
   if (touched.length === 0) return null;
 
-  const landing = patchIdOf(checkout, BASE, rebased);
+  const base = baseRefOf(pr);
+  const landing = patchIdOf(checkout, base, rebased);
 
   if (landing.kind === "failed") return landing.why;
 
@@ -318,7 +332,7 @@ function reviewRefusal(
 
   if (verdicts.has(landing.id)) return null;
 
-  const before = patchIdOf(checkout, BASE, reviewed);
+  const before = patchIdOf(checkout, base, reviewed);
 
   if (before.kind === "read" && verdicts.has(before.id)) {
     return `the rebase on ${BASE} changed the diff of ${branch} since its review (patch-id ${short(before.id)} reviewed, ${short(landing.id)} now): rebase it, push it, review it again, then ${recordCommand(branch, "<the head you reviewed>")}, and land again`;
@@ -357,17 +371,27 @@ async function readPullRequest({
  * `tier.ts` beside this script, `origin/dev`'s when this runs as its copy, reading `checkout`. It starts in its own
  * directory, not the checkout: bun runs the `preload` of the `bunfig.toml` it starts in, which the branch could set.
  */
-export async function tierScript(checkout: string, pr: number): Promise<Verdict> {
+export async function tierScript(
+  checkout: string,
+  pr: number,
+  base: string,
+  head: string,
+): Promise<Verdict> {
   const child = Bun.spawn(
     [
       process.execPath,
       join(import.meta.dir, "landing", "tier.ts"),
       "--pr",
       String(pr),
+      "--base",
+      base,
+      "--head",
+      head,
       "--checkout",
       checkout,
     ],
-    { cwd: import.meta.dir, stdout: "pipe", stderr: "pipe" },
+    // Without `env`, Bun hands the child the environment this process started with, not process.env as it is now.
+    { cwd: import.meta.dir, env: process.env, stdout: "pipe", stderr: "pipe" },
   );
 
   const [out, err, code] = await Promise.all([
@@ -515,11 +539,11 @@ async function approvalOf(
     if (!fetched.ok) return `${given}, which ${REMOTE} no longer serves: ${fetched.err.trim()}`;
   }
 
-  const then = patchIdOf(lander.checkout, BASE, approved);
+  const then = patchIdOf(lander.checkout, baseRefOf(pr), approved);
 
   if (then.kind === "failed") return `${given}, whose patch does not read: ${then.why}`;
 
-  const now = patchIdOf(lander.checkout, BASE, lander.reviewed);
+  const now = patchIdOf(lander.checkout, baseRefOf(pr), lander.reviewed);
 
   if (now.kind === "failed") return `${given}, and a head whose patch does not read: ${now.why}`;
 
@@ -548,7 +572,7 @@ async function voidApproval(lander: Lander, pr: PullRequest, approved: string): 
       "--no-merges",
       "--format=%H %s",
       `${approved}...${reviewed}`,
-      `^${BASE}`,
+      `^${baseRefOf(pr)}`,
     ],
     checkout,
   );
@@ -634,7 +658,7 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
   if (tiering === null) return null;
 
-  tiering.verdict ??= await tiering.of(lander.checkout, pr.number);
+  tiering.verdict ??= await tiering.of(lander.checkout, pr.number, baseRefOf(pr), lander.reviewed);
 
   const labels = new Set(pr.labels.map((label) => label.name));
   const raised = tiering.verdict.tier === "low" && labels.has(TIER_LABELS.human.name);
@@ -828,6 +852,7 @@ async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> 
 
   if (at.kind === "refused") return at;
 
+  // Read again after the wait for the lock, which can outlast a land-ok or a green dev.
   const before = await tierRefusal(lander, at.pr);
 
   if (before !== null) return refused(before);
@@ -1122,9 +1147,57 @@ async function landFrom(
         : { of: deps.tier, verdict: null },
   };
 
+  const unready = await refusalBeforeWait(lander);
+
+  if (unready !== null) return refused(unready);
+
+  const url = run(["git", "remote", "get-url", "--push", REMOTE], checkout);
+
+  if (!url.ok) return refused(`git remote get-url --push ${REMOTE}: ${url.err}`);
+
+  // The hour the landing waits at most starts once it holds the lock.
+  return withLandingLock(url.out, branch, waiting, () =>
+    landLocked({ ...lander, deadline: waiting.clock.now() + waiting.timeoutMs }, touched.paths),
+  );
+}
+
+/**
+ * Why the branch may not land, read before any wait so that a landing the human or a review still holds back waits
+ * for nothing: the pull request at the head the landing starts from, its tier, and the review verdict of a branch
+ * that touches a risky path.
+ */
+async function refusalBeforeWait(lander: Lander): Promise<string | null> {
+  const { branch, checkout, reviewed } = lander;
+
+  try {
+    const at = await pullRequestAt(lander, reviewed);
+
+    if (at.kind === "refused") return at.why;
+
+    const tiered = await tierRefusal(lander, at.pr);
+
+    if (tiered !== null) return tiered;
+
+    const changed = changedPaths(checkout, baseRefOf(at.pr), reviewed);
+
+    if (changed.kind === "failed") return changed.why;
+
+    return reviewRefusal(branch, at.pr, checkout, {
+      reviewed,
+      rebased: reviewed,
+      paths: changed.paths,
+    });
+  } catch (error) {
+    return messageOf(error);
+  }
+}
+
+/** The landing once it holds the lock: the wait for CI, the rebase and the pushes, `touched` the paths its head changes. */
+async function landLocked(lander: Lander, touched: readonly string[]): Promise<Landing> {
+  const { branch, checkout, reviewed } = lander;
   // The head the remote branch holds: the reviewed one, then each one this run pushed.
   let pushed = reviewed;
-  let e2e = touched.paths.some((path) => isE2ePath(path));
+  let e2e = touched.some((path) => isE2ePath(path));
   // The pull request read once `pushed` was ready; null while `pushed` waits for its runs.
   let pr: PullRequest | null = null;
 
@@ -1259,7 +1332,12 @@ async function landFrom(
 
     if (beforeDevPush !== null) return refused(beforeDevPush);
 
-    const devPush = run(["git", "push", "--quiet", REMOTE, `${branch}:${DEV}`], checkout);
+    const devPush = run(
+      ["git", "push", "--quiet", REMOTE, `${branch}:${DEV}`],
+      checkout,
+      undefined,
+      { [HOLDER_ENV]: String(process.pid) },
+    );
 
     if (devPush.ok) {
       return {
@@ -1294,7 +1372,7 @@ function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
 
   try {
     const archive = join(copy, "dev.tar");
-    const archived = run(["git", "archive", `--output=${archive}`, BASE, ...DEV_COPY_PATHS], cwd);
+    const archived = run(["git", "archive", `--output=${archive}`, BASE], cwd);
 
     if (!archived.ok) return { kind: "failed", why: `git archive ${BASE}: ${archived.err}` };
 

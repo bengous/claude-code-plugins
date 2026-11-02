@@ -56,6 +56,7 @@ export interface FakeGitHub {
     readonly baseRefName: string;
     readonly url: string;
     readonly comments: readonly Comment[];
+    readonly body: string;
     labels: string[];
   };
   mergeLag: number;
@@ -108,6 +109,7 @@ export function serveGitHub(
       baseRefName: "dev",
       url: "https://github.com/o/r/pull/7",
       comments: [],
+      body: "",
       labels: [],
       ...pr,
     },
@@ -339,12 +341,21 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
     const state = stateOf(github);
     const { labels, ...pr } = github.pr;
 
-    return JSON.stringify({
+    const view = {
       ...pr,
       state,
       headRefOid: shownHead(github),
       labels: labels.map((name) => ({ name })),
-    });
+    };
+
+    // As gh does: the fields --json names, and none it does not know.
+    const fields = (args[args.indexOf("--json") + 1] ?? "").split(",");
+
+    if (!fields.every((field) => Object.hasOwn(view, field))) return null;
+
+    return JSON.stringify(
+      Object.fromEntries(Object.entries(view).filter(([field]) => fields.includes(field))),
+    );
   }
 
   if (command === "pr" && verb === "list") {

@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  closeSync,
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -12,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, posix, win32 } from "node:path";
 
+import { tryLock } from "./headless/flock.ts";
 import { type GitHubOverrides, readGitHub, type RunSpec, serveGitHub } from "./land.fixture.ts";
 import {
   addedCheckoutPath,
@@ -24,10 +27,12 @@ import {
   refusalOf,
   samePath,
   type Tiering,
+  tierScript,
   WAITING,
   type Waiting,
 } from "./land.ts";
 import type { Clock } from "./landing/ci-wait.ts";
+import { lockPaths } from "./landing/landing-lock.ts";
 import { type Comment, record } from "./landing/review-verdict.ts";
 import { profileSpec, riskyOf } from "./landing/tier-floor.ts";
 import { digestOf, evidenceOf, type Judge, messagesOf, tierOf } from "./landing/tier.ts";
@@ -216,6 +221,9 @@ beforeEach(() => {
   // The fixtures run git as a fresh machine would: no hook manager, signing or push default of the user's.
   setEnv("GIT_CONFIG_GLOBAL", "/dev/null");
   setEnv("GIT_CONFIG_NOSYSTEM", "1");
+  setEnv("LANDING_LOCK_DIR", join(root, "locks"));
+  // A real landing's pre-push runs this suite with its own pid set here.
+  setEnv("LANDING_LOCK_HOLDER", undefined);
 
   origin = join(root, "origin.git");
   git(root, "init", "--quiet", "--bare", "--initial-branch=dev", "origin.git");
@@ -635,6 +643,155 @@ describe("land", () => {
   });
 });
 
+/** The fixture's landing lock taken by another landing, its holder file naming it: the descriptor that holds it. */
+function holdLock(): number {
+  const paths = lockPaths(origin);
+
+  mkdirSync(dirname(paths.lock), { recursive: true });
+
+  const fd = openSync(paths.lock, "a");
+
+  expect(tryLock(fd, "exclusive")).toBe(true);
+  writeFileSync(
+    paths.holder,
+    JSON.stringify({ pid: 4242, branch: "feature/other", since: "2026-11-02T10:00:00.000Z" }),
+  );
+
+  return fd;
+}
+
+function lockFree(): boolean {
+  const fd = openSync(lockPaths(origin).lock, "a");
+
+  try {
+    return tryLock(fd, "exclusive");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** A pre-push hook in `cwd` that runs the landing lock's check on git's remote URL, as lefthook's does. */
+function lockChecked(cwd: string) {
+  const hook = join(cwd, ".git", "hooks", "pre-push");
+  const check = join(import.meta.dir, "landing", "lock-check.ts");
+
+  writeFileSync(hook, `#!/bin/sh\nexec '${process.execPath}' '${check}' "$2"\n`);
+  chmodSync(hook, 0o755);
+}
+
+describe("land, the landing lock", () => {
+  test("waits for the landing that holds it, listing no run before it is free", async () => {
+    const held = holdLock();
+    let sleeps = 0;
+    let listedWhileHeld = -1;
+
+    serve();
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        sleeps += 1;
+
+        if (sleeps !== 2) return;
+
+        listedWhileHeld = runListings();
+        closeSync(held);
+      },
+    });
+
+    expect(landed.kind).toBe("landed");
+    expect(listedWhileHeld).toBe(0);
+    expect(runListings()).toBeGreaterThan(0);
+  });
+
+  test("reads the tier again once it holds the lock, which a land-ok can outlast", async () => {
+    addSkill();
+
+    const held = holdLock();
+    let sleeps = 0;
+
+    serve(approved());
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        sleeps += 1;
+
+        if (sleeps !== 1) {
+          if (sleeps === 2) closeSync(held);
+
+          return;
+        }
+
+        const read = github();
+
+        writeFileSync(
+          githubFile,
+          JSON.stringify({ ...read, pr: { ...read.pr, labels: ["tier:human"] } }),
+        );
+      },
+    });
+
+    expect(why(landed)).toContain("#7 is tier:human");
+    expect(why(landed)).toContain("with no land-ok label");
+    expect(runListings()).toBe(0);
+  });
+
+  test("refuses once the holder keeps it past the wait, naming it, and leaves dev unmoved", async () => {
+    const held = holdLock();
+    const before = git(origin, "rev-parse", "dev");
+
+    serve();
+
+    expect(await landing("feature/x", { timeoutMs: 12_000 })).toEqual({
+      kind: "refused",
+      why: "dev is being landed by pid 4242 (feature/other) since 2026-11-02T10:00:00.000Z: land again",
+    });
+    expect(git(origin, "rev-parse", "dev")).toBe(before);
+    expect(runListings()).toBe(0);
+    closeSync(held);
+  });
+
+  test("releases it once the landing ends, refused or landed", async () => {
+    serve({ pushRun: { validate: "failure", e2e: "skipped", polls: 0 } });
+
+    expect(why(await landing())).toContain("CI is red on");
+    expect(lockFree()).toBe(true);
+    expect(existsSync(lockPaths(origin).holder)).toBe(false);
+
+    serve();
+
+    expect((await landing()).kind).toBe("landed");
+    expect(lockFree()).toBe(true);
+  });
+
+  test("names its pid to the pre-push check of its own push to dev, which lets it through", async () => {
+    lockChecked(work);
+    moveDev();
+    serve();
+
+    expect((await landing()).kind).toBe("landed");
+    expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
+  });
+
+  test("has the pre-push check refuse another push to dev while it holds the lock", () => {
+    const held = holdLock();
+
+    lockChecked(other);
+    commit(other, "c.txt", "inline");
+
+    const pushed = Bun.spawnSync(["git", "-C", other, "push", "--quiet", "origin", "dev"], {
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(pushed.stderr.toString()).toContain(
+      "pre-push: a landing holds dev (pid 4242 (feature/other) since 2026-11-02T10:00:00.000Z)",
+    );
+    expect(pushed.exitCode).not.toBe(0);
+    closeSync(held);
+  });
+});
+
 describe("land, a branch that touches the e2e paths", () => {
   beforeEach(touchE2e);
 
@@ -957,23 +1114,31 @@ describe("land, a branch that touches a risky path", () => {
     expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
   });
 
-  test("lands with a verdict posted while it waited for CI", async () => {
-    const verdict = recordVerdict();
+  test("tiers through tier.ts the change from the base it is given to the head it is given", async () => {
+    serve();
 
-    serve(approved({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } }));
+    const dev = git(work, "rev-parse", "origin/dev");
 
-    const landed = await landing("feature/x", {
-      during: () => {
-        const posting = github();
-
-        writeFileSync(
-          githubFile,
-          JSON.stringify({ ...posting, pr: { ...posting.pr, comments: [verdict] } }),
-        );
-      },
+    expect(await tierScript(work, 7, "origin/dev", branchHead())).toEqual({
+      tier: "human",
+      reason: "touches a risky path: risky/a.ts",
     });
+    expect(await tierScript(work, 7, branchHead(), branchHead())).toEqual({
+      tier: "human",
+      reason: "the change touches no file",
+    });
+    expect(await tierScript(work, 7, "origin/dev", dev)).toEqual({
+      tier: "human",
+      reason: "the change touches no file",
+    });
+  });
 
-    expect(landed.kind).toBe("landed");
+  test("refuses without a verdict before it lists any run or takes the lock", async () => {
+    serve(approved());
+
+    expect(why(await landing())).toContain("no clean review verdict");
+    expect(runListings()).toBe(0);
+    expect(existsSync(lockPaths(origin).lock)).toBe(false);
   });
 
   test("keeps the verdict through a rebase that leaves the patch as it was", async () => {
@@ -1091,7 +1256,12 @@ describe("land, a branch that touches a risky path", () => {
       cpSync(join(import.meta.dir, "..", dir), join(other, dir), { recursive: true });
     }
 
-    git(other, "add", "scripts", "agent-hooks", "tools");
+    // dev's copy imports a module outside those three directories: it runs only from dev's whole tree.
+    const devLand = join(other, "scripts", "land.ts");
+
+    writeFileSync(join(other, "docs.ts"), "export const ON_DEV = true;\n");
+    writeFileSync(devLand, `${readFileSync(devLand, "utf8")}\nimport "../docs.ts";\n`);
+    git(other, "add", "scripts", "agent-hooks", "tools", "docs.ts");
     git(other, "commit", "--quiet", "-m", "the scripts");
     git(other, "push", "--quiet", "origin", "dev");
     git(work, "fetch", "--quiet", "origin");
@@ -1100,12 +1270,12 @@ describe("land, a branch that touches a risky path", () => {
     const script = join(work, "scripts", "land.ts");
     const gated = readFileSync(script, "utf8");
 
-    const skipped = gated.replace(
-      "const review = reviewRefusal(",
-      "const review = null && reviewRefusal(",
-    );
+    // Both reads of the verdict skipped, the one before the wait and the one after the rebase: run, this copy would land.
+    const skipped = gated
+      .replace("const review = reviewRefusal(", "const review = null && reviewRefusal(")
+      .replace("return reviewRefusal(branch", "return null && reviewRefusal(branch");
 
-    expect(skipped).not.toBe(gated);
+    expect(skipped.match(/null && reviewRefusal\(/gu)).toHaveLength(2);
     commit(work, "scripts/land.ts", "skip the gate", skipped);
     pushBranch();
     serve(approved());
@@ -1445,6 +1615,35 @@ describe("record", () => {
       why: expect.stringContaining("changes nothing"),
     });
     expect(github().comment).toBeNull();
+  });
+
+  test("records the patch against the pull request's own base, the layer under it", () => {
+    const patchAgainst = (base: string) => {
+      const pipe = Bun.spawnSync(
+        ["sh", "-c", `git diff $(git merge-base ${base} HEAD)..HEAD | git patch-id --verbatim`],
+        { cwd: work, env: process.env, stdout: "pipe" },
+      );
+
+      return pipe.stdout.toString().split(" ")[0] ?? "";
+    };
+
+    git(work, "switch", "--quiet", "-c", "feature/base", "dev");
+    commit(work, "base.txt", "the layer under");
+    git(work, "push", "--quiet", "origin", "feature/base");
+    git(work, "switch", "--quiet", "feature/x");
+    git(work, "rebase", "--quiet", "feature/base");
+    pushBranch();
+    serve({ pr: { baseRefName: "feature/base" } });
+
+    const recording = record("feature/x", branchHead(), work);
+
+    expect(recording).toEqual({
+      kind: "recorded",
+      pr: 7,
+      patchId: patchAgainst("origin/feature/base"),
+    });
+    expect(patchAgainst("origin/dev")).not.toBe(patchAgainst("origin/feature/base"));
+    expect(posted().body).toContain("its patch against `origin/feature/base` stays the same");
   });
 
   test("refuses a reviewed sha that is not the pull request's head, posting nothing", () => {

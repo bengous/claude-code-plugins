@@ -341,6 +341,39 @@ describe("the command", () => {
     expect(cli.exitCode).toBe(0);
   });
 
+  test("reads a pull request's change from its own base to --head, the risky paths still dev's", () => {
+    git("switch", "--quiet", "-c", "feature/base");
+    commit("scripts/land.ts", "fix: land");
+    git("update-ref", "refs/remotes/origin/feature/base", "HEAD");
+    git("switch", "--quiet", "-c", "feature/layer");
+    commit("skills/x/SKILL.md", "feat: a skill");
+    git("switch", "--quiet", "dev");
+
+    const bin = join(repo, ".bin");
+
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "gh"),
+      '#!/bin/sh\ncase "$*" in *baseRefName*) echo feature/base ;; *) echo ;; esac\n',
+      { mode: 0o755 },
+    );
+
+    const tier = (...args: string[]) =>
+      Bun.spawnSync([process.execPath, join(import.meta.dir, "tier.ts"), ...args], {
+        cwd: repo,
+        env: { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+        .stdout.toString()
+        .trim();
+
+    expect(tier("--pr", "1", "--head", "feature/layer")).toBe(
+      "human adds, removes or renames a plugin component: skills/x/SKILL.md",
+    );
+    expect(tier("--head", "feature/layer")).toBe("human touches a risky path: scripts/land.ts");
+  });
+
   test("prints human with the failure and exits 0 when the base does not resolve", () => {
     const cli = Bun.spawnSync(
       [process.execPath, join(import.meta.dir, "tier.ts"), "--base", "origin/nowhere"],

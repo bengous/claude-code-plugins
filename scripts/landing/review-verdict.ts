@@ -10,8 +10,8 @@
  * Refused unless `<reviewed head>` is the pull request's head, so a push after
  * the review gets no verdict. Posts on the pull request a comment whose first
  * line is `<!-- review: clean patch-id=<id> -->`, the `git patch-id --verbatim`
- * of the diff from the head's merge-base with `origin/dev` to the head:
- * whitespace counts, line numbers do not. A rebase that leaves that diff as it
+ * of the diff from the head's merge-base with the pull request's base on
+ * origin to the head: whitespace counts, line numbers do not. A rebase that leaves that diff as it
  * was keeps the verdict; a commit after the review does not, nor a rebase that
  * changes the lines around a hunk. A verdict stands for a review, or
  * for `scripts/headless/renovate-agent.ts`'s own (`postVerdict`), posted with no review
@@ -47,6 +47,11 @@ export type PatchId =
 export type Recording =
   | { readonly kind: "recorded"; readonly pr: number; readonly patchId: string }
   | { readonly kind: "refused"; readonly why: string };
+
+/** The ref a pull request's patch is read against: its base branch as origin holds it. */
+export function baseRefOf(pr: { readonly baseRefName: string }): string {
+  return `${REMOTE}/${pr.baseRefName}`;
+}
 
 export function short(commit: string): string {
   return commit.slice(0, 8);
@@ -100,11 +105,11 @@ export function patchIdOf(cwd: string, base: string, head: string): PatchId {
 
 /** Posts on `branch`'s pull request the clean review verdict for its head, refused unless that head is `sha`. */
 export function record(branch: string, sha: string, cwd: string): Recording {
-  const view = run(["gh", "pr", "view", branch, "--json", "number,headRefOid"], cwd);
+  const view = run(["gh", "pr", "view", branch, "--json", "number,headRefOid,baseRefName"], cwd);
 
   if (!view.ok) return { kind: "refused", why: `no pull request read for ${branch}: ${view.err}` };
 
-  let pr: { readonly number: number; readonly headRefOid: string };
+  let pr: { readonly number: number; readonly headRefOid: string; readonly baseRefName: string };
 
   try {
     // SAFETY: gh prints exactly the fields asked for.
@@ -126,7 +131,8 @@ export function record(branch: string, sha: string, cwd: string): Recording {
     };
   }
 
-  const patchId = patchIdOf(cwd, BASE, pr.headRefOid);
+  const base = baseRefOf(pr);
+  const patchId = patchIdOf(cwd, base, pr.headRefOid);
 
   if (patchId.kind === "failed") return { kind: "refused", why: patchId.why };
 
@@ -134,7 +140,7 @@ export function record(branch: string, sha: string, cwd: string): Recording {
     cwd,
     pr.number,
     patchId.id,
-    `A review of ${short(pr.headRefOid)} left no finding open. \`scripts/land.ts\` lands this change while its patch against \`${BASE}\` stays the same.`,
+    `A review of ${short(pr.headRefOid)} left no finding open. \`scripts/land.ts\` lands this change while its patch against \`${base}\` stays the same.`,
   );
 }
 

@@ -18,6 +18,8 @@
         "scripts/land.ts",
         "scripts/release.ts",
         "scripts/landing/review-verdict.ts",
+        "scripts/landing/landing-lock.ts",
+        "scripts/landing/lock-check.ts",
         "scripts/headless/renovate-agent.ts",
         "scripts/headless/headless-run.ts",
         ".claude/hooks/renovate-agent.ts",
