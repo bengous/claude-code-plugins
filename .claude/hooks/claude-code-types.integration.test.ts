@@ -154,6 +154,14 @@ describe("claude-code-types hook", () => {
     expect(recorded("version-guards")).toBe("");
   });
 
+  test("returns at once in a cloud session", async () => {
+    const { exitCode, stdout } = await runHook("2.1.294", project, { CLAUDE_CODE_REMOTE: "true" });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe("");
+    expect(recorded("version-guards")).toBe("");
+  });
+
   test("starts nothing for a settled version", async () => {
     write(state("settled"), "2.1.294");
 

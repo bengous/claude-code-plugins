@@ -33,12 +33,12 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
-async function runHook(cwd: string, projectDir = project) {
+async function runHook(cwd: string, projectDir = project, extra: NodeJS.ProcessEnv = {}) {
   const proc = Bun.spawn([process.execPath, HOOK], {
     stdin: new Blob([JSON.stringify({ hook_event_name: "SessionStart", source: "startup", cwd })]),
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...env, CLAUDE_PROJECT_DIR: projectDir },
+    env: { ...env, CLAUDE_PROJECT_DIR: projectDir, ...extra },
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -97,6 +97,14 @@ afterEach(async () => {
 });
 
 describe("renovate-agent hook", () => {
+  test("a cloud session starts no run and says nothing", async () => {
+    const { exitCode, stdout } = await runHook(project, project, { CLAUDE_CODE_REMOTE: "true" });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe("");
+    expect(existsSync(state().day)).toBe(false);
+  });
+
   test("starts the run from the main checkout once a day, and notes the day", async () => {
     const { exitCode, stdout } = await runHook(project);
 

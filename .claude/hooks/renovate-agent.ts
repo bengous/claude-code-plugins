@@ -18,7 +18,7 @@ import { reportLines, type StatePaths, statePaths } from "../../scripts/headless
 import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
-import { HOOK_EXIT } from "./hook-io.ts";
+import { HOOK_EXIT, inCloudSession } from "./hook-io.ts";
 import { claimToday, mainCommonDir } from "./once-a-day.ts";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/headless/renovate-agent.ts");
@@ -78,7 +78,7 @@ async function sessionLines(rawInput: string): Promise<string[]> {
   ];
 }
 
-if (import.meta.main) {
+if (import.meta.main && !inCloudSession(process.env)) {
   try {
     const lines = await sessionLines(await Bun.stdin.text());
 

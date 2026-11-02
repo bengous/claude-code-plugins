@@ -115,6 +115,14 @@ afterEach(async () => {
 });
 
 describe("auto-sweep hook", () => {
+  test("a cloud session starts no sweep and says nothing", async () => {
+    const { exitCode, stdout } = await runHook(project, project, { CLAUDE_CODE_REMOTE: "true" });
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe("");
+    expect(existsSync(paths().day)).toBe(false);
+  });
+
   test("starts the sweep against dev detached from the main checkout, notes the day and appends its output to the log", async () => {
     // Without --base, the sweep would take this one.
     git(project, "config", "sweep.base", "main");

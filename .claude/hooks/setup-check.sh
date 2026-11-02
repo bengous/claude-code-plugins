@@ -4,6 +4,9 @@
 # Exit 0 if OK, exit 1 if setup needed (prints instructions)
 set -euo pipefail
 
+# A cloud session (CLAUDE_CODE_REMOTE=true) runs a fresh clone with no workstation tooling to set up.
+[[ "${CLAUDE_CODE_REMOTE:-}" == "true" ]] && exit 0
+
 QUIET="${1:-}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"

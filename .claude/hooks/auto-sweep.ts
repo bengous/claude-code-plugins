@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 import { messageOf } from "../../tools/platform/pure.ts";
 import { checkoutRoot } from "./checkout.ts";
-import { HOOK_EXIT } from "./hook-io.ts";
+import { HOOK_EXIT, inCloudSession } from "./hook-io.ts";
 import { claimToday, mainCommonDir } from "./once-a-day.ts";
 
 const SCRIPT = join(import.meta.dir, "../../git-sweep/scripts/auto-sweep.ts");
@@ -77,7 +77,7 @@ async function sessionLine(rawInput: string): Promise<string | null> {
   return `auto-sweep: sweeping local branches and agent worktrees against ${BASE} in the background, log: ${paths.log}`;
 }
 
-if (import.meta.main) {
+if (import.meta.main && !inCloudSession(process.env)) {
   try {
     const line = await sessionLine(await Bun.stdin.text());
 

@@ -133,6 +133,15 @@ describe("private-sync hook", () => {
     expect(await status(project)).toBe("");
   });
 
+  test("a cloud session clones nothing and says nothing", async () => {
+    configure();
+
+    const { exitCode, stdout } = await runHook(project, { CLAUDE_CODE_REMOTE: "true" });
+
+    expect([exitCode, stdout]).toEqual([0, ""]);
+    expect(existsSync(privateDir())).toBe(false);
+  });
+
   test("a second run changes nothing and says nothing", async () => {
     configure();
     await runHook(project);

@@ -27,7 +27,7 @@ import { GitError, git } from "../../tools/platform/git.ts";
 import { isErrno, messageOf } from "../../tools/platform/pure.ts";
 import { NO_PROMPT } from "./auto-sweep.ts";
 import { checkoutRoot, gitDiscoveryEnv } from "./checkout.ts";
-import { HOOK_EXIT } from "./hook-io.ts";
+import { HOOK_EXIT, inCloudSession } from "./hook-io.ts";
 
 const CONFIG = ".private.env";
 
@@ -189,7 +189,7 @@ export async function sync(
   };
 }
 
-if (import.meta.main) {
+if (import.meta.main && !inCloudSession(process.env)) {
   try {
     // SAFETY: `cwd` is the one field read, and an absent one falls back to the project.
     const { cwd } = JSON.parse(await Bun.stdin.text()) as { cwd?: string };
