@@ -21,7 +21,6 @@ import {
   readFileSync,
   realpathSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -857,15 +856,15 @@ function startTurn(
   const prompt = readFileSync(promptFile, "utf8");
 
   mkdirSync(turnDir);
-  writeFileSync(
+  writeAtomicSync(
     join(turnDir, "prompt.md"),
     run.mode === "write" ? `${WRITE_PREAMBLE}\n\n${prompt}` : prompt,
   );
 
   if (run.mode === "write") {
-    writeFileSync(join(turnDir, "schema.json"), `${bridgeSchema(callerSchema)}\n`);
+    writeAtomicSync(join(turnDir, "schema.json"), `${bridgeSchema(callerSchema)}\n`);
   } else if (callerSchema !== null) {
-    writeFileSync(join(turnDir, "schema.json"), `${callerSchema}\n`);
+    writeAtomicSync(join(turnDir, "schema.json"), `${callerSchema}\n`);
   }
 
   writeJson(join(turnDir, "turn.json"), spec);
@@ -881,7 +880,7 @@ function startTurn(
 
   if (supervisor.pid === undefined) throw new Error("cannot spawn the codex-run supervisor");
 
-  writeFileSync(join(turnDir, "supervisor.pid"), `${supervisor.pid}\n`);
+  writeAtomicSync(join(turnDir, "supervisor.pid"), `${supervisor.pid}\n`);
   supervisor.unref();
 
   return waitAndReport(runDir, waitSeconds);
@@ -901,7 +900,7 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   // The first reason is kept; every call still signals, so an interrupt
   // recorded before codex existed reaches it once it does.
   const interrupt = (reason: Ending): void => {
-    if (readEnding(turnDir) === null) writeFileSync(join(turnDir, "ending"), `${reason}\n`);
+    if (readEnding(turnDir) === null) writeAtomicSync(join(turnDir, "ending"), `${reason}\n`);
 
     if (child === null) return;
 
@@ -931,11 +930,11 @@ async function supervise(runDir: string, turn: number): Promise<void> {
 
   child = spawned;
 
-  if (spawned.pid !== undefined) writeFileSync(join(turnDir, "codex.pid"), `${spawned.pid}\n`);
+  if (spawned.pid !== undefined) writeAtomicSync(join(turnDir, "codex.pid"), `${spawned.pid}\n`);
 
   // cancel writes its request before it checks for this marker, so a request
   // made before the handlers existed is seen here, and one made after gets a signal.
-  writeFileSync(join(turnDir, "ready"), "");
+  writeAtomicSync(join(turnDir, "ready"), "");
 
   if (existsSync(join(turnDir, "cancel-request")) || readEnding(turnDir) !== null)
     interrupt("cancelled");
@@ -973,14 +972,14 @@ async function supervise(runDir: string, turn: number): Promise<void> {
     if ("error" in parsed) {
       status = "failed";
       error = parsed.error;
-      writeFileSync(join(turnDir, "final.md"), raw);
+      writeAtomicSync(join(turnDir, "final.md"), raw);
     } else {
       blocked = parsed.blocked;
       status = statusFor(null, codexExit, events, blocked);
-      writeFileSync(join(turnDir, "final.md"), parsed.text);
+      writeAtomicSync(join(turnDir, "final.md"), parsed.text);
     }
   } else {
-    writeFileSync(join(turnDir, "final.md"), raw);
+    writeAtomicSync(join(turnDir, "final.md"), raw);
     error =
       ending === "deadline"
         ? `deadline of ${spec.deadline_seconds} s reached; codex was interrupted`
@@ -1224,7 +1223,7 @@ function commandCancel(args: string[]): Promise<number> {
   const supervisor = readPid(turnDir);
 
   if (envelope(runDir).status === "running") {
-    writeFileSync(join(turnDir, "cancel-request"), "");
+    writeAtomicSync(join(turnDir, "cancel-request"), "");
 
     if (supervisor.state === "valid" && existsSync(join(turnDir, "ready"))) {
       process.kill(supervisor.pid, "SIGINT");
