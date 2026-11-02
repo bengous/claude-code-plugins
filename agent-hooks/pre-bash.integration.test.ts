@@ -19,6 +19,8 @@ import { runPreBash } from "./pre-bash.ts";
 import { beatPath } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
+  MINUTE_MS,
+  beatAgo,
   createTempRepo,
   git,
   removeTempRepo,
@@ -68,6 +70,7 @@ type Output = {
   readonly decision: string | undefined;
   readonly reason: string | undefined;
   readonly note: string | undefined;
+  readonly context: string | undefined;
 };
 
 let temp: TempRepo;
@@ -156,6 +159,7 @@ async function preBash(
     decision: stringField(specific, "permissionDecision"),
     reason: stringField(specific, "permissionDecisionReason"),
     note: stringField(output, "systemMessage"),
+    context: stringField(specific, "additionalContext"),
   };
 }
 
@@ -1265,6 +1269,72 @@ esac
     } finally {
       process.env["PATH"] = saved;
     }
+  });
+});
+
+describe("pre-bash tells the agent another session is live in a per-task main checkout", () => {
+  let repo = "";
+
+  beforeEach(() => {
+    repo = realpathSync(
+      makeRepo(
+        "per-task",
+        {
+          [CONFIG_RELATIVE_PATH]: JSON.stringify({
+            profile: { worktree: "per-task", landing: { trunk: "dev", release: "main" } },
+          }),
+        },
+        "git@github.com:o/n.git",
+      ),
+    );
+  });
+
+  const LINE = (): string =>
+    `agent-hooks: another session is live in ${repo}, and this repository takes one worktree per task: do this task in a worktree of its own, not in this checkout. Create one with git -C ${repo} worktree add <path> -b <branch> dev`;
+
+  test("a commit there from another repository passes, with one additionalContext line", async () => {
+    beatAgo("s-other", repo, MINUTE_MS);
+
+    const output = await preBash(`git -C ${repo} commit -m "fix: x"`, temp.repo);
+
+    expect(output.code).toBe(0);
+    expect(output.stdout).toBe(
+      `${JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: LINE() },
+      })}\n`,
+    );
+  });
+
+  test("no other session live there: nothing", async () => {
+    expect((await preBash(`git -C ${repo} commit -m "fix: x"`, temp.repo)).stdout).toBe("");
+  });
+
+  test("a refusal wins: the command never runs", async () => {
+    beatAgo("s-other", repo, MINUTE_MS);
+
+    const output = await preBash(
+      `git -C ${repo} commit -m "fix: x" && git -C ${repo} push origin dev:main`,
+      temp.repo,
+    );
+
+    expect(output.decision).toBe("deny");
+    expect(output.context).toBeUndefined();
+  });
+
+  test("a note of the landing guard joins the line", async () => {
+    beatAgo("s-other", repo, MINUTE_MS);
+    writeRepoFile(repo, CONFIG_RELATIVE_PATH, `{ "profile": { "worktree": "per-task" } }`);
+    git(repo, "checkout", "-q", "dev");
+
+    const output = await preBash(
+      `git -C ${repo} commit -m "fix: x" && git -C ${repo} push origin dev:main`,
+      temp.repo,
+    );
+
+    expect(output.decision).toBeUndefined();
+    expect(output.context).toBe(
+      `${LINE()}\nagent-hooks: could not read whether github.com/o/n is public (error connecting to api.github.com): the push went unchecked`,
+    );
   });
 });
 

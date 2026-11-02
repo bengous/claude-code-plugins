@@ -19,6 +19,15 @@ const BEAT_SUFFIX = ".beat";
 
 const REFUSED_SUFFIX = ".refused";
 
+/** A beat's content while its agent's turn ended with a background task running or pending; empty while it works. */
+const WAITING = "waiting";
+
+/**
+ * How long a working agent stays live past its last kit hook: a turn cut before its Stop (a crash, a kill, an
+ * interrupt) leaves its beats working. A judgment, not a measurement.
+ */
+export const WORKING_CAP_MS = 60 * 60 * 1000;
+
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
 
@@ -390,25 +399,37 @@ export function beatPath(key: string, checkout: string): string {
   return path.join(stateDir(), `${sanitize(key)}__${checkoutKey(checkout)}${BEAT_SUFFIX}`);
 }
 
-/** Marks agent `key` live in the checkout: an empty file whose mtime is the last kit hook the agent ran there. */
+/**
+ * Marks agent `key` working in the checkout: an empty file whose mtime is the last kit hook the agent ran there.
+ */
 export function beat(key: string, checkout: string): void {
   mkdirSync(stateDir(), { recursive: true });
   writeFileSync(beatPath(key, checkout), "");
 }
 
 /**
- * The keys of the agents of other sessions, subagents included, that beat in this checkout at `since` or later;
- * `sessionId` and its own subagents left out.
+ * The keys of the agents of other sessions, subagents included, live in this checkout at `now`: a waiting one until
+ * its session ends, a working one until WORKING_CAP_MS past its last kit hook. `sessionId` and its own subagents left
+ * out.
  */
-export function liveOthers(checkout: string, sessionId: string, since: number): string[] {
+export function liveOthers(checkout: string, sessionId: string, now: number): string[] {
   const here = checkoutKey(checkout);
 
   return beatFiles().flatMap(({ file, key, checkout: beatCheckout }) =>
-    beatCheckout !== here || isOfSession(key, sessionId) || !beatSince(file, since) ? [] : [key],
+    beatCheckout !== here || isOfSession(key, sessionId) || !isLive(file, now) ? [] : [key],
   );
 }
 
-/** Removes the beats of a session that ended and of its subagents, in every checkout. */
+/** Marks every beat of a session and of its subagents waiting: its turn ended while a background task runs. */
+export function waitBeats(sessionId: string): void {
+  for (const { file, key } of beatFiles()) {
+    if (isOfSession(key, sessionId)) {
+      writeFileSync(path.join(stateDir(), file), WAITING);
+    }
+  }
+}
+
+/** Removes the beats of a session and of its subagents, in every checkout: it ended, or its turn did, idle. */
 export function endBeats(sessionId: string): void {
   for (const { file, key } of beatFiles()) {
     if (isOfSession(key, sessionId)) {
@@ -449,10 +470,15 @@ function isOfSession(key: string, sessionId: string): boolean {
   return key === own || key.startsWith(`${own}${AGENT_SEPARATOR}`);
 }
 
-/** Whether the beat was refreshed at `since` or later: one removed since the dir was listed is not live. */
-function beatSince(file: string, since: number): boolean {
+/** Whether the beat is waiting, or working within the cap: one removed since the dir was listed is not live. */
+function isLive(file: string, now: number): boolean {
+  const filePath = path.join(stateDir(), file);
+
   try {
-    return statSync(path.join(stateDir(), file)).mtimeMs >= since;
+    return (
+      readFileSync(filePath, "utf8") === WAITING ||
+      statSync(filePath).mtimeMs >= now - WORKING_CAP_MS
+    );
   } catch {
     return false;
   }

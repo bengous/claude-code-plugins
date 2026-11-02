@@ -8,6 +8,7 @@ import type { SessionState } from "./state.ts";
 import {
   STATE_TTL_MS,
   STATE_VERSION,
+  WORKING_CAP_MS,
   beat,
   beatPath,
   checkoutKey,
@@ -26,6 +27,7 @@ import {
   stateDir,
   statePath,
   statesOf,
+  waitBeats,
 } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import { beatAgo, createTempRepo, MINUTE_MS, removeTempRepo, scrubGitEnv } from "./test-support.ts";
@@ -440,30 +442,55 @@ describe("heartbeats", () => {
     const list = spyOn(fs, "readdirSync").mockReturnValue([...listed, vanished] as never);
 
     try {
-      expect(liveOthers(temp.repo, "s1", Date.now() - 10 * MINUTE_MS)).toEqual(["s2"]);
+      expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
     } finally {
       list.mockRestore();
     }
   });
 
-  test("liveOthers: the agents of other sessions that beat in this checkout since `since`", () => {
+  test("liveOthers: the agents of other sessions working in this checkout within the cap", () => {
     const other = path.join(temp.dir, "other");
     beatAgo("s1", temp.repo, MINUTE_MS);
     beatAgo("s1.a1", temp.repo, MINUTE_MS);
     beatAgo("s10", temp.repo, MINUTE_MS);
-    beatAgo("s2.a1", temp.repo, 2 * MINUTE_MS);
-    beatAgo("s3", temp.repo, 20 * MINUTE_MS);
+    beatAgo("s2.a1", temp.repo, 59 * MINUTE_MS);
+    beatAgo("s3", temp.repo, 61 * MINUTE_MS);
     beatAgo("s4", other, MINUTE_MS);
     saveState(freshState("s5", temp.repo));
 
-    expect(liveOthers(temp.repo, "s1", Date.now() - 10 * MINUTE_MS).toSorted()).toEqual([
-      "s10",
-      "s2.a1",
-    ]);
+    expect(liveOthers(temp.repo, "s1", Date.now()).toSorted()).toEqual(["s10", "s2.a1"]);
+    expect(WORKING_CAP_MS).toBe(60 * MINUTE_MS);
+  });
+
+  test("a waiting agent stays live past the cap, until its beats go", () => {
+    beatAgo("s2", temp.repo, MINUTE_MS);
+    beatAgo("s2.a1", temp.repo, MINUTE_MS);
+    beatAgo("s3", temp.repo, MINUTE_MS);
+
+    waitBeats("s2");
+
+    for (const key of ["s2", "s2.a1", "s3"]) {
+      const at = new Date(Date.now() - 2 * WORKING_CAP_MS);
+      utimesSync(beatPath(key, temp.repo), at, at);
+    }
+
+    expect(liveOthers(temp.repo, "s1", Date.now()).toSorted()).toEqual(["s2", "s2.a1"]);
+
+    endBeats("s2");
+
+    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
+  });
+
+  test("a beat after the wait marks its agent working again, under the cap", () => {
+    beat("s2", temp.repo);
+    waitBeats("s2");
+    beatAgo("s2", temp.repo, 61 * MINUTE_MS);
+
+    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
   });
 
   test("none without a state dir", () => {
-    expect(liveOthers(temp.repo, "s1", 0)).toEqual([]);
+    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
   });
 
   test("endBeats removes the beats of a session and its subagents, in every checkout, and no other's", () => {

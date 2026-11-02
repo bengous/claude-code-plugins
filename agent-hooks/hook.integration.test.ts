@@ -2,7 +2,7 @@
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -14,10 +14,11 @@ import { isRecord, stringField } from "./json.ts";
 import type { Input } from "./payload.ts";
 import { parseInput } from "./payload.ts";
 import { runSessionStart } from "./session-start.ts";
-import { beatPath, statePath } from "./state.ts";
+import { beat, beatPath, liveOthers, statePath } from "./state.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
+  MINUTE_MS,
   createTempRepo,
   fakeTool,
   fixtureNames,
@@ -396,6 +397,83 @@ describe("runHook", () => {
     });
 
     expect(existsSync(beatPath("s-none", temp.repo))).toBeFalse();
+  });
+
+  test("a main Stop that ends the turn with no task under way leaves the session idle: its beats go, in every checkout", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    const other = path.join(temp.dir, "other");
+    beat("s1", other);
+    beat("s1.a1", temp.repo);
+    beat("s2", temp.repo);
+
+    await runHook({
+      hook: "stop",
+      harness: "claude",
+      payload: {
+        ...payload(),
+        background_tasks: [
+          { id: "t1", type: "shell", status: "completed", description: "a finished build" },
+        ],
+      },
+      handler: allow,
+    });
+
+    expect(existsSync(beatPath("s1", temp.repo))).toBeFalse();
+    expect(existsSync(beatPath("s1", other))).toBeFalse();
+    expect(existsSync(beatPath("s1.a1", temp.repo))).toBeFalse();
+    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
+    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
+  });
+
+  test("a main Stop with a background task running or pending, of any type, leaves the session waiting: live past the cap", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    for (const [type, status] of [
+      ["shell", "running"],
+      ["monitor", "pending"],
+    ] as const) {
+      await runHook({
+        hook: "stop",
+        harness: "claude",
+        payload: {
+          ...payload(),
+          background_tasks: [{ id: "t1", type, status, description: "a long wait" }],
+        },
+        handler: allow,
+      });
+
+      const at = new Date(Date.now() - 61 * MINUTE_MS);
+      utimesSync(beatPath("s1", temp.repo), at, at);
+
+      expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
+    }
+  });
+
+  test("a main Stop that blocks keeps the session working: its turn goes on", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: blocking });
+
+    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
+
+    const at = new Date(Date.now() - 61 * MINUTE_MS);
+    utimesSync(beatPath("s1", temp.repo), at, at);
+
+    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
+  });
+
+  test("a SubagentStop keeps every beat: it never makes the main session idle", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    beat("s1", temp.repo);
+
+    await runHook({
+      hook: "stop",
+      harness: "claude",
+      payload: { ...payload(), agent_id: "a1", hook_event_name: "SubagentStop" },
+      handler: allow,
+    });
+
+    expect(liveOthers(temp.repo, "s2", Date.now()).toSorted()).toEqual(["s1", "s1.a1"]);
   });
 
   test("a heartbeat that cannot find its checkout reports it and throws nothing", () => {

@@ -3,18 +3,40 @@ import type { Deadline, Runner } from "./exec.ts";
 import type { GuardContext } from "./guard/judge-doors.ts";
 import { combine, humanOf, judgeLine, note } from "./guard/judge-doors.ts";
 import type { HumanMessage } from "./guard/refusals.ts";
+import { worktreeLine } from "./guard/worktree.ts";
 import type { PreBashContext } from "./hook.ts";
 import type { Settle } from "./judge/judge-commits.ts";
 import { judgeCommits } from "./judge/judge-commits.ts";
 import type { Input } from "./payload.ts";
-import type { PreBashVerdict } from "./verdict.ts";
+import type { PreBashAnswer, PreBashVerdict } from "./verdict.ts";
 
 /**
- * The landing guard on a Bash tool call, in any repository: refuses the one-way doors the repository's
- * `profile.landing` derives, or, without one, a push or a merge to the default branch of a public repository. The
- * guard alone races the deadline, so a guard past it still joins the commit judge's answer.
+ * The guards on a Bash tool call, in any repository. The landing guard refuses the one-way doors the repository's
+ * `profile.landing` derives, or, without one, a push or a merge to the default branch of a public repository. A
+ * command that runs passes the per-task line to the agent when it works in the main checkout of a per-task
+ * repository another session is live in, a note of the others folded in: one answer carries one `additionalContext`.
  */
-export async function runPreBash(context: PreBashContext): Promise<PreBashVerdict> {
+export async function runPreBash(context: PreBashContext): Promise<PreBashAnswer> {
+  const verdict = await landingVerdict(context);
+
+  if (verdict.kind === "deny") {
+    return verdict;
+  }
+
+  const line = worktreeLine(context.command, context.cwd, context.sessionId, context.now);
+
+  if (line === null) {
+    return verdict;
+  }
+
+  return { kind: "context", text: verdict.kind === "note" ? `${line}\n${verdict.text}` : line };
+}
+
+/**
+ * The landing guard's verdict joined to the commit judge's. The guard alone races the deadline, so a guard past it
+ * still joins the commit judge's answer.
+ */
+async function landingVerdict(context: PreBashContext): Promise<PreBashVerdict> {
   const { input, command, cwd, deadline } = context;
   let human: HumanMessage | null = null;
 

@@ -4,6 +4,9 @@ import type { BackgroundTaskSummary } from "@anthropic-ai/claude-agent-sdk";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { realPathOf } from "./scope.ts";
 
+/** The statuses of a background task still under way. */
+export const ACTIVE_TASK_STATUSES: ReadonlySet<string> = new Set(["running", "pending"]);
+
 /** The fields of a hook payload the kit reads, checked by hand: `tool_input` is `unknown` in the SDK. */
 export type Input = {
   readonly sessionId: string;

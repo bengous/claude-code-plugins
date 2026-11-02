@@ -63,6 +63,7 @@ export type ProfileKeys = {
   readonly landing: KeyRead<LandingProfile>;
   readonly approvals: KeyRead<ApprovalsProfile>;
   readonly commitMessages: KeyRead<CommitMessagesMode>;
+  readonly worktree: KeyRead<WorktreeMode>;
 };
 
 const ABSENT = { kind: "absent" } as const;
@@ -86,19 +87,20 @@ const REVIEW_KEYS = new Set(["risky"]);
  */
 export function loadProfile(configFile: string): ProfileKeys {
   if (!existsSync(configFile)) {
-    return { landing: ABSENT, approvals: ABSENT, commitMessages: ABSENT };
+    return { landing: ABSENT, approvals: ABSENT, commitMessages: ABSENT, worktree: ABSENT };
   }
 
   const profile = keyOf(() => profileIn(configFile, readText(configFile)));
 
   if (profile.kind !== "read") {
-    return { landing: profile, approvals: profile, commitMessages: profile };
+    return { landing: profile, approvals: profile, commitMessages: profile, worktree: profile };
   }
 
   return {
     landing: keyOf(() => readLanding(profile.value)),
     approvals: keyOf(() => readApprovals(profile.value)),
     commitMessages: keyOf(() => readCommitMessages(profile.value)),
+    worktree: keyOf(() => readWorktree(profile.value)),
   };
 }
 
@@ -136,9 +138,13 @@ export function readProfile(reader: Reader): Profile {
     landing: readLanding(reader),
     approvals: readApprovals(reader),
     review: readReview(reader),
-    worktree: oneOf(reader, "worktree", ["per-task", "shared"]) ?? "shared",
+    worktree: readWorktree(reader) ?? "shared",
     commitMessages: readCommitMessages(reader),
   };
+}
+
+function readWorktree(profile: Reader): WorktreeMode | null {
+  return oneOf<WorktreeMode>(profile, "worktree", ["per-task", "shared"]) ?? null;
 }
 
 function readCommitMessages(profile: Reader): CommitMessagesMode | null {

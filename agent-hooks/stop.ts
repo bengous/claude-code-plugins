@@ -18,6 +18,7 @@ import {
 } from "./lanes.ts";
 import type { Diagnostics, Failing } from "./loop-guard.ts";
 import { CRASH_LANE, clearFailures, guard, renamedLanes, resetTurn } from "./loop-guard.ts";
+import { ACTIVE_TASK_STATUSES } from "./payload.ts";
 import { ConfigError } from "./reader.ts";
 import type { DirtyTree } from "./scope.ts";
 import {
@@ -38,8 +39,6 @@ import type { Verdict } from "./verdict.ts";
 import { ALLOW } from "./verdict.ts";
 
 const BUSY_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
-
-const BUSY_TASK_STATUSES = new Set(["running", "pending"]);
 
 /** One checkout of the Stop: the agent's state there, its dirty tree, and the files the agent changed. */
 type Measured = {
@@ -82,7 +81,7 @@ export async function runStop(context: StopContext): Promise<Verdict> {
   const busy =
     input.agentId === undefined
       ? input.backgroundTasks.find(
-          (task) => BUSY_TASK_TYPES.has(task.type) && BUSY_TASK_STATUSES.has(task.status),
+          (task) => BUSY_TASK_TYPES.has(task.type) && ACTIVE_TASK_STATUSES.has(task.status),
         )
       : undefined;
 

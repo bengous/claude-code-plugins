@@ -36,13 +36,19 @@ describe("loadProfile", () => {
       landing: { kind: "absent" },
       approvals: { kind: "absent" },
       commitMessages: { kind: "absent" },
+      worktree: { kind: "absent" },
     });
   });
 
   test("a file that does not parse, or whose profile is no object, leaves every key unreadable, naming the error", () => {
     const invalid = profileOf("{ nope");
 
-    for (const read of [invalid.landing, invalid.approvals, invalid.commitMessages]) {
+    for (const read of [
+      invalid.landing,
+      invalid.approvals,
+      invalid.commitMessages,
+      invalid.worktree,
+    ]) {
       expect(read.kind).toBe("unreadable");
       expect(read.kind === "unreadable" ? read.error : "").toStartWith(
         `agent-hooks: ${configPath(temp.repo)}: invalid JSONC: `,
@@ -58,6 +64,7 @@ describe("loadProfile", () => {
       landing: unreadable,
       approvals: unreadable,
       commitMessages: unreadable,
+      worktree: unreadable,
     });
   });
 
@@ -65,7 +72,7 @@ describe("loadProfile", () => {
     mkdirSync(configPath(temp.repo), { recursive: true });
     const read = loadProfile(configPath(temp.repo));
 
-    for (const key of [read.landing, read.approvals, read.commitMessages]) {
+    for (const key of [read.landing, read.approvals, read.commitMessages, read.worktree]) {
       expect(key.kind === "unreadable" ? key.error : "").toStartWith(
         `agent-hooks: ${configPath(temp.repo)}: cannot read: `,
       );
@@ -131,6 +138,19 @@ describe("loadProfile", () => {
     ).toEqual({ kind: "read", value: "judged" });
   });
 
+  test("reads profile.worktree alone: absent without it, an invalid one names its key", () => {
+    expect(
+      profileOf(
+        `{ "presets": ["no-such-preset"], "profile": { "worktree": "per-task", "review": {} } }`,
+      ).worktree,
+    ).toEqual({ kind: "read", value: "per-task" });
+    expect(profileOf("{}").worktree).toEqual({ kind: "absent" });
+    expect(profileOf(`{ "profile": { "worktree": "each" } }`).worktree).toEqual({
+      kind: "unreadable",
+      error: `agent-hooks: ${configPath(temp.repo)}: profile.worktree: expected per-task|shared`,
+    });
+  });
+
   test("no commitMessages reads as absent, an invalid one names its key", () => {
     expect(profileOf("{}").commitMessages).toEqual({ kind: "absent" });
     expect(profileOf(`{ "profile": { "commitMessages": true } }`).commitMessages).toEqual({
@@ -151,6 +171,7 @@ describe("loadProfile", () => {
         error: `agent-hooks: ${configPath(temp.repo)}: profile.approvals: expected workflows or labels`,
       },
       commitMessages: { kind: "read", value: "judged" },
+      worktree: { kind: "absent" },
     });
 
     const landingInvalid = profileOf(

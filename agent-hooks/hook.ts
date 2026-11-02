@@ -10,12 +10,21 @@ import { isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
 import type { Input } from "./payload.ts";
-import { parseInput } from "./payload.ts";
+import { ACTIVE_TASK_STATUSES, parseInput } from "./payload.ts";
 import { ConfigError } from "./reader.ts";
 import { checkoutOf, findRoot, realPathOf } from "./scope.ts";
 import type { SessionState } from "./state.ts";
-import { AGENT_SEPARATOR, beat, freshState, loadState, saveState, statesOf } from "./state.ts";
-import type { PreBashVerdict, Verdict } from "./verdict.ts";
+import {
+  AGENT_SEPARATOR,
+  beat,
+  endBeats,
+  freshState,
+  loadState,
+  saveState,
+  statesOf,
+  waitBeats,
+} from "./state.ts";
+import type { PreBashAnswer, Verdict } from "./verdict.ts";
 import { ALLOW } from "./verdict.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
@@ -95,7 +104,7 @@ export type Handler = (context: HookContext) => Promise<Verdict>;
 
 export type StopHandler = (context: StopContext) => Promise<Verdict>;
 
-export type PreBashHandler = (context: PreBashContext) => Promise<PreBashVerdict>;
+export type PreBashHandler = (context: PreBashContext) => Promise<PreBashAnswer>;
 
 /** A hook with its handler: the Stop's reads every checkout, pre-bash's one command, a root hook's one root. */
 export type HookRun =
@@ -181,10 +190,14 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   const now = options.now ?? Date.now();
   heartbeat(input);
 
-  const verdict =
-    options.hook === "stop"
-      ? await runStopHook(options, input, now)
-      : await runRootHook(options, input, now);
+  if (options.hook !== "stop") {
+    const verdict = await runRootHook(options, input, now);
+
+    return verdict === null ? null : encode(verdict, harness, options.hook);
+  }
+
+  const verdict = await runStopHook(options, input, now);
+  settleBeats(input, verdict);
 
   return verdict === null ? null : encode(verdict, harness, options.hook);
 }
@@ -215,6 +228,27 @@ export function heartbeat(input: Input): void {
   }
 }
 
+/**
+ * The main session's beats once its Stop answered. A block keeps it working. A turn that ends with a background task
+ * running or pending, of any type, leaves it waiting, live until its session ends; one that ends without leaves it
+ * idle in every checkout until a hook of its next turn beats. A subagent's Stop leaves every beat as it is.
+ */
+function settleBeats(input: Input, verdict: Verdict | null): void {
+  if (input.agentId !== undefined || verdict?.kind === "block") {
+    return;
+  }
+
+  try {
+    if (input.backgroundTasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))) {
+      waitBeats(input.sessionId);
+    } else {
+      endBeats(input.sessionId);
+    }
+  } catch (error) {
+    console.error(`agent-hooks: beats not settled: ${messageOf(error)}`);
+  }
+}
+
 type StopRun = RunHookOptions & { readonly hook: "stop" };
 
 type RootRun = RunHookOptions & { readonly hook: RootHookKind };
@@ -225,7 +259,7 @@ type PreBashRun = RunHookOptions & { readonly hook: "pre-bash" };
  * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat and no
  * commit judge. A crash lets the command through with a note.
  */
-async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBashVerdict | null> {
+async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBashAnswer | null> {
   const { payload } = options;
   const deadlineMs = options.deadlineMs ?? DEADLINES_MS["pre-bash"];
 
