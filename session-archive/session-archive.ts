@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 
 import { existsSync, readFileSync } from "node:fs";
-import { readdir, stat, mkdir, readlink, readFile, writeFile, unlink, cp } from "node:fs/promises";
+import { readdir, stat, mkdir, readlink, readFile, unlink, cp } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename } from "node:path";
 
-import { rename, writeAtomic } from "./lib/platform/fs.ts";
+import { createExclusiveSync, rename, writeAtomic } from "./lib/platform/fs.ts";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");
@@ -116,13 +116,8 @@ export async function acquireLock(
         }
       }
 
-      // Try to create lock atomically
-      const tmpLock = lockfile + `.${pid}`;
-      await writeFile(tmpLock, pid, { flag: "wx" });
-      // FIXME: rename replaces a lock another process took a moment before, so two workers that both found no lock (or both removed the same stale one) each return true and archive the same project at once; create the lock exclusively instead (link the temporary file, or open the lock with "wx"), keeping the stale-lock check.
-      await rename(tmpLock, lockfile);
-
-      return true;
+      if (createExclusiveSync(lockfile, pid)) return true;
+      await Bun.sleep(100);
     } catch {
       await Bun.sleep(100);
     }
@@ -346,7 +341,7 @@ export async function compressSession(
 ): Promise<number> {
   const data = await Bun.file(jsonlPath).arrayBuffer();
   const compressed = Bun.zstdCompressSync(new Uint8Array(data));
-  await Bun.write(archivePath, compressed);
+  await writeAtomic(archivePath, compressed);
 
   if (!keepOriginal) {
     await unlink(jsonlPath);
@@ -411,7 +406,7 @@ export async function archiveSession(
       const archivePath = join(archiveDir, `${session.sessionId}.jsonl`);
 
       if (copy) {
-        await Bun.write(archivePath, "");
+        await writeAtomic(archivePath, "");
       } else {
         await rename(session.jsonlPath, archivePath);
       }
@@ -491,13 +486,13 @@ export async function unarchiveSession(uuid: string, projectDir: string): Promis
     if (existsSync(zstPath)) {
       const compressed = await Bun.file(zstPath).arrayBuffer();
       const decompressed = Bun.zstdDecompressSync(new Uint8Array(compressed));
-      await Bun.write(targetPath, decompressed);
+      await writeAtomic(targetPath, decompressed);
       await unlink(zstPath);
       log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)})`);
     } else if (existsSync(gzPath)) {
       const compressed = await Bun.file(gzPath).arrayBuffer();
       const decompressed = Bun.gunzipSync(new Uint8Array(compressed));
-      await Bun.write(targetPath, decompressed);
+      await writeAtomic(targetPath, decompressed);
       await unlink(gzPath);
       log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)}, gzip)`);
     } else if (existsSync(emptyPath)) {
@@ -714,7 +709,7 @@ function isThrottled(): boolean {
 
 async function writeMarker(archived: number): Promise<void> {
   const marker = { lastRunAt: new Date().toISOString(), archived };
-  await Bun.write(MARKER_PATH, JSON.stringify(marker) + "\n");
+  await writeAtomic(MARKER_PATH, JSON.stringify(marker) + "\n");
 }
 
 async function runBackgroundWorker(options: Options): Promise<void> {
