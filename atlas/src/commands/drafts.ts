@@ -9,7 +9,6 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 
@@ -20,7 +19,7 @@ import {
   THREADS_LOCK,
   THREADS_SCRATCH_GLOB,
 } from "../model/folder.ts";
-import { renameSync } from "../platform/fs.ts";
+import { renameSync, writeAtomicSync } from "../platform/fs.ts";
 import { messageOf } from "../platform/pure.ts";
 
 export const TYPES_FILE = "atlas.d.ts";
@@ -86,7 +85,7 @@ export function ignoreLocalFiles(dir: string): void {
   }
 
   const separator = text === "" || text.endsWith("\n") ? "" : "\n";
-  writeFileSync(file, `${text}${separator}${missing.join("")}`);
+  writeAtomicSync(file, `${text}${separator}${missing.join("")}`);
 }
 
 const isPresent = (path: string): boolean =>
@@ -185,7 +184,7 @@ export function makeDraft(dir: string, name: string): string {
       copy(join(dir, file), join(path, file));
     }
 
-    writeFileSync(join(path, BASE_FILE), base);
+    writeAtomicSync(join(path, BASE_FILE), base);
   } catch (error: unknown) {
     rmSync(path, { recursive: true, force: true });
     throw new DraftError(`${messageOf(error)}: no draft made`);
