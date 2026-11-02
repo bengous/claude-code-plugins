@@ -1,6 +1,6 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- these checks parse the state files read back from disk: `parseState`, `stateOf` and their guards are the boundary, and a file of another shape reads as no state. */
 
-import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -403,8 +403,7 @@ export function beatPath(key: string, checkout: string): string {
  * Marks agent `key` working in the checkout: an empty file whose mtime is the last kit hook the agent ran there.
  */
 export function beat(key: string, checkout: string): void {
-  mkdirSync(stateDir(), { recursive: true });
-  writeFileSync(beatPath(key, checkout), "");
+  writeAtomically(beatPath(key, checkout), "");
 }
 
 /**
