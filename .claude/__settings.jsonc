@@ -156,6 +156,13 @@
       // against dev and green, and the pre-push gates still run.
       "Bash(bun ./scripts/land.ts *)",
 
+      // The human's ok on a tier:human pull request: agent-hooks' pre-bash
+      // refuses it unless the human's latest message opens a line with
+      // « land #<n> » for each pull request it names by number. The rule
+      // keeps it from the auto-mode classifier, which does not read that
+      // phrase as the human's ok and leaves the human to type the command.
+      "Bash(gh pr edit * --add-label land-ok)",
+
       // The loop's other commands (.claude/github-flow.json): a prompt nobody
       // answers turns a worker's tier human. tier.ts --pr bills one or two
       // headless judge calls; record posts the review's verdict on a
