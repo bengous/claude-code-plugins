@@ -11,6 +11,7 @@ import {
   landHistory,
   NO_NPM,
   npmWith,
+  REPO,
   type Sandbox,
   sandbox,
 } from "./harness.fixture.ts";
@@ -371,8 +372,62 @@ describe("decide", () => {
     expect(gh.writes).not.toContain("POST issues");
     expect(ledgerLines().at(-1)).toContain("zustand@5.0.15→5.0.16 scan-minor");
     expect(network.calls).toEqual([]);
-    expect(printed.at(-1)).toContain(`#${filed.number} filed already`);
+    expect(printed.at(-1)).toContain(`#${filed.number} filed already; the next gate run fires it`);
     expect(filed.state).toBe("open");
+  });
+
+  test("a closed issue that carries the update's marker is said to stay unfired", async () => {
+    await collected();
+
+    const dropped = gh.addIssue({
+      title: "scan(zustand@5.0.16): closed by the human",
+      body: `dropped\n\n${scanMarker(shas.zustand, "zustand")}`,
+      labels: ["lead:scan-minor", "needs-human"],
+      state: "closed",
+    });
+
+    const { ctx, printed } = contextIn(box, gh, { env: FIRE_ENV, npm: npmWith("") });
+
+    expect(await decide(ctx, writeVerdicts(zustandVerdict("scan-minor")), NOW)).toBe(0);
+    expect(printed.at(-1)).toContain(
+      `#${dropped.number} filed already and closed: nothing fires it`,
+    );
+  });
+
+  test("an issue fired three times with no scan closing it goes to the human, unfired", async () => {
+    await collected();
+
+    const network = fakeNetwork(() => ({
+      status: 200,
+      body: JSON.stringify({ claude_code_session_url: SESSION }),
+    }));
+
+    const world = () =>
+      contextIn(box, gh, { env: FIRE_ENV, npm: npmWith(""), fetch: network.fetch });
+
+    await decide(world().ctx, writeVerdicts(zustandVerdict("scan-minor")), NOW);
+    await collect(world().ctx, OPTIONS, NOW + 7 * 60 * 60 * 1000);
+    await collect(world().ctx, OPTIONS, NOW + 14 * 60 * 60 * 1000);
+    expect(network.calls).toHaveLength(3);
+
+    const [scan] = scanIssues();
+    const last = world();
+
+    await collect(last.ctx, OPTIONS, NOW + 21 * 60 * 60 * 1000);
+
+    expect(network.calls).toHaveLength(3);
+    expect(factsOf(last.printed)).toMatchObject({
+      refired: [{ issue: scan?.number, result: "left to the human after 3 fires: lead:unsure" }],
+    });
+    expect(scan?.labels).toEqual(["needs-human", "lead:unsure"]);
+    expect(scan?.comments.at(-1)?.body).toStartWith("3 scan tasks started on this issue");
+
+    gh.now = "2026-10-31T06:00:00Z";
+    gh.call("DELETE", `repos/${REPO}/issues/${scan?.number}/labels/lead%3Aunsure`);
+    gh.call("POST", `repos/${REPO}/issues/${scan?.number}/labels`, { labels: ["lead:scan-minor"] });
+
+    await collect(world().ctx, OPTIONS, NOW + 25 * 60 * 60 * 1000);
+    expect(network.calls).toHaveLength(4);
   });
 
   test("a scan started less than six hours ago is not fired again, one started earlier is", async () => {

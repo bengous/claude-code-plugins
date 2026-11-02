@@ -122,7 +122,8 @@ function decideRead(rules: Rules, root: string, cwd: string, tool: string, input
     );
   }
 
-  return pattern.startsWith("/") || pattern.split("/").includes("..")
+  // `..` anywhere, not as a segment alone: a brace alternative such as `{..,x}` expands to the parent.
+  return pattern.startsWith("/") || pattern.includes("..")
     ? deny(`Glob's pattern stays inside its path: ${pattern}`)
     : ALLOW;
 }

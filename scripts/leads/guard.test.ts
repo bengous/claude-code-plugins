@@ -168,6 +168,7 @@ describe("the scan's mode", () => {
     ["Read", { file_path: ".leads/412-types.diff" }],
     ["Grep", { pattern: "zustand", path: ".leads/412" }],
     ["Glob", { pattern: "**/*.ts", path: ".leads/412/vellum" }],
+    ["Glob", { pattern: "src/*.{ts,tsx}", path: ".leads/412/vellum" }],
   ])("%s %o passes", (name, input) => {
     expect(tool("scan", name, input)).toEqual({ kind: "allow" });
   });
@@ -184,6 +185,7 @@ describe("the scan's mode", () => {
     ["Grep", { pattern: "token" }],
     ["Glob", { pattern: "/proc/**", path: ".leads/412" }],
     ["Glob", { pattern: "../**/*.yml", path: ".leads/412" }],
+    ["Glob", { pattern: "{..,x}/*", path: ".leads/412" }],
   ])("%s %o is denied", (name, input) => {
     expect(tool("scan", name, input).kind).toBe("deny");
   });

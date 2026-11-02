@@ -20,6 +20,7 @@ import { parseArgs } from "node:util";
 import { isRecord, stringField } from "../../agent-hooks/json.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import {
+  addLabel,
   announceDryRun,
   bareVersion,
   canFire,
@@ -52,6 +53,7 @@ import {
   type Json,
   jsonBlock,
   LABEL,
+  labelledAt,
   lastFire,
   type LedgerEntry,
   ledgerKey,
@@ -66,6 +68,7 @@ import {
   parseScanMarker,
   publicFacts,
   releaseNotes,
+  removeLabel,
   removeLeadsFile,
   type RenovatePr,
   renovateCommits,
@@ -218,9 +221,36 @@ interface Refired {
   readonly result: string;
 }
 
+/** The scan tasks started on one issue with none closing it, after which the issue goes to the human. */
+const MAX_FIRES = 3;
+
+/** The scan tasks started on `issue` since its scan label was last put on: the human's relabel starts a new count. */
+function firesOn(ctx: Context, ledger: Ledger, issue: number, tier: Tier): number {
+  const fires = ledger.fires.filter((started) => started.issue === issue);
+
+  if (fires.length < MAX_FIRES) return fires.length;
+
+  const since = labelledAt(ctx, issue, scanLabel(tier)) ?? 0;
+
+  return fires.filter((started) => started.at >= since).length;
+}
+
+function giveUp(ctx: Context, issue: number, tier: Tier): string {
+  removeLabel(ctx, issue, scanLabel(tier));
+  addLabel(ctx, issue, LABEL.unsure);
+  comment(
+    ctx,
+    issue,
+    `${MAX_FIRES} scan tasks started on this issue and none closed it: it waits for the human. Replace \`${LABEL.unsure}\` with \`${scanLabel(tier)}\` to have the next gate run fire it again.`,
+  );
+
+  return `left to the human after ${MAX_FIRES} fires: ${LABEL.unsure}`;
+}
+
 /**
  * Fires again each open scan issue no scan holds and no fire started within the claim's TTL, oldest first, for each
- * tier whose fire variables are set. A failed fire ends the round: the next ones would fail alike, each with a comment.
+ * tier whose fire variables are set; one fired `MAX_FIRES` times goes to the human instead. A failed fire ends the
+ * round: the next ones would fail alike, each with a comment.
  */
 async function refire(ctx: Context, ledger: Ledger, now: number): Promise<Refired[]> {
   const refired: Refired[] = [];
@@ -236,6 +266,11 @@ async function refire(ctx: Context, ledger: Ledger, now: number): Promise<Refire
       if (!isScannable(issue, tier) || (last !== null && now - last < CLAIM_TTL_MS)) continue;
 
       if (!claimFree(ctx, issue, now)) continue;
+
+      if (firesOn(ctx, ledger, issue.number, tier) >= MAX_FIRES) {
+        refired.push({ issue: issue.number, tier, result: giveUp(ctx, issue.number, tier) });
+        continue;
+      }
 
       // oxlint-disable-next-line no-await-in-loop -- one fire at a time, each counted against the day's budget.
       const outcome = await fire(ctx, ledger, tier, issue.number, now);
@@ -634,7 +669,9 @@ export async function decide(ctx: Context, file: string, now: number): Promise<n
     // A run cut short filed it: it may have fired it too, and the next collect fires it again when no scan holds it.
     if (existing !== undefined) {
       ctx.print(
-        `${name}: ${verdict}, #${issue} filed already; the next gate run fires it if no scan holds it`,
+        existing.open
+          ? `${name}: ${verdict}, #${issue} filed already; the next gate run fires it if no scan holds it`
+          : `${name}: ${verdict}, #${issue} filed already and closed: nothing fires it`,
       );
       continue;
     }

@@ -956,28 +956,34 @@ function isDeclaration(line: string): boolean {
   return text !== "" && !/^(?:\/\*\*?|\*\/?|\/\/)/u.test(text);
 }
 
+/** The lines of a diff that `sign` starts, file headers aside, their sign dropped. */
+function changed(text: string, sign: string): string[] {
+  return text
+    .split("\n")
+    .filter((line) => line.startsWith(sign) && !line.startsWith(sign.repeat(3)))
+    .map((line) => line.slice(1).trim());
+}
+
 /** The declarations a `.d.ts` diff adds and removes, and the deprecations it adds. */
 export function readTypedDiff(diff: string): Types {
-  const lines = diff.split("\n");
+  const files = diff.split(/^(?=diff --git )/mu);
+  const added = changed(diff, "+");
 
-  const changed = (sign: string) =>
-    lines
-      .filter((line) => line.startsWith(sign) && !line.startsWith(sign.repeat(3)))
-      .map((line) => line.slice(1).trim());
+  // A changed signature is its old line removed and its new one added in the same file: only a name no added line
+  // of its file declares is gone.
+  const removed = files.flatMap((file) => {
+    const redeclared = new Set(changed(file, "+").flatMap((line) => declaredName(line) ?? []));
 
-  const added = changed("+");
-  const redeclared = new Set(added.flatMap((line) => declaredName(line) ?? []));
+    return changed(file, "-").filter((line) => {
+      const name = declaredName(line);
 
-  // A changed signature is its old line removed and its new one added: only a name no added line declares is gone.
-  const removed = changed("-").filter((line) => {
-    const name = declaredName(line);
-
-    return name !== null && !redeclared.has(name);
+      return name !== null && !redeclared.has(name);
+    });
   });
 
   return {
     source: "npm-diff",
-    files: lines.filter((line) => line.startsWith("diff --git ")).length,
+    files: diff.split("\n").filter((line) => line.startsWith("diff --git ")).length,
     added: added.filter((line) => isDeclaration(line)).slice(0, 20),
     removed: removed.slice(0, 20),
     deprecated: added.filter((line) => line.includes("@deprecated")).slice(0, 10),
@@ -987,7 +993,7 @@ export function readTypedDiff(diff: string): Types {
 /** The name a `.d.ts` line declares, a binding or a member; null for a line that declares none. */
 export function declaredName(line: string): string | null {
   const match =
-    /^(?:export\s+)?(?:declare\s+)?(?:default\s+)?(?:abstract\s+)?(?:function\*?|const|let|var|class|interface|type|enum|namespace)\s+([A-Za-z_$][\w$]*)/u.exec(
+    /^(?:export\s+)?(?:declare\s+)?(?:default\s+)?(?:abstract\s+)?(?:const\s+enum|function\*?|const|let|var|class|interface|type|enum|namespace)\s+([A-Za-z_$][\w$]*)/u.exec(
       line,
     ) ?? /^(?:readonly\s+)?(?:static\s+)?([A-Za-z_$][\w$]*)\??\s*[:(<]/u.exec(line);
 

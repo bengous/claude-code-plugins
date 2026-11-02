@@ -338,7 +338,19 @@ describe("readTypedDiff", () => {
       "retries?: number;",
     ]);
     expect(declaredName("readonly retries?: number;")).toBe("retries");
+    expect(declaredName("export declare const enum Kind {")).toBe("Kind");
     expect(declaredName("};")).toBeNull();
+  });
+
+  test("a name declared again in another file does not hide its removal", () => {
+    const diff = [
+      "diff --git a/client.d.ts b/client.d.ts",
+      "-    options?: ClientOptions;",
+      "diff --git a/server.d.ts b/server.d.ts",
+      "+    options?: ServerOptions;",
+    ].join("\n");
+
+    expect(readTypedDiff(diff).removed).toEqual(["options?: ClientOptions;"]);
   });
 });
 

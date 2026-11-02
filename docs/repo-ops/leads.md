@@ -7,7 +7,7 @@ Once Renovate lands a dependency update on `dev`, two kinds of Claude Code cloud
 ## How a run goes
 
 1. **The gate**, a daily task on Haiku, invokes the `leads-gate` skill (`.claude/skills/leads-gate/`).
-   - `bun ./scripts/leads/gate.ts collect` fetches `dev`, its whole history, through an explicit refspec: a cloud clone may be shallow or hold one branch. It reads Renovate's commits on `origin/dev` that the ledger does not hold, per (commit, package). It records in the ledger, with no model, a commit that changed no `package.json` dependency, a pin, an update no code file names, and a patch with no release notes. It fires again each open scan issue that no scan holds and no fire started within 6 hours; a failed fire ends that round. It writes the facts of the other updates to `.leads/gate.json` and prints them in `<leads-facts>`, within 20,000 characters, with the count of the updates it skipped and the first 20 of them.
+   - `bun ./scripts/leads/gate.ts collect` fetches `dev`, its whole history, through an explicit refspec: a cloud clone may be shallow or hold one branch. It reads Renovate's commits on `origin/dev` that the ledger does not hold, per (commit, package). It records in the ledger, with no model, a commit that changed no `package.json` dependency, a pin, an update no code file names, and a patch with no release notes. It fires again each open scan issue that no scan holds and no fire started within 6 hours; a failed fire ends that round. An issue fired 3 times since its scan label was put on, with no scan closing it, goes to the human as `lead:unsure` instead. It writes the facts of the other updates to `.leads/gate.json` and prints them in `<leads-facts>`, within 20,000 characters, with the count of the updates it skipped and the first 20 of them.
    - The model writes one verdict per update to `.leads/verdicts.json`: `skip`, `scan-minor`, `scan-major` or `unsure`.
    - `bun ./scripts/leads/gate.ts decide --file .leads/verdicts.json` checks each verdict against `.leads/gate.json` and git, files a scan issue, writes the ledger line, then fires the scan task of its tier, in that order. An issue a run cut short filed already is not fired again here: the next `collect` re-fires it if no scan holds it.
 2. **A scan**, a task on Sonnet (`minor`) or Opus (`major`) that only the gate's fire starts, invokes the `leads-scan` skill (`.claude/skills/leads-scan/`).
@@ -32,7 +32,7 @@ GitHub holds it all, so a run that stops is resumed by the next one:
 |---|---|---|
 | `lead:ledger` | `gate.ts` | The ledger issue. |
 | `lead:scan-minor`, `lead:scan-major` | `gate.ts decide` | An update a Sonnet or an Opus scan reads; closed once scanned, its leads linked in a comment. |
-| `lead:unsure` | `gate.ts decide`, `scan.ts release` | Neither the gate nor the scan could decide; nothing fires. |
+| `lead:unsure` | `gate.ts decide`, `scan.ts release`, `gate.ts collect` after 3 fires | Neither the gate nor the scan could decide, or no scan closed the issue; nothing fires. |
 | `lead:in-progress` | `scan.ts claim` | A scan holds the issue. Past 6 hours it counts as free: another scan, or the gate's re-fire, takes it. |
 | `lead` | `scan.ts publish` | A lead. Its category is in its body. |
 | `needs-human` | every issue the pipeline opens | Waits for the human; `github-flow:shift` leaves such an issue alone. |
