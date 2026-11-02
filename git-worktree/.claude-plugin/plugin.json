@@ -1,6 +1,6 @@
 {
   "name": "git-worktree",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Git worktree helper with stack support for multi-agent orchestration",
   "author": {
     "name": "Augustin BENGOLEA",
