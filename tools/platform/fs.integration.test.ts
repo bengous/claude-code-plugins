@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -33,6 +41,38 @@ async function spawnReady(script: string, cwd: string): Promise<Child> {
   }
 
   return proc;
+}
+
+async function spawnAllReady(scripts: readonly string[], cwd: string): Promise<Child[]> {
+  const started = await Promise.allSettled(scripts.map((script) => spawnReady(script, cwd)));
+  const children = started.flatMap((child) => (child.status === "fulfilled" ? [child.value] : []));
+  const failed = started.find((child) => child.status === "rejected");
+
+  if (failed !== undefined) {
+    for (const child of children) child.kill("SIGKILL");
+    await Promise.all(children.map((child) => child.exited));
+    throw failed.reason;
+  }
+
+  return children;
+}
+
+function folderState(folder: string, file: string): string {
+  return `${readdirSync(folder).toSorted().join("/")} ${statSync(file).size}`;
+}
+
+/**
+ * Spins, never yielding, until a write shows in `folder`: a new entry, or `file` changing size.
+ * Answers the folder's entries at that moment, so the caller acts on them at once.
+ */
+function firstWriteIn(folder: string, file: string, deadline: number): string[] | undefined {
+  const before = folderState(folder, file);
+
+  while (Date.now() < deadline) {
+    if (folderState(folder, file) !== before) return readdirSync(folder);
+  }
+
+  return undefined;
 }
 
 async function exitOf(proc: Child): Promise<{ code: number; stderr: string }> {
@@ -120,21 +160,19 @@ describe("races between processes", () => {
       ...writerPayloads.map(({ label, lines }): [string, string] => [payload(label, lines), label]),
     ]);
 
-    const writers = await Promise.all(
-      writerPayloads.map(({ label, lines }) =>
-        spawnReady(
-          `
-            const { writeAtomic } = await import(${FS_TS});
-            const data = (${String(payload)})(${JSON.stringify(label)}, ${lines});
-            process.stdout.write(${JSON.stringify(READY)});
-            await Bun.stdin.text();
-            for (let round = 0; round < 20; round++) {
-              await writeAtomic(${JSON.stringify(target)}, data, { heldRetryMs: 5000 });
-            }
-          `,
-          dir,
-        ),
+    const writers = await spawnAllReady(
+      writerPayloads.map(
+        ({ label, lines }) => `
+          const { writeAtomic } = await import(${FS_TS});
+          const data = (${String(payload)})(${JSON.stringify(label)}, ${lines});
+          process.stdout.write(${JSON.stringify(READY)});
+          await Bun.stdin.text();
+          for (let round = 0; round < 20; round++) {
+            await writeAtomic(${JSON.stringify(target)}, data, { heldRetryMs: 5000 });
+          }
+        `,
       ),
+      dir,
     );
 
     const writersDone = new AbortController();
@@ -180,10 +218,11 @@ describe("a writer killed mid-write", () => {
       [payload("b", lines), "b"],
     ]);
 
-    let orphans = 0;
+    const deadline = Date.now() + 10_000;
+    let killedMidWrite = false;
 
-    for (const delayMs of [5, 10, 20, 40, 80, 160]) {
-      const attemptDir = join(dir, String(delayMs));
+    for (let attempt = 0; !killedMidWrite && Date.now() < deadline; attempt++) {
+      const attemptDir = join(dir, String(attempt));
       mkdirSync(attemptDir);
       const target = join(attemptDir, "state.txt");
       writeFileSync(target, previous);
@@ -191,7 +230,8 @@ describe("a writer killed mid-write", () => {
       const script = `
         const { writeAtomic } = await import(${FS_TS});
         const payload = ${String(payload)};
-        const data = [payload("a", ${lines}), payload("b", ${lines})];
+        const encoder = new TextEncoder();
+        const data = [encoder.encode(payload("a", ${lines})), encoder.encode(payload("b", ${lines}))];
         process.stdout.write(${JSON.stringify(READY)});
         for (let round = 0; ; round++) {
           await writeAtomic(${JSON.stringify(target)}, data[round % 2], { heldRetryMs: 5000 });
@@ -199,10 +239,11 @@ describe("a writer killed mid-write", () => {
       `;
 
       const writer = await spawnReady(script, dir);
-      await Bun.sleep(delayMs);
+      const writing = firstWriteIn(attemptDir, target, deadline);
       writer.kill("SIGKILL");
       await writer.exited;
 
+      expect(writing).toBeDefined();
       expect(writer.signalCode).toBe("SIGKILL");
       expect(wholePayloadIn(target, wholes)).toBeOneOf(["previous", "a", "b"]);
       const others = readdirSync(attemptDir).filter((name) => name !== "state.txt");
@@ -213,10 +254,11 @@ describe("a writer killed mid-write", () => {
         );
       }
 
-      orphans += others.length;
+      const scratch = writing?.find((name) => name !== "state.txt");
+      killedMidWrite = scratch !== undefined && others.includes(scratch);
     }
 
-    expect(orphans).toBeGreaterThan(0);
+    expect(killedMidWrite).toBe(true);
   });
 });
 
