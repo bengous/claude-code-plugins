@@ -378,7 +378,7 @@ describe("release", () => {
     );
 
     expect(release(world().ctx, scan.number, file)).toBe(0);
-    expect(scan.labels).toEqual(["lead:scan-minor", "needs-human", "lead:unsure"]);
+    expect(scan.labels).toEqual(["needs-human", "lead:unsure"]);
     expect(scan.state).toBe("open");
     expect(scan.comments.at(-1)?.body).toBe(
       `scan released: evidence kept failing, see @${String.fromCodePoint(0x20_0b)}someone`,

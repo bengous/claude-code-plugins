@@ -864,6 +864,10 @@ export function release(ctx: Context, issue: number, file: string): number {
 
   ensureLabels(ctx);
   removeLabel(ctx, issue, LABEL.inProgress);
+
+  // The human's relabel must date a new event, which a label still on the issue would not: the gate counts fires from it.
+  for (const tier of TIERS) removeLabel(ctx, issue, scanLabel(tier));
+
   addLabel(ctx, issue, LABEL.unsure);
   comment(ctx, issue, `scan released: ${reason}`);
   removeWorktree(ctx, issue);
