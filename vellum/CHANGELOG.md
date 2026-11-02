@@ -2,6 +2,18 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.18.3 - 2026-11-02
+
+### Fixed
+
+- Unsent comments are no longer lost when the review's draft is cut short mid-write, for example by a full disk or a killed server. The draft is now written to a scratch file and renamed over `.review/draft.json`, so a failed write leaves the last saved draft in place. On Windows, the save now retries while a program such as a virus scanner holds the file. Before, that made the save fail.
+- The server now writes `plan.md`, the version files, the notes and the channel's identity in the same way, as whole files. A reader or the file watcher can no longer pick up a half-written plan or version as the plan under review. Appends to the channel and the journal still happen in place.
+- Approving a plan now also removes any scratch file the draft left behind. Before, a server killed between the write and the rename could leave one that was carried into the final directory.
+- When a step fails and is rolled back, a file that existed before the step is no longer removed just because the server couldn't check it, for example a file Windows holds or one the server can't read. The step now fails before it writes.
+- The build's read of the current commit now fails clearly when git's output is lost, instead of reading it as empty. A git missing from the PATH is reported as "git is not on the PATH".
+
+Internal changes besides: the server and scripts now use the plugin's copy of the shared platform helpers for renames, git calls and error checks. A boundary test checks which folders may import them, and a lint rule rejects any new whole-file write done in place.
+
 ## 0.18.2 - 2026-10-26
 
 Internal changes only: the zustand dependency is updated to v5.0.16.
