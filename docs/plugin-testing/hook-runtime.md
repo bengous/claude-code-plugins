@@ -128,8 +128,8 @@ line says otherwise.
 
 - The prompt that starts a turn is kept as a `session.append` row with
   `door: "prompt"` and its `origin` (`{ kind: "plugin", name }`,
-  `{ kind: "composer" }`) just before that turn's `turn.start`: 7 to 11 ms
-  before it for a plugin's prompt, 31 to 71 ms for a typed one, the row kept
+  `{ kind: "composer" }`) just before that turn's `turn.start`, a typed prompt's row somewhat
+  earlier than a plugin's, the row kept
   as the prompt leaves the queue, not when it was submitted. The row's first
   text block and the turn's text are the same, framed for a plugin's prompt as
   `The <plugin> plugin sent a message:\n<text>`. A prompt typed with Enter
@@ -194,7 +194,7 @@ line says otherwise.
   process set within a second. Measured on Linux, with two `claude -p` sessions of a probe module, one reading
   every second, the other writing once. `$.store.set` and `$.store.delete`
   take `<store file>.lock` and rewrite the whole file; `get` and `keys` read
-  it afresh on every call, as the engine's bundle reads.
+  it afresh on every call (read in the engine's bundle).
 
 - Saving a file under `--plugin-dir` prints `<plugin>: reloaded (N hooks: …)`
   and raises `session.start` again for that plugin alone, so a mode kept in

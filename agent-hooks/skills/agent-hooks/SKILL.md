@@ -18,8 +18,8 @@ levels runs twice.
 A key the kit adds, or a new form of a key's value, lands in two steps: first the kit's version that
 reads it, then the repository's file, once the plugin installed where the repository's agents run is at that version (a catalog that
 installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
-and, for a key under `profile`, a kit whose landing guard reads the whole profile also refuses every
-door in a checkout holding it; the current guard reads `profile.landing` alone.
+and, for a key under `profile`, a kit before 1.4.0 also refuses every door in a checkout holding it, its
+landing guard reading the whole profile; from 1.4.0 the guard reads `profile.landing` alone.
 
 ## init
 

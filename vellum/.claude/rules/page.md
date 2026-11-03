@@ -182,7 +182,7 @@ no build step, so what the page imports costs nothing when `cli.ts serve` starts
   modal shows never changes under the reviewer. On an approved page none shows, whatever the server holds.
   A proposal Claude's call stopped waiting on (`paused` of the step's state: Escape, a restart)
   never opens by itself, quiet page or not: it waits on the dot, a `Tag` "Paused" beside the
-  button, and the window it opens says the pick reaches Claude as a message.
+  button, and the window it opens says the pick reaches Claude as a message (P13).
   Nothing in it is checked in advance: the move Claude recommends is marked, and Choose waits for
   the reviewer's pick (`answerOf` in `proposal/choice.ts`).
   An extension's own button computes its greyed state and its `title` itself (`StepAction`).

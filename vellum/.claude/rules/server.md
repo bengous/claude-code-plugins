@@ -68,7 +68,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   Claude once, a `channel` entry from `core`, with or without a verdict (`endsWithoutVerdict`);
   the end of Claude's next turn records the version. Nothing else records a text a hold kept
   back. `plan.md` written is itself an event, `planWritten`, dispatched at start when the file is
-  there and each time the watcher sees its text change (`serve.ts`); the approval is
+  there (P10) and each time the watcher sees its text change (`serve.ts`); the approval is
   refused while it holds a text the version under review lacks (`approve-draft`).
 - An extension starts what another runs through `ServerContext.start(id, input)`, which answers
   the sentence the started extension tells Claude: `proposal`'s answer carries the grill's opening in

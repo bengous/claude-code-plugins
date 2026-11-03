@@ -73,7 +73,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   without `next` and carries a `.catch`: a hook that throws or overruns answers the deny
   `toolFailed` words, never the engine's permission prompt (`register.spec.ts` holds that every
   `tool.call` registration carries one). `state` is read on demand, never
-  joined to a relay. A matcher must be a string literal, or `claude plugin validate`
+  joined to a relay (D10). A matcher must be a string literal, or `claude plugin validate`
   prints the expression instead of the name.
 - A hook of vellum's targets vellum's own tools. A hook with no matcher applies to every agent
   of the session, subagents included, from the module's load, whether the mode is live or not.
@@ -261,7 +261,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   half's `approved`, so a suspended module leaves nothing open on disk.
 - The module keeps no copy of what holds the review. A gate the server refuses is the refusal
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
-  Every refusal of a vellum tool carries its row's reason as the server words it, as it
+  Every refusal of a vellum tool carries its row's reason as the server words it (A8), as it
   comes, unless its slice adds the way on (the grill's names the tool that proposes one).
 - `turn.start` carries no origin (`TurnStartInput` is a text, a turn id and, in a subagent's or
   a teammate's run, its `agentId`), so whose turn it is comes from the prompt's row, through
@@ -289,7 +289,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   the reviewer sent meanwhile; the step posts `pause` for it when the turn was `aborted`, never
   from the `tool.call` Escape cut, whose `$` fail. A reload or a revival, a new `Live`, loses
   the mark: the grill's text then goes where a turn that asked nothing writes it, and the server
-  still marks the round cut; the revived server reads the proposal paused, unless the
+  still marks the round cut (E6); the revived server reads the proposal paused, unless the
   call's wait reached it again, and then only the page's Paused goes missing, the pick still
   reaching Claude once.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: two rows

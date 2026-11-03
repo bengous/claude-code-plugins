@@ -239,8 +239,9 @@ Tests: 25 passed, 25 total
 Coverage: Statements 92%, Branches 88%, Functions 95%, Lines 91%
 ✓ Coverage target met (90%)
 
-$ git diff --name-only ${BASE_SHA}..HEAD | grep -v test
-(empty output)
+$ git diff --name-only ${BASE_SHA}..HEAD
+src/modules/auth/core/User.test.ts
+src/modules/auth/core/__tests__/fixtures.ts
 ✓ Zero production changes
 
 ✅ All quality gates PASSED
@@ -249,7 +250,8 @@ $ git diff --name-only ${BASE_SHA}..HEAD | grep -v test
 ### Gate 3 Failure (Production Changes)
 
 ```bash
-$ git diff --name-only ${BASE_SHA}..HEAD | grep -v test
+$ git diff --name-only ${BASE_SHA}..HEAD
+src/modules/auth/core/User.test.ts
 src/modules/auth/core/User.ts
 src/modules/auth/core/UserValidator.ts
 
