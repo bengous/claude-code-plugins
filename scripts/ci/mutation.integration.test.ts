@@ -204,9 +204,9 @@ test("a pass over another tree runs the tests that tree names, as a base before 
 });
 
 test("a pass mutates one module whole, against its own tests alone", () => {
-  expect(runOptions("agent-hooks/config.ts")).toEqual({
-    mutate: ["agent-hooks/config.ts"],
-    commandRunner: { command: "bun test ./agent-hooks/config.integration.test.ts" },
+  expect(runOptions("agent-hooks/core/config/config.ts")).toEqual({
+    mutate: ["agent-hooks/core/config/config.ts"],
+    commandRunner: { command: "bun test ./agent-hooks/core/config/config.integration.test.ts" },
   });
 });
 

@@ -1,5 +1,5 @@
-import type { Approval, LabelApproval, LandingProfile } from "../profile.ts";
-import { escapeRegExp } from "../text.ts";
+import type { Approval, LabelApproval, LandingProfile } from "../core/config/profile.ts";
+import { escapeRegExp } from "../core/util/text.ts";
 import type { PushTarget } from "./argv.ts";
 import { EVERY_BRANCH } from "./argv.ts";
 import type { Check, PullRequestFacts, RepoFacts } from "./github.ts";

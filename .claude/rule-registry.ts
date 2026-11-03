@@ -105,7 +105,10 @@ export const REGISTRY: Registry = {
     },
     "31a42b84": {
       quote: "A commit message says what the code does and why, the reason",
-      held: ["hook agent-hooks/agent-hooks.ts", "test agent-hooks/pre-bash.integration.test.ts"],
+      held: [
+        "hook agent-hooks/agent-hooks.ts",
+        "test agent-hooks/hooks/pre-bash.integration.test.ts",
+      ],
     },
     dbf56d05: {
       quote: "`archive/` - retired plugins, not in the marketplace.",
@@ -134,7 +137,10 @@ export const REGISTRY: Registry = {
     },
     efdba6e9: {
       quote: "Claude Code's built-in \"Commit or push only when the user",
-      held: ["hook agent-hooks/agent-hooks.ts", "test agent-hooks/pre-bash.integration.test.ts"],
+      held: [
+        "hook agent-hooks/agent-hooks.ts",
+        "test agent-hooks/hooks/pre-bash.integration.test.ts",
+      ],
     },
     b5f9452a: {
       quote: "Two lanes; the agent judges by scope, the user can override:",
@@ -190,7 +196,7 @@ export const REGISTRY: Registry = {
     },
     "4029847c": {
       quote: "The Stop and each subagent's SubagentStop are the",
-      held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
+      held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/hooks/stop.integration.test.ts"],
     },
     "7fe9d962": {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",

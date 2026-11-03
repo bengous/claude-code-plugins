@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { isRecord, isStringArray, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, isStringArray, stringField } from "../../agent-hooks/core/util/json.ts";
 import { gitSync } from "../../tools/platform/git.ts";
 import {
   type Context,

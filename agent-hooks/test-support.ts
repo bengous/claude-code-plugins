@@ -11,9 +11,9 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { CONFIG_RELATIVE_PATH } from "./config.ts";
-import { isRecord } from "./json.ts";
-import { beat, beatPath } from "./state.ts";
+import { CONFIG_RELATIVE_PATH } from "./core/config/config.ts";
+import { beat, beatPath } from "./core/session/state.ts";
+import { isRecord } from "./core/util/json.ts";
 
 export type TempRepo = {
   readonly dir: string;

@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { configPath } from "../config.ts";
-import type { LandingProfile } from "../profile.ts";
-import { loadProfile } from "../profile.ts";
-import { git as runGit } from "../scope.ts";
+import { configPath } from "../core/config/config.ts";
+import type { LandingProfile } from "../core/config/profile.ts";
+import { loadProfile } from "../core/config/profile.ts";
+import { git as runGit } from "../core/session/scope.ts";
 
 type ProfileRead =
   | { readonly kind: "profiled"; readonly landing: LandingProfile; readonly landScript: boolean }

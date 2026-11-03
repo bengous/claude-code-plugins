@@ -3,20 +3,20 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import { loadConfig } from "./config.ts";
-import { initConfig, runDoctor } from "./doctor.ts";
-import type { HookKind, HookRun } from "./hook.ts";
-import { isHarness, isHookKind, runHook } from "./hook.ts";
-import { formatNoise, measureNoise } from "./noise.ts";
-import { readPayload } from "./payload.ts";
-import { runPreBash } from "./pre-bash.ts";
-import { runPostEdit, runPreEdit } from "./pre-edit.ts";
-import { ConfigError } from "./reader.ts";
-import { findRoot, realPathOf } from "./scope.ts";
-import { runSessionEnd, runSessionStart, runUserPromptSubmit } from "./session-start.ts";
-import { runStop } from "./stop.ts";
-import { runUserPromptExpansion } from "./user-prompt-expansion.ts";
-import { runVerify } from "./verify.ts";
+import { initConfig, runDoctor } from "./cli/doctor.ts";
+import { formatNoise, measureNoise } from "./cli/noise.ts";
+import { runVerify } from "./cli/verify.ts";
+import { loadConfig } from "./core/config/config.ts";
+import { ConfigError } from "./core/config/reader.ts";
+import type { HookKind, HookRun } from "./core/runtime/hook.ts";
+import { isHarness, isHookKind, runHook } from "./core/runtime/hook.ts";
+import { readPayload } from "./core/runtime/payload.ts";
+import { findRoot, realPathOf } from "./core/session/scope.ts";
+import { runPreBash } from "./hooks/pre-bash.ts";
+import { runPostEdit, runPreEdit } from "./hooks/pre-edit.ts";
+import { runSessionEnd, runSessionStart, runUserPromptSubmit } from "./hooks/session-start.ts";
+import { runStop } from "./hooks/stop.ts";
+import { runUserPromptExpansion } from "./hooks/user-prompt-expansion.ts";
 
 const USAGE = [
   "usage:",

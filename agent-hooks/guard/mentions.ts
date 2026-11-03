@@ -1,4 +1,4 @@
-import { escapeRegExp } from "../text.ts";
+import { escapeRegExp } from "../core/util/text.ts";
 import type { GhCommand, GitCommand, PackageScript, PushTarget, ReleaseScript } from "./argv.ts";
 import type { DoorKind } from "./refusals.ts";
 

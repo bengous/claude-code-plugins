@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { lineEnd } from "../text.ts";
+import { lineEnd } from "../core/util/text.ts";
 
 /** A stretch of the line, from `start` included to `end` excluded. */
 export type Span = { readonly start: number; readonly end: number };

@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import { configPath } from "../config.ts";
-import { loadProfile } from "../profile.ts";
+import { configPath } from "../core/config/config.ts";
+import { loadProfile } from "../core/config/profile.ts";
 import { INERT_ARGUMENTS } from "./mentions.ts";
 import { rootOf } from "./repo.ts";
 import type { Word } from "./shell.ts";

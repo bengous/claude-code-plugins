@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
-import { isRecord, isStringArray, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, isStringArray, stringField } from "../../agent-hooks/core/util/json.ts";
 import { writeAtomicSync } from "../../tools/platform/fs.ts";
 import { gitSync } from "../../tools/platform/git.ts";
 import {

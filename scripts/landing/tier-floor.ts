@@ -3,9 +3,9 @@
  * `scripts/landing/tier.ts` before it asks Haiku, and by `scripts/land.ts` on the rebased head of each landing.
  */
 
-import { CONFIG_GIT_PATH } from "../../agent-hooks/config.ts";
-import { parseProfile } from "../../agent-hooks/profile.ts";
-import { ConfigError } from "../../agent-hooks/reader.ts";
+import { CONFIG_GIT_PATH } from "../../agent-hooks/core/config/config.ts";
+import { parseProfile } from "../../agent-hooks/core/config/profile.ts";
+import { ConfigError } from "../../agent-hooks/core/config/reader.ts";
 import { isE2ePath } from "../gates/check-e2e-green.ts";
 import { BREAKING } from "../lib/breaking-subject.ts";
 import { run } from "../lib/run.ts";

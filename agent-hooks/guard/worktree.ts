@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 
-import { configPath } from "../config.ts";
-import { loadProfile } from "../profile.ts";
-import { realPathOf } from "../scope.ts";
-import { liveOthers } from "../state.ts";
+import { configPath } from "../core/config/config.ts";
+import { loadProfile } from "../core/config/profile.ts";
+import { realPathOf } from "../core/session/scope.ts";
+import { liveOthers } from "../core/session/state.ts";
 import { gitCommandOf } from "./argv.ts";
 import { git, rootOf } from "./repo.ts";
 import { parseLine } from "./shell.ts";

@@ -12,7 +12,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { isRecord, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, stringField } from "../../agent-hooks/core/util/json.ts";
 import { writeAtomicSync } from "../../tools/platform/fs.ts";
 import { gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";

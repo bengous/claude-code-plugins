@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { configPath } from "../config.ts";
-import { isRecord, recordField, stringField } from "../json.ts";
-import { loadProfile } from "../profile.ts";
+import { configPath } from "../core/config/config.ts";
+import { loadProfile } from "../core/config/profile.ts";
+import { isRecord, recordField, stringField } from "../core/util/json.ts";
 import type { PackageScript } from "./argv.ts";
 import type { Vocabulary } from "./mentions.ts";
 import { findMentions, mentionsGh, mentionsGit, mentionsPackageManager } from "./mentions.ts";

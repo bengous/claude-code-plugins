@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { isRecord, isStringArray, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, isStringArray, stringField } from "../../agent-hooks/core/util/json.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import {
   addLabel,

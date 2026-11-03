@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { CONFIG_RELATIVE_PATH } from "./config.ts";
-import { isRecord } from "./json.ts";
-import { beatPath, statePath } from "./state.ts";
+import { CONFIG_RELATIVE_PATH } from "./core/config/config.ts";
+import { beatPath, statePath } from "./core/session/state.ts";
+import { isRecord } from "./core/util/json.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
   createTempRepo,

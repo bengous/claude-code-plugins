@@ -15,7 +15,7 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
-import { isRecord, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, stringField } from "../../agent-hooks/core/util/json.ts";
 import { isErrno, isInsideRelative, messageOf } from "../../tools/platform/pure.ts";
 import { type Json, parseJson } from "./lib.ts";
 

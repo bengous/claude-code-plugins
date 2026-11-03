@@ -11,7 +11,7 @@ type StrykerOptions = ConstructorParameters<typeof Stryker>[0];
  * splits the pure tests of `scripts/releasing/changelog.ts` and `scripts/land.ts` from their fixtures.
  */
 export default {
-  mutate: ["agent-hooks/config.ts"],
+  mutate: ["agent-hooks/core/config/config.ts"],
   testRunner: "command",
   coverageAnalysis: "off",
   mutator: { excludedMutations: ["StringLiteral"] },

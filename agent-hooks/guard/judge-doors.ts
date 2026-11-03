@@ -1,14 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { configPath } from "../config.ts";
-import { messageOf } from "../errors.ts";
-import type { Deadline } from "../exec.ts";
-import type { Input } from "../payload.ts";
-import type { Approval } from "../profile.ts";
-import { loadProfile } from "../profile.ts";
-import type { PreBashVerdict } from "../verdict.ts";
-import { ALLOW } from "../verdict.ts";
+import { configPath } from "../core/config/config.ts";
+import type { Approval } from "../core/config/profile.ts";
+import { loadProfile } from "../core/config/profile.ts";
+import type { Input } from "../core/runtime/payload.ts";
+import type { PreBashVerdict } from "../core/runtime/verdict.ts";
+import { ALLOW } from "../core/runtime/verdict.ts";
+import { messageOf } from "../core/util/errors.ts";
+import type { Deadline } from "../core/util/exec.ts";
 import type { GhCommand, GitCommand, PushTarget, ReleaseScript } from "./argv.ts";
 import { isReleaseCreate, pushOf, resolveTargets } from "./argv.ts";
 import { assess } from "./doors.ts";

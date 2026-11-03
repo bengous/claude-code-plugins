@@ -11,7 +11,7 @@
  * stderr, exit 1.
  */
 
-import { isRecord, recordField, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, recordField, stringField } from "../../agent-hooks/core/util/json.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { type Gh, ghCli } from "./ci-wait.ts";
 import { DEV } from "./review-verdict.ts";

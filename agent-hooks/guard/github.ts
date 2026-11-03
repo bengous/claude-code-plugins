@@ -2,10 +2,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { Deadline } from "../exec.ts";
-import { outputOf, run, succeeded } from "../exec.ts";
-import { isRecord, recordField, stringField } from "../json.ts";
-import { stateDir, writeAtomically } from "../state.ts";
+import { stateDir, writeAtomically } from "../core/session/state.ts";
+import type { Deadline } from "../core/util/exec.ts";
+import { outputOf, run, succeeded } from "../core/util/exec.ts";
+import { isRecord, recordField, stringField } from "../core/util/json.ts";
 
 export type RepoFacts = { readonly visibility: string; readonly defaultBranch: string };
 

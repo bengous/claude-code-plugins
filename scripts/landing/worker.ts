@@ -21,7 +21,7 @@
 import { appendFileSync, closeSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isRecord } from "../../agent-hooks/json.ts";
+import { isRecord } from "../../agent-hooks/core/util/json.ts";
 import { writeAtomicSync } from "../../tools/platform/fs.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { takeRunLock } from "../headless/headless-run.ts";

@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { isRecord, stringField } from "../../agent-hooks/json.ts";
+import { isRecord, stringField } from "../../agent-hooks/core/util/json.ts";
 import { type GitReadOptions, gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import { withoutSessionIdentity } from "../lib/session-env.ts";
