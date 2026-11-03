@@ -166,7 +166,7 @@ const USAGE = "Run /atlas:board [map folder] [draft name].";
 const FOLDER = {
   type: "string",
   description:
-    "The map folder, the one holding atlas.config.ts: absolute, or relative to the session's working directory.",
+    "The map folder, the one holding atlas.config.ts: absolute, or relative to the session's working directory. A folder outside the session's working directory that no board of this session shows runs only once the person allows it, since its map.ts and atlas.config.ts run as code; refused, the call is denied with the reason.",
 } as const;
 
 const TOOLS = [

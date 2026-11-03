@@ -337,7 +337,7 @@ File content (JSONC):
 $file_content
 
 Provide:
-1. A clear explanation of what's wrong (2-3 sentences)
+1. A clear explanation of what's wrong
 2. The exact fix needed (show the corrected line)
 3. The line number if identifiable
 

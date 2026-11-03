@@ -30,10 +30,6 @@ Code claims can be misleading due to outdated knowledge, assumptions, or incompl
 3. **Consult external sources** - Use WebSearch/WebFetch if the claim involves library behavior or standards
 4. **Report** - Present findings with specific file references
 
-<parallel_search_guidance>
-Run multiple searches in parallel: search for the claimed behavior, related function/class names, and configuration files simultaneously. Check multiple potential locations since code organization varies.
-</parallel_search_guidance>
-
 ## Output Format
 
 ### Verdict

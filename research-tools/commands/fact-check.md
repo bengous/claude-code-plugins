@@ -27,10 +27,6 @@ Fact-checking requires finding multiple independent sources to establish credibi
 3. **Cross-reference** - Look for independent confirmation across at least 2-3 sources
 4. **Report** - Present findings with clear sourcing
 
-<parallel_search_guidance>
-When investigating a claim, run multiple WebSearch queries in parallel with different angles (e.g., the claim itself, key terms, potential counterarguments). This builds a more complete picture efficiently.
-</parallel_search_guidance>
-
 ## Output Format
 
 ### Verdict

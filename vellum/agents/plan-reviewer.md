@@ -20,7 +20,7 @@ Input: the path of a plan, and the request or issue it answers when the caller g
 
 ## Calibration
 
-Flag only what would make the implementer build the wrong thing or get stuck. Wording, style and preferences are not findings. Approve unless a finding is serious: a missed requirement, a contradiction, a placeholder, a slice nobody can check.
+An issue is what would make the implementer build the wrong thing or get stuck; anything else worth acting on goes under Advisory. Wording, style and preferences are not findings. Approve unless an issue is serious: a missed requirement, a contradiction, a placeholder, a slice nobody can check.
 
 ## Output
 
