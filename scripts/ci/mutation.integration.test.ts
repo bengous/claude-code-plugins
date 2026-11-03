@@ -515,7 +515,29 @@ describe("changeSince", () => {
     expect(await changeSince(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual({
       since,
       hunks: [hunk("a/listed.test.ts", 0, 0, 1, 1)],
+      renamedFrom: new Map(),
     });
+  });
+
+  test("a module moved since the base counts the lines the move changed, and where it was", async () => {
+    const since = git("rev-parse", "HEAD");
+    git("rm", "-q", "a/listed.ts");
+    write("c/listed.ts", "one\nTWO\nthree\n");
+    commit("Move and change a line");
+
+    expect(await changeSince(root, ["c/listed.ts"], "dev", NO_ACTIONS)).toEqual({
+      since,
+      hunks: [hunk("c/listed.ts", 2, 1, 2, 1)],
+      renamedFrom: new Map([["c/listed.ts", "a/listed.ts"]]),
+    });
+  });
+
+  test("a module moved as it was changes no line", async () => {
+    git("rm", "-q", "a/listed.ts");
+    write("c/listed.ts", "one\ntwo\nthree\n");
+    commit("Move");
+
+    expect(await linesSince(root, ["c/listed.ts"], "dev", NO_ACTIONS)).toEqual([]);
   });
 
   test("the tree at a commit, in a directory of its own", async () => {

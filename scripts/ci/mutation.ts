@@ -48,6 +48,8 @@ export interface Hunk {
 export interface Change {
   readonly since: string;
   readonly hunks: readonly Hunk[];
+  /** Each listed module or test the change moved, by its path now, to its path at `since`. */
+  readonly renamedFrom: ReadonlyMap<string, string>;
 }
 
 type MutantResult = Awaited<ReturnType<Stryker["runMutationTest"]>>[number];
@@ -267,7 +269,37 @@ function refOf(base: Base): string {
   }
 }
 
-/** The hunks of the listed modules and their `.test.ts` since the merge-base with the base. */
+/**
+ * The `paths` the working tree holds as renames of a file at `sha`, each to its path there. Git
+ * pairs a rename only when the diff reads both paths, so the whole tree is read.
+ */
+async function renamesSince(
+  repoRoot: string,
+  sha: string,
+  paths: readonly string[],
+): Promise<Map<string, string>> {
+  const status = await gitRead(
+    ["diff", "--find-renames", "--diff-filter=R", "--name-status", "-z", sha],
+    { cwd: repoRoot, raw: true },
+  );
+
+  const fields = status.split("\0");
+  const renamedFrom = new Map<string, string>();
+
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const from = fields[index + 1] ?? "";
+    const to = fields[index + 2] ?? "";
+
+    if (paths.includes(to)) renamedFrom.set(to, from);
+  }
+
+  return renamedFrom;
+}
+
+/**
+ * The hunks of the listed modules and their `.test.ts` since the merge-base with the base. A file
+ * moved since is diffed against its path there, so a move counts only the lines it changed.
+ */
 export async function changeSince(
   repoRoot: string,
   modules: readonly string[],
@@ -279,23 +311,25 @@ export async function changeSince(
 
   if (mergeBase.kind === "none") throw new Error(mergeBase.reason);
   const paths = modules.flatMap((module) => [module, testFileOf(module)]);
+  const renamedFrom = await renamesSince(repoRoot, mergeBase.sha, paths);
 
   const args = [
     "diff",
     "-U0",
     "--no-color",
     "--no-ext-diff",
-    "--no-renames",
+    "--find-renames",
     "--src-prefix=a/",
     "--dst-prefix=b/",
     mergeBase.sha,
     "--",
     ...paths,
+    ...renamedFrom.values(),
   ];
 
   const diff = await gitRead(args, { cwd: repoRoot, raw: true });
 
-  return { since: mergeBase.sha, hunks: hunksOf(diff) };
+  return { since: mergeBase.sha, hunks: hunksOf(diff), renamedFrom };
 }
 
 /** The tree at `sha`, written to a directory of its own, which the caller removes. */
@@ -449,7 +483,8 @@ if (import.meta.main) {
       const testsChanged = change.hunks.some((hunk) => hunk.file === testFileOf(module));
       const source = await Bun.file(join(repoRoot, module)).text();
       const head = await mutate(repoRoot, module);
-      const base = testsChanged ? await mutateAt(repoRoot, change.since, module) : null;
+      const basePath = change.renamedFrom.get(module) ?? module;
+      const base = testsChanged ? await mutateAt(repoRoot, change.since, basePath) : null;
 
       if (testsChanged && base === null) {
         console.error(
