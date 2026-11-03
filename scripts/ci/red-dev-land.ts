@@ -4,22 +4,32 @@
  * The `red-dev-land` workflow: the pull request the red-dev fix task opens from `fix/red-dev-<issue>`
  * lands on `dev` by itself once CI is green on its head and its review tier reads `low`. Each CI run
  * that completes wakes it; it goes on only for a green `pull_request` run of such a branch in this
- * repository whose head is still the open pull request's, to `dev`, not answered yet. Then
+ * repository whose head is still the open, ready pull request's, to `dev`, not answered yet. A head
+ * on `dev` already changes nothing. A head `dev` is no ancestor of, or one that touches the e2e
+ * paths (`scripts/gates/check-e2e-green.ts`), gets a comment for a human. Then
  * `scripts/landing/tier.ts` judges the change: `human` leaves a comment for a human to land it with
- * `land.ts`; `low` fast-forwards `dev` to the head when `dev` is its ancestor, and comments that `dev`
- * moved otherwise. It never creates a commit: `dev` requires signed commits, which the head's are.
- * Each comment is marked with the head, so a head is answered once.
+ * `land.ts`; `low` fast-forwards `dev` to the head. It never creates a commit: `dev` requires signed
+ * commits, which the head's are. Each comment is marked with the head, and a marker counts only in
+ * the App's own comments, so a head is answered once.
  *
  * Reads `GITHUB_REPOSITORY` and the completed run's `RUN_EVENT`, `RUN_CONCLUSION`, `RUN_HEAD_BRANCH`,
  * `RUN_HEAD_SHA`, `RUN_HEAD_REPOSITORY`; calls `gh` and `git` with the job's token, and runs
  * `tier.ts` from the checkout, which is the default branch's, never the pull request's.
  */
 
+import { type GitResult, GitError, git as gitCli } from "../../tools/platform/git.ts";
+import { run as runProcess } from "../../tools/platform/process.ts";
 import type { Env } from "../gates/affected.ts";
+import { isE2ePath } from "../gates/check-e2e-green.ts";
 
 export const BRANCH = /^fix\/red-dev-\d+$/u;
 
+/** The login, on GitHub's REST API, of the App whose token the workflow acts with. */
+export const APP_LOGIN = "bengous-agents[bot]";
+
 const TRUNK = "dev";
+
+const REMOTE_TRUNK = `refs/remotes/origin/${TRUNK}`;
 
 const LAND = "bun ./scripts/land.ts";
 
@@ -32,13 +42,18 @@ export interface Run {
   readonly headRepository: string;
 }
 
+export interface Comment {
+  readonly login: string;
+  readonly body: string;
+}
+
 export interface PullRequest {
   readonly number: number;
   readonly headSha: string;
   readonly base: string;
   readonly crossRepository: boolean;
-  /** Each comment's body. */
-  readonly texts: readonly string[];
+  readonly draft: boolean;
+  readonly comments: readonly Comment[];
 }
 
 export type Admission =
@@ -50,28 +65,26 @@ export interface TierLine {
   readonly reason: string;
 }
 
-export interface Judged {
+/** What git says of the head against `dev`, read before any tier is asked. */
+export interface Placed {
   readonly pr: number;
   readonly sha: string;
-  readonly tier: TierLine;
+  readonly devSha: string;
   readonly devIsAncestor: boolean;
+  /** The paths `origin/dev...<sha>` changes. */
+  readonly paths: readonly string[];
 }
 
 export type Action =
   | { readonly kind: "push"; readonly pr: number; readonly sha: string; readonly comment: string }
-  | { readonly kind: "comment"; readonly pr: number; readonly body: string };
+  | { readonly kind: "comment"; readonly pr: number; readonly body: string }
+  | { readonly kind: "none"; readonly reason: string };
 
 export type Gh = (args: readonly string[]) => Promise<string>;
 
-export interface GitResult {
-  readonly code: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
 export type Git = (args: readonly string[]) => Promise<GitResult>;
 
-/** `tier.ts`'s line for the pull request at that head. */
+/** `tier.ts`'s line for the pull request at that head; a crash throws. */
 export type Tier = (pr: number, sha: string) => Promise<string>;
 
 /** The line each answer to `sha` carries, so a head is answered once. */
@@ -108,9 +121,13 @@ export function admit(repo: string, run: Run, prs: readonly PullRequest[]): Admi
 
   if (pr.base !== TRUNK) return none(`#${pr.number} targets ${pr.base}, not ${TRUNK}`);
 
-  if (pr.texts.some((text) => text.includes(markerOf(run.headSha)))) {
-    return none(`#${pr.number} is answered already at ${run.headSha}`);
-  }
+  if (pr.draft) return none(`#${pr.number} is a draft`);
+
+  const answered = pr.comments.some(
+    (comment) => comment.login === APP_LOGIN && comment.body.includes(markerOf(run.headSha)),
+  );
+
+  if (answered) return none(`#${pr.number} is answered already at ${run.headSha}`);
 
   return { kind: "judge", pr: pr.number, sha: run.headSha };
 }
@@ -125,8 +142,35 @@ export function tierOf(output: string): TierLine {
   return { tier: match[1] === "low" ? "low" : "human", reason: match[2] ?? "" };
 }
 
-export function decide(judged: Judged): Action {
-  const { pr, sha, tier, devIsAncestor } = judged;
+/** What git alone settles, before the tier is asked; `null` asks it. */
+export function place(placed: Placed): Action | null {
+  const { pr, sha, devSha, devIsAncestor, paths } = placed;
+  const marker = markerOf(sha);
+
+  if (devSha === sha) return { kind: "none", reason: `${sha} is on ${TRUNK} already` };
+
+  if (!devIsAncestor) {
+    return {
+      kind: "comment",
+      pr,
+      body: `red-dev-land does not land ${sha}: \`${TRUNK}\` moved, and is no ancestor of it, so the push would not be a fast-forward. Rebase the branch, or land it with \`${LAND} <branch>\`.\n\n${marker}`,
+    };
+  }
+
+  const e2e = paths.find((path) => isE2ePath(path));
+
+  if (e2e !== undefined) {
+    return {
+      kind: "comment",
+      pr,
+      body: `red-dev-land leaves ${sha} to a human: it touches the e2e paths (\`${e2e}\`), which reach \`${TRUNK}\` only with a green \`e2e\` run. A human adds the \`e2e\` label, then lands it with \`${LAND} <branch>\`.\n\n${marker}`,
+    };
+  }
+
+  return null;
+}
+
+export function decide(pr: number, sha: string, tier: TierLine): Action {
   const marker = markerOf(sha);
 
   if (tier.tier === "human") {
@@ -134,14 +178,6 @@ export function decide(judged: Judged): Action {
       kind: "comment",
       pr,
       body: `red-dev-land leaves ${sha} to a human: its tier is \`human\`, ${tier.reason}\n\nA human lands it with \`${LAND} <branch>\`.\n\n${marker}`,
-    };
-  }
-
-  if (!devIsAncestor) {
-    return {
-      kind: "comment",
-      pr,
-      body: `red-dev-land does not land ${sha}: \`${TRUNK}\` moved, and is no ancestor of it, so the push would not be a fast-forward. Rebase the branch, or land it with \`${LAND} <branch>\`.\n\n${marker}`,
     };
   }
 
@@ -166,7 +202,28 @@ interface PullRequestJson {
   headRefOid: string;
   baseRefName: string;
   isCrossRepository: boolean;
-  comments: { body: string }[];
+  isDraft: boolean;
+}
+
+interface CommentJson {
+  login: string;
+  body: string;
+}
+
+/** A pull request's comments through the REST API, where an App's login ends with `[bot]`. */
+async function commentsOf(gh: Gh, repo: string, pr: number): Promise<Comment[]> {
+  const lines = await gh([
+    "api",
+    "--paginate",
+    `repos/${repo}/issues/${pr}/comments?per_page=100`,
+    "--jq",
+    ".[] | {login: .user.login, body}",
+  ]);
+
+  return lines
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line): CommentJson => JSON.parse(line));
 }
 
 async function openPullRequests(gh: Gh, repo: string, branch: string): Promise<PullRequest[]> {
@@ -181,36 +238,53 @@ async function openPullRequests(gh: Gh, repo: string, branch: string): Promise<P
       "--state",
       "open",
       "--json",
-      "number,headRefOid,baseRefName,isCrossRepository,comments",
+      "number,headRefOid,baseRefName,isCrossRepository,isDraft",
     ]),
   );
 
-  return listed.map((pr) => ({
-    number: pr.number,
-    headSha: pr.headRefOid,
-    base: pr.baseRefName,
-    crossRepository: pr.isCrossRepository,
-    texts: pr.comments.map((comment) => comment.body),
-  }));
+  return Promise.all(
+    listed.map(async (pr) => ({
+      number: pr.number,
+      headSha: pr.headRefOid,
+      base: pr.baseRefName,
+      crossRepository: pr.isCrossRepository,
+      draft: pr.isDraft,
+      comments: pr.isCrossRepository ? [] : await commentsOf(gh, repo, pr.number),
+    })),
+  );
 }
 
-async function gitOk(git: Git, args: readonly string[]): Promise<void> {
+async function gitRead(git: Git, args: readonly string[]): Promise<string> {
   const result = await git(args);
 
-  if (result.code !== 0) {
-    throw new Error(`git ${args[0] ?? ""} exited ${result.code}: ${result.stderr.trim()}`);
-  }
+  if (result.kind !== "exited" || result.code !== 0) throw new GitError(args, result);
+
+  return result.stdout;
 }
 
 async function isAncestor(git: Git, ancestor: string, sha: string): Promise<boolean> {
   const args = ["merge-base", "--is-ancestor", ancestor, sha];
   const result = await git(args);
 
-  if (result.code === 0) return true;
+  if (result.kind === "exited" && result.code === 0) return true;
 
-  if (result.code === 1) return false;
+  if (result.kind === "exited" && result.code === 1) return false;
 
-  throw new Error(`git merge-base exited ${result.code}: ${result.stderr.trim()}`);
+  throw new GitError(args, result);
+}
+
+async function placedOf(git: Git, pr: number, sha: string): Promise<Placed> {
+  await gitRead(git, ["fetch", "--no-tags", "origin", `+refs/heads/${TRUNK}:${REMOTE_TRUNK}`, sha]);
+
+  return {
+    pr,
+    sha,
+    devSha: (await gitRead(git, ["rev-parse", REMOTE_TRUNK])).trim(),
+    devIsAncestor: await isAncestor(git, REMOTE_TRUNK, sha),
+    paths: (await gitRead(git, ["diff", "--name-only", "-z", `${REMOTE_TRUNK}...${sha}`]))
+      .split("\0")
+      .filter((path) => path !== ""),
+  };
 }
 
 /** Reads the run and its pull request, judges the head, does what that settles, and says what it did. */
@@ -235,72 +309,45 @@ export async function report(env: Env, gh: Gh, git: Git, tier: Tier): Promise<st
   if (admission.kind === "none") return admission.reason;
 
   const { pr, sha } = admission;
-  const remoteTrunk = `refs/remotes/origin/${TRUNK}`;
 
-  await gitOk(git, ["fetch", "--no-tags", "origin", `+refs/heads/${TRUNK}:${remoteTrunk}`, sha]);
-
-  const action = decide({
-    pr,
-    sha,
-    tier: tierOf(await tier(pr, sha)),
-    devIsAncestor: await isAncestor(git, remoteTrunk, sha),
-  });
+  const action =
+    place(await placedOf(git, pr, sha)) ?? decide(pr, sha, tierOf(await tier(pr, sha)));
 
   switch (action.kind) {
+    case "none":
+      return action.reason;
     case "comment":
       await gh(["pr", "comment", String(pr), "--repo", repo, "--body", action.body]);
 
       return `commented on #${pr}`;
     case "push":
-      await gitOk(git, ["push", "origin", `${action.sha}:refs/heads/${TRUNK}`]);
+      await gitRead(git, ["push", "origin", `${action.sha}:refs/heads/${TRUNK}`]);
       await gh(["pr", "comment", String(pr), "--repo", repo, "--body", action.comment]);
 
       return `pushed ${action.sha} to ${TRUNK} for #${pr}`;
   }
 }
 
-async function spawned(argv: readonly string[]): Promise<GitResult> {
-  const child = Bun.spawn([...argv], { stdout: "pipe", stderr: "pipe" });
+/** Runs `argv` to its end; anything but an exit 0 throws, with what it printed. */
+async function checked(argv: readonly [string, ...string[]]): Promise<string> {
+  const result = await runProcess(argv);
+  const name = argv.slice(0, 3).join(" ");
 
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+  if (result.kind === "missing") throw new Error(`${result.program} is not on the PATH`);
 
-  return { code, stdout, stderr };
-}
+  if (result.kind === "timedOut") throw new Error(`${name} timed out: ${result.stderr.trim()}`);
 
-async function ghCli(args: readonly string[]): Promise<string> {
-  const result = await spawned(["gh", ...args]);
-
-  if (result.code !== 0) {
-    throw new Error(
-      `gh ${args.slice(0, 2).join(" ")} exited ${result.code}: ${result.stderr.trim()}`,
-    );
-  }
+  if (result.code !== 0) throw new Error(`${name} exited ${result.code}: ${result.stderr.trim()}`);
 
   return result.stdout;
 }
 
-const gitCli: Git = (args) => spawned(["git", ...args]);
+const ghCli: Gh = (args) => checked(["gh", ...args]);
 
-/** A crash of `tier.ts` answers `human` with its reason, as its own failures do. */
-const tierCli: Tier = async (pr, sha) => {
-  const result = await spawned([
-    "bun",
-    "./scripts/landing/tier.ts",
-    "--pr",
-    String(pr),
-    "--head",
-    sha,
-  ]);
-
-  return result.code === 0
-    ? result.stdout
-    : `human tier.ts exited ${result.code}: ${result.stderr.trim()}`;
-};
+/** A crash of `tier.ts` throws: a transient failure leaves no marked answer behind. */
+const tierCli: Tier = (pr, sha) =>
+  checked(["bun", "./scripts/landing/tier.ts", "--pr", String(pr), "--head", sha]);
 
 if (import.meta.main) {
-  console.log(`red-dev-land: ${await report(process.env, ghCli, gitCli, tierCli)}`);
+  console.log(`red-dev-land: ${await report(process.env, ghCli, (args) => gitCli(args), tierCli)}`);
 }

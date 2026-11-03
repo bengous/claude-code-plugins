@@ -13,10 +13,13 @@ on:
     types: [completed]
     branches: ["fix/red-dev-*"]
 
-# One run at a time, none cancelled: each reads the pull request afresh, and a head answered once is
-# marked.
+# One group per fix branch. GitHub keeps one pending run per group and cancels the older pending one
+# whatever `cancel-in-progress` says, so one group for every branch could drop a fix's green
+# completion behind another branch's. A pending run that a later one of the same branch replaces
+# loses little: the later one reads the pull request afresh. Two branches landing at once race on
+# `dev`, and the fast-forward-only push refuses the second.
 concurrency:
-  group: red-dev-land
+  group: red-dev-land-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 permissions: {}

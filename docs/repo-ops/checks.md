@@ -77,15 +77,20 @@ The prompt:
 
 ### red-dev-land
 
-`.github/workflows/red-dev-land.yml` lands the fix task's pull request on `dev` by itself (`scripts/ci/red-dev-land.ts`). Each CI run that completes on a `fix/red-dev-*` branch wakes it (`workflow_run`), and runs queue in one `concurrency` group, none cancelled. It goes on only when the run's event is `pull_request`, its branch is `fix/red-dev-<digits>` in this repository, not a fork, its conclusion is `success`, and its head is still the head of the open pull request from that branch, which targets `dev` and carries no answer to that head yet. Otherwise it changes nothing and its log says why, in one line.
+`.github/workflows/red-dev-land.yml` lands the fix task's pull request on `dev` by itself (`scripts/ci/red-dev-land.ts`). Each CI run that completes on a `fix/red-dev-*` branch wakes it (`workflow_run`). Its `concurrency` group is the branch's: GitHub keeps one pending run per group and cancels the older pending one whatever `cancel-in-progress` says, so one group for every branch could drop a fix's green completion behind another branch's. A pending run that a later one of the same branch replaces loses little, since the later one reads the pull request afresh; two branches landing at once race on `dev`, and the fast-forward-only push refuses the second. It goes on only when the run's event is `pull_request`, its branch is `fix/red-dev-<digits>` in this repository, not a fork, its conclusion is `success`, and its head is still the head of the open pull request from that branch, which targets `dev`, is no draft, and carries no answer to that head yet. Otherwise it changes nothing and its log says why, in one line.
 
-Then `bun ./scripts/landing/tier.ts --pr <n> --head <sha>` judges the change, and:
+Then it fetches `dev` and the head, and git settles first:
 
-- `human`, or any failure of `tier.ts`: a comment on the pull request gives the reason, and a human lands it with `land.ts`;
-- `low`, and `origin/dev` an ancestor of the head: `git push origin <sha>:refs/heads/dev`, a fast-forward with no force, then a comment that red-dev-land pushed it. No commit is created: `dev` requires signed commits and linear history, and the head's commits are signed already. GitHub marks the pull request merged; the branch is kept. Red-dev closes the issue once `dev`'s push run is green;
-- `low`, and `dev` moved past the head's base: a comment says so, and nothing is pushed.
+- `origin/dev` at the head already: nothing changes, no comment;
+- `dev` moved past the head's base, no ancestor of it: a comment says so, and nothing is pushed;
+- the change `origin/dev...<sha>` touches an e2e path (`isE2ePath` in `scripts/gates/check-e2e-green.ts`): a comment leaves it to a human, who asks the `e2e` run a push to `dev` needs ([Which suite runs on which trigger](#which-suite-runs-on-which-trigger)), then lands it with `land.ts`; nothing is pushed.
 
-Each comment ends with `<!-- red-dev-land:<sha> -->`, so a head is answered once, whatever number of CI runs complete on it; a new head is judged again. A failed push, as when `dev` moves between the check and the push, fails the job with git's error and leaves no comment; the next CI completion on the head tries again. The token asks no `workflows` permission, so GitHub refuses the push of a head that changes `.github/workflows/`.
+Past those, `bun ./scripts/landing/tier.ts --pr <n> --head <sha>` judges the change:
+
+- `human`: a comment on the pull request gives the reason, and a human lands it with `land.ts`;
+- `low`: `git push origin <sha>:refs/heads/dev`, a fast-forward with no force, then a comment that red-dev-land pushed it. No commit is created: `dev` requires signed commits and linear history, and the head's commits are signed already. GitHub marks the pull request merged; the branch is kept. Red-dev closes the issue once `dev`'s push run is green.
+
+Each comment ends with `<!-- red-dev-land:<sha> -->`, so a head is answered once, whatever number of CI runs complete on it; a new head is judged again. A marker counts only in a comment by the App, `bengous-agents[bot]` (`APP_LOGIN`), read through the REST API, where an App's login carries `[bot]`: a marker anyone else types holds nothing back. A failure leaves no marker: a crash of `tier.ts` (a non-zero exit), a `gh` or `git` error, or a failed push, as when `dev` moves between the check and the push, fails the job with its error and leaves no comment, and the next CI completion on the head tries again. The token asks no `workflows` permission, so GitHub refuses the push of a head that changes `.github/workflows/`.
 
 The job checks out the default branch with its full history and runs that code alone: a `workflow_run` workflow holds the repository's secrets, so the pull request's head is fetched as git data for `tier.ts` and the push, never run. It has no `GITHUB_TOKEN` permission (`permissions: {}`): `actions/create-github-app-token` gives it a token of the agents' GitHub App, with contents and pull requests write, for the checkout, `gh`, the push and the comments. A `GITHUB_TOKEN` push starts no workflow, and red-dev reads `dev`'s CI push run. Claude Code is pinned as `validate` pins it, for `tier.ts`'s Haiku judge.
 
@@ -95,7 +100,7 @@ Prerequisites, outside this repository's files:
 - the repository secrets `AGENTS_APP_ID`, `AGENTS_APP_KEY` (the App's private key) and `CLAUDE_CODE_OAUTH_TOKEN`, the Claude Code login `tier.ts`'s judge runs with;
 - like red-dev, the workflow and its script take effect with the release that carries them to `main`.
 
-`scripts/ci/red-dev-land.test.ts` holds `admit` on every reason to stay out, `decide` on each tier and ancestry, and `report` against a fake `gh`, `git` and `tier.ts`.
+`scripts/ci/red-dev-land.test.ts` holds `admit` on every reason to stay out, `place` on each thing git settles, `decide` on each tier, and `report` against a fake `gh`, `git` and `tier.ts`.
 
 ## Flaky tests
 

@@ -3,13 +3,16 @@ import { join } from "node:path";
 
 import { parse } from "yaml";
 
+import type { GitResult } from "../../tools/platform/git.ts";
 import {
   admit,
+  APP_LOGIN,
   decide,
   type Gh,
   type Git,
-  type GitResult,
   markerOf,
+  place,
+  type Placed,
   type PullRequest,
   report,
   type Run,
@@ -19,6 +22,8 @@ import {
 const REPO = "o/r";
 
 const SHA = "b4c89e32c29adb12598a20b4ec66e65bfa007eeb";
+
+const DEV = "1111111111111111111111111111111111111111";
 
 const RUN: Run = {
   event: "pull_request",
@@ -33,8 +38,11 @@ const PR: PullRequest = {
   headSha: SHA,
   base: "dev",
   crossRepository: false,
-  texts: [],
+  draft: false,
+  comments: [],
 };
+
+const answer = (sha: string, login = APP_LOGIN) => ({ login, body: `done\n\n${markerOf(sha)}` });
 
 describe("admit", () => {
   test("a green pull request run of an open fix/red-dev-<issue> to dev, at its head, is judged", () => {
@@ -60,13 +68,14 @@ describe("admit", () => {
     }
   });
 
-  test("a pull request missing, from a fork, moved on, to another base, or answered is left alone", () => {
+  test("a pull request missing, from a fork, moved on, to another base, a draft, or answered is left alone", () => {
     const cases: [readonly PullRequest[], string][] = [
       [[], "no open pull request comes from fix/red-dev-489 in o/r"],
       [[{ ...PR, crossRepository: true }], "no open pull request comes from"],
       [[{ ...PR, headSha: "ccc" }], `#490's head is ccc, no longer the run's ${SHA}`],
       [[{ ...PR, base: "main" }], "#490 targets main, not dev"],
-      [[{ ...PR, texts: ["hi", markerOf(SHA)] }], `#490 is answered already at ${SHA}`],
+      [[{ ...PR, draft: true }], "#490 is a draft"],
+      [[{ ...PR, comments: [answer(SHA)] }], `#490 is answered already at ${SHA}`],
     ];
 
     for (const [prs, reason] of cases) {
@@ -86,7 +95,13 @@ describe("admit", () => {
   });
 
   test("an answer to an earlier head does not hold back the new one", () => {
-    expect(admit(REPO, RUN, [{ ...PR, texts: [markerOf("aaa")] }]).kind).toBe("judge");
+    expect(admit(REPO, RUN, [{ ...PR, comments: [answer("aaa")] }]).kind).toBe("judge");
+  });
+
+  test("a marker in a comment by anyone but the App counts for nothing", () => {
+    for (const login of ["bengous", "bengous-agents", "github-actions[bot]"]) {
+      expect(admit(REPO, RUN, [{ ...PR, comments: [answer(SHA, login)] }]).kind).toBe("judge");
+    }
   });
 });
 
@@ -106,11 +121,53 @@ describe("tierOf", () => {
   });
 });
 
-describe("decide", () => {
-  const judged = { pr: 490, sha: SHA, tier: { tier: "low", reason: "a test fix" } } as const;
+describe("place", () => {
+  const placed: Placed = {
+    pr: 490,
+    sha: SHA,
+    devSha: DEV,
+    devIsAncestor: true,
+    paths: ["scripts/x.ts"],
+  };
 
-  test("low with dev its ancestor pushes, and says so on the pull request", () => {
-    expect(decide({ ...judged, devIsAncestor: true })).toEqual({
+  test("a head dev is an ancestor of, off the e2e paths, goes to the tier", () => {
+    expect(place(placed)).toBeNull();
+  });
+
+  test("a head on dev already changes nothing, and claims no push", () => {
+    expect(place({ ...placed, devSha: SHA, paths: [] })).toEqual({
+      kind: "none",
+      reason: `${SHA} is on dev already`,
+    });
+  });
+
+  test("dev moved: a marked comment, nothing pushed", () => {
+    const action = place({ ...placed, devIsAncestor: false });
+
+    expect(action?.kind).toBe("comment");
+    expect(action?.kind === "comment" && action.body).toContain("`dev` moved");
+    expect(action?.kind === "comment" && action.body).toEndWith(markerOf(SHA));
+  });
+
+  test("a head that touches the e2e paths is left to a human, the path named", () => {
+    const action = place({ ...placed, paths: ["scripts/x.ts", "vellum/src/page/app.tsx"] });
+
+    expect(action?.kind).toBe("comment");
+    expect(action?.kind === "comment" && action.body).toContain("`vellum/src/page/app.tsx`");
+    expect(action?.kind === "comment" && action.body).toContain("`e2e`");
+    expect(action?.kind === "comment" && action.body).toEndWith(markerOf(SHA));
+  });
+
+  test("a path check-e2e-green.ts leaves out does not hold the head back", () => {
+    expect(
+      place({ ...placed, paths: ["vellum/skills/x/SKILL.md", "vellum/a.test.ts"] }),
+    ).toBeNull();
+  });
+});
+
+describe("decide", () => {
+  test("low pushes, and says so on the pull request", () => {
+    expect(decide(490, SHA, { tier: "low", reason: "a test fix" })).toEqual({
       kind: "push",
       pr: 490,
       sha: SHA,
@@ -118,28 +175,12 @@ describe("decide", () => {
     });
   });
 
-  test("low with dev moved comments, and pushes nothing", () => {
-    const action = decide({ ...judged, devIsAncestor: false });
-
-    expect(action.kind).toBe("comment");
-    expect(action.kind === "comment" && action.body).toContain("`dev` moved");
-    expect(action.kind === "comment" && action.body).toEndWith(markerOf(SHA));
-  });
-
-  test("human comments with the reason and land.ts, whatever dev did", () => {
-    for (const devIsAncestor of [true, false]) {
-      const action = decide({
-        ...judged,
-        tier: { tier: "human", reason: "touches a risky path" },
-        devIsAncestor,
-      });
-
-      expect(action).toEqual({
-        kind: "comment",
-        pr: 490,
-        body: `red-dev-land leaves ${SHA} to a human: its tier is \`human\`, touches a risky path\n\nA human lands it with \`bun ./scripts/land.ts <branch>\`.\n\n${markerOf(SHA)}`,
-      });
-    }
+  test("human comments with the reason and land.ts", () => {
+    expect(decide(490, SHA, { tier: "human", reason: "touches a risky path" })).toEqual({
+      kind: "comment",
+      pr: 490,
+      body: `red-dev-land leaves ${SHA} to a human: its tier is \`human\`, touches a risky path\n\nA human lands it with \`bun ./scripts/land.ts <branch>\`.\n\n${markerOf(SHA)}`,
+    });
   });
 });
 
@@ -152,10 +193,19 @@ const ENV = {
   RUN_HEAD_REPOSITORY: RUN.headRepository,
 };
 
-const ok = (code = 0): Promise<GitResult> => Promise.resolve({ code, stdout: "", stderr: "" });
+const exited = (code: number, stdout = ""): Promise<GitResult> =>
+  Promise.resolve({ kind: "exited", code, stdout, stderr: code === 0 ? "" : "boom" });
 
-/** GitHub and git as red-dev-land sees them: the open pull requests, dev's ancestry, the pushes. */
-function world(fields: { prs?: PullRequest[]; tier?: string; ancestor?: number }) {
+interface WorldFields {
+  prs?: PullRequest[];
+  tier?: () => Promise<string>;
+  ancestor?: number;
+  devSha?: string;
+  paths?: string[];
+}
+
+/** GitHub and git as red-dev-land sees them: the open pull requests, dev, the pushes. */
+function world(fields: WorldFields) {
   const calls: string[] = [];
   const comments: string[] = [];
   const pushes: string[] = [];
@@ -173,9 +223,19 @@ function world(fields: { prs?: PullRequest[]; tier?: string; ancestor?: number }
             headRefOid: pr.headSha,
             baseRefName: pr.base,
             isCrossRepository: pr.crossRepository,
-            comments: pr.texts.map((body) => ({ body })),
+            isDraft: pr.draft,
           })),
         ),
+      );
+    }
+
+    const listed = /^repos\/o\/r\/issues\/(\d+)\/comments\?per_page=100$/u.exec(args[2] ?? "");
+
+    if (command === "api" && sub === "--paginate" && listed !== null) {
+      const pr = prs.find((found) => found.number === Number(listed[1]));
+
+      return Promise.resolve(
+        (pr?.comments ?? []).map((comment) => `${JSON.stringify(comment)}\n`).join(""),
       );
     }
 
@@ -192,14 +252,18 @@ function world(fields: { prs?: PullRequest[]; tier?: string; ancestor?: number }
     calls.push(`git ${args.join(" ")}`);
     const [command] = args;
 
-    if (command === "fetch") return ok();
+    if (command === "fetch") return exited(0);
 
-    if (command === "merge-base") return ok(fields.ancestor ?? 0);
+    if (command === "rev-parse") return exited(0, `${fields.devSha ?? DEV}\n`);
+
+    if (command === "merge-base") return exited(fields.ancestor ?? 0);
+
+    if (command === "diff") return exited(0, (fields.paths ?? ["scripts/x.ts"]).join("\0"));
 
     if (command === "push") {
       pushes.push(args.at(-1) ?? "");
 
-      return ok();
+      return exited(0);
     }
 
     return Promise.reject(new Error(`unexpected git ${args.join(" ")}`));
@@ -208,7 +272,7 @@ function world(fields: { prs?: PullRequest[]; tier?: string; ancestor?: number }
   const tier = (pr: number, sha: string): Promise<string> => {
     calls.push(`tier ${pr} ${sha}`);
 
-    return Promise.resolve(fields.tier ?? "low a test fix\n");
+    return fields.tier === undefined ? Promise.resolve("low a test fix\n") : fields.tier();
   };
 
   return { calls, comments, pushes, gh, git, tier };
@@ -225,19 +289,67 @@ describe("report", () => {
       `git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev ${SHA}`,
     );
     expect(calls).toContain(`git merge-base --is-ancestor refs/remotes/origin/dev ${SHA}`);
+    expect(calls).toContain(`git diff --name-only -z refs/remotes/origin/dev...${SHA}`);
     expect(calls.findIndex((call) => call.startsWith("git push"))).toBeLessThan(
       calls.findIndex((call) => call.startsWith("gh pr comment")),
     );
   });
 
-  test("a human head, or dev moved, comments and pushes nothing", async () => {
-    for (const fields of [{ tier: "human risky\n" }, { ancestor: 1 }]) {
+  test("a human head, dev moved, or an e2e path comments and pushes nothing", async () => {
+    const cases: WorldFields[] = [
+      { tier: () => Promise.resolve("human risky\n") },
+      { ancestor: 1 },
+      { paths: ["mise.toml"] },
+    ];
+
+    for (const fields of cases) {
       const { comments, pushes, gh, git, tier } = world(fields);
 
       expect(await report(ENV, gh, git, tier)).toBe("commented on #490");
       expect(pushes).toEqual([]);
       expect(comments).toHaveLength(1);
     }
+  });
+
+  test("dev moved, an e2e path or a head on dev asks no tier", async () => {
+    for (const fields of [{ ancestor: 1 }, { paths: ["mise.toml"] }, { devSha: SHA }]) {
+      const { calls, gh, git, tier } = world(fields);
+      await report(ENV, gh, git, tier);
+
+      expect(calls.some((call) => call.startsWith("tier "))).toBe(false);
+    }
+  });
+
+  test("a head on dev already: no push, no comment", async () => {
+    const { comments, pushes, gh, git, tier } = world({ devSha: SHA, paths: [] });
+
+    expect(await report(ENV, gh, git, tier)).toBe(`${SHA} is on dev already`);
+    expect(pushes).toEqual([]);
+    expect(comments).toEqual([]);
+  });
+
+  test("a head the App answered is left alone; anyone else's marker is not", async () => {
+    const answered = world({ prs: [{ ...PR, comments: [answer(SHA)] }] });
+
+    expect(await report(ENV, answered.gh, answered.git, answered.tier)).toBe(
+      `#490 is answered already at ${SHA}`,
+    );
+
+    const typed = world({ prs: [{ ...PR, comments: [answer(SHA, "someone")] }] });
+
+    expect(await report(ENV, typed.gh, typed.git, typed.tier)).toBe(
+      `pushed ${SHA} to dev for #490`,
+    );
+  });
+
+  test("a crash of tier.ts fails the run with no comment, so no marker is left", async () => {
+    const { comments, pushes, gh, git, tier } = world({
+      tier: () => Promise.reject(new Error("bun ./scripts/landing/tier.ts exited 1: boom")),
+    });
+
+    await expect(report(ENV, gh, git, tier)).rejects.toThrow("tier.ts exited 1");
+    expect(pushes).toEqual([]);
+    expect(comments).toEqual([]);
   });
 
   test("a run it does not admit reads no pull request, runs no tier and touches no git", async () => {
@@ -251,13 +363,13 @@ describe("report", () => {
     expect(await report({ ...ENV, RUN_CONCLUSION: "failure" }, gh, git, tier)).toContain(
       "not success",
     );
-    expect(calls.every((call) => call.startsWith("gh pr list"))).toBe(true);
+    expect(calls.every((call) => call.startsWith("gh "))).toBe(true);
   });
 
   test("a merge-base that fails stops the run, nothing pushed", async () => {
     const { pushes, comments, gh, git, tier } = world({ ancestor: 128 });
 
-    await expect(report(ENV, gh, git, tier)).rejects.toThrow("git merge-base exited 128");
+    await expect(report(ENV, gh, git, tier)).rejects.toThrow("git merge-base");
     expect(pushes).toEqual([]);
     expect(comments).toEqual([]);
   });
@@ -294,13 +406,16 @@ const pinOf = async (path: string, job: string): Promise<string | undefined> =>
     ?.run;
 
 describe("red-dev-land.yml", () => {
-  test("wakes on each CI run completed on a fix/red-dev branch, one run at a time", async () => {
+  test("wakes on each CI run completed on a fix/red-dev branch, one run per branch at a time", async () => {
     const workflow = await workflowAt(".github/workflows/red-dev-land.yml");
 
     expect(workflow.on).toEqual({
       workflow_run: { workflows: ["CI"], types: ["completed"], branches: ["fix/red-dev-*"] },
     });
-    expect(workflow.concurrency).toEqual({ group: "red-dev-land", "cancel-in-progress": false });
+    expect(workflow.concurrency).toEqual({
+      group: "red-dev-land-${{ github.event.workflow_run.head_branch }}",
+      "cancel-in-progress": false,
+    });
     expect(workflow.permissions).toEqual({});
     expect(workflow.jobs["red-dev-land"]?.permissions).toBeUndefined();
   });
