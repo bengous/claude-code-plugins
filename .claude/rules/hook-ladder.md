@@ -74,8 +74,8 @@ agent meets any finding left once, at the end of its turn, not on each edit.
 - Tests stay out of Stop: every suite takes about 36 s here in its two
   tiers (16 threads, `docs/repo-ops/checks.md`, Test tiers), the gates a few
   seconds without a kit.
-  pre-push and CI run them, pre-push only the suites the change reaches
-  (`scripts/gates/affected.ts test`).
+  pre-push and CI run them, pre-push only the suites HEAD's commits reach
+  (`scripts/gates/affected.ts test --committed`).
 
 Known ceilings:
 
@@ -117,6 +117,7 @@ Known ceilings:
   same failing set through once the subagent stops progressing on it; a red
   left that way reaches the parent's Stop, and pre-commit and pre-push still
   catch it.
-- pre-push's gates and tests check the working tree, not the pushed commits.
-  Only the release guard, on a push to `main`, and the e2e gate, on a push to
-  `dev`, read the pushed commits.
+- pre-push's gates and tests run on the working tree, not the pushed commits;
+  their scope is HEAD's commits since the merge-base (`--committed`), so an
+  untracked or uncommitted file widens none. Only the release guard, on a push
+  to `main`, and the e2e gate, on a push to `dev`, read the pushed commits.

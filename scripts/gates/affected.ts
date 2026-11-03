@@ -4,8 +4,9 @@
  * What a change reaches: the one map from a changed path to the suites and the
  * hooks-module kits that run for it, read by pre-push, by `run-gates.ts` at
  * Stop, and by CI. The paths are the working tree's against its merge-base
- * with the base, committed or not, untracked included. A top-level directory
- * is a unit; a path no unit owns runs everything.
+ * with the base, committed or not, untracked included; with `--committed`,
+ * HEAD's commits alone. A top-level directory is a unit; a path no unit owns
+ * runs everything.
  *
  *   bun ./scripts/gates/affected.ts test            the scope's suites, `scripts/` always among them
  *   bun ./scripts/gates/affected.ts github-output   `all`, `units` and `kits`, appended to `$GITHUB_OUTPUT`
@@ -49,6 +50,8 @@ export type Base =
   | { readonly kind: "ref"; readonly ref: string }
   | { readonly kind: "push"; readonly before: string }
   | { readonly kind: "all"; readonly reason: string };
+
+export type Measured = "working-tree" | "commits";
 
 export type MergeBase =
   | { readonly kind: "found"; readonly sha: string }
@@ -163,6 +166,7 @@ export async function currentScope(
   repoRoot: string,
   base?: string,
   env: Env = process.env,
+  measured: Measured = "working-tree",
 ): Promise<Scope> {
   const resolved = await baseOf(base, env);
 
@@ -174,7 +178,11 @@ export async function currentScope(
   if (mergeBase.kind === "none") return { kind: "all", reason: mergeBase.reason };
   const since = mergeBase.sha;
 
-  const changed = await listed(repoRoot, ["diff", "--name-only", "--no-renames", "-z", since]);
+  const diff = ["diff", "--name-only", "--no-renames", "-z", since];
+
+  if (measured === "commits") return scopeOf(await listed(repoRoot, [...diff, "HEAD"]));
+
+  const changed = await listed(repoRoot, diff);
   const untracked = await listed(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]);
 
   return scopeOf([...changed, ...untracked]);
@@ -309,15 +317,20 @@ export function githubOutput(scope: Scope, kits: readonly string[]): string {
 export type Args = {
   readonly command: Command;
   readonly base: string | undefined;
+  readonly measured: Measured;
   readonly retryJob: string | undefined;
 };
 
-/** `node:util`'s `parseArgs` over the CLI's two options; an unknown flag or a missing value is null. */
+/** `node:util`'s `parseArgs` over the CLI's three options; an unknown flag or a missing value is null. */
 function parsedOrNull(args: readonly string[]) {
   try {
     return parseArgs({
       args: [...args],
-      options: { base: { type: "string" }, retry: { type: "string" } },
+      options: {
+        base: { type: "string" },
+        committed: { type: "boolean" },
+        retry: { type: "string" },
+      },
       allowPositionals: true,
     });
   } catch {
@@ -337,7 +350,12 @@ export function readArgs(args: readonly string[]): Args | null {
 
   if (values.retry !== undefined && command !== "test") return null;
 
-  return { command, base: values.base, retryJob: values.retry };
+  return {
+    command,
+    base: values.base,
+    measured: values.committed === true ? "commits" : "working-tree",
+    retryJob: values.retry,
+  };
 }
 
 async function runTests(
@@ -370,12 +388,12 @@ if (import.meta.main) {
 
   if (args === null) {
     console.error(
-      `usage: bun ./scripts/gates/affected.ts <${COMMANDS.join("|")}> [--base <ref>] [--retry <job>, test only]`,
+      `usage: bun ./scripts/gates/affected.ts <${COMMANDS.join("|")}> [--base <ref>] [--committed] [--retry <job>, test only]`,
     );
     process.exit(2);
   }
 
-  const scope = await currentScope(repoRoot, args.base);
+  const scope = await currentScope(repoRoot, args.base, process.env, args.measured);
 
   if (scope.kind === "all") console.error(`affected: everything runs: ${scope.reason}`);
 

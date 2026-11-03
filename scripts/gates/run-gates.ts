@@ -3,7 +3,8 @@
 /**
  * Run the gates of `EXPECTED_COMMANDS` as CI runs them, in parallel, from the
  * repo root, with the kits of the hooks modules the change reaches
- * (`affected.ts`); `--all` runs every kit. Silent when all pass; otherwise
+ * (`affected.ts`); `--all` runs every kit, `--committed` those HEAD's commits
+ * reach, untracked and uncommitted files aside. Silent when all pass; otherwise
  * prints a `Red gates: <names>` line, then each failing gate with its output,
  * and exits 1.
  */
@@ -45,8 +46,8 @@ if (import.meta.main) {
   const repoRoot = join(import.meta.dir, "..", "..");
   const args = process.argv.slice(2);
 
-  if (args.length > 1 || (args.length === 1 && args[0] !== "--all")) {
-    console.error("usage: bun ./scripts/gates/run-gates.ts [--all]");
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--all" && args[0] !== "--committed")) {
+    console.error("usage: bun ./scripts/gates/run-gates.ts [--all|--committed]");
     process.exit(2);
   }
 
@@ -65,7 +66,14 @@ if (import.meta.main) {
   }
 
   const scope: Scope =
-    args[0] === "--all" ? { kind: "all", reason: "--all" } : await currentScope(repoRoot);
+    args[0] === "--all"
+      ? { kind: "all", reason: "--all" }
+      : await currentScope(
+          repoRoot,
+          undefined,
+          process.env,
+          args[0] === "--committed" ? "commits" : "working-tree",
+        );
 
   const gates = [
     ...EXPECTED_COMMANDS,

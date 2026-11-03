@@ -202,7 +202,7 @@ export const REGISTRY: Registry = {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",
       held: ["gate lint-config"],
     },
-    "4235d5f9": {
+    "74f48141": {
       quote: "Tests stay out of Stop: every suite takes about 36 s here in",
       prose: "a trade-off of cost",
     },

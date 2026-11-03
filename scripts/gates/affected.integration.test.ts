@@ -71,11 +71,17 @@ describe("scopeOf", () => {
 });
 
 describe("readArgs", () => {
-  test("a command, its base, and a retry job for test alone", () => {
-    expect(readArgs(["print"])).toEqual({ command: "print", base: undefined, retryJob: undefined });
-    expect(readArgs(["test", "--base", "HEAD~2", "--retry", "validate"])).toEqual({
+  test("a command, its base, what it measures, and a retry job for test alone", () => {
+    expect(readArgs(["print"])).toEqual({
+      command: "print",
+      base: undefined,
+      measured: "working-tree",
+      retryJob: undefined,
+    });
+    expect(readArgs(["test", "--base", "HEAD~2", "--committed", "--retry", "validate"])).toEqual({
       command: "test",
       base: "HEAD~2",
+      measured: "commits",
       retryJob: "validate",
     });
   });
@@ -221,6 +227,18 @@ describe("currentScope", () => {
     expect(await currentScope(root, "dev", NO_ACTIONS)).toEqual({
       kind: "units",
       units: ["git-sweep", "todos", "vellum"],
+    });
+  });
+
+  test("measuring the commits alone leaves out a file changed and one never added", async () => {
+    write("todos/scan.ts", "committed\n");
+    commit("Change todos");
+    write("vellum/serve.ts", "changed\n");
+    write("scripts/new.ts", "untracked\n");
+
+    expect(await currentScope(root, "dev", NO_ACTIONS, "commits")).toEqual({
+      kind: "units",
+      units: ["todos"],
     });
   });
 
