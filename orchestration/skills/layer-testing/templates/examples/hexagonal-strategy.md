@@ -1,7 +1,6 @@
 # Testing Strategy - Hexagonal Architecture
 
 > Example testing strategy for hexagonal (ports & adapters) architecture
-> Updated: 2024-11-15
 > Architecture: Hexagonal (Ports & Adapters)
 
 ---
@@ -93,7 +92,7 @@ PhotoshootCreatedEvent           ❌ Skip (data container)
 - **Mock all ports** (repositories, external services, etc.)
 - Test business logic flows
 - Test error handling paths
-- **CRITICAL**: Create contract tests for all port implementations
+- Create contract tests for all port implementations: they keep each mock faithful to its adapter
 
 **Example files**:
 ```
@@ -669,14 +668,6 @@ export async function createTestDb() {
 - Quality Gates: `skills/layer-testing/references/quality-gates.md` in the claude-orchestration plugin
 - [Vitest Documentation](https://vitest.dev/)
 - [PGlite Documentation](https://github.com/electric-sql/pglite)
-
----
-
-## Version History
-
-- **2024-11-15**: Initial hexagonal architecture testing strategy
-- **2024-11-15**: Added Result<T,E> type guard patterns
-- **2024-11-15**: Added contract testing for ports
 
 ---
 

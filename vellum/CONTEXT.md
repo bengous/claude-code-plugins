@@ -113,14 +113,14 @@ _Avoid_: lot, feedback file, plan review
 ### Steps
 
 **Step**:
-A unit of work a participant chooses, which then lives: a grill, an agent review, a mockup, a prototype, the plan, or a human's own. Vellum follows the life of some steps, today the grill and the agent review.
+A unit of work a participant chooses, which then lives: a grill, an agent review, a mockup, a prototype, the plan, or a human's own. Vellum follows the life of some steps: the grill and the agent review.
 _Avoid_: move, activity
 
 **Proposal**:
 How the facilitator offers the next steps, one of them recommended, for a human to pick; Vellum follows it too, but it is not a step.
 
 **Hold**:
-The state of a workshop while a step that needs the plan stable is under way, today a grill or an agent review: versions and new steps wait, feedback still goes.
+The state of a workshop while a step that needs the plan stable is under way, a grill or an agent review: versions and new steps wait, feedback still goes.
 _Avoid_: lock, freeze
 
 ### Grill

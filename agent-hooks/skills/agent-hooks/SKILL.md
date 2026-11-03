@@ -18,8 +18,8 @@ levels runs twice.
 A key the kit adds, or a new form of a key's value, lands in two steps: first the kit's version that
 reads it, then the repository's file, once the plugin installed where the repository's agents run is at that version (a catalog that
 installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
-and, for a key under `profile`, a kit before 1.4.0 also refuses every door in a checkout holding it, its
-landing guard reading the whole profile; from 1.4.0 the guard reads `profile.landing` alone.
+and, for a key under `profile`, a kit whose landing guard reads the whole profile also refuses every
+door in a checkout holding it; the current guard reads `profile.landing` alone.
 
 ## init
 
@@ -76,11 +76,10 @@ prints aggregates only, never a line of a transcript:
   root's label, the instruction and the kit's own lines outside a section go to `(no lane)`.
 
 Each output is read once, from the one record Claude Code writes for it that names the hook, as measured
-on the local transcripts (Claude Code 2.1, the 30 days to 2026-10-17): a hook's stdout in its
-`hook_success`; a Stop block in its `hook_blocking_error`, with no `hook_success` beside it (27 kit Stop
-blocks of 7 days); a pre-bash refusal in the tool result Claude Code replaced, a string that starts
-`PreToolUse:<tool> hook error: agent-hooks:` (every one of 20 hook denials). A subagent's records are in its
-own transcript only (2,480 hook records over 1,299 subagent transcripts, none in a parent's). The kit is
+on the local transcripts: a hook's stdout in its `hook_success`; a Stop block in its
+`hook_blocking_error`, with no `hook_success` beside it; a pre-bash refusal in the tool result Claude
+Code replaced, a string that starts `PreToolUse:<tool> hook error: agent-hooks:`. A subagent's records
+are in its own transcript only, never in a parent's. The kit is
 known by a command running one of its subcommands or by a `statusMessage` of `hooks/hooks.json`, which
 Claude Code records in place of the command. The `hook_system_message` and `hook_additional_context`
 records repeat a stdout without naming its hook and are not read. Codex transcripts are not read.
@@ -137,8 +136,7 @@ Two hooks read this definition, and neither blocks:
   without the line; a note of theirs joins the line, read by the agent and not shown to the user.
 
 SessionEnd hooks share Claude Code's 1.5-second budget, which a plugin's own `timeout` does not raise
-([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` ran in 98 to 118 ms over 200
-beats (10 runs, bun 1.4.3, Linux, 2026-10-17). The SessionStart payload names no session that `/clear`
+([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` runs well inside it. The SessionStart payload names no session that `/clear`
 replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
 measured. A SessionEnd that ran late costs one needless line at SessionStart; one that never ran leaves a
 waiting session live until the 7-day TTL, with its lines; neither blocks.
@@ -353,10 +351,9 @@ What the model bounds and the kit does not try to cross:
   release command or a door script whose directory the guard cannot follow is unresolved. `gh --repo`
   and a `gh api` endpoint keep the cwd's profile when they name its `origin`, and take the default
   otherwise. A release command is a door only in a repository with a profile.
-- Known ceilings, let through, each counted in the local transcripts (74,687 Bash calls): a release
-  script named from its own directory (`cd scripts && bun release.ts`, 0), a wrapper the guard does not
-  know around a quoted command (`chronic sh -c '…'`, `direnv exec . bash -c '…'`, 0), a heredoc fed to
-  `ssh` (1), a script written then run (`cat > x.sh <<EOF … git push … EOF; bash x.sh`, 1), git's
-  dashed `git-push` (0), a keyword split by quotes (`git pu''sh`, 0), a GitHub API client other than
-  `gh` (`curl …/merge`, 0), a package script reached in a manifest no `cd`, `--cwd` or `-C` of the line
-  names, a gh alias. The Codex wiring calls no `pre-bash`.
+- Known ceilings, let through, each rare or absent in the local transcripts: a release script named
+  from its own directory (`cd scripts && bun release.ts`), a wrapper the guard does not know around a
+  quoted command (`chronic sh -c '…'`, `direnv exec . bash -c '…'`), a heredoc fed to `ssh`, a script
+  written then run (`cat > x.sh <<EOF … git push … EOF; bash x.sh`), git's dashed `git-push`, a
+  keyword split by quotes (`git pu''sh`), a GitHub API client other than `gh` (`curl …/merge`), a
+  package script reached in a manifest no `cd`, `--cwd` or `-C` of the line names, a gh alias. The Codex wiring calls no `pre-bash`.

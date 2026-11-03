@@ -36,12 +36,9 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   repository by their shared git common dir (`placeOf` in `checkout.ts`).
   Run from the project on a file under `.claude/worktrees/<agent>/`, oxlint
   loads that worktree's `oxlint.config.ts` as a nested config and fails on
-  the second `anti-slop` registration (#84). A file of another repository,
+  the second `anti-slop` registration. A file of another repository,
   the private `.private/` nested in the project or one a symlink in it points
   to, is not rewritten.
-- Per-edit cost, measured on 2026-09-14 with hyperfine on `stop-gates.ts`
-  (124 lines, clean), oxlint 1.82.0, oxfmt 0.67.0, 16 threads: 309 ms, the
-  same in an agent worktree. Formatting alone took 58 ms.
 - The Stop and each subagent's SubagentStop are the agent-hooks kit's
   (`agent-hooks/`, wired by its plugin; the machine's global hooks wire the
   Stop only): `.claude/agent-hooks.jsonc` gives it one `project` lane,
@@ -71,9 +68,9 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   needs the network and an `e2e` run that already happened.
   `checkCommandParity` reads only the pre-commit `run` lines and CI's
   `validate` steps, so those lines need nothing there.
-- Tests stay out of Stop: every suite takes about 36 s here in its two
-  tiers (16 threads, `docs/repo-ops/checks.md`, Test tiers), the gates a few
-  seconds without a kit.
+- Tests stay out of Stop: the suites of both tiers take far longer than
+  the gates, which run in seconds without a kit (`docs/repo-ops/checks.md`,
+  Test tiers).
   pre-push and CI run them, pre-push only the suites HEAD's commits reach
   (`scripts/gates/affected.ts test --committed`).
 

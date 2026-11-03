@@ -19,7 +19,7 @@ selectors and its actions, `workflow.ts` its reader of the workflow, `kit.tsx` t
 the store. The review's own page files live in `src/review/`: `comments.tsx` the comments
 panel, `composer.tsx` the composer every renderer opens, `decision-bar.tsx` the bar and its
 notices, `editor.tsx` and `caret.ts` the plan's source editor, `anchoring.ts` and `selection.ts`
-the text selection; `app.tsx` draws them by name. The renderers are the page halves of
+the text selection; the page's own `app.tsx` draws them by name. The renderers are the page halves of
 the extensions; what an extension is and how one is added is `extensions.md`, which loads
 with the same files. One bundle is a browser's: `Bun.serve` builds it from
 `src/runtime/page/index.html` at the first request for the page,
@@ -58,7 +58,7 @@ no build step, so what the page imports costs nothing when `cli.ts serve` starts
   the members left, never on a bare `return`: over `MediaType`, what is neither Markdown nor
   HTML goes to a function that takes `` `image/${string}` ``, so a member added to the union
   stops compiling there instead of being labelled an image. A `Record` cannot hold this union,
-  one member is a template literal. No code carries such a chain today.
+  one member is a template literal. No code carries such a chain.
 - `strict` lets through an `any` that a library's overload returns, and oxlint reads no types:
   `response.json()`, `JSON.parse`, and `Object.fromEntries` over pairs that lost their tuple type,
   which an array literal returned from a callback does. The constant that receives one carries
@@ -182,7 +182,7 @@ no build step, so what the page imports costs nothing when `cli.ts serve` starts
   modal shows never changes under the reviewer. On an approved page none shows, whatever the server holds.
   A proposal Claude's call stopped waiting on (`paused` of the step's state: Escape, a restart)
   never opens by itself, quiet page or not: it waits on the dot, a `Tag` "Paused" beside the
-  button, and the window it opens says the pick reaches Claude as a message (P13).
+  button, and the window it opens says the pick reaches Claude as a message.
   Nothing in it is checked in advance: the move Claude recommends is marked, and Choose waits for
   the reviewer's pick (`answerOf` in `proposal/choice.ts`).
   An extension's own button computes its greyed state and its `title` itself (`StepAction`).

@@ -186,13 +186,9 @@ export const REGISTRY: Registry = {
       quote: "`--fix` applies the fixes oxlint rates safe, never",
       prose: "oxlint rates its own fixes, and no repo check reads the rating",
     },
-    "1466363d": {
+    "8c85baed": {
       quote: "The tools run from the checkout of the project's repository",
       held: ["test .claude/hooks/format-on-edit.integration.test.ts"],
-    },
-    a34837a7: {
-      quote: "Per-edit cost, measured on 2026-09-14 with hyperfine on",
-      prose: "a measurement, kept with its conditions",
     },
     "4029847c": {
       quote: "The Stop and each subagent's SubagentStop are the",
@@ -202,8 +198,8 @@ export const REGISTRY: Registry = {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",
       held: ["gate lint-config"],
     },
-    "74f48141": {
-      quote: "Tests stay out of Stop: every suite takes about 36 s here in",
+    d9b94800: {
+      quote: "Tests stay out of Stop: the suites of both tiers take far",
       prose: "a trade-off of cost",
     },
     "7ed69bd9": {

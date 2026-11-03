@@ -59,7 +59,7 @@ films the flattened path, not the one the PR is about.
 |---|---|---|
 | Module resolution | The global cache wins over the repo copy, and its browsers are not installed | Resolve from the repo, as above |
 | `PKG` set to a monorepo root | `Cannot find package 'playwright'`: the dependency belongs to one workspace, not the root | Point it at the app that owns the dependency |
-| `reducedMotion` in `use` | Playwright 1.62 neither types nor forwards it, so the value never reaches the browser | `page.emulateMedia({ reducedMotion })` |
+| `reducedMotion` in `use` | Playwright neither types nor forwards it, so the value never reaches the browser | `page.emulateMedia({ reducedMotion })` |
 | A throwaway *spec* | Needs a `testMatch` entry, so it edits the repo config | Write a *script* instead |
 | `agent-browser record` | Its `set device` leaves `pointer: coarse` false, so a UI gated on touch never appears | Playwright device descriptors |
 | Video missing after the run | The file is written when the context closes | `await context.close()` before reading it |

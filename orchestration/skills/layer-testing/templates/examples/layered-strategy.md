@@ -1,7 +1,6 @@
 # Testing Strategy - Layered Architecture
 
 > Example testing strategy for traditional layered (3-tier) architecture
-> Updated: 2024-11-15
 > Architecture: Layered (3-tier)
 
 ---

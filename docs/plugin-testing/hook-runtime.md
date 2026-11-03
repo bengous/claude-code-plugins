@@ -69,11 +69,11 @@
 - The network refusal is decided where a path lands, not on its
   spelling: on Linux `//host/share/x.md` reaches the hooks resolved as
   `/host/share/x.md` (POSIX folds `//`), a local path, while `/net/host/share/x.md`
-  (an automount) is refused as above. Measured on Linux in the kit on 2.1.282,
-  2.1.283 and 2.1.284, and live on 2.1.284. On Windows, 2.1.286 hands
+  (an automount) is refused as above. Measured on Linux in the kit and live.
+  On Windows, the engine hands
   `//host/share/x.md` to the hooks as `\\host\share\x.md`, the share as written,
   and `//host/` as `D:\host`, on the drive of the engine's directory (in the
-  kit, `windows-latest`, run 37004299897), as `path.win32.resolve` does: a
+  kit, `windows-latest`), as `path.win32.resolve` does: a
   UNC spelling with no share name is a folder on the current drive. `$.fs`'s
   doc says the implementation beneath the hooks rejects a network location;
   what it answers for a share live on Windows is not measured, and vellum's
@@ -82,8 +82,8 @@
 
 ## Reloads and background work
 
-Measured on Claude Code 2.1.282, Linux, in `--plugin-dir` sessions with probe
-plugins (September 2026), unless a line says otherwise.
+Measured on Linux, in `--plugin-dir` sessions with probe plugins, unless a
+line says otherwise.
 
 - Saving a file under `--plugin-dir` reloads the module: `register` runs
   again in a fresh environment and every pending timer of the old one dies.
@@ -109,8 +109,8 @@ plugins (September 2026), unless a line says otherwise.
   address; a text that points at a file the session can read works
   (`spike-results.md` in `plans/2026-09-15/plan-review-rewrite/`). Called
   while a turn runs, the call resolves once that prompt's own turn starts, not
-  once it is queued: submitted 0.9 s into a turn that ended 6 s later, it
-  resolved 47 ms after that end. On the `$` of a `tool.call` it is refused,
+  once it is queued: submitted in the middle of a turn, it resolved right
+  after that turn's end. On the `$` of a `tool.call` it is refused,
   since it would wait on the turn the hook holds. On Claude Code Desktop, a
   turn a plugin starts this way while the session is idle does not show until
   the person types ([anthropics/claude-code#96336](https://github.com/anthropics/claude-code/issues/96336),
@@ -151,8 +151,8 @@ plugins (September 2026), unless a line says otherwise.
   turn's end and started a turn of its own. A prompt holding a pasted image
   alone is a row whose `text` is `[Image #1]`, beside the image block. So the
   last user row with text and no tool result is the running turn's prompt
-  (`isPrompt` in `griller/hooks/register.ts`). Measured on Claude Code
-  2.1.312, Linux, in an interactive `--plugin-dir` session with a probe module
+  (`isPrompt` in `griller/hooks/register.ts`). Measured on Linux, in an
+  interactive `--plugin-dir` session with a probe module
   logging `session.append`, `turn.start`, `turn.complete` and the rows, once
   each; an image prompt from the desktop app is not measured.
 
@@ -172,7 +172,7 @@ plugins (September 2026), unless a line says otherwise.
     never from a `tool.call`: Escape on that call ends the child (SIGTERM). A
     child of `skill.prompt` outlives an Escape of the skill's turn.
   - `return()` on the stream ends the child even while a read is pending (it
-    stopped 44 ms later, and the pending read ended), where `return()` on a
+    stopped at once, and the pending read ended), where `return()` on a
     generator wrapping it waits for that read.
   - A reload ends every child (SIGTERM), and the old environment's loop notes
     nothing, not even the end; there is nothing to reattach to.
@@ -186,18 +186,15 @@ plugins (September 2026), unless a line says otherwise.
     runs, and the loop sees that end first: a module that revives a child
     that ended spawns one for nothing there, which the exit then aborts.
     `atlas` revives no child a SIGTERM ended (`follow` in
-    `atlas/hooks/register.ts`). Measured on Claude Code 2.1.308, Linux,
-    2026-10-22, in the debug log of a `claude -p` stream-json session.
+    `atlas/hooks/register.ts`). Measured on Linux, in the debug log of a `claude -p` stream-json session.
 
 - `$.store` is one JSON file per plugin under `~/.claude/plugins/store/`
   (`<plugin>_inline-<hash>.json` for a `--plugin-dir` one), shared by every
   session: a running session's `$.store.get` saw a value another `claude`
-  process set within a second. Measured on Claude Code 2.1.308, Linux,
-  2026-10-22, with two `claude -p` sessions of a probe module, one reading
+  process set within a second. Measured on Linux, with two `claude -p` sessions of a probe module, one reading
   every second, the other writing once. `$.store.set` and `$.store.delete`
   take `<store file>.lock` and rewrite the whole file; `get` and `keys` read
-  it afresh on every call. Read in the Claude Code 2.1.308 bundle, 2026-10-22,
-  by the review of `atlas`'s hooks module.
+  it afresh on every call, as the engine's bundle reads.
 
 - Saving a file under `--plugin-dir` prints `<plugin>: reloaded (N hooks: …)`
   and raises `session.start` again for that plugin alone, so a mode kept in
@@ -213,10 +210,10 @@ plugins (September 2026), unless a line says otherwise.
   the command is over: a module takes the id from `e.session_id`
   (`griller/hooks/register.ts`). `$.session.messages()` there still answers
   the previous conversation after `/resume`, and the resumed one at the first
-  `AssistantMessage` drawing that follows (measured on 2.1.312 with the probe
-  module of the rows above). At startup, `classic.SessionStart` (source
+  `AssistantMessage` drawing that follows (measured with the probe module of
+  the rows above). At startup, `classic.SessionStart` (source
   `startup`) runs while `session.start`'s `next(e)` is pending. Measured on
-  Claude Code 2.1.312, Linux, with a probe module logging each event in an
+  Linux, with a probe module logging each event in an
   interactive `--plugin-dir` session.
 
 ## Tools, commands and modes
@@ -261,7 +258,7 @@ plugins (September 2026), unless a line says otherwise.
   with `$ARGUMENTS`, the input stands in the text where the placeholder was.
   The text also starts with `Base directory for this skill: <dir>`. Measured
   in `claude -p` with a throwaway module that echoed `e.text` into the
-  transcript, Claude Code 2.1.301, Linux, 2026-10-18; the append is
+  transcript, on Linux; the append is
   documented at https://code.claude.com/docs/en/skills#pass-arguments-to-skills.
   `pinpoint`'s `argumentsOf` reads that last line.
 
@@ -298,7 +295,7 @@ plugins (September 2026), unless a line says otherwise.
   process's `process.env`; Claude Code never calls `chdir` on itself; a call that
   carries an `agentId` skips the reset, and a subagent never reports its `cd` to
   the main loop. Not measured in a live session: that an isolated subagent's
-  `pwd` stays in its worktree with the variable set (#231, S9 measures it).
+  `pwd` stays in its worktree with the variable set.
 
 - A subagent a plugin spawns with `$.agent.spawn` steps past every hook of
   that plugin but `turn.complete`: its tool calls reach none of the plugin's
@@ -307,22 +304,21 @@ plugins (September 2026), unless a line says otherwise.
   path, denied since a background agent cannot ask. Its `turn.complete`
   reaches the plugin with `agentId` set and its final text in `answer`. The
   same agent spawned by the model through the Agent tool reaches the plugin's
-  `tool.call`. `$.agent.spawn` from a timer resolved in 17 ms with
-  `{ model, agentId }`. Measured in `claude -p` sessions
-  (`vellum` #170).
+  `tool.call`. `$.agent.spawn` from a timer resolved at once with
+  `{ model, agentId }`. Measured in `claude -p` sessions.
 
 - `$.tool.call({ tool: "TaskStop", task_id })` stops an agent the plugin
   spawned, `task_id` being the `agentId` `$.agent.spawn` answered. The tool is
-  not deferred: it answered in 8 to 9 ms with `result.message` `Successfully
+  not deferred: it answered at once with `result.message` `Successfully
   stopped task: <id> (<description>)` and no `isError`, asked no permission in
-  `default` mode (`permissionDecisionMs` 1 to 2), and stepped past the calling
+  `default` mode, and stepped past the calling
   plugin's own `tool.check` (`tool.check skipped: re-entry`). The agent's
   `turn.complete` reached the plugin with `reason: "aborted"` and an empty
-  `answer` 1 ms after the result, and `$.agent.list()` then lists it `killed`.
+  `answer` right after the result, and `$.agent.list()` then lists it `killed`.
   A second stop answers `isError: true`, `Task <id> is not running (status:
   killed)`, and an unknown id `No task found with ID: <id>`; an agent listed
   `completed` whose shell still ran was stopped, and listed `killed` after.
-  Measured in an interactive session in tmux (`vellum` #170).
+  Measured in an interactive session in tmux.
 
 - A registered tool's result text is what the model acts on. `vellum`'s
   `submit` answers `Plan vN under review. End your turn.` (`submitResult` in
@@ -366,7 +362,7 @@ plugins (September 2026), unless a line says otherwise.
   the row's `uuid`, or, for the rows written after one turn of the session,
   that uuid with its last group zeroed (`…-000000000000`), for no cause
   found: it does not join a row reliably, and griller matches a drawing to
-  its row by text. Measured on Claude Code 2.1.312, Linux, with the probe
+  its row by text. Measured on Linux, with the probe
   module of the rows above, and with griller's own rounds beside a probe
   module logging `classic.MessageDisplay`; the desktop app is not measured.
 

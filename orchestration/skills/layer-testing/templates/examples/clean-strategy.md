@@ -1,7 +1,6 @@
 # Testing Strategy - Clean Architecture
 
 > Example testing strategy for Clean Architecture
-> Updated: 2024-11-15
 > Architecture: Clean Architecture
 
 ---

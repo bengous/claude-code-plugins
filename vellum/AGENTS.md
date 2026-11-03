@@ -82,7 +82,7 @@ and is tested (`extensions.md` names the ones to copy), never a snippet kept in 
 bun install --cwd vellum --frozen-lockfile                          # once; Claude Code does it at the plugin's cache
 bun test vellum                                                     # the server's and the page's `*.spec.ts` suites
 bun test vellum/src/workshop/slug.spec.ts                           # one suite; `-t <pattern>` filters by test name
-bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite, one window, about 10 s: how a lot is worked on, and how a red test is reproduced
+bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite, one window, in seconds: how a lot is worked on, and how a red test is reproduced
 bun run --cwd vellum e2e -- --project=light-1440                    # the whole suite at one window: once, before a push
 bun run --cwd vellum e2e                                            # the five windows of `e2e/playwright.config.ts`: CI's, a job per window (`--project=<window>`), on request (the `e2e` label on a PR), not a local one
 bun run --cwd vellum e2e:install                                    # Chromium, once per machine and per pinned Playwright

@@ -36,7 +36,7 @@ paths:
   whole suite runs once on `light-1440` before a push, and at the five windows in CI only, a job
   per window (`--project=<name>`), on request: the `e2e` label on a PR, or `workflow_dispatch`.
   CI records no trace (`trace` in `e2e/playwright.config.ts` reads `CI`): no step uploads one,
-  and recording one costs about a fifth of each test (#195). A local run keeps a failing test's
+  and recording one costs about a fifth of each test. A local run keeps a failing test's
   trace, so a test red in CI is read after reproducing it locally, on its file and project.
 - A step waits for what the next one acts on, not for what caused it. What an effect applies
   after a render (a `Dialog`'s `showModal()` and its listeners, a block's `tabindex` once
