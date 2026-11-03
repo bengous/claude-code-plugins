@@ -92,7 +92,7 @@ The job checks out the default branch with its full history and runs that code a
 Prerequisites, outside this repository's files:
 
 - the agents' GitHub App installed on the repository with contents write, pull requests write and issues write;
-- the repository secrets `AGENTS_APP_ID`, `AGENTS_APP_KEY` (the App's private key) and `ANTHROPIC_API_KEY`;
+- the repository secrets `AGENTS_APP_ID`, `AGENTS_APP_KEY` (the App's private key) and `CLAUDE_CODE_OAUTH_TOKEN`, the Claude Code login `tier.ts`'s judge runs with;
 - like red-dev, the workflow and its script take effect with the release that carries them to `main`.
 
 `scripts/ci/red-dev-land.test.ts` holds `admit` on every reason to stay out, `decide` on each tier and ancestry, and `report` against a fake `gh`, `git` and `tier.ts`.

@@ -320,7 +320,7 @@ describe("red-dev-land.yml", () => {
     const land = steps?.find((step) => step.run === "bun ./scripts/ci/red-dev-land.ts");
 
     expect(land?.env?.["GH_TOKEN"]).toBe("${{ steps.app.outputs.token }}");
-    expect(land?.env?.["ANTHROPIC_API_KEY"]).toBe("${{ secrets.ANTHROPIC_API_KEY }}");
+    expect(land?.env?.["CLAUDE_CODE_OAUTH_TOKEN"]).toBe("${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}");
   });
 
   test("pins Claude Code as ci.yml's validate does", async () => {

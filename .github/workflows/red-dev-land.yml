@@ -65,7 +65,7 @@ jobs:
         run: bun ./scripts/ci/red-dev-land.ts
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           RUN_EVENT: ${{ github.event.workflow_run.event }}
           RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
