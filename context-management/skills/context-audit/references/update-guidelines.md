@@ -145,7 +145,7 @@ Before finalizing an update, verify:
 
 - [ ] Each addition is project-specific
 - [ ] No generic advice or obvious info
-- [ ] Commands are tested and work
+- [ ] Commands resolve against the project's manifest or Makefile; none is run
 - [ ] File paths are accurate
 - [ ] Would a new Claude session find this helpful?
 - [ ] Is this the most concise way to express the info?

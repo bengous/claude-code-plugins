@@ -69,12 +69,11 @@ pnpm test src/modules/${MODULE}/${LAYER}
 **How to verify**:
 ```bash
 cd ${WORKTREE_PATH}
-git diff origin/dev --name-only | grep -v test | grep -v mock | grep -v __tests__
+git diff --name-only ${BASE_SHA}..HEAD
 ```
 
 **Success criteria**:
-- Output is empty (no files listed)
-- OR: Only files matching test patterns (.test., .spec., __tests__/, /mocks/)
+- Every path listed matches a test pattern (.test., .spec., __tests__/, /mocks/)
 
 **Common failures**:
 - Agent "fixed" bugs found during testing (not allowed!)
@@ -83,7 +82,7 @@ git diff origin/dev --name-only | grep -v test | grep -v mock | grep -v __tests_
 - Accidental edits
 
 **What to do if failing**:
-1. Review the diff: `git diff origin/dev`
+1. Review the diff: `git diff ${BASE_SHA}..HEAD`
 2. Identify which production files changed
 3. Determine if changes are:
    - **Bug fixes**: Note for separate PR, revert from tests
@@ -103,7 +102,7 @@ git diff origin/dev --name-only | grep -v test | grep -v mock | grep -v __tests_
 **How to verify**:
 ```bash
 cd ${WORKTREE_PATH}
-pnpm type-check
+pnpm typecheck
 ```
 
 **Success criteria**:
@@ -232,7 +231,7 @@ Accepted: Critical paths covered, gap is non-functional code.
 $ pnpm lint
 ✓ No linting errors
 
-$ pnpm type-check
+$ pnpm typecheck
 ✓ No type errors
 
 $ pnpm test src/modules/auth/core --coverage
@@ -240,7 +239,7 @@ Tests: 25 passed, 25 total
 Coverage: Statements 92%, Branches 88%, Functions 95%, Lines 91%
 ✓ Coverage target met (90%)
 
-$ git diff origin/dev --name-only | grep -v test
+$ git diff --name-only ${BASE_SHA}..HEAD | grep -v test
 (empty output)
 ✓ Zero production changes
 
@@ -250,14 +249,14 @@ $ git diff origin/dev --name-only | grep -v test
 ### Gate 3 Failure (Production Changes)
 
 ```bash
-$ git diff origin/dev --name-only | grep -v test
+$ git diff --name-only ${BASE_SHA}..HEAD | grep -v test
 src/modules/auth/core/User.ts
 src/modules/auth/core/UserValidator.ts
 
 ❌ Gate 3 FAILED: Production code modified
 
 Review changes:
-$ git diff origin/dev src/modules/auth/core/User.ts
+$ git diff ${BASE_SHA}..HEAD -- src/modules/auth/core/User.ts
 
 Found:
 - Added export for private method (test enablement)

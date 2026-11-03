@@ -57,7 +57,7 @@ if stdout is empty OR stdout is not valid JSON:
 audit_json = parse stdout as JSON
 
 # The backend resolves the trunk itself when no base is given (git config
-# sweep.base, then origin/HEAD, then main/master/trunk — each checked for
+# sweep.base, then origin/HEAD, then main/master/trunk/dev/develop — each checked for
 # existence, never HEAD) and reports its choice in audit_json.base. A named
 # base that does not exist is its error too. Report backend errors verbatim;
 # do not resolve, substitute, or retry a base here.

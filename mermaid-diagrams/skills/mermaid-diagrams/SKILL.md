@@ -13,7 +13,7 @@ Use this skill specifically for creating, editing, fixing, or improving Mermaid 
 - **Edit** existing Mermaid diagrams
 - **Fix** broken or incorrect diagram syntax
 - **Improve** diagram organization or readability
-- **Visualize** software architecture or technical concepts
+- **Visualize** software architecture or technical concepts in Mermaid, when the user asked for Mermaid
 
 For simply reading or interpreting existing diagrams, proceed directly without this skill.
 </when_to_use>

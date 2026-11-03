@@ -11,6 +11,8 @@ allowed-tools:
   - Bash(jq *)
   - Bash(git worktree add *)
   - Bash(pnpm install *)
+  - Bash(git rev-parse HEAD)
+  - Bash(git diff *)
   - Read(~/.claude/plugins/cache/*/claude-orchestration/*/skills/layer-testing/templates/**)
 ---
 
@@ -77,23 +79,18 @@ Store strategy for agent use.
 
 3. **Run Coverage First**
 
-**Check for existing tests:**
-```bash
-find src/modules/${MODULE}/${LAYER} -name "*.test.*" -o -path "*/__tests__/*"
-```
+**Check for existing tests:** Glob `src/modules/${MODULE}/${LAYER}/**/*.test.*` and `src/modules/${MODULE}/${LAYER}/**/__tests__/**`.
 
 **If NO tests:** Skip to step 4
 
 **If tests exist:**
 
-Detect framework and run coverage (run these checks in parallel):
+Detect the framework: a `vitest.config.ts`, or `vitest` in `package.json`, is Vitest; a `jest.config.js`, or `jest` in `package.json`, is Jest. Run coverage with the matching command:
 ```bash
-if [[ -f "vitest.config.ts" ]] || grep -q "vitest" package.json; then
-  pnpm test src/modules/${MODULE}/${LAYER} --coverage --reporter=json-summary
-elif [[ -f "jest.config.js" ]] || grep -q "jest" package.json; then
-  pnpm test -- src/modules/${MODULE}/${LAYER} --coverage --coverageReporters=json-summary
-fi
+pnpm test src/modules/${MODULE}/${LAYER} --coverage --reporter=json-summary
+pnpm test -- src/modules/${MODULE}/${LAYER} --coverage --coverageReporters=json-summary
 ```
+The first is Vitest's, the second Jest's.
 
 Parse `coverage/coverage-summary.json`:
 ```bash
@@ -118,10 +115,7 @@ If user picks 1, exit successfully.
 
 4. **Analyze Files**
 
-Find all files:
-```bash
-find src/modules/${MODULE}/${LAYER} -name "*.ts" ! -name "*.test.*" ! -path "*/__tests__/*"
-```
+Find all files: Glob `src/modules/${MODULE}/${LAYER}/**/*.ts`, leaving out `*.test.*` and anything under `__tests__/`.
 
 Categorize using strategy:
 - Testable (matches "what to test" patterns)
@@ -212,8 +206,8 @@ pnpm test ${FILES}
 pnpm test ${FILES} --coverage
 # Parse and verify >= target
 
-# 3. No production code changes since the worktree branched
-git diff --name-only ${BASE_SHA}..HEAD | grep -v test | wc -l  # Should be 0
+# 3. No production code changes since the worktree branched: every path listed is a test
+git diff --name-only ${BASE_SHA}..HEAD
 
 # 4. Type check passes
 pnpm typecheck
