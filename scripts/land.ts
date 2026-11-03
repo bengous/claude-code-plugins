@@ -19,7 +19,9 @@
  * stack: see the last paragraph. `--dry-run` runs every check that comes
  * before the lock, writes nothing to GitHub or to a checkout, adds no
  * checkout, reads the tier from the pull request's `tier:` label without the
- * judge, prints what it would do, and exits 0, or 1 on the first refusal.
+ * judge, prints what it would do, and exits 0, or 1 on the first refusal. A
+ * human tier that waits for the human's `/land` is named in the plan, not
+ * refused, so the plan shows every other check.
  *
  * Runs `origin/dev`'s copy of itself, on the arguments as given: after a
  * fetch, `origin/dev`'s whole tree is extracted to a temporary directory and
@@ -820,12 +822,20 @@ function labelledTier(labels: ReadonlySet<string>): Verdict {
 }
 
 /**
+ * What holds `pr` back at its tier: a human one waiting for the human's `/land`, `awaits` its tier and what it lacks,
+ * or a low one while `dev` is red.
+ */
+type TierHold =
+  | { readonly kind: "awaits-land"; readonly why: string; readonly awaits: string }
+  | { readonly kind: "red-dev"; readonly why: string };
+
+/**
  * Why `pr` may not land at its tier, or null when it may: a human one without a `land-ok` given to its change, a low
  * one without it while `dev` is red. The tier is the branch's, read once per landing, raised by a `tier:human` label
  * an earlier pass left; its label goes on the pull request on the way, and a `land-ok` given to another change
  * comes off on the way too, named in the refusal.
  */
-async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | null> {
+async function tierRefusal(lander: Lander, pr: PullRequest): Promise<TierHold | null> {
   const { tiering } = lander;
 
   if (tiering === null) return null;
@@ -853,7 +863,13 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
       ? `its tier:human label, left by an earlier pass; tier.ts now says low: ${tiering.verdict.reason}`
       : tiering.verdict.reason;
 
-    return `#${pr.number} is tier:human (${why}), ${approval}: it lands once the human types /land ${lander.landsAs ?? pr.number} in a session; stop`;
+    const lacks = `${approval}: it lands once the human types /land ${lander.landsAs ?? pr.number} in a session`;
+
+    return {
+      kind: "awaits-land",
+      why: `#${pr.number} is tier:human (${why}), ${lacks}; stop`,
+      awaits: `tier human (${why}), ${lacks}`,
+    };
   }
 
   const red = await redDevIssues(lander);
@@ -866,7 +882,10 @@ async function tierRefusal(lander: Lander, pr: PullRequest): Promise<string | nu
 
   const unattended = `${DEV} is red (${red.join(", ")}): no unattended landing until it is green`;
 
-  return labels.has(LAND_OK) ? `${unattended}; #${pr.number}, ${approval}` : unattended;
+  return {
+    kind: "red-dev",
+    why: labels.has(LAND_OK) ? `${unattended}; #${pr.number}, ${approval}` : unattended,
+  };
 }
 
 function remaining(lander: Lander): number {
@@ -1038,7 +1057,7 @@ async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> 
   // Read again after the wait for the lock, which can outlast a land-ok or a green dev.
   const before = await tierRefusal(lander, at.pr);
 
-  if (before !== null) return refused(before);
+  if (before !== null) return refused(before.why);
 
   const query: CiQuery = { sha, event: "pull_request" };
   const outcome = await settle(lander, query);
@@ -1065,7 +1084,7 @@ async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> 
 
   const tiered = await tierRefusal(lander, after.pr);
 
-  return tiered === null ? after : refused(tiered);
+  return tiered === null ? after : refused(tiered.why);
 }
 
 function kept(why: string): RemoteBranch {
@@ -1444,13 +1463,19 @@ async function landFrom(
 }
 
 type Checked =
-  | { readonly kind: "ready"; readonly pr: PullRequest; readonly paths: readonly string[] }
+  | {
+      readonly kind: "ready";
+      readonly pr: PullRequest;
+      readonly paths: readonly string[];
+      readonly awaits: string | null;
+    }
   | Refused;
 
 /**
  * The pull request and the paths it changes against its base, once the checks that come before any wait pass, so
  * that a landing the human or a review still holds back waits for nothing: the pull request at the head the landing
- * starts from, its tier, and the review verdict of a branch that touches a risky path.
+ * starts from, its tier, and the review verdict of a branch that touches a risky path. A dry run goes on past a
+ * human tier that waits for the human's `/land`, which `awaits` names, so its plan shows every other check.
  */
 async function readyBeforeWait(lander: Lander): Promise<Checked> {
   const { branch, checkout, reviewed } = lander;
@@ -1462,7 +1487,11 @@ async function readyBeforeWait(lander: Lander): Promise<Checked> {
 
     const tiered = await tierRefusal(lander, at.pr);
 
-    if (tiered !== null) return refused(tiered);
+    if (tiered !== null && !(lander.readOnly && tiered.kind === "awaits-land")) {
+      return refused(tiered.why);
+    }
+
+    const awaits = tiered?.kind === "awaits-land" ? tiered.awaits : null;
 
     const changed = changedPaths(checkout, baseRefOf(at.pr), reviewed);
 
@@ -1474,21 +1503,27 @@ async function readyBeforeWait(lander: Lander): Promise<Checked> {
       paths: changed.paths,
     });
 
-    return verdict === null ? { kind: "ready", pr: at.pr, paths: changed.paths } : refused(verdict);
+    return verdict === null
+      ? { kind: "ready", pr: at.pr, paths: changed.paths, awaits }
+      : refused(verdict);
   } catch (error) {
     return refused(messageOf(error));
   }
 }
 
 /** One pull request as a dry run found it: its head, base, tier, and why its review lets it through. */
-function readyLine(lander: Lander, { pr, paths }: Extract<Checked, { kind: "ready" }>): string {
+function readyLine(
+  lander: Lander,
+  { pr, paths, awaits }: Extract<Checked, { kind: "ready" }>,
+): string {
   const verdict = lander.tiering?.verdict ?? null;
   const approved = pr.labels.some((label) => label.name === LAND_OK);
 
   const tier =
-    verdict === null
+    awaits ??
+    (verdict === null
       ? "not tiered, its own guards hold it"
-      : `tier ${verdict.tier} (${verdict.reason})${approved ? `, a ${LAND_OK} given to its change` : ""}`;
+      : `tier ${verdict.tier} (${verdict.reason})${approved ? `, a ${LAND_OK} given to its change` : ""}`);
 
   const review =
     riskyPaths(paths, riskyOf(lander.checkout, BASE)).length > 0
@@ -1741,7 +1776,7 @@ async function stackLocked(
       // oxlint-disable-next-line no-await-in-loop -- as above: a land-ok taken off during the wait refuses that layer.
       const tiered = await tierRefusal(lander, at.pr);
 
-      if (tiered !== null) return refused(`${layerName(index, layers)}: ${tiered}`);
+      if (tiered !== null) return refused(`${layerName(index, layers)}: ${tiered.why}`);
     }
   } catch (error) {
     return refused(messageOf(error));

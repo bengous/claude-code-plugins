@@ -2196,14 +2196,59 @@ describe("land --dry-run", () => {
     expect(await dryRun("#470")).toEqual(await dryRun("470"));
   });
 
-  test("refuses as the landing would, writing nothing, when a layer has neither tier label nor land-ok", async () => {
-    buildStack();
+  test("names a layer that waits for the human's /land, and runs every check after it, writing nothing", async () => {
+    const [, second = "", top = ""] = buildStack();
+
     serveStack([LOW_LABELLED, {}, LOW_LABELLED]);
 
-    expect(why(await dryRun("470"))).toStartWith(
-      "layer 2 of 3, #468 (feature/s-2): #468 is tier:human (no tier label, not judged in a dry run), with no land-ok label",
+    const planned = await dryRun("470");
+    const plan = planned.kind === "planned" ? planned.lines : [];
+
+    expect(planned.kind).toBe("planned");
+    expect(plan).toContain(
+      `layer 2 of 3: #468 feature/s-2 at ${second.slice(0, 8)}, based on feature/s-1: tier human (no tier label, not judged in a dry run), with no land-ok label: it lands once the human types /land 470 in a session; no risky path`,
     );
+    expect(plan).toContain(`the top ${top.slice(0, 8)} holds origin/dev`);
     expect(writesToGitHub()).toEqual([]);
+  });
+
+  test("still refuses a stack whose top does not hold dev while a layer waits for the human", async () => {
+    const top = buildStack()[2] ?? "";
+
+    moveDev();
+    serveStack([LOW_LABELLED, {}, LOW_LABELLED]);
+
+    expect(why(await dryRun("470"))).toBe(
+      `the stack's top ${top.slice(0, 8)} does not hold origin/dev: gh stack rebase, then gh stack push (github-flow:stacked-prs), then land again`,
+    );
+  });
+
+  test("still refuses a low branch while a red-dev issue is open", async () => {
+    serve({ pr: { labels: ["tier:low"] }, redDev: [41] });
+
+    expect(why(await dryRun("feature/x"))).toBe(
+      "dev is red (#41): no unattended landing until it is green",
+    );
+  });
+
+  test("names a raised tier as human beside the /land it waits for", async () => {
+    serve({ pr: { labels: ["tier:low", "tier:human"] } });
+
+    const planned = await dryRun("feature/x");
+
+    expect(planned.kind === "planned" ? planned.lines[0] : why(planned)).toStartWith(
+      `#7 feature/x at ${branchHead().slice(0, 8)}, based on dev: tier human (its tier:human label, left by an earlier pass; tier.ts now says low: its tier:low label), with no land-ok label`,
+    );
+  });
+
+  test("names a branch that waits for the human's /land in its plan", async () => {
+    serve({ pr: { labels: ["tier:human"] } });
+
+    const planned = await dryRun("feature/x");
+
+    expect(planned.kind === "planned" ? planned.lines[0] : why(planned)).toBe(
+      `#7 feature/x at ${branchHead().slice(0, 8)}, based on dev: tier human (its tier:human label), with no land-ok label: it lands once the human types /land 7 in a session; no risky path`,
+    );
   });
 
   test("prints a branch's plan with its runs, writing nothing", async () => {
@@ -2233,11 +2278,12 @@ describe("land --dry-run", () => {
     expect(planned.stdout.toString()).toStartWith("stack #470: ");
     expect(planned.exitCode).toBe(0);
 
-    serveStack([LOW_LABELLED, {}, LOW_LABELLED]);
+    moveDev();
+    serveStack([LOW_LABELLED, LOW_LABELLED, LOW_LABELLED]);
 
     const refused = dryRunCli();
 
-    expect(refused.stderr.toString()).toStartWith("land: layer 2 of 3, #468 (feature/s-2): ");
+    expect(refused.stderr.toString()).toStartWith("land: the stack's top ");
     expect(refused.exitCode).toBe(1);
   });
 });
