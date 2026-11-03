@@ -14,6 +14,35 @@
 - Review verdict: a branch that changes a path of `profile.review.risky` (`.claude/agent-hooks.jsonc`, read from `origin/dev`) lands only with a clean review verdict for its patch against its pull request's base. After a `/code-review <number>` that leaves no finding open, run `bun ./scripts/landing/review-verdict.ts record <branch> --sha <reviewed head>`, before `land.ts`: it reads the verdict before the wait for CI. A commit after the review voids the verdict; `land.ts`'s refusal says what to redo.
 - Renovate: a non-major update off the e2e and risky paths automerges once 3 days old (`renovate.json`). A session start in the main checkout runs `scripts/headless/renovate-agent.ts` at most once a day for the others, and notifies what needs the human. `bun ./scripts/headless/renovate-agent.ts run --dry-run` prints who owns each open pull request. Once an update lands, the leads pipeline reads what it brings and files leads for the human to sort ([Leads pipeline](leads.md)).
 - Land a stack: `bun ./scripts/land.ts <stack number>`, or the number of a layer, which lands it with the layers under it, run once in the background. Every layer lands with its own commits, signed, as for a branch; never `gh stack merge`, whose server-side merge strips the signatures. Before any wait it checks each layer against its own base, bottom to top, and refuses a top that does not hold `origin/dev`: run `gh stack rebase`, then `gh stack push`, then land again. It dispatches one `ci.yml` run on the top's head, every job and `e2e` included, or waits for the one already there, then pushes `dev` and every lower branch to the top in one atomic push, which GitHub reads as every layer merged, and deletes the remote branches; a layer above the one named keeps its base branch.
+- Landing worker: `bun ./scripts/land.ts --worker --once` is one pass that lands without a session what carries `land-ok` or `tier:low` (`scripts/landing/worker.ts`). It reads every open pull request and lands, by number and one at a time, each stack only whole: a line of open pull requests from `dev` up, each based on the one under it, a single pull request being a line of one, whose every layer is a `feature/` or `fix/` branch, headed by that open pull request alone, carrying `land-ok`, or `tier:low` outside a draft and `needs-human`. Each lands through `land.ts <top>`, a run of its own, under the landing lock, killed past 3 h. A stack with any other layer, a voided one included, or that forks, waits for the human's `/land` in a session: landed in part, it would leave a layer based on a merged branch. A pull request labelled within the last quarter of an hour is left to the landing that labelled it, and a pass ends while a landing holds the lock. A target whose head, tier labels and `land-ok` date are those its last run left waits an hour after a new refusal, twice as long after each repeat of it, the run it names aside, four hours at most: a red run is not re-run every five minutes, and a target held by a red `dev` is tried again. A pull request whose head does not hold `origin/dev` lands only when commits can be signed here; otherwise the worker comments `landing-worker: a rebase needs your signature: land it from a session`, once per head. One worker runs at a time. Each pass prints one line per target; `~/.cache/claude-code-plugins/landing/worker.log` keeps each landing's whole output, and `worker.json` beside it is the memo, each pull request named by its repository and number: remove it to forget. A user systemd timer runs it every five minutes on the workstation; the human installs both units, kept in the dotfiles:
+
+  ```ini
+  # ~/.config/systemd/user/landing-worker.service
+  [Unit]
+  Description=Land on dev what carries land-ok or tier:low (claude-code-plugins)
+
+  [Service]
+  Type=oneshot
+  WorkingDirectory=%h/Work/claude-code-plugins
+  Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/local/bin:/usr/bin
+  Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+  ExecStart=%h/.local/share/mise/shims/bun ./scripts/land.ts --worker --once
+  ```
+
+  ```ini
+  # ~/.config/systemd/user/landing-worker.timer
+  [Unit]
+  Description=Run the landing worker every five minutes
+
+  [Timer]
+  OnBootSec=2min
+  OnCalendar=*:0/5
+
+  [Install]
+  WantedBy=timers.target
+  ```
+
+  `WorkingDirectory` is the main checkout. The pushes go over SSH, through the agent socket the session sets (`%t` is `/run/user/<uid>`), and the commits are signed by the gpg agent, which the service reaches by its own socket. A passphrase the agent no longer holds either fails the rebase, which the landing names in the log, or opens a pinentry that waits until the landing is killed at 3 h; which of the two happens under the unit is not measured. Start it with `systemctl --user enable --now landing-worker.timer`, stop it with `systemctl --user stop landing-worker.timer`, and read its passes with `journalctl --user -u landing-worker`.
 - After a landing: plugin sessions pick it up by themselves ([Managed catalog](../plugin-testing/catalog.md)). Refresh a local `dev` with `git pull --ff-only`; never land through a local `dev` that might be stale.
 - Clean up: the `git-sweep:auto-sweep` skill, which a session start in the main checkout also runs once a day. Agents never type `git branch -D`, `git worktree remove` or `git push --delete` for this.
 - Issue footers: `Closes #N` fires on `main` (the default branch), not on `dev`.

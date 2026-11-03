@@ -51,8 +51,13 @@ export function repositoryOf(url: string): string {
     .toLowerCase();
 }
 
+/** Where the landing's locks and the landing worker's files live. */
+export function landingDir(): string {
+  return process.env[DIR_ENV] ?? join(homedir(), ".cache", "claude-code-plugins", "landing");
+}
+
 export function lockPaths(originUrl: string): LockPaths {
-  const dir = process.env[DIR_ENV] ?? join(homedir(), ".cache", "claude-code-plugins", "landing");
+  const dir = landingDir();
   const name = createHash("sha1").update(repositoryOf(originUrl)).digest("hex");
 
   return { lock: join(dir, `${name}.lock`), holder: join(dir, `${name}.json`) };

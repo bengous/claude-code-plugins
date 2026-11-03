@@ -7,6 +7,10 @@
  * one verdict line.
  *
  *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types|n|#n> [--dry-run]
+ *   bun ./scripts/land.ts --worker --once
+ *
+ * `--worker --once` is one pass of the landing worker (`scripts/landing/worker.ts`): what carries `land-ok` or
+ * `tier:low` lands, each target through a run of this script of its own, without a session.
  *
  * A number is a pull request or a GitHub stack (`scripts/landing/stack.ts`).
  * A pull request, or a branch whose pull request, based on `dev`, lands as
@@ -97,7 +101,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { messageOf } from "../tools/platform/pure.ts";
+import { isErrno, messageOf } from "../tools/platform/pure.ts";
 import { LABEL as RED_DEV } from "./ci/red-dev.ts";
 import {
   type CheckRun,
@@ -107,6 +111,7 @@ import {
   refusalFor,
 } from "./gates/check-e2e-green.ts";
 import { ROLLING_BRANCH, worktreePath } from "./headless/claude-code-types.ts";
+import { probeSigning, runState } from "./headless/headless-run.ts";
 import {
   type CiOutcome,
   type CiQuery,
@@ -120,7 +125,13 @@ import {
   SYSTEM_CLOCK,
   waitFor,
 } from "./landing/ci-wait.ts";
-import { HOLDER_ENV, withLandingLock } from "./landing/landing-lock.ts";
+import {
+  HOLDER_ENV,
+  landingDir,
+  lockPaths,
+  repositoryOf,
+  withLandingLock,
+} from "./landing/landing-lock.ts";
 import {
   BASE,
   baseRefOf,
@@ -134,6 +145,7 @@ import {
 } from "./landing/review-verdict.ts";
 import { type Layer, layerNumber, resolveTarget, type Target } from "./landing/stack.ts";
 import { riskyOf, riskyPaths, type Tier, type Verdict } from "./landing/tier-floor.ts";
+import { runWorkerOnce, type WorkerDeps } from "./landing/worker.ts";
 import { run } from "./lib/run.ts";
 
 /** Set in the environment of `origin/dev`'s copy, which runs the landing itself. */
@@ -2021,6 +2033,65 @@ function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
   }
 }
 
+/** How long one landing of the worker may run: an hour for the landing lock, an hour for CI, the rest to push. */
+const WORKER_LANDING_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * The landing worker's hands from `checkout`: each target lands through this copy of the script, run from the copy
+ * as `runDevCopy` runs it, its output kept for the worker's log, killed past `WORKER_LANDING_MS`. A SIGTERM would
+ * wait for the git command the landing blocks in, a rebase waiting for a passphrase among them; the kernel releases
+ * the landing lock of a killed landing, and the git command it ran ends on its own, or with the pass's other
+ * processes when systemd stops the pass.
+ */
+function workerDeps(checkout: string): WorkerDeps {
+  const url = run(["git", "remote", "get-url", "--push", REMOTE], checkout);
+
+  if (!url.ok) throw new Error(`git remote get-url --push ${REMOTE}: ${url.err}`);
+
+  return {
+    gh: (args) => ghCli(args, checkout),
+    land: (target) => {
+      const landed = Bun.spawnSync(
+        [process.execPath, join(import.meta.dir, "land.ts"), String(target)],
+        {
+          cwd: join(import.meta.dir, ".."),
+          env: { ...process.env, [DEV_COPY]: "1", [LAND_CWD]: checkout },
+          stdout: "pipe",
+          stderr: "pipe",
+          timeout: WORKER_LANDING_MS,
+          killSignal: "SIGKILL",
+        },
+      );
+
+      const stopped = landed.exitedDueToTimeout
+        ? `land: the landing ran past ${WORKER_LANDING_MS / 3_600_000} h and was killed\n`
+        : "";
+
+      return {
+        exitCode: landed.exitCode ?? 1,
+        stdout: landed.stdout.toString(),
+        stderr: `${landed.stderr.toString()}${stopped}`,
+      };
+    },
+    landingHeld: () => {
+      try {
+        return runState(lockPaths(url.out)).kind === "running";
+      } catch (error) {
+        // The holder file went between its check and its read: the landing that held the lock was releasing it.
+        if (isErrno(error, "ENOENT")) return true;
+        throw error;
+      }
+    },
+    probeSigning: () => {
+      probeSigning(checkout);
+    },
+    holdsDev: (head) => run(["git", "merge-base", "--is-ancestor", BASE, head], checkout).ok,
+    now: () => Date.now(),
+    dir: landingDir(),
+    repository: repositoryOf(url.out),
+  };
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
 
@@ -2033,13 +2104,21 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const usage = `Usage: bun ./scripts/land.ts <feature/...|fix/...|renovate/...|${ROLLING_BRANCH}|n|#n> [--dry-run]`;
+  const usage = [
+    `Usage: bun ./scripts/land.ts <feature/...|fix/...|renovate/...|${ROLLING_BRANCH}|n|#n> [--dry-run]`,
+    "       bun ./scripts/land.ts --worker --once",
+  ].join("\n");
+
   let parsed;
 
   try {
     parsed = parseArgs({
       args,
-      options: { "dry-run": { type: "boolean" } },
+      options: {
+        "dry-run": { type: "boolean" },
+        worker: { type: "boolean" },
+        once: { type: "boolean" },
+      },
       allowPositionals: true,
     });
   } catch {
@@ -2047,19 +2126,30 @@ if (import.meta.main) {
     process.exit(2);
   }
 
+  const { worker, once, "dry-run": dryRun } = parsed.values;
   const [target, ...rest] = parsed.positionals;
-
-  if (target === undefined || rest.length > 0) {
-    console.error(usage);
-    process.exit(2);
-  }
-
   const from = process.env[LAND_CWD] ?? process.cwd();
 
   // Read once: a command the landing runs, the pre-push gates' tests included, must not inherit it.
   delete process.env[LAND_CWD];
 
-  const landing = await land(target, from, WAITING, DEPS, parsed.values["dry-run"] === true);
+  if (worker === true && once === true && target === undefined && dryRun !== true) {
+    try {
+      for (const line of await runWorkerOnce(workerDeps(from))) console.log(line);
+    } catch (error) {
+      console.error(`landing-worker: ${messageOf(error)}`);
+      process.exitCode = 1;
+    }
+
+    process.exit();
+  }
+
+  if (worker === true || once === true || target === undefined || rest.length > 0) {
+    console.error(usage);
+    process.exit(2);
+  }
+
+  const landing = await land(target, from, WAITING, DEPS, dryRun === true);
   const runOnDev = `its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`;
 
   switch (landing.kind) {

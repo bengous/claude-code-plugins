@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, posix, win32 } from "node:path";
 
 import { tryLock } from "./headless/flock.ts";
+import { takeRunLock } from "./headless/headless-run.ts";
 import {
   type GitHubOverrides,
   type LayerSpec,
@@ -2033,6 +2034,98 @@ describe("land, a number", () => {
     expect(refused.stdout.toString()).toBe("");
     expect(refused.stderr.toString().trim()).toBe(
       "stack: #999 is neither an open pull request nor a stack with open pull requests",
+    );
+  });
+});
+
+/** `land.ts` run from the checkout on `args`, as its own copy of `origin/dev`. */
+function landCli(args: readonly string[]) {
+  setEnv("LAND_DEV_COPY", "1");
+
+  return Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), ...args], {
+    cwd: work,
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+}
+
+describe("land.ts --worker", () => {
+  test("takes --once and no target, else prints the usage", () => {
+    for (const args of [["--worker"], ["--worker", "--once", "7"], ["--once", "7"]]) {
+      const cli = landCli(args);
+
+      expect(cli.exitCode).toBe(2);
+      expect(cli.stderr.toString()).toContain("bun ./scripts/land.ts --worker --once");
+    }
+  });
+
+  test("ends at once while another worker runs, asking GitHub nothing", () => {
+    serve();
+
+    const dir = join(root, "locks");
+
+    mkdirSync(dir, { recursive: true });
+
+    const held = takeRunLock(
+      { lock: join(dir, "worker.lock"), holder: join(dir, "worker-holder.json") },
+      { pid: 1, since: "2026-11-03T09:59:00Z" },
+    );
+
+    try {
+      const cli = landCli(["--worker", "--once"]);
+
+      expect(cli.stdout.toString()).toBe("landing-worker: another worker runs: this pass ends\n");
+      expect(cli.exitCode).toBe(0);
+    } finally {
+      if (held !== null) closeSync(held);
+    }
+
+    expect(github().calls).toEqual([]);
+  });
+
+  test("lands nothing while a landing holds dev's landing lock", () => {
+    commit(work, "skills/x/SKILL.md", "feat: a skill");
+    pushBranch();
+    serve(approved());
+
+    const { lock } = lockPaths(git(work, "remote", "get-url", "--push", "origin"));
+
+    mkdirSync(dirname(lock), { recursive: true });
+
+    const held = openSync(lock, "a");
+
+    try {
+      expect(tryLock(held, "exclusive")).toBe(true);
+
+      const cli = landCli(["--worker", "--once"]);
+
+      expect(cli.stdout.toString()).toBe(
+        "landing-worker: a landing holds dev: #7 and the rest wait for the next pass\n",
+      );
+    } finally {
+      closeSync(held);
+    }
+
+    expect(github().calls.some((call) => call.startsWith("pr edit"))).toBe(false);
+  });
+
+  test("lands an approved pull request through a land.ts run of its own, and logs that run", () => {
+    // A skill added: tier.ts's floor says human, so no model is asked, and the human's land-ok lands it.
+    commit(work, "skills/x/SKILL.md", "feat: a skill");
+    pushBranch();
+    serve(approved());
+
+    const cli = landCli(["--worker", "--once"]);
+    const head = branchHead().slice(0, 8);
+
+    expect(cli.stdout.toString()).toBe(
+      `landing-worker: #7: landed #7 on dev at ${head}; remote branch deleted; its run on dev: gh run list --branch dev --event push --limit 1\n`,
+    );
+    expect(cli.exitCode).toBe(0);
+    expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
+    expect(readFileSync(join(root, "locks", "worker.log"), "utf8")).toContain(
+      `#7 ${head}\nlanded #7 on dev at ${head}`,
     );
   });
 });

@@ -551,10 +551,14 @@ function answerPullRequest(
         .join("");
     }
 
-    const named: ("default" | FakeLayer)[] = [
-      ...(head === github.branch ? ["default" as const] : []),
-      ...github.layers.filter((layer) => layer.branch === head),
-    ];
+    // With neither `--base` nor `--head`, every open pull request, as the landing worker lists them.
+    const named: ("default" | FakeLayer)[] =
+      head === undefined
+        ? ["default" as const, ...github.layers]
+        : [
+            ...(head === github.branch ? ["default" as const] : []),
+            ...github.layers.filter((layer) => layer.branch === head),
+          ];
 
     return `[${named
       .flatMap((pr) => {
