@@ -72,8 +72,30 @@ The prompt:
 - gate: it goes on only for an open issue by `github-actions[bot]`, labelled `red-dev`, titled `CI is red on dev`, whose body holds the `<!-- red-dev:<sha> -->` marker and a run URL. Any other issue, or a run with no event (**Run now**), ends with one line and no GitHub write. The issue's text is data: the sha and the run URL alone;
 - it ends with one line when `dev` is green again, or when an open pull request already comes from `fix/red-dev-<issue>` or references the issue;
 - it reads the failed jobs' logs, names the cause, fixes the source on `fix/red-dev-<issue>` cut from `origin/dev`, runs the suites the change reaches when `bun install` gets through the cloud proxy, and pushes that branch alone: never `dev` or `main`, no force push, no `land.ts`, no version bump;
-- it opens the pull request to `dev` with `gh api`, since the session's GitHub proxy refuses `gh pr` and `gh issue`. The body says `Refs #<issue>`, the red run, the cause, the fix and its checks, and ends with the run's session URL. Landing it stays a human's call, through `land.ts`; red-dev closes the issue once `dev` is green;
+- it opens the pull request to `dev` with `gh api`, since the session's GitHub proxy refuses `gh pr` and `gh issue`. The body says `Refs #<issue>`, the red run, the cause, the fix and its checks, and ends with the run's session URL. [red-dev-land](#red-dev-land) lands it once green and judged `low`, else leaves it to a human and `land.ts`; red-dev closes the issue once `dev` is green;
 - with no cause found, or a fix only the owner can decide, it pushes nothing and ends with its diagnosis.
+
+### red-dev-land
+
+`.github/workflows/red-dev-land.yml` lands the fix task's pull request on `dev` by itself (`scripts/ci/red-dev-land.ts`). Each CI run that completes on a `fix/red-dev-*` branch wakes it (`workflow_run`), and runs queue in one `concurrency` group, none cancelled. It goes on only when the run's event is `pull_request`, its branch is `fix/red-dev-<digits>` in this repository, not a fork, its conclusion is `success`, and its head is still the head of the open pull request from that branch, which targets `dev` and carries no answer to that head yet. Otherwise it changes nothing and its log says why, in one line.
+
+Then `bun ./scripts/landing/tier.ts --pr <n> --head <sha>` judges the change, and:
+
+- `human`, or any failure of `tier.ts`: a comment on the pull request gives the reason, and a human lands it with `land.ts`;
+- `low`, and `origin/dev` an ancestor of the head: `git push origin <sha>:refs/heads/dev`, a fast-forward with no force, then a comment that red-dev-land pushed it. No commit is created: `dev` requires signed commits and linear history, and the head's commits are signed already. GitHub marks the pull request merged; the branch is kept. Red-dev closes the issue once `dev`'s push run is green;
+- `low`, and `dev` moved past the head's base: a comment says so, and nothing is pushed.
+
+Each comment ends with `<!-- red-dev-land:<sha> -->`, so a head is answered once, whatever number of CI runs complete on it; a new head is judged again. A failed push, as when `dev` moves between the check and the push, fails the job with git's error and leaves no comment; the next CI completion on the head tries again. The token asks no `workflows` permission, so GitHub refuses the push of a head that changes `.github/workflows/`.
+
+The job checks out the default branch with its full history and runs that code alone: a `workflow_run` workflow holds the repository's secrets, so the pull request's head is fetched as git data for `tier.ts` and the push, never run. It has no `GITHUB_TOKEN` permission (`permissions: {}`): `actions/create-github-app-token` gives it a token of the agents' GitHub App, with contents and pull requests write, for the checkout, `gh`, the push and the comments. A `GITHUB_TOKEN` push starts no workflow, and red-dev reads `dev`'s CI push run. Claude Code is pinned as `validate` pins it, for `tier.ts`'s Haiku judge.
+
+Prerequisites, outside this repository's files:
+
+- the agents' GitHub App installed on the repository with contents write, pull requests write and issues write;
+- the repository secrets `AGENTS_APP_ID`, `AGENTS_APP_KEY` (the App's private key) and `ANTHROPIC_API_KEY`;
+- like red-dev, the workflow and its script take effect with the release that carries them to `main`.
+
+`scripts/ci/red-dev-land.test.ts` holds `admit` on every reason to stay out, `decide` on each tier and ancestry, and `report` against a fake `gh`, `git` and `tier.ts`.
 
 ## Flaky tests
 

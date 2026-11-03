@@ -1,0 +1,73 @@
+name: red-dev-land
+
+# Lands the red-dev fix task's pull request (`fix/red-dev-<issue>`) on `dev` once CI is green on
+# its head and `scripts/landing/tier.ts` reads it `low`: a fast-forward push, never a commit
+# (`scripts/ci/red-dev-land.ts`). GitHub runs a `workflow_run` workflow from the default branch,
+# `main`, with the repository's secrets: this file and its script take effect with the release that
+# carries them, and the code that runs is `main`'s, never the pull request's, whose head is fetched
+# as git data alone. The push goes through the agents' GitHub App: a `GITHUB_TOKEN` push starts no
+# workflow, and `dev`'s CI push run is what red-dev reads.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: ["fix/red-dev-*"]
+
+# One run at a time, none cancelled: each reads the pull request afresh, and a head answered once is
+# marked.
+concurrency:
+  group: red-dev-land
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  # No `GITHUB_TOKEN` permission: every read and write goes through the App's token.
+  red-dev-land:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the agents' App token
+        id: app
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          app-id: ${{ secrets.AGENTS_APP_ID }}
+          private-key: ${{ secrets.AGENTS_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      # Full history: `tier.ts` diffs from the merge-base with `origin/dev`.
+      - name: Checkout the default branch
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      # The step of `ci.yml`'s `pin-claude-code` anchor, which an anchor cannot reach across files.
+      - name: Pin Claude Code to the version the types were written by
+        shell: bash
+        run: |
+          version=$(sed -n '1s|^// Written by Claude Code \([^ ]*\)\.$|\1|p' vellum/types/claude-code.d.ts)
+          if [ -z "$version" ]; then
+            echo '::error::vellum/types/claude-code.d.ts: expected "// Written by Claude Code <version>." on line 1.'
+            exit 1
+          fi
+          echo "MISE_CLAUDE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Claude Code $version"
+
+      - name: Set up tools (bun, claude via mise)
+        uses: jdx/mise-action@v5.2.5
+        with:
+          install_args: bun claude
+          cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
+
+      - name: Land the green red-dev fix on dev, or say why not
+        run: bun ./scripts/ci/red-dev-land.ts
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
