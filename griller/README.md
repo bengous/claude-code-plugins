@@ -88,4 +88,4 @@ The round waiting is read back from the scribe's state, so a mod reload, a resta
 - The journal notes no end of session: a round left open when the session ends reads the same as one still waiting, and typing that no gesture followed is not in it. Going back to the prompt does not end the typing in a field; the next gesture does.
 - The terminal's ctrl+o transcript shows replies as stored, recommendations included.
 - In the terminal, a round opened over earlier text can leave stray letters in the pane's blank rows; ctrl+l redraws the screen and clears them.
-- The pane needs a terminal or the desktop app: the mobile app draws no answer field.
+- The pane needs a terminal or the desktop app. The mod draws nothing in the mobile app: an app that does not declare the answer field gets an empty box in its place, and the mod cannot tell which app it reaches.
