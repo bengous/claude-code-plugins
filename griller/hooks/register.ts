@@ -610,7 +610,10 @@ async function openRound($: EngineInterface, questions: readonly Question[]): Pr
 
 type Drawn = Parameters<EngineInterface["ui"]["resolve"]>[0];
 
-/** A surface that draws an `Input`: every one but mobile, whose table has none. */
+/**
+ * A surface the round draws on: every one but mobile, whose app gets an `Input` only if it named it
+ * in `draws` on its `ui_attach`, an empty Box otherwise, and no hook can tell which it got.
+ */
 type Typed = Drawn & { readonly surface: "terminal" | "desktop" | "vscode" };
 
 /** The letters of the choices a question offers, in the order it writes them. */

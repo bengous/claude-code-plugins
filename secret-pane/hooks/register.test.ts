@@ -877,7 +877,7 @@ test("a headless run has nobody to type: the tool says so", async ($, on) => {
   expect(String(answer.result)).toContain("needs an interactive session");
 });
 
-test("a session drawn on a phone alone has no box: the tool says so", async ($, on) => {
+test("a session drawn on a phone alone gets no box: the tool says so", async ($, on) => {
   await started($, on, { surfaces: ["mobile"] });
   const answer = await $.tool.call(ASK);
 
