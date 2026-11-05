@@ -211,7 +211,10 @@ function answerText(name: string, tag: string, value: string): string {
 
 type Drawn = Parameters<EngineInterface["ui"]["resolve"]>[0];
 
-/** A surface that draws an `Input`: every one but mobile, whose table has none. */
+/**
+ * A surface the box draws on: every one but mobile, whose app gets an `Input` only if it named it
+ * in `draws` on its `ui_attach`, an empty Box otherwise, and no hook can tell which it got.
+ */
 type Typed = Drawn & { readonly surface: "terminal" | "desktop" | "vscode" };
 
 function drawBox($: EngineInterface, e: Typed, p: Pending) {
