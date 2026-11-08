@@ -47,7 +47,7 @@ ln -sf /path/to/claude-code-plugins/session-archive/session-archive.md ~/.claude
 /session-archive --list           # List all archived sessions
 /session-archive --dry-run        # Preview what would be archived
 /session-archive --verbose        # Archive with detailed output
-/session-archive --days 14        # Archive sessions older than 14 days (default: 30)
+/session-archive --days 14        # Archive sessions without a message for 14 days (default: 90)
 /session-archive --project <path> # Target a specific project directory
 /session-archive --unarchive <uuid> --project <path>  # Restore a session
 ```
@@ -62,13 +62,26 @@ bun /path/to/claude-code-plugins/session-archive/session-archive.ts --stats
 
 On every `SessionStart`:
 
-1. Acquires a PID-based lockfile (with stale lock detection) to prevent concurrent runs
-2. Reads the session ID from stdin (Claude provides this as JSON) to protect the current session
-3. Archives up to 20 sessions per invocation (oldest first) that are older than 30 days
-4. Compresses JSONL transcripts using `Bun.zstdCompressSync()` (no external tools needed)
-5. Skips active sessions (detected via `/tmp/claude-*/tasks/` symlinks)
-6. Outputs `{"suppressOutput": true}` so Claude doesn't display anything
-7. Always exits 0 in hook mode -- errors are logged to stderr, never crash the session
+1. Outputs `{"suppressOutput": true}` so Claude doesn't display anything, and hands the work to a detached background process
+2. Does nothing at all unless the session's transcript lives under `~/.claude/projects` (the grandparent of `transcript_path`, both resolved): a profile such as `~/.claudex` or `~/.oxa` that inherits the hook keeps its sessions untouched
+3. Runs at most once every 6 hours, under a PID-based lockfile (with stale lock detection)
+4. Protects the current session (its ID from stdin), active sessions (detected via `/tmp/claude-*/tasks/` symlinks) and transcripts modified in the last 5 minutes
+5. Scans every project of `~/.claude/projects` and archives up to 20 sessions per pass, oldest first, that have had no message for 90 days
+6. Always exits 0 in hook mode; a session it kept, and why, goes to `~/.claude/.session-archive-errors.log`
+
+## When a session is old enough
+
+A session's last activity is the last `"timestamp"` field of its transcript, read from the end of the file, or the file's mtime when the transcript has none. A session is eligible once that date is older than `--days` (90 by default).
+
+## When an original is deleted
+
+The tool deletes a transcript from `~/.claude/projects` only when all of these hold; otherwise the transcript stays, nothing is indexed, the `.zst` written for it is removed, and the reason is reported:
+
+1. the vault holds a copy with the same sha256, at `<vault>/<project directory name>/<uuid>.jsonl`, checked before compressing; the vault root is `$SESSION_ARCHIVE_VAULT`, by default `~/.claude-archives/miroir/claude/projects`
+2. the `.zst` is fsynced (the file, then its directory after the rename), read back from disk and decompresses to exactly the bytes that were compressed
+3. the transcript kept its inode, size and mtime from the moment it was read to the moment it is deleted, so a message appended in between keeps it
+
+The session's `<uuid>/` directory is moved into `archive/` only after its transcript passed these checks. `--copy` never deletes and needs no vault copy. `--dry-run` writes nothing and checks the vault copy by existence and size only.
 
 ## Archive structure
 

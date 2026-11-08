@@ -1,20 +1,42 @@
 #!/usr/bin/env bun
 
-import { existsSync, readFileSync } from "node:fs";
-import { readdir, stat, mkdir, readlink, readFile, unlink, cp } from "node:fs/promises";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import {
+  cp,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename } from "node:path";
 
 import { createExclusiveSync, rename, writeAtomic } from "./lib/platform/fs.ts";
+import { isErrno, messageOf } from "./lib/platform/pure.ts";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");
+
+const DEFAULT_VAULT = join(homedir(), ".claude-archives", "miroir", "claude", "projects");
+
+const ERROR_LOG_PATH = join(homedir(), ".claude", ".session-archive-errors.log");
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/u;
 
 const SKIP_NAMES = new Set(["memory", "archive", "sessions-index.json"]);
 
-const DEFAULT_DAYS = 30;
+const DEFAULT_DAYS = 90;
+
+const TAIL_WINDOW_BYTES = 64 * 1024;
+
+// The unescaped `":"` cannot match inside a JSON string, where quotes are escaped, so a transcript
+// quoted in a tool result never supplies the date.
+const TIMESTAMP_RE = /"timestamp":"(\d{4}-\d{2}-\d{2}T[^"]+)"/gu;
 
 const HOOK_MAX_DEFAULT = 20;
 
@@ -35,12 +57,26 @@ function useStderrLog() {
   log = (...args: unknown[]) => console.error(...args);
 }
 
+// Why a session was kept or a pass failed -- stderr in CLI mode, a log file in background mode,
+// whose stderr nobody reads
+let reportError = (message: string): void => {
+  console.error(message);
+};
+
+function useErrorLogFile(path: string) {
+  reportError = (message) => {
+    appendFileSync(path, `${new Date().toISOString()} ${message}\n`);
+  };
+}
+
 // === Types ===
 interface SessionInfo {
   sessionId: string;
   jsonlPath?: string;
   dirPath?: string;
   mtime: Date;
+  /** The transcript's last `"timestamp"`, else its mtime (the directory's for a session without one). */
+  lastActivity: Date;
   sizeBytes: number;
 }
 
@@ -72,6 +108,8 @@ export interface Options {
   backgroundWorker?: string; // base64-encoded HookInput JSON
   max: number;
   verbose: boolean;
+  /** Mirror of the projects tree; an original is deleted only once it holds the same bytes. */
+  vaultRoot: string;
 }
 
 // === Lockfile ===
@@ -150,6 +188,7 @@ export function parseArgs(argv: string[]): Options {
     hook: false,
     max: 0, // 0 = unlimited (resolved later for hook mode)
     verbose: false,
+    vaultRoot: process.env["SESSION_ARCHIVE_VAULT"] || DEFAULT_VAULT,
   };
 
   function requireArg(flag: string, i: number): string {
@@ -240,13 +279,53 @@ export function shouldArchive(
 
   if (session.mtime > recentCutoff) return false;
 
-  // Skip sessions newer than cutoff
-  if (session.mtime > cutoffDate) return false;
+  // Skip sessions with a message after the cutoff
+  if (session.lastActivity > cutoffDate) return false;
 
   return true;
 }
 
+/** The last valid `"timestamp"` in `text`, or `undefined` when it holds none. */
+export function lastTimestampIn(text: string): Date | undefined {
+  const matches = Array.from(text.matchAll(TIMESTAMP_RE));
+
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const date = new Date(matches[i]?.[1] ?? "");
+
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  return undefined;
+}
+
 // === IO Functions ===
+
+/**
+ * The last `"timestamp"` of a transcript, read from its tail: a window that doubles until it holds
+ * one or reaches the start of the file. `undefined` when the transcript has none.
+ */
+export async function lastMessageTime(jsonlPath: string, size: number): Promise<Date | undefined> {
+  if (size === 0) return undefined;
+  const handle = await open(jsonlPath, "r");
+
+  try {
+    let window = Math.min(TAIL_WINDOW_BYTES, size);
+
+    for (;;) {
+      const start = size - window;
+      const buffer = Buffer.alloc(window);
+      const { bytesRead } = await handle.read(buffer, 0, window, start);
+      const found = lastTimestampIn(buffer.subarray(0, bytesRead).toString("utf-8"));
+
+      if (found !== undefined) return found;
+
+      if (start === 0) return undefined;
+      window = Math.min(window * 2, size);
+    }
+  } finally {
+    await handle.close();
+  }
+}
 
 export async function discoverSessions(projectDir: string): Promise<SessionInfo[]> {
   const entries = await readdir(projectDir, { withFileTypes: true });
@@ -274,6 +353,7 @@ export async function discoverSessions(projectDir: string): Promise<SessionInfo[
           sessionId,
           jsonlPath: filePath,
           mtime: fileStat.mtime,
+          lastActivity: fileStat.mtime,
           sizeBytes: fileStat.size,
         });
       }
@@ -292,13 +372,22 @@ export async function discoverSessions(projectDir: string): Promise<SessionInfo[
           sessionId: entry.name,
           dirPath,
           mtime: dirStat.mtime,
+          lastActivity: dirStat.mtime,
           sizeBytes: 0,
         });
       }
     }
   }
 
-  return Array.from(sessionMap.values());
+  const sessions = Array.from(sessionMap.values());
+
+  for (const session of sessions) {
+    if (session.jsonlPath === undefined) continue;
+    session.lastActivity =
+      (await lastMessageTime(session.jsonlPath, session.sizeBytes)) ?? session.mtime;
+  }
+
+  return sessions;
 }
 
 async function getActiveSessionIds(projectDir: string): Promise<Set<string>> {
@@ -335,29 +424,197 @@ async function getActiveSessionIds(projectDir: string): Promise<Set<string>> {
   return activeIds;
 }
 
+interface FileState {
+  ino: number;
+  size: number;
+  mtimeMs: number;
+}
+
+async function fileState(path: string): Promise<FileState> {
+  const { ino, size, mtimeMs } = await stat(path);
+
+  return { ino, size, mtimeMs };
+}
+
+function sameState(a: FileState, b: FileState): boolean {
+  return a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs;
+}
+
+function sha256(data: Uint8Array): string {
+  return new Bun.CryptoHasher("sha256").update(data).digest("hex");
+}
+
+/** The vault's copy of a session: same project directory name, same file name. */
+function vaultCopyPath(vaultRoot: string, projectDir: string, sessionId: string): string {
+  return join(vaultRoot, basename(projectDir), `${sessionId}.jsonl`);
+}
+
+/** Throws unless `vaultCopy` holds exactly `data`, compared by sha256. */
+export async function checkVaultCopy(vaultCopy: string, data: Uint8Array): Promise<void> {
+  let copy: Uint8Array;
+
+  try {
+    copy = new Uint8Array(await readFile(vaultCopy));
+  } catch (cause) {
+    if (isErrno(cause, "ENOENT")) throw new Error(`no vault copy at ${vaultCopy}`, { cause });
+    throw cause;
+  }
+
+  if (copy.byteLength !== data.byteLength || sha256(copy) !== sha256(data)) {
+    throw new Error(`the vault copy at ${vaultCopy} differs from the transcript`);
+  }
+}
+
+/** The dry-run's cheap stand-in for `checkVaultCopy`: existence and size, no hash. */
+async function checkVaultCopySize(vaultCopy: string, size: number): Promise<void> {
+  let copySize: number;
+
+  try {
+    copySize = (await stat(vaultCopy)).size;
+  } catch (cause) {
+    if (isErrno(cause, "ENOENT")) throw new Error(`no vault copy at ${vaultCopy}`, { cause });
+    throw cause;
+  }
+
+  if (copySize !== size) {
+    throw new Error(`the vault copy at ${vaultCopy} has another size than the transcript`);
+  }
+}
+
+async function syncDirectory(dir: string): Promise<void> {
+  const handle = await open(dir, "r");
+
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * `writeAtomic` with fsync: the data is synced to a scratch file beside `file` before the rename,
+ * and the directory after it, so a power loss leaves the old file or the whole new one.
+ */
+async function writeDurable(file: string, data: Uint8Array): Promise<void> {
+  const scratch = join(
+    dirname(file),
+    `.${basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+  );
+
+  try {
+    const handle = await open(scratch, "wx");
+
+    try {
+      await handle.writeFile(data);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+
+    await rename(scratch, file);
+  } catch (cause) {
+    await rm(scratch, { force: true });
+    throw cause;
+  }
+
+  await syncDirectory(dirname(file));
+}
+
+/** Throws unless the `.zst` on disk decompresses to exactly `expected`. */
+async function verifyArchive(zstPath: string, expected: Uint8Array): Promise<void> {
+  const onDisk = new Uint8Array(await readFile(zstPath));
+  let restored: Uint8Array;
+
+  try {
+    restored = Bun.zstdDecompressSync(onDisk);
+  } catch (cause) {
+    throw new Error(`${zstPath} does not decompress`, { cause });
+  }
+
+  const same = Buffer.from(restored.buffer, restored.byteOffset, restored.byteLength).equals(
+    Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength),
+  );
+
+  if (!same) throw new Error(`${zstPath} does not restore the transcript's bytes`);
+}
+
+/** Test seams into the archive of one transcript, at the two points a check must catch a fault. */
+export interface ArchiveSeams {
+  /** Runs once the `.zst` is synced to disk, before it is read back. */
+  readonly afterWrite?: (zstPath: string) => Promise<void>;
+  /** Runs once the `.zst` is verified, before the original's state is compared a last time. */
+  readonly beforeDelete?: (jsonlPath: string) => Promise<void>;
+}
+
+export interface CompressOptions {
+  /** Deletes the original once verified, provided this vault copy holds its bytes. Absent: the original stays. */
+  readonly deleteWithVaultCopy?: string | undefined;
+  readonly seams?: ArchiveSeams | undefined;
+}
+
+/**
+ * Compresses `jsonlPath` to `archivePath`, synced and read back. The original is deleted only
+ * with `deleteWithVaultCopy`, once the vault copy matched its bytes, the `.zst` restored them, and
+ * the original kept its inode, size and mtime since it was read. Any failure removes the `.zst`
+ * and keeps the original.
+ */
 export async function compressSession(
   jsonlPath: string,
   archivePath: string,
-  keepOriginal: boolean,
+  options: CompressOptions = {},
 ): Promise<number> {
-  const data = await Bun.file(jsonlPath).arrayBuffer();
-  const compressed = Bun.zstdCompressSync(new Uint8Array(data));
-  await writeAtomic(archivePath, compressed);
+  const read = await fileState(jsonlPath);
+  const data = new Uint8Array(await readFile(jsonlPath));
 
-  if (!keepOriginal) {
-    await unlink(jsonlPath);
+  if (!sameState(read, await fileState(jsonlPath))) {
+    throw new Error(`${jsonlPath} changed while it was read`);
+  }
+
+  const vaultCopy = options.deleteWithVaultCopy;
+
+  if (vaultCopy !== undefined) await checkVaultCopy(vaultCopy, data);
+  const compressed = Bun.zstdCompressSync(data);
+
+  try {
+    await writeDurable(archivePath, compressed);
+    await options.seams?.afterWrite?.(archivePath);
+    await verifyArchive(archivePath, data);
+
+    if (vaultCopy !== undefined) {
+      await options.seams?.beforeDelete?.(jsonlPath);
+
+      if (!sameState(read, await fileState(jsonlPath))) {
+        throw new Error(`${jsonlPath} changed since it was read`);
+      }
+
+      await unlink(jsonlPath);
+    }
+  } catch (cause) {
+    await rm(archivePath, { force: true });
+    throw cause;
   }
 
   return compressed.byteLength;
 }
 
+export interface ArchiveSessionOptions {
+  readonly dryRun: boolean;
+  readonly copy: boolean;
+  readonly verbose: boolean;
+  readonly vaultRoot: string;
+  readonly seams?: ArchiveSeams | undefined;
+}
+
+/** Archives one session of `projectDir` into its `archive/`; throws, leaving the original, on any failed check. */
 export async function archiveSession(
   session: SessionInfo,
-  archiveDir: string,
-  dryRun: boolean,
-  copy: boolean,
-  verbose: boolean,
+  projectDir: string,
+  options: ArchiveSessionOptions,
 ): Promise<ArchiveEntry> {
+  const { dryRun, copy, verbose } = options;
+  const archiveDir = join(projectDir, "archive");
+  const vaultCopy = vaultCopyPath(options.vaultRoot, projectDir, session.sessionId);
+
   const entry: ArchiveEntry = {
     sessionId: session.sessionId,
     archivedAt: new Date().toISOString(),
@@ -370,13 +627,20 @@ export async function archiveSession(
   };
 
   if (dryRun) {
+    const vaultChecked = !copy && session.jsonlPath !== undefined && session.sizeBytes > 0;
+
+    if (vaultChecked) await checkVaultCopySize(vaultCopy, session.sizeBytes);
+
     if (verbose) {
       const parts: string[] = [];
 
       if (session.jsonlPath) parts.push(`${formatBytes(session.sizeBytes)} JSONL`);
 
       if (session.dirPath) parts.push("+ dir");
-      log(`  [dry-run] Would archive ${session.sessionId} (${parts.join(" ")})`);
+      parts.push(`last activity ${session.lastActivity.toISOString()}`);
+
+      if (vaultChecked) parts.push("vault copy of the same size");
+      log(`  [dry-run] Would archive ${session.sessionId} (${parts.join(", ")})`);
     }
 
     return entry;
@@ -389,18 +653,16 @@ export async function archiveSession(
     if (session.sizeBytes > 0) {
       const archivePath = join(archiveDir, `${session.sessionId}.jsonl.zst`);
 
-      try {
-        entry.compressedSizeBytes = await compressSession(session.jsonlPath, archivePath, copy);
+      entry.compressedSizeBytes = await compressSession(session.jsonlPath, archivePath, {
+        deleteWithVaultCopy: copy ? undefined : vaultCopy,
+        seams: options.seams,
+      });
 
-        if (verbose) {
-          const ratio = ((entry.compressedSizeBytes / session.sizeBytes) * 100).toFixed(1);
-          log(
-            `  Compressed ${session.sessionId}.jsonl (${formatBytes(session.sizeBytes)} -> ${formatBytes(entry.compressedSizeBytes)}, ${ratio}%)`,
-          );
-        }
-      } catch (err) {
-        console.error(`  Failed to compress ${session.sessionId}: ${err}`);
-        throw err;
+      if (verbose) {
+        const ratio = ((entry.compressedSizeBytes / session.sizeBytes) * 100).toFixed(1);
+        log(
+          `  Compressed ${session.sessionId}.jsonl (${formatBytes(session.sizeBytes)} -> ${formatBytes(entry.compressedSizeBytes)}, ${ratio}%)`,
+        );
       }
     } else {
       // Empty file: move or copy
@@ -522,72 +784,122 @@ export async function unarchiveSession(uuid: string, projectDir: string): Promis
   log(`Unarchived ${uuid}`);
 }
 
-export async function archiveProject(
+interface ProjectScan {
+  projectDir: string;
+  sessionCount: number;
+  activeCount: number;
+  index: ArchiveIndex;
+  candidates: SessionInfo[];
+}
+
+async function scanProject(
   projectDir: string,
-  options: Options,
+  cutoffDate: Date,
   protectedIds: Set<string>,
-): Promise<{ archived: number; skipped: number; errors: number }> {
+): Promise<ProjectScan> {
   const sessions = await discoverSessions(projectDir);
   const activeIds = await getActiveSessionIds(projectDir);
 
   // Load existing archive index to skip already-archived sessions
-  const archiveDir = join(projectDir, "archive");
-  const existingIndex = await loadArchiveIndex(archiveDir);
-  const alreadyArchived = new Set(existingIndex.entries.map((e) => e.sessionId));
-
+  const index = await loadArchiveIndex(join(projectDir, "archive"));
+  const alreadyArchived = new Set(index.entries.map((e) => e.sessionId));
   const allProtected = new Set([...protectedIds, ...activeIds]);
+
+  const candidates = sessions.filter(
+    (s) => shouldArchive(s, cutoffDate, allProtected) && !alreadyArchived.has(s.sessionId),
+  );
+
+  return {
+    projectDir,
+    sessionCount: sessions.length,
+    activeCount: activeIds.size,
+    index,
+    candidates,
+  };
+}
+
+/**
+ * Archives the eligible sessions of every project in `projectDirs`, oldest last activity first,
+ * at most `options.max` in all (0: no limit). A session that fails a check stays in place, out of
+ * the index, and is reported.
+ */
+export async function archiveProjects(
+  projectDirs: string[],
+  options: Options,
+  protectedIds: Set<string>,
+  seams?: ArchiveSeams,
+): Promise<{ archived: number; skipped: number; errors: number }> {
   const cutoffDate = new Date(Date.now() - options.days * 24 * 60 * 60 * 1000);
-
-  const toArchive = sessions
-    .filter((s) => shouldArchive(s, cutoffDate, allProtected) && !alreadyArchived.has(s.sessionId))
-    .toSorted((a, b) => a.mtime.getTime() - b.mtime.getTime());
-
-  const limited = options.max > 0 ? toArchive.slice(0, options.max) : toArchive;
-
-  if (limited.length === 0) {
-    return { archived: 0, skipped: sessions.length, errors: 0 };
-  }
-
-  if (options.verbose || options.dryRun) {
-    const projectName = basename(projectDir);
-    log(
-      `\n${projectName}: ${limited.length} session(s) to archive (${sessions.length - limited.length} kept)`,
-    );
-
-    if (activeIds.size > 0) {
-      log(`  Active sessions protected: ${activeIds.size}`);
-    }
-  }
-
-  const index = options.dryRun ? { version: 1 as const, entries: [] } : existingIndex;
-  let archived = 0;
+  const scans: ProjectScan[] = [];
+  let sessionCount = 0;
   let errors = 0;
 
-  for (const session of limited) {
+  for (const projectDir of projectDirs) {
     try {
-      const entry = await archiveSession(
-        session,
-        archiveDir,
-        options.dryRun,
-        options.copy,
-        options.verbose,
-      );
-
-      if (!options.dryRun) {
-        index.entries.push(entry);
-      }
-
-      archived++;
-    } catch {
+      const scan = await scanProject(projectDir, cutoffDate, protectedIds);
+      scans.push(scan);
+      sessionCount += scan.sessionCount;
+    } catch (err) {
+      reportError(`session-archive: cannot scan ${projectDir}: ${messageOf(err)}`);
       errors++;
     }
   }
 
-  if (!options.dryRun && archived > 0) {
-    await saveArchiveIndex(archiveDir, index);
+  const ordered = scans
+    .flatMap((scan) => scan.candidates.map((session) => ({ scan, session })))
+    .toSorted((a, b) => a.session.lastActivity.getTime() - b.session.lastActivity.getTime());
+
+  const limited = options.max > 0 ? ordered.slice(0, options.max) : ordered;
+  let archived = 0;
+
+  for (const scan of scans) {
+    const chosen = limited.filter((c) => c.scan === scan).map((c) => c.session);
+
+    if (chosen.length === 0) continue;
+
+    if (options.verbose || options.dryRun) {
+      log(
+        `\n${basename(scan.projectDir)}: ${chosen.length} session(s) to archive (${scan.sessionCount - chosen.length} kept)`,
+      );
+
+      if (scan.activeCount > 0) {
+        log(`  Active sessions protected: ${scan.activeCount}`);
+      }
+    }
+
+    let projectArchived = 0;
+
+    for (const session of chosen) {
+      try {
+        const entry = await archiveSession(session, scan.projectDir, {
+          dryRun: options.dryRun,
+          copy: options.copy,
+          verbose: options.verbose,
+          vaultRoot: options.vaultRoot,
+          seams,
+        });
+
+        if (!options.dryRun) {
+          scan.index.entries.push(entry);
+        }
+
+        projectArchived++;
+      } catch (err) {
+        reportError(
+          `session-archive: kept ${join(scan.projectDir, session.sessionId)}: ${messageOf(err)}`,
+        );
+        errors++;
+      }
+    }
+
+    if (!options.dryRun && projectArchived > 0) {
+      await saveArchiveIndex(join(scan.projectDir, "archive"), scan.index);
+    }
+
+    archived += projectArchived;
   }
 
-  return { archived, skipped: sessions.length - archived, errors };
+  return { archived, skipped: sessionCount - archived, errors };
 }
 
 // === List & Stats ===
@@ -644,6 +956,12 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+async function listProjectDirs(root: string): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+
+  return entries.filter((e) => e.isDirectory()).map((e) => join(root, e.name));
+}
+
 async function getProjectDirs(options: Options): Promise<string[]> {
   if (options.project) {
     return [options.project.replace(/\/$/u, "")];
@@ -654,9 +972,31 @@ async function getProjectDirs(options: Options): Promise<string[]> {
     process.exit(1);
   }
 
-  const entries = await readdir(CLAUDE_DIR, { withFileTypes: true });
+  return await listProjectDirs(CLAUDE_DIR);
+}
 
-  return entries.filter((e) => e.isDirectory()).map((e) => join(CLAUDE_DIR, e.name));
+/**
+ * The projects root of the session that started the hook (the transcript's grandparent), when it
+ * is the main profile's `~/.claude/projects` once both are resolved; `undefined` otherwise, for
+ * another profile such as `~/.claudex`, whose sessions this tool must never touch.
+ */
+export async function mainProjectsRoot(
+  transcriptPath: string | undefined,
+  mainRoot = CLAUDE_DIR,
+): Promise<string | undefined> {
+  if (!transcriptPath) return undefined;
+
+  try {
+    const [root, main] = await Promise.all([
+      realpath(dirname(dirname(transcriptPath))),
+      realpath(mainRoot),
+    ]);
+
+    return root === main ? root : undefined;
+  } catch (cause) {
+    if (isErrno(cause, "ENOENT", "ENOTDIR")) return undefined;
+    throw cause;
+  }
 }
 
 // === Hook Mode ===
@@ -716,9 +1056,6 @@ async function writeMarker(archived: number): Promise<void> {
 async function runBackgroundWorker(options: Options): Promise<void> {
   useStderrLog();
 
-  // Throttle — skip if ran recently
-  if (isThrottled()) return;
-
   // Decode hook input from base64 arg
   let input: HookInput = {};
 
@@ -726,8 +1063,17 @@ async function runBackgroundWorker(options: Options): Promise<void> {
     const raw = Buffer.from(options.backgroundWorker!, "base64").toString("utf-8");
     input = JSON.parse(raw);
   } catch {
-    // Corrupt payload, proceed with empty input
+    // Corrupt payload: no transcript_path, so the profile check below does nothing
   }
+
+  // Not the main profile: no read, no write, not even the throttle marker
+  const root = await mainProjectsRoot(input.transcript_path);
+
+  if (root === undefined) return;
+  useErrorLogFile(ERROR_LOG_PATH);
+
+  // Throttle — skip if ran recently
+  if (isThrottled()) return;
 
   // Acquire lock — if we can't, another instance is running, bail
   const lockfile = DEFAULT_LOCKFILE;
@@ -744,28 +1090,15 @@ async function runBackgroundWorker(options: Options): Promise<void> {
       protectedIds.add(input.session_id);
     }
 
-    // Scope to current project only — no full scan in background mode
-    if (input.transcript_path) {
-      options.project = dirname(input.transcript_path);
-    }
-
-    if (!options.project) return;
-
     // In background mode, default max to 20 if not explicitly set
     if (options.max === 0) {
       options.max = HOOK_MAX_DEFAULT;
     }
 
-    const dirs = await getProjectDirs(options);
-
-    for (const dir of dirs) {
-      try {
-        const result = await archiveProject(dir, options, protectedIds);
-        totalArchived += result.archived;
-      } catch {
-        // Silently continue
-      }
-    }
+    const result = await archiveProjects(await listProjectDirs(root), options, protectedIds);
+    totalArchived = result.archived;
+  } catch (err) {
+    reportError(`session-archive: background pass failed: ${messageOf(err)}`);
   } finally {
     await releaseLock(lockfile);
   }
@@ -858,24 +1191,12 @@ if (import.meta.main) {
     }
 
     // Default: archive mode
-    let totalArchived = 0;
-    let totalSkipped = 0;
-    let totalErrors = 0;
-
-    for (const dir of dirs) {
-      try {
-        const result = await archiveProject(dir, options, new Set());
-        totalArchived += result.archived;
-        totalSkipped += result.skipped;
-        totalErrors += result.errors;
-      } catch (err) {
-        console.error(`Error processing ${basename(dir)}: ${err}`);
-        totalErrors++;
-      }
-    }
+    const result = await archiveProjects(dirs, options, new Set());
 
     if (options.verbose || options.dryRun) {
-      log(`\nDone: ${totalArchived} archived, ${totalSkipped} skipped, ${totalErrors} errors`);
+      log(
+        `\nDone: ${result.archived} archived, ${result.skipped} skipped, ${result.errors} errors`,
+      );
     }
   } catch (err) {
     // Top-level safety net — never crash the hook
