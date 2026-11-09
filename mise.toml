@@ -1,6 +1,7 @@
+include = [
+    "git::https://github.com/bengous/stack-watch.git//toolchain/js.toml?ref=toolchain-2026.11.09",
+    "git::https://github.com/bengous/stack-watch.git//toolchain/quality.toml?ref=toolchain-2026.11.09",
+]
+
 [tools]
-bun = "latest"
 claude = "latest"
-lefthook = "latest"
-shellcheck = "latest"
-shfmt = "latest"

@@ -22,6 +22,17 @@
       "description": "The package files under .claude/agent-hooks.jsonc's profile.review.risky land only with a human review verdict; scripts/headless/renovate-agent.integration.test.ts holds this list to that profile.",
       "matchFileNames": [".github/workflows/**"],
       "automerge": false
+    },
+    {
+      "description": "The two bengous/stack-watch includes of mise.toml move together, in one PR to the newest toolchain-YYYY.MM.DD tag, merged once every check is green. semver-coerced, the default versioning, reads such a tag as unstable and proposes nothing. The year is the major, so the yearly tag merges too. A tag is the owner's own release: it skips the release age.",
+      "matchManagers": ["mise"],
+      "matchDepTypes": ["include"],
+      "matchPackageNames": ["bengous/stack-watch"],
+      "versioning": "regex:^toolchain-(?<major>\\d{4})\\.(?<minor>\\d{2})\\.(?<patch>\\d{2})$",
+      "separateMajorMinor": false,
+      "groupName": "toolchain registry",
+      "minimumReleaseAge": null,
+      "automerge": true
     }
   ]
 }

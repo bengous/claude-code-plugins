@@ -49,10 +49,15 @@ jobs:
           echo "Claude Code $version"
 
       # The default key ignores the pinned version: a hit would restore another build, and an
-      # exact hit is never saved again.
+      # exact hit is never saved again. Every mise step gets MISE_GITHUB_TOKEN: mise.toml includes
+      # the private bengous/stack-watch registry, which `github.token` cannot read.
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
+          install_args: bun claude lefthook shellcheck shfmt
           cache_key: &claude-cache-key "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
       - name: Install script dependencies
@@ -208,7 +213,10 @@ jobs:
 
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun
 
       - name: Scope the suites and kits to the change
@@ -244,7 +252,10 @@ jobs:
 
       - name: Set up tools (bun, claude via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun claude
           cache_key: *claude-cache-key
 
@@ -301,7 +312,10 @@ jobs:
 
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun
 
       - name: Scope the mutants to the changed lines
@@ -343,6 +357,11 @@ jobs:
 
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
+        with:
+          version: 2026.10.25
+          install_args: bun
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -394,7 +413,10 @@ jobs:
 
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun
 
       - name: Install script dependencies
@@ -474,7 +496,10 @@ jobs:
       - name: Set up tools (bun via mise)
         continue-on-error: true
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun
 
       # A folder per artifact, every attempt's: a run already recorded is skipped by its marker.

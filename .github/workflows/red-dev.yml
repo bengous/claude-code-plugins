@@ -33,9 +33,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # mise.toml includes the private bengous/stack-watch registry, which `github.token` cannot read.
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun
 
       - name: Open, comment on or close the red-dev issue from dev's head

@@ -61,9 +61,13 @@ jobs:
           echo "MISE_CLAUDE_VERSION=$version" >> "$GITHUB_ENV"
           echo "Claude Code $version"
 
+      # mise.toml includes the private bengous/stack-watch registry, which MISE_GITHUB_TOKEN reads.
       - name: Set up tools (bun, claude via mise)
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        env:
+          MISE_GITHUB_TOKEN: ${{ secrets.MISE_GITHUB_TOKEN }}
         with:
+          version: 2026.10.25
           install_args: bun claude
           cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
