@@ -8,7 +8,8 @@ name: red-dev-land
 # as git data alone. The push goes through the agents' GitHub App: a `GITHUB_TOKEN` push starts no
 # workflow, and `dev`'s CI push run is what red-dev reads.
 on:
-  workflow_run:
+  # The code that runs is `main`'s (above); the pull request's head is fetched as git data alone.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [CI]
     types: [completed]
     branches: ["fix/red-dev-*"]
@@ -31,25 +32,27 @@ jobs:
     steps:
       - name: Get the agents' App token
         id: app
-        uses: actions/create-github-app-token@v3.3.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.AGENTS_APP_ID }}
           private-key: ${{ secrets.AGENTS_APP_KEY }}
           permission-contents: write
           permission-pull-requests: write
 
-      # Full history: `tier.ts` diffs from the merge-base with `origin/dev`.
-      - name: Checkout the default branch
-        uses: actions/checkout@v7.0.1
+      # Full history: `tier.ts` diffs from the merge-base with `origin/dev`. The App token stays in
+      # the git config: `red-dev-land.ts` pushes to `dev` with it, and the job uploads no artifact.
+      - name: Checkout the default branch # zizmor: ignore[artipacked]
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
 
       # The step of `ci.yml`'s `pin-claude-code` anchor, which an anchor cannot reach across files.
+      # It writes to GITHUB_ENV a version read from the default branch's own file.
       - name: Pin Claude Code to the version the types were written by
         shell: bash
-        run: |
+        run: | # zizmor: ignore[github-env]
           version=$(sed -n '1s|^// Written by Claude Code \([^ ]*\)\.$|\1|p' vellum/types/claude-code.d.ts)
           if [ -z "$version" ]; then
             echo '::error::vellum/types/claude-code.d.ts: expected "// Written by Claude Code <version>." on line 1.'
@@ -59,7 +62,7 @@ jobs:
           echo "Claude Code $version"
 
       - name: Set up tools (bun, claude via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun claude
           cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"

@@ -6,7 +6,8 @@ name: red-dev
 # the default branch, `main`: this file and its script take effect with the release that carries
 # them.
 on:
-  workflow_run:
+  # The job checks out and runs the default branch's code, never the code of the run that woke it.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [CI]
     types: [completed]
     branches: [dev]
@@ -28,10 +29,12 @@ jobs:
       issues: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun
 

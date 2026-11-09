@@ -28,8 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # full history needed for the drift guard
 
       # The hooks module's kit needs the engine its types were written by. An exact version,
@@ -50,7 +51,7 @@ jobs:
       # The default key ignores the pinned version: a hit would restore another build, and an
       # exact hit is never saved again.
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           cache_key: &claude-cache-key "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
 
@@ -184,7 +185,7 @@ jobs:
       # A name per attempt: a re-run keeps the first attempt's report beside its own.
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flaky-validate-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -200,12 +201,13 @@ jobs:
       units: ${{ steps.scope.outputs.units }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # the merge-base with the pull request's base
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun
 
@@ -234,12 +236,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - *pin-claude-code
 
       - name: Set up tools (bun, claude via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun claude
           cache_key: *claude-cache-key
@@ -266,7 +270,7 @@ jobs:
       # A name per attempt: a re-run keeps the first attempt's report beside its own.
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flaky-win32-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -290,12 +294,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # the merge-base with the base
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun
 
@@ -332,10 +337,12 @@ jobs:
         window: [light-1440, dark-1440, light-1024, light-1280, light-1920]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -362,7 +369,7 @@ jobs:
 
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flaky-e2e-${{ matrix.window }}-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -381,10 +388,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun
 
@@ -407,7 +416,7 @@ jobs:
 
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flaky-e2e-win32-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -458,18 +467,20 @@ jobs:
     steps:
       - name: Checkout
         continue-on-error: true
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up tools (bun via mise)
         continue-on-error: true
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install_args: bun
 
       # A folder per artifact, every attempt's: a run already recorded is skipped by its marker.
       - name: Download the flaky reports
         continue-on-error: true
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: flaky-*
           path: flaky-reports
