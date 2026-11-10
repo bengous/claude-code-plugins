@@ -1,7 +1,7 @@
 # goalify: design notes
 
 goalify writes the condition the user pastes after `/goal`. It descends from the
-Codex CLI `goalify` skill (`agents-skills/goalify`), whose output fed Codex's
+Codex CLI `goalify` skill (archived in `agents-skills/archive/goalify`), whose output fed Codex's
 own persistent-goal loop. Claude Code's `/goal` is the same kind of consumer,
 and the skill is shaped by how that consumer reads its input.
 
