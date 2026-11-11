@@ -4388,6 +4388,8 @@ declare module 'claude-code' {
       backgroundEndsWithFinalResponse?: true
       /** True when the subagent that owns this backgrounded command parks for its end and is woken by it */
       backgroundWakesOwner?: true
+      /** @internal Milliseconds, a whole number of minutes, from this result within which the end of this backgrounded command normally opens a turn even after the reply; absent where no such turn is promised */
+      backgroundCalledBackWithinMs?: number
       /** Flag to indicate if sandbox mode was overridden */
       dangerouslyDisableSandbox?: boolean
       /** Semantic interpretation for non-error exit codes with special meaning */
@@ -4470,6 +4472,7 @@ declare module 'claude-code' {
     }
     CronDelete: {
       id: string
+      endedLoopWakeup?: true
     }
     CronList: {
       jobs: Array<{
@@ -5259,6 +5262,10 @@ declare module 'claude-code' {
           height: number
           original_width: number
           original_height: number
+        }
+        thumbnail?: {
+          width: number
+          height: number
         }
         project_path?: string
         partial_error?: string
