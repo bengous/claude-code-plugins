@@ -46,7 +46,7 @@ A visual change carries a Before/After pair: the agent captures both states with
 
 ```markdown
 ## Problem      what is observed and what is wanted, no solution
-## Evidence     one fact per bullet, each anchored: path:line + symbol, or a commit
+## Evidence     one fact per bullet, each anchored: path + symbol, or a commit
 ## Hints        where to start, traps, boundaries; suggestions, never a plan
 ## Done when    observable checkboxes, including the project's validation command
 ## Out of scope what not to touch on the way (omitted when empty)
