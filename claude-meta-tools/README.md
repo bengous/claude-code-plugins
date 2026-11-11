@@ -44,6 +44,19 @@ only, since it widens scope on purpose.
 /ambition               # no arguments: the task discussed in this session
 ```
 
+## Which brief
+
+Choose by what crosses to the other agent, not by the model or harness that receives it.
+
+| What crosses | Skill |
+|---|---|
+| An intent, with the questions the user left open | `/meta-prompt` |
+| An outcome with no open question, for a `/goal` evaluator to judge | `/goalify`, in the [goalify](../goalify/) plugin |
+| The state of a session, to continue it elsewhere | a handoff skill; this plugin ships none |
+
+The two compose: the message sent before `/goal` is meta-prompt's, the `/goal` line is
+goalify's.
+
 ## License
 
 Apache-2.0
