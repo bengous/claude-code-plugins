@@ -125,6 +125,6 @@ On an update, the `opened_by` line of the current body is kept as it is and `<!-
 - No question to the reviewer: a decision is settled in *Decisions*, or it is a fact of *Left open*.
 - A sentence that repeats a view goes.
 - The reviewer has the diff. Do not paste what `gh pr diff` shows; paste the line a decision hangs on.
-- Code is named by its file and a symbol in it (a function, a constant, a type, a test name), in every section, review findings included. The body is read after more commits land; a search finds the symbol wherever it moved, where a line number points at other code.
+- Code is named by its file and a symbol in it (a function, a constant, a type, a test name), in every section, review findings included; in a file without symbols (Markdown, JSON, YAML), by a heading, a key or a short quoted phrase. The body is read after more commits land; a search finds the symbol wherever it moved, while a line number by then points at other code.
 - The body is in the language of the repository's recent PRs; a PR written for a named person keeps that person's language.
 - No branch history, no thanks, no summary at the end.
