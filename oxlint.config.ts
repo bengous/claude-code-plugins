@@ -40,6 +40,11 @@ export default defineConfig({
     // disagree on "12abc" (12 vs NaN) and "0x10" (0 vs 16).
     "unicorn/prefer-number-coercion": "off",
 
+    // The guards it flags (Number.isNaN on a parsed date, Array.isArray on parsed JSON,
+    // instanceof on a DOM node) reject bad input data, not a call with a wrongly typed
+    // argument, so a TypeError would misname them.
+    "unicorn/prefer-type-error": "off",
+
     // Deferred work carries a TODO(#issue) marker in the source, as in
     // scripts/gates/lint-shell.ts. The rule would reject every one of them.
     "no-warning-comments": "off",

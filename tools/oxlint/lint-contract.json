@@ -176,6 +176,7 @@
         "checkArguments": false
       }
     ],
-    "unicorn/prefer-number-coercion": "off"
+    "unicorn/prefer-number-coercion": "off",
+    "unicorn/prefer-type-error": "off"
   }
 }
