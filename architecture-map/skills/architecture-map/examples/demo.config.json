@@ -1,0 +1,65 @@
+{
+  "name": "Shop site plan",
+  "title": "Shop, site plan",
+  "note": "A made-up shop, to try the tool. The proposal is a hypothesis, not a decision.",
+
+  "splits": {
+    "orders/web.py": ["Order list and filters", "Order sheet", "Refund flow"],
+    "core/dashboard.py": ["The registry contract, to live under the modules", "The dashboard screen itself"]
+  },
+
+  "views": [
+    {
+      "id": "today",
+      "label": "Today",
+      "bands": [
+        {"label": "modules", "dirs": ["catalog", "orders", "billing", "shipping"], "columns": true, "role": "Four business modules."},
+        {"label": "core/", "dirs": ["core"], "role": "The shared base. It also holds the composition and a screen."}
+      ],
+      "rules": {
+        "layers": true,
+        "contracts": [{"band": "modules", "files": ["api.py"]}]
+      },
+      "roles": {
+        "core": "Database, events and config, plus the app composition, the admin command and the dashboard.",
+        "billing": "Payments. It has no public contract (api.py)."
+      }
+    },
+    {
+      "id": "proposal",
+      "label": "Proposed tree",
+      "feedback": true,
+      "moves": [
+        ["core/{app,admin}.py", "app/"],
+        ["core/dashboard.py", "screens/"],
+        ["core/*.py", "kernel/"],
+        ["orders/invoice_pdf.py", "orders/documents/"],
+        ["orders/checkout_web.py", "orders/checkout/"]
+      ],
+      "new": [
+        {"path": "billing/api.py", "why": "billing has no public contract today."},
+        {"path": "kernel/registry.py", "why": "The contract modules use to add their part to a shared screen."}
+      ],
+      "bands": [
+        {"label": "app/", "dirs": ["app"], "role": "Composition. The only folder that knows every other."},
+        {"label": "screens/", "dirs": ["screens"], "role": "Screens that span the modules."},
+        {"label": "modules", "dirs": ["catalog", "orders", "billing", "shipping"], "columns": true, "rootLabel": "public contract", "role": "Each module has a public contract and slices."},
+        {"label": "kernel/", "dirs": ["kernel"], "role": "Database, events, config. Imports no other folder."}
+      ],
+      "rules": {
+        "layers": true,
+        "contracts": [{"band": "modules", "files": ["api.py"]}],
+        "overrides": [
+          {"from": "{catalog,orders,billing,shipping}/**", "to": "screens/dashboard.py", "verdict": "warn"}
+        ]
+      },
+      "roles": {
+        "app": "Composition: wires the modules, the routes and the admin command.",
+        "screens": "The dashboard. Each module adds its part through a registry.",
+        "kernel": "Database, events, config, mail. Imports no other folder.",
+        "orders/checkout": "The checkout flow, which talks to billing.",
+        "orders/documents": "Invoices as PDF."
+      }
+    }
+  ]
+}

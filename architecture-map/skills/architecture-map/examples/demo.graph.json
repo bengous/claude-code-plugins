@@ -1,0 +1,392 @@
+{
+ "root": "shop",
+ "unit": "lines",
+ "nodes": [
+  {
+   "path": "billing/model.py",
+   "size": 210
+  },
+  {
+   "path": "billing/store.py",
+   "size": 300
+  },
+  {
+   "path": "billing/stripe.py",
+   "size": 170
+  },
+  {
+   "path": "billing/usecases.py",
+   "size": 350
+  },
+  {
+   "path": "billing/web.py",
+   "size": 290
+  },
+  {
+   "path": "catalog/api.py",
+   "size": 60
+  },
+  {
+   "path": "catalog/model.py",
+   "size": 240
+  },
+  {
+   "path": "catalog/rules.py",
+   "size": 180
+  },
+  {
+   "path": "catalog/store.py",
+   "size": 420
+  },
+  {
+   "path": "catalog/web.py",
+   "size": 510
+  },
+  {
+   "path": "core/admin.py",
+   "size": 310
+  },
+  {
+   "path": "core/app.py",
+   "size": 260
+  },
+  {
+   "path": "core/config.py",
+   "size": 150
+  },
+  {
+   "path": "core/dashboard.py",
+   "size": 220
+  },
+  {
+   "path": "core/db.py",
+   "size": 120
+  },
+  {
+   "path": "core/events.py",
+   "size": 90
+  },
+  {
+   "path": "core/mailer.py",
+   "size": 140
+  },
+  {
+   "path": "orders/api.py",
+   "size": 80
+  },
+  {
+   "path": "orders/checkout_web.py",
+   "size": 380
+  },
+  {
+   "path": "orders/invoice_pdf.py",
+   "size": 260
+  },
+  {
+   "path": "orders/model.py",
+   "size": 300
+  },
+  {
+   "path": "orders/store.py",
+   "size": 530
+  },
+  {
+   "path": "orders/usecases.py",
+   "size": 640
+  },
+  {
+   "path": "orders/web.py",
+   "size": 720
+  },
+  {
+   "path": "shipping/api.py",
+   "size": 40
+  },
+  {
+   "path": "shipping/carriers/dhl.py",
+   "size": 110
+  },
+  {
+   "path": "shipping/carriers/ups.py",
+   "size": 120
+  },
+  {
+   "path": "shipping/rates.py",
+   "size": 230
+  },
+  {
+   "path": "shipping/web.py",
+   "size": 200
+  }
+ ],
+ "edges": [
+  [
+   "billing/store.py",
+   "billing/model.py"
+  ],
+  [
+   "billing/store.py",
+   "core/db.py"
+  ],
+  [
+   "billing/stripe.py",
+   "billing/model.py"
+  ],
+  [
+   "billing/stripe.py",
+   "core/config.py"
+  ],
+  [
+   "billing/usecases.py",
+   "billing/model.py"
+  ],
+  [
+   "billing/usecases.py",
+   "billing/store.py"
+  ],
+  [
+   "billing/usecases.py",
+   "core/events.py"
+  ],
+  [
+   "billing/usecases.py",
+   "orders/model.py"
+  ],
+  [
+   "billing/web.py",
+   "billing/usecases.py"
+  ],
+  [
+   "billing/web.py",
+   "core/dashboard.py"
+  ],
+  [
+   "catalog/api.py",
+   "catalog/model.py"
+  ],
+  [
+   "catalog/api.py",
+   "catalog/store.py"
+  ],
+  [
+   "catalog/rules.py",
+   "catalog/model.py"
+  ],
+  [
+   "catalog/store.py",
+   "catalog/model.py"
+  ],
+  [
+   "catalog/store.py",
+   "core/db.py"
+  ],
+  [
+   "catalog/store.py",
+   "core/events.py"
+  ],
+  [
+   "catalog/web.py",
+   "catalog/rules.py"
+  ],
+  [
+   "catalog/web.py",
+   "catalog/store.py"
+  ],
+  [
+   "catalog/web.py",
+   "core/config.py"
+  ],
+  [
+   "catalog/web.py",
+   "core/dashboard.py"
+  ],
+  [
+   "core/admin.py",
+   "billing/store.py"
+  ],
+  [
+   "core/admin.py",
+   "catalog/store.py"
+  ],
+  [
+   "core/admin.py",
+   "core/db.py"
+  ],
+  [
+   "core/admin.py",
+   "core/mailer.py"
+  ],
+  [
+   "core/admin.py",
+   "orders/store.py"
+  ],
+  [
+   "core/app.py",
+   "billing/web.py"
+  ],
+  [
+   "core/app.py",
+   "catalog/web.py"
+  ],
+  [
+   "core/app.py",
+   "core/config.py"
+  ],
+  [
+   "core/app.py",
+   "core/dashboard.py"
+  ],
+  [
+   "core/app.py",
+   "core/db.py"
+  ],
+  [
+   "core/app.py",
+   "orders/checkout_web.py"
+  ],
+  [
+   "core/app.py",
+   "orders/web.py"
+  ],
+  [
+   "core/app.py",
+   "shipping/web.py"
+  ],
+  [
+   "core/dashboard.py",
+   "core/config.py"
+  ],
+  [
+   "core/dashboard.py",
+   "core/db.py"
+  ],
+  [
+   "core/db.py",
+   "core/config.py"
+  ],
+  [
+   "core/events.py",
+   "core/db.py"
+  ],
+  [
+   "core/mailer.py",
+   "core/config.py"
+  ],
+  [
+   "orders/api.py",
+   "orders/model.py"
+  ],
+  [
+   "orders/api.py",
+   "orders/usecases.py"
+  ],
+  [
+   "orders/checkout_web.py",
+   "billing/stripe.py"
+  ],
+  [
+   "orders/checkout_web.py",
+   "billing/usecases.py"
+  ],
+  [
+   "orders/checkout_web.py",
+   "catalog/api.py"
+  ],
+  [
+   "orders/checkout_web.py",
+   "orders/usecases.py"
+  ],
+  [
+   "orders/invoice_pdf.py",
+   "catalog/rules.py"
+  ],
+  [
+   "orders/invoice_pdf.py",
+   "core/mailer.py"
+  ],
+  [
+   "orders/invoice_pdf.py",
+   "orders/model.py"
+  ],
+  [
+   "orders/store.py",
+   "core/db.py"
+  ],
+  [
+   "orders/store.py",
+   "core/events.py"
+  ],
+  [
+   "orders/store.py",
+   "orders/model.py"
+  ],
+  [
+   "orders/usecases.py",
+   "catalog/api.py"
+  ],
+  [
+   "orders/usecases.py",
+   "catalog/model.py"
+  ],
+  [
+   "orders/usecases.py",
+   "core/events.py"
+  ],
+  [
+   "orders/usecases.py",
+   "orders/model.py"
+  ],
+  [
+   "orders/usecases.py",
+   "orders/store.py"
+  ],
+  [
+   "orders/web.py",
+   "core/config.py"
+  ],
+  [
+   "orders/web.py",
+   "core/dashboard.py"
+  ],
+  [
+   "orders/web.py",
+   "orders/store.py"
+  ],
+  [
+   "orders/web.py",
+   "orders/usecases.py"
+  ],
+  [
+   "orders/web.py",
+   "shipping/api.py"
+  ],
+  [
+   "shipping/api.py",
+   "shipping/rates.py"
+  ],
+  [
+   "shipping/rates.py",
+   "core/config.py"
+  ],
+  [
+   "shipping/rates.py",
+   "orders/api.py"
+  ],
+  [
+   "shipping/rates.py",
+   "shipping/carriers/dhl.py"
+  ],
+  [
+   "shipping/rates.py",
+   "shipping/carriers/ups.py"
+  ],
+  [
+   "shipping/web.py",
+   "core/dashboard.py"
+  ],
+  [
+   "shipping/web.py",
+   "shipping/rates.py"
+  ]
+ ]
+}

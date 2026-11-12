@@ -45,6 +45,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [pinpoint](pinpoint/) | 0.5.4 | Point at your running app and talk to Claude: the session's address serves the app with an overlay that picks an element by a click or a zone by a drag, takes a quick label or a note, and keeps each selection in a batch you send at once; the batch reaches the session as a prompt, each element described by its selector, role, accessible name, box and styles, each zone with an image of it |
 | [atlas](atlas/) | 0.2.0 | Interactive architecture maps in the browser: zones and bricks laid out by ELK, overview arrows routed by libavoid, typed data files checked by a script, and open points discussed in threads between you and the agent; /atlas:board serves a map's page beside your session and hands what you select there to the agent; /atlas:init draws a repository's first map, each claim citing its lines |
 | [griller](griller/) | 0.1.0 | A grill where you answer before you see Claude's recommendation: Claude writes each round of questions in its reply, the chat hides every recommendation, and a pane beside it collects your answers and shows a recommendation only when you peek at it |
+| [architecture-map](architecture-map/) | 0.1.0 | Interactive map of a codebase's architecture: every file drawn to scale, every dependency judged by the rules you state, proposed trees to compare |
 
 See each plugin's README for detailed documentation and usage.
 

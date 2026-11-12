@@ -6,6 +6,7 @@
 export const CONSUMERS: readonly string[] = [
   "agent-hooks/lib/platform",
   "agents-bridge/lib/platform",
+  "architecture-map/lib/platform",
   "atlas/src/platform",
   "clean-comments/lib/platform",
   "context-management/lib/platform",

@@ -1,0 +1,19 @@
+{
+  "name": "architecture-map",
+  "version": "0.1.0",
+  "description": "Interactive map of a codebase's architecture: every file drawn to scale, every dependency judged by the rules you state, proposed trees to compare",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/architecture-map",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "dependency-graph",
+    "visualization",
+    "refactoring",
+    "codebase-map"
+  ]
+}

@@ -558,6 +558,25 @@
         "pane"
       ],
       "source": "./griller"
+    },
+    {
+      "name": "architecture-map",
+      "description": "Interactive map of a codebase's architecture: every file drawn to scale, every dependency judged by the rules you state, proposed trees to compare",
+      "version": "0.1.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "architecture",
+        "dependency-graph",
+        "visualization",
+        "refactoring",
+        "codebase-map"
+      ],
+      "source": "./architecture-map"
     }
   ],
   "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"
