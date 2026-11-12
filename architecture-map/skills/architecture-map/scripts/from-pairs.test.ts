@@ -18,8 +18,20 @@ describe("readPairs", () => {
     expect(readPairs('{"a.ts": ["b.ts", "c.ts"], "b.ts": []}')).toEqual([
       ["a.ts", "b.ts"],
       ["a.ts", "c.ts"],
+      ["b.ts", "b.ts"],
     ]);
     expect(readPairs('[["x", "y"]]')).toEqual([["x", "y"]]);
+  });
+
+  test("a madge file with no dependency stays a node", () => {
+    expect(readPairs('{"a.ts": ["b.ts"], "lonely.ts": []}')).toEqual([
+      ["a.ts", "b.ts"],
+      ["lonely.ts", "lonely.ts"],
+    ]);
+  });
+
+  test("a text line may open with a bracket", () => {
+    expect(readPairs("[id]/page.tsx -> lib/db.ts\n")).toEqual([["[id]/page.tsx", "lib/db.ts"]]);
   });
 });
 

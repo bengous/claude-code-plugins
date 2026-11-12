@@ -50,8 +50,8 @@ function walked(root: string): string[] {
 
 /**
  * The files under `root` that `keep` accepts, relative to it with `/` separators, sorted.
- * Asks git for its tracked files when `useGit` and `root` is in a repository; walks the directory
- * otherwise, skipping dependency and build folders.
+ * Asks git for its tracked files when `useGit` and `root` is in a repository, so a tracked folder
+ * named `build/` stays; walks the directory otherwise, skipping dependency and build folders.
  */
 export async function listFiles(
   root: string,
@@ -63,6 +63,5 @@ export async function listFiles(
 
   return all
     .filter((path) => keep(path) && !exclude.some((pattern) => globMatch(pattern, path)))
-    .filter((path) => !path.split("/").some((part) => SKIP_DIRS.has(part)))
     .toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }

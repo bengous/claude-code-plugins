@@ -53,7 +53,7 @@ Run the extractor for the language from the repository, then keep `graph.json` b
 
 ```bash
 bun ${CLAUDE_PLUGIN_ROOT}/skills/architecture-map/scripts/extract-python.ts path/to/package --out graph.json
-bun ${CLAUDE_PLUGIN_ROOT}/skills/architecture-map/scripts/extract-js.ts src --alias '@/=src/' --out graph.json
+bun ${CLAUDE_PLUGIN_ROOT}/skills/architecture-map/scripts/extract-js.ts . --alias '@/=src/' --out graph.json
 bun ${CLAUDE_PLUGIN_ROOT}/skills/architecture-map/scripts/from-pairs.ts pairs.tsv --root src --out graph.json   # any other language
 ```
 

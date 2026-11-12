@@ -120,6 +120,11 @@ export type PageView = {
   readonly layers: boolean;
   readonly judges: boolean;
   readonly contracts: readonly { readonly band: number; readonly files: readonly string[] }[];
+  readonly overrides: readonly {
+    readonly from: string;
+    readonly to: string;
+    readonly level: Level;
+  }[];
   readonly rulesText?: readonly string[];
   readonly feedback: boolean;
   readonly note: string;
@@ -219,10 +224,18 @@ export function drawnFiles(graph: Graph, config: MapConfig, notes: string[]): Dr
       alias.set(member, rule.into);
     }
 
-    sizes.set(rule.into, total);
+    const earlier = groups.get(rule.into);
+
+    if (earlier === undefined && sizes.has(rule.into)) {
+      throw new MapError(
+        `collapse ${quoted(rule.match)}: "into" names a file of the graph, ${quoted(rule.into)}; pick a free path`,
+      );
+    }
+
+    sizes.set(rule.into, total + (earlier === undefined ? 0 : (sizes.get(rule.into) ?? 0)));
     groups.set(rule.into, {
-      count: members.length,
-      label: rule.label ?? `${basename(rule.into)}/`,
+      count: members.length + (earlier?.count ?? 0),
+      label: rule.label ?? earlier?.label ?? `${basename(rule.into)}/`,
     });
   }
 
@@ -327,7 +340,15 @@ export function resolveBands(
 }
 
 function contractBand(bands: readonly BandConfig[], ref: number | string): number {
-  if (Number.isInteger(ref)) return Number(ref);
+  if (Number.isInteger(ref)) {
+    const at = Number(ref);
+
+    if (at < 0 || at >= bands.length) {
+      throw new MapError(`a contract names band ${at}, and this view has ${bands.length} band(s)`);
+    }
+
+    return at;
+  }
 
   const found = bands.findIndex((band) => band.label === ref);
 
@@ -491,6 +512,11 @@ export function buildMap(graph: Graph, config: MapConfig): BuiltMap {
         (rules.contracts ?? []).length > 0 ||
         (rules.overrides ?? []).length > 0,
       contracts: (judges.at(-1)?.contracts ?? []).map(({ band, files }) => ({ band, files })),
+      overrides: (rules.overrides ?? []).map((override) => ({
+        from: override.from ?? "**",
+        to: override.to ?? "**",
+        level: LEVEL[override.verdict],
+      })),
       feedback: view.feedback === true,
       note: view.note ?? "",
     };

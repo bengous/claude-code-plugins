@@ -17,7 +17,8 @@ import type { Graph, GraphNode, Link } from "./map.ts";
 
 const HELP = `extract-js.ts ROOT --out graph.json [--alias PREFIX=PATH]... [--exclude GLOB]... [--no-git]
 
-  --alias     an import prefix mapped to a path under ROOT, e.g. '@/=src/'; repeatable. The simple
+  --alias     an import prefix mapped to a path relative to ROOT, e.g. '@/=src/' when ROOT is the
+              folder holding src/; repeatable. The simple
               "prefix/*" entries of the "paths" of a tsconfig.json at ROOT are read as aliases too.
   --exclude   glob of paths to leave out; repeatable
   --no-git    walk the directory instead of asking git for tracked files`;
@@ -50,16 +51,68 @@ export type Alias = readonly [prefix: string, target: string];
 const isSource = (path: string): boolean =>
   EXTENSIONS.includes(extname(path)) && !path.endsWith(".d.ts");
 
-/** Every module specifier a source names, in order. */
-export function specifiersOf(source: string): string[] {
-  return [...source.matchAll(SPECIFIER)].map((match) => match[1] ?? "");
+/**
+ * The source with its comments blanked out, strings kept, newlines kept. With `blankTemplates`,
+ * the content of template literals is blanked too: code written there is text, not an import.
+ */
+export function blankComments(source: string, blankTemplates: boolean): string {
+  const out: string[] = [];
+  let index = 0;
+
+  const blank = (stop: number): void => {
+    out.push(source.slice(index, stop).replaceAll(/[^\n]/gu, " "));
+    index = stop;
+  };
+
+  while (index < source.length) {
+    const char = source.charAt(index);
+
+    if (source.startsWith("//", index)) {
+      const end = source.indexOf("\n", index);
+
+      blank(end === -1 ? source.length : end);
+    } else if (source.startsWith("/*", index)) {
+      const end = source.indexOf("*/", index + 2);
+
+      blank(end === -1 ? source.length : end + 2);
+    } else if (char === '"' || char === "'" || char === "`") {
+      let cursor = index + 1;
+
+      while (cursor < source.length && source.charAt(cursor) !== char) {
+        if (char !== "`" && source.charAt(cursor) === "\n") break;
+        cursor += source.charAt(cursor) === "\\" ? 2 : 1;
+      }
+
+      const stop = Math.min(cursor + 1, source.length);
+
+      if (char === "`" && blankTemplates) {
+        out.push("`");
+        index += 1;
+        blank(Math.max(index, stop - 1));
+      }
+
+      out.push(source.slice(index, stop));
+      index = stop;
+    } else {
+      out.push(char);
+      index += 1;
+    }
+  }
+
+  return out.join("");
 }
 
-/** The simple `prefix/*` entries of a tsconfig's `compilerOptions.paths`, as aliases. */
-export function tsconfigAliases(text: string): Alias[] {
-  const json = text
-    .replaceAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\//gu, "")
-    .replaceAll(/,(\s*[}\]])/gu, "$1");
+/** Every module specifier a source names, in order; comments and template literals are not code. */
+export function specifiersOf(source: string): string[] {
+  return [...blankComments(source, true).matchAll(SPECIFIER)].map((match) => match[1] ?? "");
+}
+
+/**
+ * The simple `prefix/*` entries of a tsconfig's `compilerOptions.paths`, as aliases; null when the
+ * text is not JSON once its comments and trailing commas are removed.
+ */
+export function tsconfigAliases(text: string): Alias[] | null {
+  const json = blankComments(text, false).replaceAll(/,(\s*[}\]])/gu, "$1");
 
   let parsed: {
     readonly compilerOptions?: {
@@ -73,7 +126,7 @@ export function tsconfigAliases(text: string): Alias[] {
     // through optional chaining, and an entry that is not `prefix/*` is skipped.
     parsed = JSON.parse(json) as typeof parsed;
   } catch {
-    return [];
+    return null;
   }
 
   const options = parsed.compilerOptions ?? {};
@@ -135,7 +188,7 @@ export function jsLinks(files: ReadonlyMap<string, string>, aliases: readonly Al
         .find((candidate) => known.has(candidate));
 
       if (target !== undefined && target !== path) links.add(`${path}\n${target}`);
-      else if (target === undefined && specifier.startsWith(".")) missed += 1;
+      else if (target === undefined && bases.length > 0) missed += 1;
     }
   }
 
@@ -177,6 +230,13 @@ async function main(): Promise<void> {
   );
 
   const tsconfig = join(root, "tsconfig.json");
+  const fromTsconfig = existsSync(tsconfig) ? tsconfigAliases(readFileSync(tsconfig, "utf8")) : [];
+
+  if (fromTsconfig === null) {
+    console.log(
+      `${tsconfig} could not be read as JSON: its "paths" are ignored, pass --alias instead`,
+    );
+  }
 
   const aliases: Alias[] = [
     ...(values.alias ?? []).map((entry): Alias => {
@@ -184,7 +244,7 @@ async function main(): Promise<void> {
 
       return [prefix, target];
     }),
-    ...(existsSync(tsconfig) ? tsconfigAliases(readFileSync(tsconfig, "utf8")) : []),
+    ...(fromTsconfig ?? []),
   ];
 
   const nodes: GraphNode[] = paths.map((path) => ({
@@ -202,7 +262,7 @@ async function main(): Promise<void> {
 
   if (missed > 0)
     console.log(
-      `${missed} relative import(s) found no file (assets, generated code, or a missing --alias)`,
+      `${missed} relative or aliased import(s) found no file (assets, generated code, or a wrong --alias)`,
     );
 }
 

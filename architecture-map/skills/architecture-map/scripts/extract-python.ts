@@ -118,10 +118,11 @@ export function pythonLinks(
   packageName: string | null,
 ): Link[] {
   const known = new Set(files.keys());
+  const prefix = packageName === null ? [] : packageName.split(".");
 
   const resolveModule = (parts: readonly string[], name: string | null): string | null => {
-    const variants =
-      packageName !== null && parts[0] === packageName ? [parts.slice(1), parts] : [parts];
+    const prefixed = prefix.length > 0 && prefix.every((part, at) => parts[at] === part);
+    const variants = prefixed ? [parts.slice(prefix.length), parts] : [parts];
 
     for (const variant of variants) {
       const stem = variant.join("/");
@@ -134,7 +135,9 @@ export function pythonLinks(
         );
       }
 
-      if (stem !== "") candidates.push(`${stem}.py`, `${stem}/__init__.py`);
+      candidates.push(stem === "" ? "__init__.py" : `${stem}.py`);
+
+      if (stem !== "") candidates.push(`${stem}/__init__.py`);
 
       const hit = candidates.find((candidate) => known.has(candidate));
 

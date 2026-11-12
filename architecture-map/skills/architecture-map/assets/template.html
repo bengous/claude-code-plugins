@@ -184,7 +184,7 @@ textarea{width:100%;min-height:58px;border:1px solid var(--ink-2);background:var
 <div id="tip" hidden></div>
 
 <script>
-/* DATA is written by scripts/build.py: meta, strings, views, nodes, place[view][node] = [path, band, column], edges = [from, to, verdict per view]. */
+/* DATA is written by scripts/build.ts: meta, strings, views, nodes, place[view][node] = [path, band, column], edges = [from, to, verdict per view]. */
 const D=/*DATA*/null;
 const M=D.meta,V=D.views,N=D.nodes,P=D.place,E=D.edges;
 /* Every word the page shows. The config's `strings` key overrides any of them, in the reader's language. */
@@ -200,6 +200,7 @@ const T=Object.assign({
   rulesTitle:'The rules of this view',ruleLayers:'A folder imports only from the bands below it.',
   ruleContract:'Between two folders of "{band}", imports go through {files}.',
   ruleNone:'This view judges nothing. It shows the links as they are.',
+  ruleOverride:'Links from {from} to {to}: {verdict}.',o0:'allowed',o1:'to review',o2:'forbidden',
   moveTitle:'What placement alone changes',moveFixed:'{n} links fixed without editing a line.',moveMade:'{n} links newly flagged.',
   topTitle:'Files carrying the most links to fix',
   file:'File',folder:'Folder',sizeLine:'{n} {unit}',groupLine:'{count} files, {n} {unit}',folderLine:'{count} files, {n} {unit}',
@@ -381,7 +382,9 @@ function header(){
 })();
 
 /* title block */
-function rulesOf(view){if(view.rulesText)return view.rulesText;const out=[];if(view.layers)out.push(T.ruleLayers);
+function rulesOf(view){if(view.rulesText)return view.rulesText;const out=[];
+  view.overrides.forEach(o=>out.push(fmt(T.ruleOverride,{from:o.from,to:o.to,verdict:T['o'+o.level]})));
+  if(view.layers)out.push(T.ruleLayers);
   view.contracts.forEach(c=>out.push(fmt(T.ruleContract,{band:view.bands[c.band].label,files:c.files.join(', ')})));return out.length?out:[T.ruleNone]}
 function fileBtn(i,st,extra){return h('li',null,h('button',{type:'button',onclick:()=>select({t:'f',i},'fiche')},h('span',{class:'path',text:pathOf(i)}),extra?h('span',{class:'st s0 num',text:extra}):st?h('span',{class:'st s'+st,text:T['s'+st]}):null))}
 function renderFiche(){
@@ -419,10 +422,12 @@ function renderFiche(){
 }
 
 /* Shared opinions, only when a view sets `feedback` and the page is published with the `db` and `user` capabilities.
-   One document per person: opinions/<their id> = {a:{<view id>:{<folder, / written __>:{s,n,t}}}}. */
+   One document per person: opinions/<their id> = {a:{<view id>:{<folder, as keyOf writes it>:{s,n,t}}}}. */
 const FB=V.some(v=>v.feedback);
 let db=null,user=null,myId=null,fbState=FB?'wait':'none',all=new Map(),profiles={},mine={},mineLoaded=false,writing=false,dirty=false,writeFailed=false,noteTimer=0;
-const keyOf=p=>p.replace(/\//g,'__');
+/* A folder path as a key and back, reversibly: `~` becomes `~0`, then `/` becomes `~1`. */
+const keyOf=p=>p.replace(/~/g,'~0').replace(/\//g,'~1');
+const pathOfKey=k=>k.replace(/~1/g,'/').replace(/~0/g,'~');
 const VERD=[['ok',T.fbOk],['q',T.fbQ],['no',T.fbNo]];
 const entry=(a,v,p)=>{const x=a&&a[V[v].id];return x&&x[keyOf(p)]};
 function opinions(v,p){const r=[];let meSeen=false;all.forEach((doc,uid)=>{const me=uid===myId;if(me)meSeen=true;const a=me?entry(mine,v,p):entry(doc&&doc.a,v,p);if(a&&(a.s||a.n))r.push([uid,a])});
@@ -456,7 +461,7 @@ function fbSummary(){
   if(fbState==='off'){sec.append(h('p',{class:'muted',text:T.fbOff}));return sec}
   const rows=[],many=V.filter(v=>v.feedback).length>1;
   V.forEach((v,k)=>{if(!v.feedback)return;const keys=new Set(Object.keys(mine[v.id]||{}));all.forEach(doc=>Object.keys((doc&&doc.a&&doc.a[v.id])||{}).forEach(x=>keys.add(x)));
-    keys.forEach(key=>{const p=key.replace(/__/g,'/'),a=opinions(k,p);if(a.length)rows.push([k,p,a])})});
+    keys.forEach(key=>{const p=pathOfKey(key),a=opinions(k,p);if(a.length)rows.push([k,p,a])})});
   if(!rows.length){sec.append(h('p',{class:'muted',text:fbState==='wait'?T.fbLoading:T.fbEmpty}));return sec}
   const score=a=>a.reduce((n,x)=>n+(x[1].s==='no'?100:x[1].s==='q'?10:1),0);
   sec.append(h('ul',{class:'list'},...rows.sort((x,y)=>score(y[2])-score(x[2])).map(([k,p,a])=>h('li',null,h('button',{type:'button',onclick:()=>{if(k!==vi){vi=k;sel=null;build(true)}select({t:'d',p},'fiche')}},h('span',{class:'path',text:(many?V[k].label+' : ':'')+p+'/'}),h('span',{class:'st s'+worstOf(a),text:sumLabel(a)}))))));

@@ -80,3 +80,27 @@ describe("pythonLinks", () => {
     expect(pythonLinks(inside, null)).toEqual([]);
   });
 });
+
+describe("package names and the root package", () => {
+  test("a dotted --package maps its whole prefix to the root", () => {
+    const files = new Map([
+      ["core/db.py", ""],
+      ["orders/store.py", "from company.myapp.core.db import connect\n"],
+    ]);
+
+    expect(pythonLinks(files, "company.myapp")).toEqual([["orders/store.py", "core/db.py"]]);
+  });
+
+  test("a name imported from the root package resolves to its __init__.py", () => {
+    const files = new Map([
+      ["__init__.py", "VERSION = 1\n"],
+      ["cli.py", "from myapp import VERSION\n"],
+      ["web.py", "from . import VERSION\n"],
+    ]);
+
+    expect(pythonLinks(files, "myapp")).toEqual([
+      ["cli.py", "__init__.py"],
+      ["web.py", "__init__.py"],
+    ]);
+  });
+});

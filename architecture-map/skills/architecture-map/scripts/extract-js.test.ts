@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { jsLinks, specifiersOf, tsconfigAliases } from "./extract-js.ts";
+import { blankComments, jsLinks, specifiersOf, tsconfigAliases } from "./extract-js.ts";
 
 describe("specifiersOf", () => {
   test("reads imports, type imports, side-effect imports, re-exports, require and dynamic import", () => {
@@ -36,8 +36,8 @@ describe("tsconfigAliases", () => {
     expect(tsconfigAliases(text)).toEqual([["@/", "src/"]]);
   });
 
-  test("an unreadable tsconfig gives no alias", () => {
-    expect(tsconfigAliases("{ not json")).toEqual([]);
+  test("an unreadable tsconfig gives null, so the caller can say so", () => {
+    expect(tsconfigAliases("{ not json")).toBeNull();
   });
 });
 
@@ -67,5 +67,37 @@ describe("jsLinks", () => {
     ]);
 
     expect(jsLinks(flat, [["~/", "./"]]).links).toEqual([["a.ts", "b.ts"]]);
+  });
+});
+
+describe("comments and strings", () => {
+  test("a comment marker inside a string is text, not a comment", () => {
+    const text = [
+      "{",
+      '  "$schema": "https://json.schemastore.org/tsconfig",',
+      '  "compilerOptions": { "paths": { "@/*": ["./src/*"] } },',
+      '  "include": ["src/**/*.ts"]',
+      "}",
+    ].join("\n");
+
+    expect(tsconfigAliases(text)).toEqual([["@/", "src/"]]);
+  });
+
+  test("commented-out imports and imports written in a template literal are not links", () => {
+    const source = [
+      '// import x from "./ghost"',
+      '/* import y from "../lib/util" */',
+      'const doc = `import z from "./x"`',
+      'import real from "./real"',
+    ].join("\n");
+
+    expect(specifiersOf(source)).toEqual(["./real"]);
+    expect(blankComments(source, true)).toHaveLength(source.length);
+  });
+
+  test("an aliased import that finds no file counts as missed", () => {
+    const files = new Map([["src/a.ts", 'import "@/nowhere"\n']]);
+
+    expect(jsLinks(files, [["@/", "src/"]]).missed).toBe(1);
   });
 });

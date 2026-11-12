@@ -39,7 +39,7 @@ Applied once, before any view, on the graph's paths.
 | Key | Meaning |
 |---|---|
 | `drop` | `[{"match": glob, "maxSize": n}]`: leave these files out, with their links. `maxSize` limits it to small files (empty `__init__.py`). |
-| `collapse` | `[{"match": glob, "into": path, "label": text}]`: draw many files as one tile at `into` (generated code, migrations). Their sizes add up and their links are kept on the tile. |
+| `collapse` | `[{"match": glob, "into": path, "label": text}]`: draw many files as one tile at `into` (generated code, migrations). Their sizes add up and their links are kept on the tile. Two rules with one `into` share the tile; an `into` that names a file of the graph stops the build. |
 | `splits` | `{path: [text, ...]}`: a file planned to be split, with the pieces. Drawn dashed; the pieces show on its sheet. |
 
 ## Views
@@ -54,7 +54,7 @@ the reference the others are compared to ("what placement alone changes").
 | `new` | `[{"path", "why"}]`: files this view would create. Drawn hatched, with no size and no links. |
 | `bands` | The horizontal layers, top to bottom. See below. Without it: one band, one column per top-level folder. |
 | `rules` | How this view judges links. See below. Without it the view judges nothing. |
-| `rulesText` | Sentences shown as "the rules of this view". Default: written from `rules`. |
+| `rulesText` | Sentences shown as "the rules of this view". Default: written from `rules`, overrides first. |
 | `roles` | `{folder path: sentence}`: what each folder is for, shown on its sheet and as a tooltip in the tree. |
 | `note` | A sentence shown under the rules. |
 | `feedback` | `true`: readers give an opinion per folder of this view. Needs the page published with the `db` and `user` capabilities; otherwise the block says it is unavailable. |
@@ -107,4 +107,5 @@ the plural phrases in the headline ("need a contract"), `s1` and `s2` the per-li
 
 One line per view: links ok, warn, bad, files moved, and the files carrying the most links to fix. A line starting
 with `note:` names something the config says that the graph does not back: a move or collapse that matched no file,
-a split naming an unknown file, files outside every band. A path clash (two files moved onto one path) stops the build.
+a split naming an unknown file, files outside every band. A path clash (two files moved onto one path), a contract
+naming a band that does not exist, or a collapse onto an existing file stops the build.

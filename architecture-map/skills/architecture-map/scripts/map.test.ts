@@ -234,3 +234,45 @@ test("reportLines names notes, counts and the worst files", () => {
     "    most links to fix: billing/pay.py (1), core/app.py (1), migrations/0001.py (1)",
   );
 });
+
+describe("config errors and merges", () => {
+  test("a collapse onto a file of the graph stops the build", () => {
+    expect(() =>
+      buildMap(GRAPH, { collapse: [{ match: "migrations/**", into: "core/db.py" }] }),
+    ).toThrow(MapError);
+  });
+
+  test("two collapses onto one path share the tile", () => {
+    const { data } = buildMap(GRAPH, {
+      collapse: [
+        { match: "migrations/0001.py", into: "migrations/all" },
+        { match: "migrations/0002.py", into: "migrations/all" },
+      ],
+    });
+
+    expect(data.nodes.find((node) => node.g !== undefined)).toEqual({ s: 50, g: 2, gl: "all/" });
+  });
+
+  test("a contract naming a band past the last one stops the build", () => {
+    expect(() =>
+      buildMap(GRAPH, {
+        views: [
+          {
+            id: "v",
+            bands: [{ dirs: ["core"] }],
+            rules: { contracts: [{ band: 3, files: ["api.py"] }] },
+          },
+        ],
+      }),
+    ).toThrow(MapError);
+  });
+
+  test("a view's overrides reach the page, so its rules can be described", () => {
+    const { data } = buildMap(GRAPH, {
+      views: [{ id: "v", rules: { overrides: [{ from: "core/**", verdict: "bad" }] } }],
+    });
+
+    expect(data.views[0]?.judges).toBe(true);
+    expect(data.views[0]?.overrides).toEqual([{ from: "core/**", to: "**", level: 2 }]);
+  });
+});

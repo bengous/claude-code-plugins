@@ -21,19 +21,32 @@ const HELP = `from-pairs.ts PAIRS --out graph.json [--root DIR] [--unit NAME]
 A node's size is its line count when the file exists under --root, else 0. A line with a single
 name declares a node with no link.`;
 
-/** The pairs of a pairs file, a single name standing for a node with no link. */
-export function readPairs(text: string): Link[] {
+type JsonPairs = Readonly<Record<string, readonly string[]>> | readonly Link[];
+
+/** The JSON inputs, or null for a text file, even one whose first line opens with `[` or `{`. */
+function jsonPairs(text: string): JsonPairs | null {
   const trimmed = text.trimStart();
 
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+
+  try {
     // SAFETY: the documented inputs are a madge object of string lists or a list of string pairs;
     // a value of another shape makes the paths below "undefined" or a wrong type, never a crash.
-    const data = JSON.parse(text) as Readonly<Record<string, readonly string[]>> | readonly Link[];
+    return JSON.parse(text) as JsonPairs;
+  } catch {
+    return null;
+  }
+}
 
+/** The pairs of a pairs file, a single name standing for a node with no link. */
+export function readPairs(text: string): Link[] {
+  const data = jsonPairs(text);
+
+  if (data !== null) {
     if (Array.isArray(data)) return data.map(([from, to]) => [String(from), String(to)] as const);
 
     return Object.entries(data).flatMap(([from, targets]) =>
-      targets.map((to) => [from, to] as const),
+      targets.length === 0 ? [[from, from] as const] : targets.map((to) => [from, to] as const),
     );
   }
 
