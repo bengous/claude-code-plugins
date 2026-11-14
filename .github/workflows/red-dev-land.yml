@@ -59,7 +59,7 @@ jobs:
           echo "Claude Code $version"
 
       - name: Set up tools (bun, claude via mise)
-        uses: jdx/mise-action@v5.2.5
+        uses: jdx/mise-action@v5.2.7
         with:
           install_args: bun claude
           cache_key: "{{default}}-claude-{{env.MISE_CLAUDE_VERSION}}"
