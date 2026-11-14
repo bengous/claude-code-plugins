@@ -1,0 +1,14 @@
+{
+  "name": "cloud-pull",
+  "version": "0.1.0",
+  "description": "Continue a Claude Code cloud session as a local Desktop session in its own worktree, with no model call: same history, same model and effort, a banner the model never reads",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/cloud-pull",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": ["cloud", "teleport", "desktop", "session", "mod", "function-hooks"],
+  "types": "./types/index.d.ts"
+}
