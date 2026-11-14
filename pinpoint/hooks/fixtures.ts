@@ -188,7 +188,11 @@ export function world(on: On, options: WorldOptions = {}): World {
 
     if (Number(port) !== SERVER.port) return { deny: `ECONNREFUSED ${e.url}` };
     const path = pathname.slice(`/t/${SERVER.token}/`.length);
-    built.requests.push({ path, body: e.init?.body });
+    const body = e.init?.body;
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `HttpBody` is the engine's union of a text and `{ base64 }`, which only an engine request carries: `typeof` tells the two apart, and nothing here is parsed.
+    if (typeof body === "object") throw new Error(`the module sent bytes to ${e.url}`);
+    built.requests.push({ path, body });
 
     // As the real server does: its files removed, it answers, then its process ends.
     if (path === "api/close") built.children.at(-1)?.exit({ code: 0, signal: null });

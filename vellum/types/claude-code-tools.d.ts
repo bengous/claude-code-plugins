@@ -525,7 +525,7 @@ declare module 'claude-code' {
     PushNotification: {
       /** The notification body. Keep it under 200 characters; mobile OSes truncate. */
       message: string
-      status: "proactive"
+      status?: "proactive"
     }
     Read: {
       /** The absolute path to the file to read */
@@ -553,8 +553,8 @@ declare module 'claude-code' {
     }
     ReadNotifications: {}
     ReadWidgetContext: {
-      /** A view id as a reminder named it, to read only that view; omit it to read every held view. */
-      view?: string
+      /** A widget_id as a reminder or an earlier answer named it, to read only that view; omit it to read every held view. */
+      widget_id?: string
     }
     RemoteTrigger: {
       action: "list" | "get" | "create" | "update" | "run" | "create_webhook_trigger" | "list_runs" | "get_run_log"
@@ -562,7 +562,7 @@ declare module 'claude-code' {
       trigger_id?: string
       /** Required for get_run_log: a run session id (cse_… or session_…, from list_runs) */
       session_id?: string
-      /** next_cursor from a previous list_runs or get_run_log page */
+      /** The next_cursor from the previous page of the same listing (list_runs with the same trigger_id, or get_run_log with the same session_id), passed back unchanged. Not an offset, a count or an event number. */
       cursor?: string
       /** Required for create and update; optional for run */
       body?: {}
@@ -927,7 +927,7 @@ declare module 'claude-code' {
       worktreeBranch?: string
       /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
       canContinueAgent?: boolean
-      /** @internal The subagent's TaskCreate and TaskUpdate calls that landed, in order: each call's tool, input and result text. The subagent writes the session's task list, and no other row of the main transcript shows these calls (not a stable consumer field) */
+      /** @internal The subagent's TaskCreate and TaskUpdate calls that succeeded, in order: each call's tool, its input as the model wrote it, and its result text. The subagent writes the session's task list, and no other row of the main transcript shows these calls. A missing member does not mean that no call ran. A host may read it, so a later build only adds keys to a call: see "For another program that reads a sub-agent's task calls" in docs/task-list-across-compaction.md */
       taskCalls?: Array<{
         name: "TaskCreate" | "TaskUpdate"
         input: unknown
@@ -4388,6 +4388,8 @@ declare module 'claude-code' {
       backgroundEndsWithFinalResponse?: true
       /** True when the subagent that owns this backgrounded command parks for its end and is woken by it */
       backgroundWakesOwner?: true
+      /** @internal Milliseconds, a whole number of minutes, from this result within which the end of this backgrounded command normally opens a turn even after the reply; absent where no such turn is promised */
+      backgroundCalledBackWithinMs?: number
       /** Flag to indicate if sandbox mode was overridden */
       dangerouslyDisableSandbox?: boolean
       /** Semantic interpretation for non-error exit codes with special meaning */
@@ -4470,6 +4472,7 @@ declare module 'claude-code' {
     }
     CronDelete: {
       id: string
+      endedLoopWakeup?: true
     }
     CronList: {
       jobs: Array<{
@@ -4660,10 +4663,17 @@ declare module 'claude-code' {
       lastUpdatedAt: string
       status: "completed"
       result: {
-        content: {
+        content: Array<{
           type: "text"
           text: string
-        }[]
+        } | {
+          type: "image"
+          source: {
+            type: "base64"
+            media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+            data: string
+          }
+        }>
         isError: boolean
       }
     } | {
@@ -4892,7 +4902,7 @@ declare module 'claude-code' {
       method: "project_read"
       notice?: string
       path: string
-      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain and tengu_lucky_nebula are on, on a project_read that saved the whole text to a file and on a project_write by local_path in a checked call. */
       version?: string
       file_kind?: string
       content?: string
@@ -4915,7 +4925,7 @@ declare module 'claude-code' {
       notice?: string
       path: string
       doc_uuid: string
-      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text. Set only where docVersionsOffered. */
+      /** @internal Lowercase hex SHA-256 of the UTF-8 bytes of a text doc's whole text; never on a project_read that delivered only part of the doc. Set where docVersionsOffered; also, while tengu_lovely_rain and tengu_lucky_nebula are on, on a project_read that saved the whole text to a file and on a project_write by local_path in a checked call. */
       version?: string
       replaced: boolean
       present_to_user?: boolean
@@ -5253,6 +5263,10 @@ declare module 'claude-code' {
           original_width: number
           original_height: number
         }
+        thumbnail?: {
+          width: number
+          height: number
+        }
         project_path?: string
         partial_error?: string
       }[]
@@ -5447,6 +5461,8 @@ declare module 'claude-code' {
       durationMs: number
       /** The URL that was fetched */
       url: string
+      /** @internal The model may get the result as a search result that it can cite. */
+      citable?: true
       artifactRead?: {
         slug: string
         ver?: string

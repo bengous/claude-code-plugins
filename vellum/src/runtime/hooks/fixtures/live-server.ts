@@ -50,9 +50,14 @@ export function liveServer(
 
     paths.push(pathname);
 
+    const body = e.init?.body;
+
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `HttpBody` is the engine's union of a text and `{ base64 }`, which only an engine request carries: `typeof` tells the two apart, and nothing here is parsed.
+    if (typeof body === "object") throw new Error(`the module sent bytes to ${e.url}`);
+
     const answer =
       Number(port) === SERVER.port
-        ? ((await served.get(pathname)?.(e.init?.body, searchParams)) ?? null)
+        ? ((await served.get(pathname)?.(body, searchParams)) ?? null)
         : null;
 
     return answer === null ? { deny: `ECONNREFUSED ${e.url}` } : { value: answer };

@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.317.
+// Written by Claude Code 2.1.322.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -1198,6 +1198,14 @@ declare module 'claude-code' {
   };
 
   /**
+   * The argument of `$.ui.cancelNotify`.
+   */
+  type CancelNotifyArgs = {
+      /** The `key` the plugin gave `$.ui.notify`. */
+      key: string;
+  };
+
+  /**
    * The handler `on(...).catch(handler)` takes for a hook of type `F`: the
    * hook's `($, e, next)`, run afresh when it throws, misreturns or overruns.
    *
@@ -1886,6 +1894,16 @@ declare module 'claude-code' {
        */
       context?: readonly string[];
       /**
+       * Whether `text` is for the person alone and `context` is all the model
+       * reads: the output row is drawn and kept, and goes in no request.
+       *
+       * Read on a hook's own answer without `next`, when every plugin hooking the
+       * command is bundled with Claude Code, whose answer reads as the built-in
+       * command's own, on the queued lanes: a panel answered mid-turn keeps its
+       * text in requests. Any other plugin's text stays in requests.
+       */
+      isTextDisplayOnly?: true;
+      /**
        * What the process exits with when this command was the whole prompt of a
        * headless run (`claude -p "/lint"`): a whole number from 0 to 255.
        *
@@ -2386,13 +2404,12 @@ declare module 'claude-code' {
            *
            * A redraw: ten a second at most, thirty in the terminal for a shown pane,
            * expanded band and prompt hint (sooner calls fold). A cached answer drops
-           * next turn; a changed tool or section text rewrites what a thread sent,
-           * which loses its thinking and the prompt cache, so do not call it for
-           * these once a thread has sent.
+           * next turn; a changed tool or section text then waits, as
+           * `breakPromptCache` on its answer tells.
            *
            * @remarks An ask ends with the process: a resumed thread sends what it
-           *   recorded; asked again, a `tool.describe` hook's answer goes over the
-           *   recorded description where it differs.
+           *   recorded; asked again, a `tool.describe` hook's answer that says
+           *   `breakPromptCache` goes over the recorded description where it differs.
            * @param event `ui.render`, or a cached-answer event: `prompt.section`,
            *   `prompt.context`, `prompt.attachment`, `tool/command/config.describe`
            */
@@ -2490,18 +2507,35 @@ declare module 'claude-code' {
            *
            * Their `Notification` hooks run first, reading `plugin_notification`,
            * then the channel writes. Raised as `ui.notify`; nothing limits how
-           * often. With no terminal the hooks alone run; unbound or exiting, none.
+           * often. With no terminal the hooks run, then a host that raises
+           * notifications is handed it; with none, the hooks alone.
+           * Unbound or exiting, none.
            *
            * @remarks A hook that notifies is left out of the hooks its own call
            *   runs. Rejects on a hook's `{ deny }`, and on a failed write.
-           * @param text the notification's body, sent as given, of any length
-           * @param options `title`: what heads it (default: the plugin's name)
-           * @returns `{ isSent: true, channel }`, or `{ isSent: false, reason }`:
+           * @param text the notification's body, of any length. A terminal sends it
+           *   as given; a host gets it cleaned and cut to 1,000 characters
+           * @param options `title`: what heads it (default: the plugin's name); the
+           *   rest only a host acts on (NotifyOptions)
+           * @returns `{ isSent: true, channel }`, `client` for a host, or
+           *          `{ isSent: false, reason }`:
            *          turned off (`disabled`), `no-channel`, `no-surface`, `refused`
            * @example
            * const sent = await $.ui.notify("tests passed", { title: "CI" })
            */
           notify: (text: string, options?: NotifyOptions) => Promise<UiNotifyResult>;
+          /**
+           * Takes back one of this plugin's own notifications by its `key`: a host
+           * that raises notifications removes it, shown or still booked. The frame
+           * names this plugin's source, which keys are scoped by. Await the
+           * `$.ui.notify` first: a cancel sent before it is out takes back nothing.
+           *
+           * @param key the `key` the notification was sent with
+           * @returns whether such a host was handed the cancel
+           */
+          cancelNotify: (key: string) => Promise<{
+              isSent: boolean;
+          }>;
           /**
            * Pins `text` as this plugin's status line under the prompt, beside the
            * engine's own pinned notices, until the next call replaces it.
@@ -2577,23 +2611,6 @@ declare module 'claude-code' {
            * await $.ui.place({ id: "build" })
            */
           place: (args: UiPlaceArgs) => Promise<UiPlaceResult>;
-          /**
-           * Sets the session's backdrop, drawn behind the conversation by what
-           * `ui.render` answers for `Backdrop`; `undefined` clears this plugin's own.
-           *
-           * One backdrop stands, the latest set. The desktop app draws it full
-           * window, and frosts its own panels over it unless `glass` is `false`; the
-           * other surfaces draw none. Display only: `--resume` brings none back, and
-           * a plugin that unloads takes its own with it, so set it at `session.start`.
-           *
-           * @param backdrop `id`, and `glass` (`blur`, `tint`, `opacity`) or `false`
-           * @returns `{ isDrawn: true, requestId }`, or `isDrawn: false` and why
-           * @example
-           * await $.ui.backdrop({ id: "lagoon", glass: { blur: 14, opacity: 0.55 } })
-           * @example
-           * await $.ui.backdrop(undefined) // a preview ends
-           */
-          backdrop: (backdrop: UiBackdropArgs | undefined) => Promise<UiBackdropResult>;
           /**
            * Scrolls something into view as the DOM's `scrollIntoView` would: a
            * render instance by `requestId`, an element by `key`, a site's edge.
@@ -2672,6 +2689,45 @@ declare module 'claude-code' {
           view: (view: SiteView) => Promise<UiViewResult>;
       };
       /**
+       * The session's one theme: how the app looks behind and around the
+       * conversation. One theme stands at a time, the latest set, whichever plugin
+       * set it; there is no stack.
+       */
+      theme: {
+          /**
+           * Sets the session's theme from one object of named top-level attributes,
+           * the whole theme: what a set leaves out is gone.
+           * `backdrop` is drawn behind the conversation by what `ui.render` answers
+           * for `Backdrop`: full window on desktop under its frosted panels, full
+           * screen on mobile under one veil (`tint` and `opacity`, not yet `blur`).
+           * `colors` is a theme for a surface to paint itself with, where it reads
+           * one. With no `backdrop`, no `ui.render` hook is asked to draw.
+           * Display only: `--resume` brings none back and a plugin that unloads
+           * takes its own with it, so set it at `session.start`.
+           *
+           * @param attributes `backdrop`: `id`, `glass` (`blur`, `tint`, `opacity`) or
+           *   `false`, and `colorScheme` (`light` or `dark`); `colors`: what
+           *   `defineTheme` of the design system returns
+           * @returns `{ isDrawn: true, requestId }`, or `isDrawn: false` and why
+           * @example
+           * await $.theme.set({ backdrop: { id: "lagoon", glass: { blur: 14, opacity: 0.55 } } })
+           */
+          set: (attributes: ThemeSetArgs) => Promise<ThemeResult>;
+          /**
+           * Clears the session's theme, back to the app's own look.
+           *
+           * IT CLEARS WHATEVER THEME STANDS, WHICHEVER PLUGIN SET IT: there is one
+           * theme, so a clear is the session's and not the caller's own. Clear on a
+           * person's ask (a command, a button), never at `session.start` or on a
+           * reload: a plugin that clears there wipes another plugin's theme each time.
+           *
+           * @returns `isDrawn: false` and why
+           * @example
+           * await $.theme.clear() // a preview ends with no theme to go back to
+           */
+          clear: () => Promise<ThemeResult>;
+      };
+      /**
        * Completions through the session's own client and credentials.
        */
       model: {
@@ -2708,17 +2764,25 @@ declare module 'claude-code' {
            *
            * The main thread's last request again (its model, system prompt, tools,
            * messages) with `prompt` after it: every tool denied, its own tail never
-           * cached, the prefix billed afresh once the entry lapsed or after `/model`.
+           * cached, the prefix billed afresh once the entry lapsed, after `/model`, or
+           * in a cloud session that continues a chat.
+           * It thinks as hard as the session does unless `effort` says otherwise;
+           * ModelForkRequest says what holds that level and when it costs the cache.
            *
-           * @param request the one user message the fork answers
+           * @param request the one user message the fork answers, and its effort
            * @returns always a result, never null: the reply (`isAnswered`, `text`,
-           *          `usage`), or why there is no text (`reason`: `nothing-to-fork`
-           *          before the first request and after `/clear`, `api-error` with
-           *          its HTTP `status` and `error` kind, `empty-reply`, or `aborted`
-           *          when the turn whose hook forked was interrupted)
+           *          `usage`, the `effort` sent), or why there is no text (`reason`:
+           *          `nothing-to-fork` before the first request and after `/clear`,
+           *          `api-error` with its HTTP `status` and `error` kind,
+           *          `empty-reply`, or `aborted` when the turn whose hook forked was
+           *          interrupted); a request of the wrong shape (no prompt, an
+           *          `effort` that is no level) rejects instead
            * @example
            * const reply = await $.model.fork({ prompt: "One line to learn?" })
            * $.ui.log(reply.isAnswered ? reply.text : `no reply: ${reply.reason}`)
+           * @example
+           * // a quick side job in a session the person runs at max
+           * const cut = await $.model.fork({ prompt: "Shorter.", effort: "low" })
            */
           fork: (request: ModelForkRequest) => Promise<ModelForkResult>;
           /**
@@ -3144,8 +3208,14 @@ declare module 'claude-code' {
            * the model's tool calls, under a `tool_use_id` of its own.
            *
            * It runs through every hook but the calling one (the plugin's others
-           * see it), the permission check and its dialog, then the tool. Rejects
-           * when no tool has that name or the call is aborted.
+           * see it), the permission check, then the tool. The check opens no dialog
+           * and asks no classifier: `{ deny }` answers a deny rule, or any ask beyond
+           * no rule allowing the call, such as a hook's or an organization's.
+           * A hook that re-issues the model's call this way answers for its input:
+           * the model's command runs with nobody asked.
+           * `$.tool.check` still reports the session's own verdict, so it can say `ask`
+           * for a call that runs. Rejects when no tool has that name or the call is
+           * aborted.
            *
            * @example
            * const { text } = await $.tool.call({ tool: "Read", file_path: "a.md" })
@@ -3198,7 +3268,8 @@ declare module 'claude-code' {
            *
            * It runs through every hook but the calling one with `e.origin` `{ kind:
            * 'plugin', name }`, its lines in the transcript. Rejects an unknown name,
-           * inside a hook the turn waits on, past a Stop or a host's limit.
+           * inside a hook the turn or the session's start waits on, past a Stop or
+           * a host's limit.
            *
            * @example
            * const { text } = await $.command.run({ command: "status" })
@@ -3615,6 +3686,25 @@ declare module 'claude-code' {
            * @example
            * const { ok, text } = await $.http.fetch("https://example.com/status")
            * @example
+           * // Every model request the engine sends raises this event too, with
+           * // `next.origin.plugin` "engine", once per send: after any signing (a
+           * // signed request a hook rewrites no longer verifies), above compression
+           * // (see `compress`). A hook rewrites the url, method, headers, Authorization
+           * // included, and body, answers `{ value }` or refuses with `{ deny }`,
+           * // which the caller reads as a 403. A hook that fails is skipped and the
+           * // request goes on, so one used as a gate carries a `.catch`. Where the
+           * // organization's guard loads, only its own mods see engine requests.
+           * //
+           * // A header that may hold a credential reads "[redacted]": left in place
+           * // it holds its value at the send, on the origin raised and no other, and
+           * // a hook writes its own to replace it. A request sent elsewhere is under
+           * // the policy `$.http.fetch` is under.
+           * on("http.fetch", ($, e, next) =>
+           *   next.origin.plugin === "engine" && !allowed(e.url)
+           *     ? { deny: "not on the list" }
+           *     : next(e),
+           * ).catch(() => ({ deny: "the gate failed" }))
+           * @example
            * await $.http.fetch("http://bridge/reload", {
            *   method: "POST",
            *   socketPath: `${runDirectory}/bridge.sock`,
@@ -4005,15 +4095,22 @@ declare module 'claude-code' {
           Client: ElementConstructor<ClientProps>;
       };
       /**
-       * No `Input` or `Select`: the mobile app draws no field yet; not a limit
-       * of the device, nor of the control protocol (ui_input, ui_select).
+       * An app is sent an `Input` or `Select` only if it named it in `draws` on
+       * its `ui_attach`, and an empty Box otherwise; a hook cannot tell which the
+       * app got.
        *
-       * The table grows when the app draws them.
+       * On a tool row (`ToolUse`) in mobile apps, a `borderStyle` or
+       * `backgroundColor` on the Box that holds the row and something else asks for
+       * a card under the row;
+       * otherwise a tree that keeps the row usually draws as one quiet line under
+       * it, with the rest behind a tap, so plain Text suits a small status.
        */
       mobile: {
           Box: ElementConstructor<BoxProps>;
           Text: ElementConstructor<TextProps>;
           Button: ElementConstructor<ButtonProps>;
+          Input: ElementConstructor<InputProps>;
+          Select: ElementConstructor<SelectProps>;
           Svg: ElementConstructor<SvgProps>;
           Link: ElementConstructor<LinkProps>;
           Code: ElementConstructor<CodeProps>;
@@ -4335,8 +4432,8 @@ declare module 'claude-code' {
        *
        * `e.name` is the section's id, on every model the one `prompt.compose`
        * lists. Cached, so keep it steady: after `$.ui.invalidate("prompt.section")`
-       * a changed answer goes out next turn over the text the main thread sent,
-       * which loses its thinking and the cache. A failed hook passes through.
+       * a changed answer waits for a new thread or a compaction, unless it carries
+       * `breakPromptCache: true` (PromptSectionResult). A failed hook passes through.
        *
        * @example
        * on("prompt.section", { name: "memory" }, () => ({ text: null }))
@@ -4395,8 +4492,8 @@ declare module 'claude-code' {
        *
        * An MCP tool behind ToolSearch fires twice: its short text, then the one
        * loaded. Cached until `$.ui.invalidate("tool.describe")`: a changed answer
-       * for a tool a thread has sent goes out next turn over that text, which
-       * loses its thinking and the whole prompt cache.
+       * for a tool a thread has sent waits for a new thread or a compaction, unless
+       * it carries `breakPromptCache: true` (ToolDescribeResult).
        *
        * @remarks Twice for an MCP tool behind ToolSearch: its short text, then
        *   the one loaded.
@@ -5404,6 +5501,21 @@ declare module 'claude-code' {
   };
 
   /**
+   * A request body: text, or bytes that are not valid UTF-8 as `{ base64 }`.
+   */
+  type HttpBody = string | {
+      base64: string;
+  };
+
+  /**
+   * The encoding the engine gives a request body beneath the hooks.
+   */
+  type HttpCompress = boolean | 'gzip' | 'deflate' | 'br' | 'zstd' | {
+      encoding: 'gzip' | 'deflate' | 'br' | 'zstd';
+      level?: number;
+  };
+
+  /**
    * Options of `$.http.fetch`.
    */
   export type HttpInit = {
@@ -5416,9 +5528,22 @@ declare module 'claude-code' {
        */
       headers?: Record<string, string>;
       /**
-       * The request body, as text.
+       * The request body: text, or `{ base64 }` for bytes that are not UTF-8,
+       * which only an engine request carries.
        */
-      body?: string;
+      body?: HttpBody;
+      /**
+       * What the engine does to the body beneath the hooks, on an engine request
+       * alone.
+       *
+       * `body` is the plain body. Delete this and it leaves as written; set this
+       * and the engine gzips it. For exact bytes, delete this and write them with
+       * your own `content-encoding` header.
+       *
+       * @example
+       * next({ ...e, init: { ...e.init, compress: undefined } })
+       */
+      compress?: HttpCompress;
       /**
        * The handle `$.session.authorize()` answered: the engine sets the
        * session's credential header itself, only for a first-party host.
@@ -5458,9 +5583,22 @@ declare module 'claude-code' {
        */
       headers: Record<string, string>;
       /**
-       * The body, as text.
+       * The body, as text: empty while `isStreaming` is set.
        */
       text: string;
+      /**
+       * Set on what `next(e)` gives for an engine request: the body stays the
+       * engine's, streaming to its reader, and hooks read the status and headers.
+       *
+       * Pass it on, with other headers or status if you like, and the body goes
+       * on under them; answer without it and `text` is the body instead.
+       */
+      isStreaming?: true;
+      /**
+       * Set beside `isStreaming`: which of the request's sends gave this answer.
+       * Pass it on, and that send's body is the one that goes on.
+       */
+      sendIndex?: number;
   };
 
   /**
@@ -6487,9 +6625,26 @@ declare module 'claude-code' {
        *
        * On a fork `cache_read_input_tokens` is how much of the transcript
        * the main thread's prompt cache served: near zero, the fork paid for
-       * the whole prefix (the entry lapsed, or the model changed since).
+       * the whole prefix (the entry lapsed, the model changed since, or its
+       * `effort` could not ride its own message: ModelForkRequest).
        */
       usage: ModelUsage;
+      /**
+       * On a fork, the effort its last response was asked for: what the
+       * request's `effort` came to under its limits, or the session's own
+       * level when it named none. The level stated after `prompt` where the
+       * model takes effort per message, else the request's own setting. A
+       * completion's result carries none.
+       *
+       * Absent too when the fork's request carried no named level: a model
+       * that takes none, `CLAUDE_CODE_EFFORT_LEVEL` set to `auto` or `unset`
+       * with no `maxEffortLevel` setting, or a fork that ran as if it had named
+       * none in a session on a numeric level.
+       *
+       * @example
+       * if (r.isAnswered) $.ui.log(`${r.effort}: ${r.usage.output_tokens}`)
+       */
+      effort?: ModelEffort;
   } | {
       isAnswered: false;
       /**
@@ -6518,6 +6673,11 @@ declare module 'claude-code' {
        * one request was the one refused); on a fork, the turns before it.
        */
       usage: ModelUsage;
+      /**
+       * On a fork, the effort of the last response before the error, as on
+       * the answered arm; absent when its first request was the one refused.
+       */
+      effort?: ModelEffort;
   } | {
       isAnswered: false;
       /**
@@ -6534,6 +6694,10 @@ declare module 'claude-code' {
        * What the call cost.
        */
       usage: ModelUsage;
+      /**
+       * On a fork, the effort of its last response, as on the answered arm.
+       */
+      effort?: ModelEffort;
   } | {
       isAnswered: false;
       /**
@@ -6553,6 +6717,11 @@ declare module 'claude-code' {
        * response arrived); on a fork, what came back before the abort.
        */
       usage: ModelUsage;
+      /**
+       * On a fork, the effort of the last response that had started, as on
+       * the answered arm; absent when none had.
+       */
+      effort?: ModelEffort;
   };
 
   /**
@@ -6576,6 +6745,48 @@ declare module 'claude-code' {
        * with its status, a reply with no text, or the turn's abort cut it).
        */
       prompt: string;
+      /**
+       * How hard the fork thinks about it (ModelEffort): `low` for a quick side
+       * job, whatever the person chose for the main work. Default: the level the
+       * session runs at, which is the main thread's and no ceiling: a fork may ask
+       * for more. Where the model does not take effort per message, a level other
+       * than the session's costs a cache write of the whole conversation: see the
+       * remarks.
+       *
+       * Held to what the person and the organization allow: the organization's
+       * cap, the `maxEffortLevel` setting and the model's own levels lower what is
+       * asked, and a model that takes no effort is sent none. A level that
+       * `CLAUDE_CODE_EFFORT_LEVEL` names is a ceiling: a fork may go under it, and
+       * one that asks for more runs as if it had named none, as every fork does
+       * where that variable is `auto` or `unset` (the session then sends no effort,
+       * or under a `maxEffortLevel` setting the model's default). The result's
+       * `effort` is what was sent. A value outside the five levels rejects the
+       * call. The main thread keeps its own level, and its next request and its
+       * cache entry are as after any fork.
+       *
+       * @remarks What a level other than the main thread's costs turns on how
+       *   the model takes effort. Per message: the level is stated after
+       *   `prompt`, everything before it stands as the main thread sent it, and
+       *   the cached transcript is read as for any fork. As one setting of the
+       *   whole request (a model or provider with no per-message effort, a
+       *   conversation whose per-message effort the API refused, a session on a
+       *   numeric level): the level is applied all the same, but the first fork
+       *   at it reads at most the system prompt and tools from the cache and
+       *   writes the whole conversation again as an entry of its own, billed as
+       *   `usage.cache_creation_input_tokens` and waited for, the longer the
+       *   conversation the longer; later forks at that level read that entry
+       *   while it lives. The main thread's entry stands. There are two ways
+       *   round that cost. The person can have the session's model take effort per
+       *   message, with `CLAUDE_CODE_MODEL_CAPABILITIES=per_turn_effort` in their
+       *   shell or in the `env` of their user or managed settings: first-party API
+       *   only, and until the API refuses it. Or the fork can name no effort and
+       *   ask for haste in `prompt` (that it has no tools, and should answer
+       *   straight away without thinking it over), which moves nothing ahead of
+       *   `prompt`, so the cache is read on every model.
+       * @example
+       * await $.model.fork({ prompt: "Say that again, shorter.", effort: "low" })
+       */
+      effort?: ModelEffort;
   };
 
   /**
@@ -6583,7 +6794,8 @@ declare module 'claude-code' {
    * or that there was nothing to fork yet.
    *
    * The completion's arms are the reply when the fork answered, else
-   * `api-error`, `empty-reply` or `aborted`, `usage` on each.
+   * `api-error`, `empty-reply` or `aborted`, `usage` on each and beside it,
+   * once a response came back at a named level, the `effort` it ran at.
    *
    * @example
    * const r = await $.model.fork({ prompt }); if (!r.isAnswered) log(r.reason)
@@ -6664,7 +6876,8 @@ declare module 'claude-code' {
        *
        * On a fork, how much of the main thread's transcript the cache still
        * held: near zero, the fork paid for the whole prefix (the entry had
-       * lapsed, or the model changed since it was made).
+       * lapsed, the model changed since it was made, or the fork's `effort`
+       * could not ride its own message: ModelForkRequest).
        */
       cache_read_input_tokens: number;
       /**
@@ -6936,6 +7149,29 @@ declare module 'claude-code' {
        * no name of its own beside it. Left out or empty, the plugin's name.
        */
       title?: string;
+      /**
+       * A name for this notification, unique within the plugin. Sent again, it
+       * replaces the one a client holds under that key; `$.ui.cancelNotify` takes
+       * it back. A terminal has nothing to replace and ignores it.
+       */
+      key?: string;
+      /**
+       * Milliseconds a client holds it before raising it, so it can fire with the
+       * session out of reach. More than 7 days rejects the call on every surface.
+       * A terminal otherwise ignores it and raises it now.
+       */
+      delayMs?: number;
+      /**
+       * The time a client raises it, in epoch milliseconds, for a moment fixed on
+       * the clock. Never beside `delayMs`. More than 7 days ahead rejects the call
+       * on every surface. A terminal otherwise ignores it and raises it now.
+       */
+      at?: number;
+      /**
+       * With `delayMs` or `at`: a client throws it away if the person returns to
+       * the session before it fires, so it can only speak to someone who left.
+       */
+      untilBack?: boolean;
   };
 
   /**
@@ -7262,12 +7498,13 @@ declare module 'claude-code' {
        */
       'ui.place': UiPlaceArgs;
       /**
-       * The argument of `$.ui.backdrop(backdrop)`; `backdrop` undefined clears
-       * the plugin's own.
+       * The argument of `$.theme.set(attributes)`: the attributes themselves.
        */
-      'ui.backdrop': {
-          backdrop: UiBackdropArgs | undefined;
-      };
+      'theme.set': ThemeSetArgs;
+      /**
+       * The argument of `$.theme.clear()`.
+       */
+      'theme.clear': NoArgs;
       /**
        * The argument of `$.ui.selection()`.
        */
@@ -7283,8 +7520,10 @@ declare module 'claude-code' {
        */
       'ui.view': SiteView;
       /**
-       * The argument of `$.ui.notify(text, { title })`, `title` the plugin's
-       * name when left out or empty; rewritable, deniable, answerable.
+       * The argument of `$.ui.notify(text, { title, key, delayMs, at, untilBack })`,
+       * `title` the plugin's name when left out or empty; rewritable, deniable,
+       * answerable. A rewrite by another plugin's hook is marked, so a client can
+       * show that it may not be as the sender wrote it.
        *
        * A notification is heard twice: here, and by `classic.Notification`
        * hooks. Two mods that each notify again from a timer on hearing one
@@ -7293,7 +7532,17 @@ declare module 'claude-code' {
       'ui.notify': {
           text: string;
           title?: string;
+          key?: string;
+          delayMs?: number;
+          at?: number;
+          untilBack?: boolean;
       };
+      /**
+       * The argument of `$.ui.cancelNotify(key)`: the key of the plugin's own
+       * notification to take back; rewritable, deniable, answerable, like
+       * `ui.notify`. Only a client's surface holds one to take.
+       */
+      'ui.cancelNotify': CancelNotifyArgs;
       /**
        * The argument of `$.ui.blit(...)`: a Raster's `cells` or a keyed Image's
        * `source`; a hook above may rewrite either with `next`, or `{ deny }`.
@@ -7527,9 +7776,13 @@ declare module 'claude-code' {
        */
       'ui.place': UiPlaceResult;
       /**
-       * The backdrop's request id, or why nothing draws it.
+       * Its request id, or why nothing draws it.
        */
-      'ui.backdrop': UiBackdropResult;
+      'theme.set': ThemeResult;
+      /**
+       * `isDrawn: false`, and whether a theme stood to be cleared.
+       */
+      'theme.clear': ThemeResult;
       /**
        * What the person last selected; `undefined` when there is nothing.
        */
@@ -7540,6 +7793,12 @@ declare module 'claude-code' {
        * The channel that sent the notification, or why none did.
        */
       'ui.notify': UiNotifyResult;
+      /**
+       * Whether a client was handed the cancel.
+       */
+      'ui.cancelNotify': {
+          isSent: boolean;
+      };
       'ui.blit': UiBlitResult;
       /**
        * The text; `{ base64 }` when asked for bytes.
@@ -8902,9 +9161,10 @@ declare module 'claude-code' {
    * One styled run a surface paints over the prompt draft: `[start, end)` of
    * a text, in UTF-16 code units like PromptBox `cursor`. Paint only.
    *
-   * A range outside the text is clamped into it, an empty one that carries
-   * no `virtualText` dropped, and a boundary inside a grapheme moves back to
-   * its start. Later entries win per style key.
+   * Clamped into the text, an empty range with no `virtualText` dropped, and a
+   * boundary moved back to its grapheme's start. Later entries win per key. The
+   * caret's cell keeps its run's style, less a color that would hide the caret:
+   * `color` matching its background, or an end matching the terminal's other one.
    *
    * @example { start: 4, end: 8, color: 'warning', bold: true }
    */
@@ -9563,6 +9823,14 @@ declare module 'claude-code' {
    */
   export type PromptSectionResult = {
       text: string | null;
+      /**
+       * Sends a changed answer at the next turn, rewriting the cache from the
+       * system prompt on and dropping the model's earlier thinking.
+       *
+       * Left out, it waits for a new thread or a compaction. The outermost hook's
+       * answer says so: a hook above that keeps it spreads what `next` gave.
+       */
+      breakPromptCache?: boolean;
   };
 
   /**
@@ -9971,7 +10239,8 @@ declare module 'claude-code' {
    * authorises an action; a plugin adds context with `$.ui.notice`. `Pane` is
    * a component whose instances a plugin opens (`$.ui.open`), `Placed`
    * another (`$.ui.place`), and `Backdrop` the one a plugin sets
-   * (`$.ui.backdrop`), drawn behind the conversation by the desktop app alone.
+   * (`$.theme.set`), drawn behind the conversation by the desktop and mobile
+   * apps alone.
    */
   export type RenderComponent = 'AskUserQuestion' | 'UserMessage' | 'AssistantMessage' | 'ToolUse' | 'ToolResult' | 'ToolGroup' | 'ToolProgress' | 'CommandOutput' | 'Spinner' | 'TurnDuration' | 'InfoNotice' | 'SessionMode' | 'PromptHint' | 'AbovePrompt' | 'Pane' | 'Placed' | 'Backdrop';
 
@@ -10518,6 +10787,11 @@ declare module 'claude-code' {
        * A tool call's row in the transcript (`Bash(ls -la)` and its result); the
        * call was decided by `tool.call`, so a rewrite here changes the row alone.
        *
+       * In mobile apps, a `borderStyle` or `backgroundColor` on the Box that holds
+       * the row and something else asks for a card under the row; otherwise a tree
+       * that keeps the row usually draws as one quiet line under it, with the rest
+       * behind a tap, so plain Text suits a small status.
+       *
        * Raised on every attached surface.
        */
       ToolUse: {
@@ -10964,6 +11238,12 @@ declare module 'claude-code' {
            */
           hasSurvey: boolean;
           /**
+           * True while the person has collapsed the band: a tree still returns, and
+           * nothing of it is on screen. False where the band cannot collapse.
+           * Read-only.
+           */
+          isCollapsed: boolean;
+          /**
            * True while a model turn is running. Read-only.
            */
           isWorking: boolean;
@@ -11090,17 +11370,19 @@ declare module 'claude-code' {
           onScreen?: OnScreen | null;
       };
       /**
-       * The session's backdrop (`$.ui.backdrop`), drawn behind the conversation by
-       * the desktop app alone: empty until a hook draws it.
+       * The session's backdrop (`$.theme.set`), drawn behind the conversation by
+       * the desktop and mobile apps alone: empty until a hook draws it.
        *
        * Every plugin's hook hears it, so read `plugin` beside `id`. The surface
-       * sizes the drawing to its window and lets presses through to what is over it.
+       * sizes the drawing to its window or screen and lets presses through to what
+       * is over it. Each surface asks separately, so a hook can read `e.surface` to
+       * draw a different scene on each; a `Client` draws nothing on mobile.
        *
-       * Raised on the desktop surface only.
+       * Raised on the desktop and mobile surfaces only.
        */
       Backdrop: {
           /**
-           * What `$.ui.backdrop` was given. Read-only.
+           * What `$.theme.set` was given as `backdrop`. Read-only.
            */
           id: string;
           /**
@@ -11116,6 +11398,11 @@ declare module 'claude-code' {
               tint?: string;
               opacity: number;
           } | false;
+          /**
+           * Whether the scene is `light` or `dark`; absent where the plugin did not
+           * say. Read-only.
+           */
+          colorScheme?: 'light' | 'dark';
       };
   };
 
@@ -12841,7 +13128,9 @@ declare module 'claude-code' {
        */
       skill: string;
       /**
-       * The prompt's text as the skill computed it (its text blocks, joined).
+       * The prompt's text as the skill computed it (its text blocks, joined), with
+       * the file's `compatibility` line and Claude Code's text for Claude about it
+       * last where Claude Code shows them.
        */
       text: string;
       /**
@@ -13648,6 +13937,113 @@ declare module 'claude-code' {
   };
 
   /**
+   * The `backdrop` attribute of `$.theme.set`: what is drawn behind the
+   * conversation, and how the surface frosts its panels over it.
+   */
+  export type ThemeBackdrop = {
+      /**
+       * Names the backdrop among this plugin's: 1 to 64 of letters, digits, `_`
+       * and `-`, as a pane's id. A `ui.render` hook reads it as `e.props.id`.
+       */
+      id: string;
+      /**
+       * How the surface frosts its panels over the backdrop: absent, the default
+       * glass; `false`, the panels stay as they are.
+       */
+      glass?: ThemeBackdropGlass | false;
+      /**
+       * Whether the scene is `light` or `dark`, so a surface can draw its own text
+       * to suit. Absent, the surface keeps its colors. The desktop app ignores it
+       * for now.
+       */
+      colorScheme?: 'light' | 'dark';
+  };
+
+  /**
+   * How a surface keeps its text readable over a backdrop: the desktop app
+   * frosts its own panels, and the mobile app lays one veil over the backdrop.
+   * Each key absent takes the surface's default, so `{}` is the default glass.
+   */
+  export type ThemeBackdropGlass = {
+      /**
+       * How far the backdrop blurs behind a panel, in CSS pixels: 0 to 64.
+       * Absent, 16.
+       */
+      blur?: number;
+      /**
+       * What colours a panel or veil over the backdrop: a raw color, `#hex` or `rgb()`,
+       * `rgba()`, `hsl()` or `hsla()` of numbers; a theme key or a name is refused.
+       * Absent, the surface's own panel color.
+       */
+      tint?: string;
+      /**
+       * How opaque the tinted panel or veil is over the backdrop: 0 to 1. Absent,
+       * 0.6.
+       */
+      opacity?: number;
+  };
+
+  /**
+   * One mode's colors in `ThemeColors`: a six-digit hex color such as `#1e1e2e`
+   * under the name of each design system token the theme sets. The type checks
+   * the leading `#` alone.
+   *
+   * The names are the design system's and change with it, so the type lists
+   * none. A surface keeps its own color for a token that is left out.
+   */
+  export type ThemeColorInputs = {
+      [token: string]: `#${string}`;
+  };
+
+  /**
+   * The `colors` attribute of `$.theme.set`: a whole color theme as JSON data,
+   * for a surface to paint itself with, where it reads one.
+   *
+   * What the design system's `defineTheme` returns fits as it is. A theme kept
+   * in a constant is annotated with this type, or its `v` and its colors widen
+   * and no longer fit.
+   *
+   * The type is for whoever writes the theme. The engine holds `colors` only to
+   * bounded JSON data, so a surface judges what it reads, and so does a
+   * `theme.set` hook over another mod's call.
+   */
+  export type ThemeColors = {
+      /**
+       * The version of this shape.
+       */
+      v: 1;
+      /**
+       * The id `defineTheme` was given. A surface has no need of it.
+       */
+      id?: string;
+      /**
+       * The theme's name, for a surface to show: 1 to 64 characters.
+       */
+      label: string;
+      /**
+       * The colors for a surface's light mode, and for its dark mode. A mode left
+       * out keeps the surface's own colors.
+       */
+      inputs: {
+          light?: ThemeColorInputs;
+          dark?: ThemeColorInputs;
+      };
+      /**
+       * The code highlighting theme to pair with each mode, by name. A surface
+       * keeps its own for a name it does not offer.
+       */
+      codeTheme?: {
+          light?: string;
+          dark?: string;
+      };
+      /**
+       * `more` asks for stronger borders and focus rings, as a high contrast theme
+       * needs. Absent, the surface's own.
+       */
+      contrast?: 'more';
+  };
+
+  /**
    * The theme keys named for what a color means: text, status, the prompt box
    * and its modes, and diffs, as the custom theme reference lists them.
    *
@@ -13655,6 +14051,65 @@ declare module 'claude-code' {
    * holds resolves too, typed as any string is (Color).
    */
   export type ThemeKey = 'text' | 'inverseText' | 'inactive' | 'subtle' | 'suggestion' | 'remember' | 'success' | 'error' | 'warning' | 'merged' | 'claude' | 'permission' | 'planMode' | 'autoAccept' | 'promptBorder' | 'bashBorder' | 'ide' | 'diffAdded' | 'diffRemoved' | 'diffAddedDimmed' | 'diffRemovedDimmed' | 'diffAddedWord' | 'diffRemovedWord';
+
+  /**
+   * What `$.theme.set` and `$.theme.clear` resolve to, and what a `theme.set` or
+   * `theme.clear` hook's `{ value }` holds.
+   *
+   * A theme that was set stands for the session either way, so a surface that
+   * attaches later draws it; a clear resolves `isDrawn: false` with its reason.
+   *
+   * @example
+   * const set = await $.theme.set({ backdrop: { id: "lagoon" } })
+   */
+  export type ThemeResult = {
+      /**
+       * True: a surface is attached that draws backdrops. It says nothing of
+       * whether that surface paints `colors`.
+       */
+      isDrawn: true;
+      /**
+       * `backdrop`, the `e.requestId` of every backdrop at `ui.render`, where
+       * `e.props.id` and `e.props.plugin` say which; `theme` for colors alone.
+       */
+      requestId: string;
+  } | {
+      /**
+       * False: nothing draws the backdrop now, for the `reason` given.
+       */
+      isDrawn: false;
+      /**
+       * The theme's request id, when it stands for a surface yet to attach.
+       */
+      requestId?: string;
+      /**
+       * Why nothing draws it, one line to show or log.
+       */
+      reason: string;
+  };
+
+  /**
+   * The argument of `$.theme.set`: one object of named attributes, so a later
+   * attribute is an addition and never a change of the call.
+   *
+   * A set names the whole theme, so what it leaves out is gone, and it names at
+   * least one attribute. An attribute the build does not know is refused by
+   * name, never dropped.
+   */
+  export type ThemeSetArgs = {
+      /**
+       * What is drawn behind the conversation by what `ui.render` answers for
+       * `Backdrop`, the glass a surface frosts its panels with, and whether its
+       * scene is light or dark. Absent, the theme has no scene.
+       */
+      backdrop?: ThemeBackdrop;
+      /**
+       * A theme for a surface to paint, where it reads one: what the design
+       * system's `defineTheme` returns, at most 1,500 JSON values. The engine
+       * reads none of it, and no `ui.render` hook sees it.
+       */
+      colors?: ThemeColors;
+  };
 
   /**
    * One of the chain's five tiers (TIERS), outermost first; on every
@@ -14064,6 +14519,14 @@ declare module 'claude-code' {
   export type ToolDescribeResult = {
       description: string;
       isDeferred?: ToolDeferral;
+      /**
+       * Sends a changed description or placement at the next turn, rewriting the
+       * whole prompt cache and dropping the model's earlier thinking.
+       *
+       * Left out, a description waits for a new thread or a compaction, and a
+       * placement for a new thread or `/clear`, as a compaction keeps the tool block.
+       */
+      breakPromptCache?: boolean;
   };
 
   /**
@@ -14465,11 +14928,14 @@ declare module 'claude-code' {
    * `{ text }`; a text other than a main-loop answer's is shown beneath it.
    *
    * Core fills `usage` from `e.usage` when the turn had one; a hook above reads
-   * it, and one that answers its own may leave it out.
+   * it, and one that answers its own may leave it out. `by` is the engine's: the
+   * plugins that wrote the text or rewrote the answer they passed down, which
+   * head its note. What a hook puts there is replaced.
    */
   export type TurnCompleteResult = {
       text: string;
       usage?: TurnUsage;
+      by?: readonly string[];
   };
 
   /**
@@ -14583,12 +15049,14 @@ declare module 'claude-code' {
        */
       model: string;
       /**
-       * How hard the request asks the model to think: the session's setting or
-       * the model's default, absent for a model without effort; rewritable. On a
-       * model that takes effort per message a level stands from one message with
-       * input to the next: a change waits through steps whose new input is tool
-       * results, and one made on a step with input stays for the tool steps after
-       * it. A number goes out at once.
+       * How hard the request asks the model to think: the level its loop, turn or
+       * session set, or the model's default, absent for a model without effort;
+       * rewritable. A rewrite is not carried to later steps, but on a model that
+       * takes effort per message the level in force stands from one message with
+       * input to the next: another named level on a step whose new input is tool
+       * results is not sent, and one on a step with input stays for the tool steps
+       * after it. A number goes out at once on an internal build and not at all on a
+       * public one, unless the maxEffortLevel setting turns it into a level.
        */
       effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
       /**
@@ -14802,80 +15270,6 @@ declare module 'claude-code' {
        * Which model answered, by the id the API reports.
        */
       model: string;
-  };
-
-  /**
-   * The argument of `$.ui.backdrop`; `undefined` in its place clears the
-   * plugin's own backdrop.
-   */
-  export type UiBackdropArgs = {
-      /**
-       * Names the backdrop among this plugin's: 1 to 64 of letters, digits, `_`
-       * and `-`, as a pane's id. A `ui.render` hook reads it as `e.props.id`.
-       */
-      id: string;
-      /**
-       * How the surface frosts its panels over the backdrop: absent, the default
-       * glass; `false`, the panels stay as they are.
-       */
-      glass?: UiBackdropGlass | false;
-  };
-
-  /**
-   * How a surface frosts its own panels over a backdrop: each key absent takes
-   * the surface's default, so `{}` is the default glass.
-   */
-  export type UiBackdropGlass = {
-      /**
-       * How far the backdrop blurs behind a panel, in CSS pixels: 0 to 64.
-       * Absent, 16.
-       */
-      blur?: number;
-      /**
-       * What colours a panel over the backdrop: a raw color, `#hex` or `rgb()`,
-       * `rgba()`, `hsl()` or `hsla()` of numbers; a theme key or a name is refused.
-       * Absent, the surface's own panel color.
-       */
-      tint?: string;
-      /**
-       * How opaque the tinted panel is over the backdrop: 0 to 1. Absent, 0.6.
-       */
-      opacity?: number;
-  };
-
-  /**
-   * What `$.ui.backdrop` resolves to and what a `ui.backdrop` hook's `{ value }`
-   * holds.
-   *
-   * The backdrop stands for the session either way, so a surface that attaches
-   * later draws it; a cleared one resolves `isDrawn: false` with its reason.
-   *
-   * @example
-   * const set = await $.ui.backdrop({ id: "lagoon" })
-   */
-  export type UiBackdropResult = {
-      /**
-       * True: a surface is attached that draws backdrops.
-       */
-      isDrawn: true;
-      /**
-       * The backdrop's `e.requestId` at `ui.render`: `backdrop`, the same for
-       * every backdrop; `e.props.id` and `e.props.plugin` say which it is.
-       */
-      requestId: string;
-  } | {
-      /**
-       * False: nothing draws the backdrop now, for the `reason` given.
-       */
-      isDrawn: false;
-      /**
-       * The backdrop's id when it stands for a surface yet to attach.
-       */
-      requestId?: string;
-      /**
-       * Why nothing draws it, one line to show or log.
-       */
-      reason: string;
   };
 
   /**
@@ -15318,8 +15712,10 @@ declare module 'claude-code' {
        * spells it; under `auto`, the one their terminal resolved to.
        *
        * `terminal_bell` rings and shows neither the text nor the title.
+       * `client` means a host that raises notifications was handed it to raise;
+       * it does not report back.
        */
-      channel: 'iterm2' | 'iterm2_with_bell' | 'kitty' | 'ghostty' | 'terminal_bell';
+      channel: 'iterm2' | 'iterm2_with_bell' | 'kitty' | 'ghostty' | 'terminal_bell' | 'client';
   } | {
       /**
        * False: no channel sent it.
@@ -15330,8 +15726,10 @@ declare module 'claude-code' {
        * `refused`, which a hook above says when it answers without sending.
        *
        * `disabled`: they set `notifications_disabled`. `no-channel`: `auto`
-       * found no terminal that notifies. `no-surface`: no terminal (a `-p`
-       * run, the SDK, the desktop), no session bound yet, or it is exiting.
+       * found no terminal that notifies. `no-surface`: no terminal and no host
+       * that raises it (a `-p` run, the SDK, a cloud session), no session bound
+       * yet, the session is exiting, or the mod unloaded before the notification
+       * went out.
        *
        * @example
        * on('ui.notify', { title: 'CI' }, () => ({ value: REFUSED }))
@@ -15681,6 +16079,9 @@ declare module 'claude-code' {
   /**
    * What a `ui.scroll` hook returns, what `next(e)` resolves to, and what
    * `$.ui.scroll` hands back: `{}` once the window moved, or why it did not.
+   *
+   * `{}` doesn't say the person saw the move: a band folded away shows nothing,
+   * and a mobile app's closed Mods sheet shows nothing and keeps nothing.
    */
   export type UiScrollResult = {
       /**
@@ -16269,9 +16670,9 @@ declare module 'claude-code/testing' {
    * The element each surface-dependent act of a mounted drawing reaches: a
    * handle carries the act only where the surface's table has the element.
    *
-   * `input` needs `Input` and `select` needs `Select` (every surface but
-   * mobile today); `key`, `pointer`, `post`, `advance` and `resize` reach a
-   * `Client` (terminal and desktop today). The rest need nothing but a tree.
+   * `input` needs `Input` and `select` needs `Select` (every surface today);
+   * `key`, `pointer`, `post`, `advance` and `resize` reach a `Client`
+   * (terminal and desktop today). The rest need nothing but a tree.
    */
   export type ElementOfAct = {
       input: 'Input';
@@ -16891,8 +17292,8 @@ declare module 'claude-code/testing' {
    * description, acts on its elements by key, `Client` acts where `P` has one.
    *
    * Narrowed by the `surface` the test passed, as `e.surface` narrows
-   * `$.ui.resolve(e)`: no `input` on `mobile`, no `key` on `vscode`, whose
-   * tables (Elements) lack `Input` and `Client`; over a union, their meet.
+   * `$.ui.resolve(e)`: no `key` on `mobile` or `vscode`, whose tables
+   * (Elements) lack `Client`; over a union, their meet.
    */
   export type Mounted<P extends RenderSurface = RenderSurface, C extends RenderComponent = RenderComponent> = {
       [K in keyof MountedMembers<P, C> as K extends keyof ElementOfAct ? ElementOfAct[K] extends keyof Elements[P] ? K : never : K]: MountedMembers<P, C>[K];
@@ -17043,6 +17444,19 @@ declare module 'claude-code/testing' {
        * await ui.redraw({ ...TOOL_ROW, isRunning: false, output: 'done' })
        */
       redraw: (props?: RenderPropsOf[C]) => Promise<void>;
+      /**
+       * Whether the tree as last drawn holds what `next(e)` answered, so what is
+       * beneath the plugins is drawn with it; false when a hook left it out.
+       *
+       * Calling it says the test has looked: `claude plugin test` then prints no
+       * advice for this drawing, whichever answer the test expects.
+       *
+       * @returns whether what is beneath was kept; rejects when it is not in the
+       *   tree and the test has its own `ui.render` hook at this site: `find` it
+       * @example
+       * expect(await ui.keepsBeneath()).toBe(true)
+       */
+      keepsBeneath: () => Promise<boolean>;
       /**
        * Lets the drawing go, as the surface dropping the instance does: its
        * `Client`s and their timers end. Later acts on the handle reject.
@@ -17247,8 +17661,8 @@ declare module 'claude-code/testing' {
    * A test: the engine's `$`, and `on`, a plugin's registrar, whose hooks sit
    * beneath every plugin; beneath them the bottom hook throws, naming its event.
    *
-   * A test registers its hooks before its first call on `$`, which loads the
-   * plugins. Beneath `$.state`, a render's `$.ui.invalidate` and `session.append`
+   * It registers hooks before its first call on `$`, which loads the plugins.
+   * Beneath `$.state`, `ui.render`, its `$.ui.invalidate` and `session.append`
    * the kit answers. A check that fails in a hook, or a refused answer, fails it.
    */
   export type TestBody = ($: Engine, on: On) => unknown;
