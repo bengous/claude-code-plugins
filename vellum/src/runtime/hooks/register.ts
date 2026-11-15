@@ -335,8 +335,8 @@ export const register: Register = (on) => {
   });
 
   // The mode's one place in the terminal: the status line keeps a failure alone. A survey holds
-  // the band over any plugin, and the person may collapse it. The band is shared: what the mods
-  // after vellum draw stays beneath its line.
+  // the band over any plugin, and the person may collapse it. The engine asks each plugin for its
+  // own row of the band: what a hook beneath draws in vellum's row stays beneath its line.
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const drawn = band;
 

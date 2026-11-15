@@ -229,8 +229,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   the prompt does not say it again.
 - The mode's one place in the terminal is the band above the prompt: the `ui.render` hook on
   `AbovePrompt` draws `vellum │ <segments> │ <pill> │ Review page ↗` while the mode holds a
-  session, what the mods after it draw kept beneath that line in a `Box` that takes no size or
-  position (the band is shared: a tree without `next(e)` replaces theirs), and passes to
+  session, what a hook beneath draws in vellum's row kept beneath that line in a `Box` that takes
+  no size or position (the engine asks each plugin for its own row, and stacks the rows with
+  `AbovePromptList`: another mod's row is never in `next(e)`), and passes to
   `next(e)` while `idle` or while a survey holds the band (`hasSurvey`). `$.ui.status` is written for a failure alone, the two of `lost`, and entering
   `live` clears it. No `SessionMode` label: the band is the one place.
 - Where the plan stands is the server's, and so is what the band says of it: a `stage` line
