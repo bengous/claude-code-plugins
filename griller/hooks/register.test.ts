@@ -91,6 +91,17 @@ type World = {
 /** A call the test holds: `reached` once it comes, and it goes on once `release` is called. */
 type Hold = { readonly reached: Promise<void>; readonly release: () => void };
 
+/**
+ * The test's own spelling of a path the engine hands an `fs.*` hook. The engine
+ * resolves a path for its platform before the hooks see it: on Windows `/work/x`
+ * arrives as `D:\work\x`, on the drive of the engine's directory, as
+ * `path.win32.resolve` does. Files are kept under the POSIX spelling the
+ * expectations use, so the suite reads the same on every platform.
+ */
+function asWritten(path: string): string {
+  return path.replace(/^[A-Za-z]:/u, "").replaceAll("\\", "/");
+}
+
 const STATE = "/work/.claude/griller/session-1.json";
 
 const TRANSCRIPT = "/work/.claude/griller/session-1.md";
@@ -170,7 +181,9 @@ async function started(
     return { value: Date.UTC(2026, 0, 1) };
   });
   on("clock.sleep", () => ({ value: undefined }));
-  on("ui.focus", () => ({}));
+  // `plugin` is a default matcher key: left out, the hook hears only the test's own
+  // elements, while it stands for the engine beneath griller's.
+  on("ui.focus", { plugin: "*" }, () => ({}));
   on("ui.render", (engine, e) => {
     drawn.push(e.props);
     const { Box } = engine.ui.resolve(e);
@@ -180,19 +193,20 @@ async function started(
   on("session.messages", () => ({ value: messages }));
   on("session.root", () => ({ value: "/work" }));
   on("session.id", () => ({ value: id }));
-  on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
-  on("fs.read", (_$, e) => ({ value: files.get(e.path) ?? "" }));
+  on("fs.exists", (_$, e) => ({ value: files.has(asWritten(e.path)) }));
+  on("fs.read", (_$, e) => ({ value: files.get(asWritten(e.path)) ?? "" }));
   on("fs.write", async (_$, e) => {
-    await holds.get(e.path)?.();
-    const left = failing.get(e.path) ?? 0;
+    const path = asWritten(e.path);
+    await holds.get(path)?.();
+    const left = failing.get(path) ?? 0;
 
     if (left > 0) {
-      failing.set(e.path, left - 1);
+      failing.set(path, left - 1);
 
-      return { deny: `${e.path}: over 4 MiB` };
+      return { deny: `${path}: over 4 MiB` };
     }
 
-    files.set(e.path, e.text);
+    files.set(path, e.text);
 
     return { value: undefined };
   });

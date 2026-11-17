@@ -213,9 +213,10 @@ jobs:
         id: scope
         run: bun ./scripts/gates/affected.ts github-output
 
-  # Vellum on Windows: its `bun:test` suites and the hooks module's kit, then `tools/platform`'s
-  # suites, where Linux misses what Windows refuses (a folder a process holds cannot be renamed).
-  # A pull request that does not reach `vellum/` skips it, unless it reaches everything, as a
+  # Vellum on Windows: its `bun:test` suites and the hooks module's kit, then griller's kit, then
+  # `tools/platform`'s suites, where Linux misses what Windows refuses (a folder a process holds
+  # cannot be renamed, a path the engine hands a hook as `D:\work\...`).
+  # A pull request that reaches neither `vellum/` nor `griller/` skips it, unless it reaches everything, as a
   # change to `tools/` does: `main` does not require `win32` today
   # (`docs/repo-ops/protections.md`), and a pull request's run is named `win32 (scoped)`, a name
   # no ruleset requires. `always()` runs it on a push or a dispatch, where `scope` is skipped. The
@@ -230,7 +231,8 @@ jobs:
       && (github.event_name != 'pull_request'
       || (needs.scope.result == 'success'
       && (needs.scope.outputs.all == 'true'
-      || contains(fromJSON(needs.scope.outputs.units || '[]'), 'vellum'))))
+      || contains(fromJSON(needs.scope.outputs.units || '[]'), 'vellum')
+      || contains(fromJSON(needs.scope.outputs.units || '[]'), 'griller'))))
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -257,6 +259,9 @@ jobs:
 
       - name: Test the vellum hooks module
         run: bun ./scripts/ci/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
+
+      - name: Test the griller hooks module
+        run: bun ./scripts/ci/flaky-report.ts retry kit --job win32 -- claude plugin test griller
 
       # The platform helpers every plugin copies: their rename retries a folder Windows holds,
       # which no other job can see.
