@@ -171,6 +171,7 @@ async function started(
   });
   on("clock.sleep", () => ({ value: undefined }));
   on("ui.focus", () => ({}));
+  on("ui.focus", { plugin: "*" }, () => ({}));
   on("ui.render", (engine, e) => {
     drawn.push(e.props);
     const { Box } = engine.ui.resolve(e);
