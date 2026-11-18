@@ -23,56 +23,154 @@ import { HOOK_EXIT } from "./hook-io.ts";
 const ASK =
   "Ask the human to type /land <number> in their own session: only their own /land puts land-ok on.";
 
-const LABEL = /\bland-ok\b/u;
+/** GitHub matches a label's name whatever its case. */
+const LABEL = /\bland-ok\b/iu;
 
-const LABEL_WRITERS: readonly RegExp[] = [
-  /--add-label\b/u,
-  /\bgh\s+pr\s+edit\b/u,
-  /\bgh\s+issue\s+edit\b/u,
+const GH_LABEL_WRITERS: readonly RegExp[] = [
+  /--(?:add|remove)-label\b/u,
+  /\bgh\s+(?:pr|issue)\s+edit\b/u,
   /\bgh\s+label\b/u,
-  /\bgh\s+api\b/u,
-  /\bcurl\b/u,
 ];
+
+const GH_API = /\bgh\s+api\b/u;
+
+const GH_API_WRITES =
+  /(?:^|\s)(?:(?:-X|--method)[\s=]*(?:POST|PUT|PATCH|DELETE)\b|(?:-f|-F|--field|--raw-field|--input)(?=[\s=]|$))/iu;
+
+const CURL = /\bcurl\b/u;
+
+/** A GraphQL call carries its query in a field: it writes only when the query is a mutation. */
+const GH_GRAPHQL = /\bgh\s+api\s+(?:\S+\s+)*?graphql\b/u;
+
+const MUTATION = /\bmutation\b/u;
+
+/** `-d` and `-F` take their value glued to them, and either makes the request a POST. */
+const CURL_WRITES =
+  /(?:^|\s)(?:(?:-X|--request)[\s=]*(?:POST|PUT|PATCH|DELETE)\b|-[dF]|(?:--data[\w-]*|--form[\w-]*|--json)(?=[\s=]|$))/u;
+
+/** A label option whose value Bash expands: the label is not written in the statement. */
+const EXPANDED_LABEL = /--(?:add|remove)-label[\s=]*["']?[^\s"']*[$`]/u;
+
+const GH_LABEL = /\bgh\s+label\b/u;
+
+const EXPANDS = /[$`]/u;
+
+/** A request's body can also come from a heredoc. */
+const EXPANDS_OR_READS_A_HEREDOC = /[$`]|<</u;
 
 /** `land-label.ts` as a path, not `land-label.test.ts`. */
 const HOOK_FILE = /(?:^|\/)land-label\.ts$/u;
 
 /** The programs that run the script their first argument names; `run` and options before it are skipped. */
-const INTERPRETERS = new Set(["bun", "node", "deno", "tsx", "bash", "sh", "exec", "env"]);
+const INTERPRETERS = new Set(["bun", "node", "deno", "tsx", "bash", "sh"]);
+
+/** The words that run the command after them: skipped, with their options and a `timeout`'s duration. */
+const WRAPPERS = new Set(["env", "timeout", "nice", "time", "command", "exec", "nohup"]);
+
+const ASSIGNMENT = /^[A-Za-z_]\w*=/u;
+
+const DURATION = /^\d+(?:\.\d+)?[smhd]?$/u;
 
 /** `/land` where a prompt holds it: at its start, after a space, an `=` or a quote, alone or before its argument. */
 const TYPED_LAND = /(?:^|[\s="'])\/land(?:[\s"'\\]|$)/u;
 
 /** A command word that hands a prompt to a session: Claude Code's CLI, or a terminal an agent sends keys to. */
-const SESSION_PROGRAM = /(?:^|[\s;&|(])(?:\S*\/)?(?:claude|tmux|screen)(?=[\s;&|)]|$)/u;
+const SESSION_PROGRAM = /(?:^|[\s;&|(])(?:\S*\/)?(?:claude(?:-code)?|tmux|screen)(?=[\s;&|)]|$)/u;
 
 const SESSION_SCRIPT = /\bfield-test\.ts\b/u;
 
-/** The command's pieces between `;`, `&&`, `||`, `|` and newlines, each trimmed. */
-function segmentsOf(command: string): string[] {
+function pieces(command: string, breaks: RegExp): string[] {
   return command
-    .split(/;|&&|\|\||\||\n/u)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment !== "");
+    .split(breaks)
+    .map((piece) => piece.trim())
+    .filter((piece) => piece !== "");
 }
 
-/** The program a segment runs: its first word, or the script an interpreter there is handed. */
-function programOf(segment: string): string {
-  const words = segment.split(/[\s<>]+/u).map((word) => word.replaceAll(/["']/gu, ""));
-  const [first = ""] = words;
+/** The words a piece runs, from its program on: assignments and wrappers before it are dropped. */
+function programWords(piece: string): string[] {
+  const words = piece.split(/[\s<>]+/u).map((word) => word.replaceAll(/["']/gu, ""));
 
-  if (!INTERPRETERS.has(first.split("/").at(-1) ?? "")) return first;
+  const start = words.findIndex(
+    (word) =>
+      !ASSIGNMENT.test(word) &&
+      !WRAPPERS.has(nameOf(word)) &&
+      !DURATION.test(word) &&
+      !word.startsWith("-"),
+  );
 
-  return words.slice(1).find((word) => word !== "run" && !word.startsWith("-")) ?? "";
+  return start === -1 ? [] : words.slice(start);
+}
+
+function nameOf(word: string): string {
+  return word.split("/").at(-1) ?? "";
+}
+
+/**
+ * The command's statements, each without the commands git runs in it: a commit message is text git stores, and it may
+ * name the label, a label write or `/land` without doing any of it. What a pipe or `&` joins to a git command stays.
+ */
+function statementsOf(command: string): string[] {
+  return pieces(command, /;|&&|\|\||\n/u)
+    .map((statement) =>
+      pieces(statement, /\||&/u)
+        .filter((piece) => nameOf(programWords(piece)[0] ?? "") !== "git")
+        .join(" | "),
+    )
+    .filter((statement) => statement !== "");
 }
 
 function runsHook(command: string): boolean {
-  return segmentsOf(command).some((segment) => HOOK_FILE.test(programOf(segment)));
+  return pieces(command, /;|&&|\|\||\||\n/u).some((piece) => {
+    const [program = "", ...rest] = programWords(piece);
+
+    if (HOOK_FILE.test(program)) return true;
+
+    return (
+      INTERPRETERS.has(nameOf(program)) &&
+      HOOK_FILE.test(rest.find((word) => word !== "run" && !word.startsWith("-")) ?? "")
+    );
+  });
+}
+
+function sendsARequest(statement: string): boolean {
+  if (GH_GRAPHQL.test(statement)) return MUTATION.test(statement);
+
+  return (
+    (GH_API.test(statement) && GH_API_WRITES.test(statement)) ||
+    (CURL.test(statement) && CURL_WRITES.test(statement))
+  );
+}
+
+function writesLabels(statement: string): boolean {
+  return GH_LABEL_WRITERS.some((writer) => writer.test(statement)) || sendsARequest(statement);
+}
+
+/** The label a statement writes is not in its text: an expanded label option or name, or a request's expanded body. */
+function takesItsLabelFromElsewhere(statement: string): boolean {
+  return (
+    EXPANDED_LABEL.test(statement) ||
+    (GH_LABEL.test(statement) && EXPANDS.test(statement)) ||
+    (sendsARequest(statement) && EXPANDS_OR_READS_A_HEREDOC.test(statement))
+  );
+}
+
+/** A statement that writes labels and names `land-ok`, or takes its label from elsewhere on a line that names it. */
+function putsLabelOn(statements: readonly string[]): boolean {
+  const isNamed = statements.some((statement) => LABEL.test(statement));
+
+  return statements.some(
+    (statement) =>
+      writesLabels(statement) &&
+      (LABEL.test(statement) || (isNamed && takesItsLabelFromElsewhere(statement))),
+  );
 }
 
 /** Why the command is denied, or null when it passes. */
 export function refusal(command: string): string | null {
-  if (LABEL.test(command) && LABEL_WRITERS.some((writer) => writer.test(command))) {
+  const statements = statementsOf(command);
+  const text = statements.join("\n");
+
+  if (putsLabelOn(statements)) {
     return `guard-land-ok: land-ok is the human's ok on a pull request, and this command writes labels and names it. ${ASK}`;
   }
 
@@ -80,7 +178,7 @@ export function refusal(command: string): string | null {
     return `guard-land-ok: land-label.ts is Claude Code's to run, on the /land the human typed: run by hand, it puts land-ok on from whatever payload it reads. ${ASK}`;
   }
 
-  if (TYPED_LAND.test(command) && (SESSION_PROGRAM.test(command) || SESSION_SCRIPT.test(command))) {
+  if (TYPED_LAND.test(text) && (SESSION_PROGRAM.test(text) || SESSION_SCRIPT.test(text))) {
     return `guard-land-ok: /land is the human's to type: this command hands it to a Claude Code session, which takes it as the human's own typing and puts land-ok on. ${ASK}`;
   }
 

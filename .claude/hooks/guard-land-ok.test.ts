@@ -15,6 +15,13 @@ describe("guard-land-ok denies an agent's way to land-ok", () => {
     "gh api -X POST repos/o/n/issues/12/labels -f 'labels[]=land-ok'",
     "gh api -X PATCH repos/o/n/issues/12 -f 'labels[]=land-ok'",
     `curl -X POST -d '{"labels":["land-ok"]}' https://api.github.com/repos/o/n/issues/12/labels`,
+    "gh pr edit 12 --add-label LAND-OK",
+    'L=land-ok; gh pr edit 12 --add-label "$L"',
+    "git rev-parse HEAD | xargs -I{} gh pr edit 12 --add-label land-ok",
+    "git fetch & gh pr edit 12 --add-label land-ok",
+    `curl -s -H "Authorization: token T" -d'{"labels":["land-ok"]}' https://api.github.com/repos/o/n/issues/12/labels`,
+    `gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelIds: ["land-ok"]}) { clientMutationId } }'`,
+    'gh api repos/o/n/issues/12/labels --input - <<\'EOF\'\n{"labels":["land-ok"]}\nEOF',
   ])("a label write that names it: %s", (command) => {
     expect(refusal(command)).toContain("land-ok is the human's ok on a pull request");
   });
@@ -25,6 +32,9 @@ describe("guard-land-ok denies an agent's way to land-ok", () => {
     'bun "$CLAUDE_PROJECT_DIR/.claude/hooks/land-label.ts" < forged.json',
     "cat forged.json | bun run .claude/hooks/land-label.ts",
     '"$CLAUDE_PROJECT_DIR/.claude/hooks/land-label.ts"',
+    "CLAUDE_PROJECT_DIR=$PWD bun .claude/hooks/land-label.ts < forged.json",
+    "env FOO=1 bun .claude/hooks/land-label.ts",
+    "timeout 20 bun .claude/hooks/land-label.ts < forged.json",
   ])("the labelling hook run by hand: %s", (command) => {
     expect(refusal(command)).toContain("land-label.ts is Claude Code's to run");
   });
@@ -43,6 +53,7 @@ describe("guard-land-ok denies an agent's way to land-ok", () => {
     "tmux send-keys -t lab '/simplify /land 12' Enter",
     "screen -S lab -X stuff '/land 12\n'",
     'bun ./scripts/sessions/field-test.ts send lab "/land 12"',
+    "npx @anthropic-ai/claude-code -p '/land 12'",
   ])("/land handed to a session: %s", (command) => {
     expect(refusal(command)).toContain("/land is the human's to type");
   });
@@ -81,6 +92,14 @@ describe("guard-land-ok lets through what puts no land-ok on", () => {
     "tmux send-keys -t lab 'cat scripts/land.ts' Enter",
     "bun ./scripts/land.ts 12",
     "ls /landing",
+    "gh api repos/o/n/issues/12/labels --jq '.[].name' | grep -q land-ok",
+    `gh api repos/o/n/issues/12/timeline --jq '.[] | select(.label.name=="land-ok")'`,
+    `curl -s https://api.github.com/repos/o/n/issues/12/labels | jq '.[] | select(.name=="land-ok")'`,
+    "gh pr view 12 --json labels | grep land-ok; gh pr edit 12 --add-label tier:human",
+    'gh api graphql -f query=\'{ repository(owner:"o",name:"n") { pullRequest(number:12) { labels(first:9) { nodes { name } } } } }\' | grep land-ok',
+    'grep -c land-ok docs/x.md; gh pr edit 12 --body-file "$TMPDIR/body.md"',
+    'git commit -m "fix(land): gh pr edit puts land-ok on once"',
+    'git commit -m "docs(land): /land 12 typed in a claude session"',
   ])("%s", (command) => {
     expect(refusal(command)).toBeNull();
   });
