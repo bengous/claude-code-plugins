@@ -1,5 +1,5 @@
 name: Owner gate
-# pull_request_target runs this file as it is on main, so a PR cannot edit the gate that judges it.
+# pull_request_target runs this file as it is on {{BRANCH}}, so a PR cannot edit the gate that judges it.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]

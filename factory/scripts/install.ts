@@ -6,20 +6,22 @@ import { parseArgs } from "node:util";
 
 import { writeAtomicSync } from "../lib/platform/fs.ts";
 import { messageOf } from "../lib/platform/pure.ts";
-import { render, type TemplateFile } from "./render.ts";
+import { namedParams, type ParamName, render, type TemplateFile } from "./render.ts";
 import { readTemplates, REPO_PREFIX, ROUTINE_PROMPT } from "./templates.ts";
 
-const USAGE = `Usage: install.ts repo --owner <login> --repo <owner/name> --routine <trig_id>
+const USAGE = `Usage: install.ts repo --owner <login> --routine <trig_id> --branch <default branch>
                        [--target <dir>] [--force]
-       install.ts prompt --owner <login> --repo <owner/name> --dir <routine dir> [--force]
+       install.ts prompt --owner <login> --repo <owner/name> --branch <default branch>
+                         --dir <routine dir> [--force]
 
   repo    writes the factory's workflows, CODEOWNERS, deep-review-paths and review
           command into the working tree of --target, this directory by default.
   prompt  writes the routine's prompt.md into --dir, created when missing.
 
-  A file whose content differs is refused unless --force. Touches no GitHub state,
-  commits nothing. Exit 0 when nothing was refused, 1 when a file was refused or a
-  write failed, 2 on a bad argument.`;
+  Each takes exactly the flags shown. Each file prints wrote, identical, overwrote
+  or refused: a file whose content differs is refused unless --force overwrites it.
+  Touches no GitHub state, commits nothing. Exit 0 when nothing was refused, 1 when
+  a file was refused or a write failed, 2 on a bad argument.`;
 
 export type Subject =
   | { readonly kind: "repo"; readonly target: string }
@@ -91,6 +93,7 @@ const OPTIONS = {
   owner: { type: "string" },
   repo: { type: "string" },
   routine: { type: "string" },
+  branch: { type: "string" },
   target: { type: "string" },
   dir: { type: "string" },
   force: { type: "boolean", default: false },
@@ -98,6 +101,39 @@ const OPTIONS = {
 } as const;
 
 type Parsed = ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
+
+type ParamFlag = "owner" | "repo" | "routine" | "branch";
+
+const FLAGS: readonly (readonly [ParamName, ParamFlag])[] = [
+  ["OWNER", "owner"],
+  ["REPO", "repo"],
+  ["ROUTINE_ID", "routine"],
+  ["BRANCH", "branch"],
+];
+
+/** Each parameter flag the subject's templates need and lacks, or is given though they never name it. */
+export function flagErrors(
+  values: Readonly<Partial<Record<ParamFlag, string>>>,
+  named: ReadonlySet<ParamName>,
+  kind: Subject["kind"],
+): string[] {
+  return FLAGS.flatMap(([param, flag]) => {
+    const given = values[flag] !== undefined;
+
+    if (named.has(param) && !given) return [`--${flag} is missing`];
+
+    if (!named.has(param) && given) return [`--${flag} is not used by install.ts ${kind}`];
+
+    return [];
+  });
+}
+
+/** `render`'s reasons, a parameter written as the flag that gives it. */
+function asFlags(error: string): string {
+  const pair = FLAGS.find(([param]) => error.startsWith(`${param} `));
+
+  return pair === undefined ? error : `--${pair[1]}${error.slice(pair[0].length)}`;
+}
 
 function parse(argv: readonly string[]): Parsed | { readonly error: string } {
   try {
@@ -111,6 +147,10 @@ function subjectOf({ values, positionals }: Parsed): Subject | { readonly error:
   const [kind, ...extra] = positionals;
 
   if (extra.length > 0) return { error: `unexpected argument: ${extra.join(" ")}` };
+
+  if (values.target === "" || values.dir === "") {
+    return { error: `--${values.target === "" ? "target" : "dir"} is empty` };
+  }
 
   if (kind === "repo") {
     if (values.dir !== undefined) return { error: "--dir belongs to install.ts prompt" };
@@ -137,7 +177,7 @@ function subjectOf({ values, positionals }: Parsed): Subject | { readonly error:
   };
 }
 
-function main(argv: readonly string[]): number {
+export function main(argv: readonly string[]): number {
   const parsed = parse(argv);
 
   if ("error" in parsed) {
@@ -161,14 +201,24 @@ function main(argv: readonly string[]): number {
   }
 
   const { values } = parsed;
+  const templates = readTemplates().filter(({ path }) => belongsTo(path, subject.kind));
+  const misused = flagErrors(values, namedParams(templates), subject.kind);
 
-  const rendered = render(
-    readTemplates().filter(({ path }) => belongsTo(path, subject.kind)),
-    { OWNER: values.owner, REPO: values.repo, ROUTINE_ID: values.routine },
-  );
+  const rendered = render(templates, {
+    OWNER: values.owner,
+    REPO: values.repo,
+    ROUTINE_ID: values.routine,
+    BRANCH: values.branch,
+  });
 
-  if (rendered.kind === "refused") {
-    console.error(`${rendered.errors.map((error) => `install: ${error}`).join("\n")}\n\n${USAGE}`);
+  const errors = [
+    ...misused,
+    ...(rendered.kind === "refused" ? rendered.errors.map((error) => asFlags(error)) : []),
+  ];
+
+  if (errors.length > 0 || rendered.kind === "refused") {
+    const unique = [...new Set(errors)];
+    console.error(`${unique.map((error) => `install: ${error}`).join("\n")}\n\n${USAGE}`);
 
     return 2;
   }

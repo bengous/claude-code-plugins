@@ -18,11 +18,11 @@ Remove the label `ready` from the issue and add `in-progress`. A second run fire
 
 ## 3. Work
 
-Implement the issue per `CLAUDE.md`. Open a pull request against `main` that closes it, ready for review, not a draft. Enable auto-merge on it and keep auto-fix on until it merges. The merge queue squashes whatever method auto-merge reports: do not retry to change it.
+Implement the issue per `CLAUDE.md`. Open a pull request against `{{BRANCH}}` that closes it, ready for review, not a draft. Enable auto-merge on it and keep auto-fix on until it merges. The merge queue squashes whatever method auto-merge reports: do not retry to change it.
 
 ## 4. Blocked
 
-When something outside the issue stops you, such as a test that already fails on `main` before your change, do not repair it and push nothing. Write one comment on the issue that says what blocks it, with the failing test or the error. Replace the label `in-progress` with `blocked`, and end the run. The lead agent reads these issues and fires the routine again once the way is clear.
+When something outside the issue stops you, such as a test that already fails on `{{BRANCH}}` before your change, do not repair it and push nothing. Write one comment on the issue that says what blocks it, with the failing test or the error. Replace the label `in-progress` with `blocked`, and end the run. The lead agent reads these issues and fires the routine again once the way is clear.
 
 ## 5. Owner
 

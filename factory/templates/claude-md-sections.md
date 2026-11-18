@@ -1,6 +1,6 @@
 ## Work
 
-- One issue, one branch from `main`, one pull request.
+- One issue, one branch from `{{BRANCH}}`, one pull request.
 - `bun test` passes before every push.
 - Decide small choices yourself and record them in the PR body. Ask the owner only for a choice that is hard to undo or changes what the tool measures.
 

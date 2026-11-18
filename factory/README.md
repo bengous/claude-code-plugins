@@ -16,17 +16,18 @@ A session stopped by something outside its issue comments on the issue and label
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
 | `install` | `/factory:install [owner/name]` | Writes the factory's files into the current repository, versions the routine in `~/dotfiles/cloud/routines/`, and reports what the GitHub side still lacks. Asks the owner before every change outside the working tree. |
-| `lead` | `/factory:lead [--max <n>] [--dry-run]` | One pass: checks the labels, has a red main repaired through a `main is red` issue, dispatches issues by labelling them `ready`, wakes the cloud session of a pull request that conflicts outside the merge queue, sends `blocked` issues back once their cause is gone, and returns a digest. Never merges and never adds `owner-ok`. |
+| `lead` | `/factory:lead [--max <n>] [--dry-run]` | One pass: checks the labels, has a red main repaired through a `main is red` issue, dispatches issues by labelling them `ready`, wakes the cloud session of a pull request that conflicts with the default branch, sends `blocked` issues back once their cause is gone, and returns a digest. Never merges and never adds `owner-ok`. |
 
 ## Templates
 
-`templates/` holds the files of the proven trial, byte for byte, but for the trial's own path in `deep-review-paths` and three parameters:
+`templates/` holds the files of the proven trial, byte for byte, but for the trial's own path in `deep-review-paths` and four parameters:
 
-| Parameter | Value |
-|-----------|-------|
-| `{{OWNER}}` | the owner's GitHub login |
-| `{{REPO}}` | `owner/name` |
-| `{{ROUTINE_ID}}` | the routine's `trig_…` id |
+| Parameter | Flag | Value |
+|-----------|------|-------|
+| `{{OWNER}}` | `--owner` | the owner's GitHub login |
+| `{{REPO}}` | `--repo` | `owner/name` |
+| `{{ROUTINE_ID}}` | `--routine` | the routine's `trig_…` id |
+| `{{BRANCH}}` | `--branch` | the repository's default branch, a git branch name |
 
 - `templates/repo/` lands at the same paths in the target repository: the `review`, `owner-gate` and `dispatch` workflows, `CODEOWNERS`, `deep-review-paths` and the `/pr-review` command.
 - `templates/routine/prompt.md` is the routine's prompt.
@@ -36,9 +37,11 @@ A session stopped by something outside its issue comments on the issue and label
 
 | Script | What it does |
 |--------|--------------|
-| `scripts/install.ts repo` | Renders `templates/repo/` into a working tree. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical` or `refused` per file. No GitHub call, no commit. |
-| `scripts/install.ts prompt` | Renders the routine's `prompt.md` into a directory. |
-| `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the default branch's ruleset (required checks, resolved threads, merge queue), the auto-merge setting and the secret names; one line per item, `ok` or `missing` with its fix. Exit 1 while one is missing. Never reads a secret's value. |
+| `scripts/install.ts repo --owner --routine --branch [--target] [--force]` | Renders `templates/repo/` into a working tree. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical`, `overwrote` or `refused` per file. No GitHub call, no commit. |
+| `scripts/install.ts prompt --owner --repo --branch --dir [--force]` | Renders the routine's `prompt.md` into a directory. |
+| `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the default branch's ruleset (required checks, resolved threads, merge queue), the auto-merge setting and the secret names; one line per item, `ok` or `missing` with its fix, a secret the token cannot list marked `not visible`. Exit 1 while one is missing. Never reads a secret's value. |
+
+Each subject of `install.ts` takes exactly the parameter flags its templates name and refuses any other, and an empty path.
 
 ## Requirements
 

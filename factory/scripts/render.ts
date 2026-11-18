@@ -1,4 +1,4 @@
-export type ParamName = "OWNER" | "REPO" | "ROUTINE_ID";
+export type ParamName = "OWNER" | "REPO" | "ROUTINE_ID" | "BRANCH";
 
 /** The parameters as given, each possibly absent: `render` refuses what is missing or malformed. */
 export type RawParams = { readonly [Name in ParamName]?: string | undefined };
@@ -16,6 +16,10 @@ const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u;
 const REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/u;
 
 const ROUTINE_ID = /^trig_[A-Za-z0-9]+$/u;
+
+/** What `git check-ref-format --branch` refuses anywhere in a name: controls, space, `~^:?*[\`, `..`, `@{`, `//`. */
+// oxlint-disable-next-line no-control-regex -- git refuses control characters in a ref name, so this pattern must match them.
+const REF_FORBIDDEN = /[\u0000- \u007F~^:?*[\\]|\.\.|@\{|\/\//u;
 
 const PLACEHOLDER = /\{\{([A-Z_]+)\}\}/gu;
 
@@ -35,13 +39,43 @@ export function isRoutineId(value: string): boolean {
   return ROUTINE_ID.test(value);
 }
 
+/** A branch name git accepts (`git check-ref-format --branch`). */
+export function isBranch(value: string): boolean {
+  if (value === "" || value === "@" || value.startsWith("-") || REF_FORBIDDEN.test(value)) {
+    return false;
+  }
+
+  return value
+    .split("/")
+    .every(
+      (part) =>
+        part !== "" && !part.startsWith(".") && !part.endsWith(".") && !part.endsWith(".lock"),
+    );
+}
+
 const RULES: readonly (readonly [ParamName, Rule])[] = [
   ["OWNER", { test: isLogin, expected: "a GitHub login" }],
   ["REPO", { test: isRepo, expected: "owner/name" }],
   ["ROUTINE_ID", { test: isRoutineId, expected: "a trig_ id" }],
+  ["BRANCH", { test: isBranch, expected: "a git branch name" }],
 ];
 
 const KNOWN: ReadonlySet<string> = new Set(RULES.map(([name]) => name));
+
+/** The known parameters the templates name. */
+export function namedParams(templates: readonly TemplateFile[]): Set<ParamName> {
+  const named = new Set<ParamName>();
+
+  for (const { content } of templates) {
+    for (const [, name = ""] of content.matchAll(PLACEHOLDER)) {
+      const rule = RULES.find(([known]) => known === name);
+
+      if (rule !== undefined) named.add(rule[0]);
+    }
+  }
+
+  return named;
+}
 
 /**
  * Each template with every `{{NAME}}` replaced by its parameter. Refused, with every reason, when
@@ -50,15 +84,14 @@ const KNOWN: ReadonlySet<string> = new Set(RULES.map(([name]) => name));
  */
 export function render(templates: readonly TemplateFile[], params: RawParams): RenderResult {
   const errors: string[] = [];
-  const named = new Set<string>();
 
   for (const { path, content } of templates) {
     for (const [, name = ""] of content.matchAll(PLACEHOLDER)) {
-      if (KNOWN.has(name)) named.add(name);
-      else errors.push(`${path} names an unknown parameter {{${name}}}`);
+      if (!KNOWN.has(name)) errors.push(`${path} names an unknown parameter {{${name}}}`);
     }
   }
 
+  const named = namedParams(templates);
   const values = new Map<string, string>();
 
   for (const [name, rule] of RULES) {

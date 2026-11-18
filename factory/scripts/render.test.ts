@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { isLogin, isRepo, isRoutineId, render } from "./render.ts";
+import { isBranch, isLogin, isRepo, isRoutineId, render } from "./render.ts";
 import { readTemplates } from "./templates.ts";
 
-const PARAMS = { OWNER: "octo-cat", REPO: "octo-org/widgets", ROUTINE_ID: "trig_01AbC" };
+const PARAMS = {
+  OWNER: "octo-cat",
+  REPO: "octo-org/widgets",
+  ROUTINE_ID: "trig_01AbC",
+  BRANCH: "trunk",
+};
 
 describe("render", () => {
   test("replaces every parameter and leaves GitHub expressions alone", () => {
@@ -24,7 +29,7 @@ describe("render", () => {
   });
 
   test("refuses a missing parameter, a malformed one, and an unknown placeholder, all at once", () => {
-    const result = render([{ path: "b.md", content: "{{OWNER}} {{BRANCH}} {{ROUTINE_ID}}" }], {
+    const result = render([{ path: "b.md", content: "{{OWNER}} {{TAG}} {{ROUTINE_ID}}" }], {
       OWNER: "-bad",
       REPO: "no-slash",
     });
@@ -32,7 +37,7 @@ describe("render", () => {
     expect(result).toEqual({
       kind: "refused",
       errors: [
-        "b.md names an unknown parameter {{BRANCH}}",
+        "b.md names an unknown parameter {{TAG}}",
         'OWNER is not a GitHub login: "-bad"',
         'REPO is not owner/name: "no-slash"',
         "ROUTINE_ID is missing",
@@ -60,6 +65,10 @@ describe("render", () => {
 
     expect(dispatch?.content).toContain("/routines/trig_01AbC/fire");
     expect(dispatch?.content).toContain("github.event.issue.user.login == 'octo-cat'");
+
+    const prompt = result.files.find((file) => file.path === "routine/prompt.md");
+
+    expect(prompt?.content).toContain("Open a pull request against `trunk`");
   });
 });
 
@@ -90,4 +99,34 @@ describe("parameter shapes", () => {
       expect(isRoutineId(value)).toBe(false);
     },
   );
+
+  test.each(["main", "dev", "release/1.2", "feature/x-y_z", "v1.0"])("branch %p", (value) => {
+    expect(isBranch(value)).toBe(true);
+  });
+
+  test.each([
+    "",
+    "@",
+    "-x",
+    "a..b",
+    "a b",
+    "a~1",
+    "a^",
+    "a:b",
+    "a?",
+    "a*",
+    "a[b",
+    "a\\b",
+    "a@{1}",
+    "/a",
+    "a/",
+    "a//b",
+    ".a",
+    "a/.b",
+    "a.",
+    "a.lock",
+    "a/b.lock/c",
+  ])("not a branch %p", (value) => {
+    expect(isBranch(value)).toBe(false);
+  });
 });

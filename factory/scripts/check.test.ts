@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { evaluate, type Facts, format, parseRepositoryLines, parseRuleLines } from "./check.ts";
+import {
+  evaluate,
+  type Facts,
+  format,
+  parseRepositoryLines,
+  parseRuleLines,
+  repoArgument,
+} from "./check.ts";
 
 const COMPLETE: Facts = {
   repo: "o/r",
@@ -20,7 +27,7 @@ const COMPLETE: Facts = {
       "ruleset 7",
     ].join("\n"),
   ),
-  secrets: new Set(["CLAUDE_CODE_OAUTH_TOKEN", "ROUTINE_FIRE_TOKEN"]),
+  secrets: { kind: "listed", names: new Set(["CLAUDE_CODE_OAUTH_TOKEN", "ROUTINE_FIRE_TOKEN"]) },
 };
 
 const NO_RULES = parseRuleLines("");
@@ -39,7 +46,7 @@ describe("evaluate", () => {
       allowAutoMerge: false,
       labels: new Set(),
       rules: NO_RULES,
-      secrets: new Set(),
+      secrets: { kind: "listed", names: new Set() },
     };
 
     expect(format(evaluate(bare))).toBe(
@@ -111,5 +118,40 @@ describe("parseRepositoryLines", () => {
 
   test("refuses an answer missing a line", () => {
     expect(() => parseRepositoryLines("main\n")).toThrow("the repository query printed");
+  });
+});
+
+describe("secrets the token cannot list", () => {
+  test("each is reported not visible, with the reason, and missing", () => {
+    const items = evaluate({
+      ...COMPLETE,
+      secrets: { kind: "hidden", reason: "HTTP 403: Resource not accessible" },
+    }).filter((item) => !item.ok);
+
+    expect(items.map(({ name }) => name)).toEqual([
+      "secret CLAUDE_CODE_OAUTH_TOKEN (not visible: HTTP 403: Resource not accessible)",
+      "secret ROUTINE_FIRE_TOKEN (not visible: HTTP 403: Resource not accessible)",
+    ]);
+  });
+});
+
+describe("repoArgument", () => {
+  test.each([[["--repo", "o/r"]], [["--repo=o/r"]]])("%p", (argv) => {
+    expect(repoArgument(argv)).toEqual({ repo: "o/r" });
+  });
+
+  test("help", () => {
+    expect(repoArgument(["-h"])).toBeNull();
+  });
+
+  test.each([
+    [[], "--repo is missing"],
+    [["--repo=o"], '--repo is not owner/name: "o"'],
+    [["--repo", "o/r", "extra"], "Unexpected argument 'extra'"],
+    [["--rep", "o/r"], "Unknown option '--rep'"],
+  ])("refuses %p with a reason", (argv, reason) => {
+    const parsed = repoArgument(argv);
+
+    expect(parsed !== null && "error" in parsed && parsed.error).toContain(reason);
   });
 });

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { parseArgs } from "node:util";
+
 import { run } from "../lib/platform/process.ts";
 import { messageOf, shellQuote } from "../lib/platform/pure.ts";
 import { isRepo } from "./render.ts";
@@ -8,7 +10,8 @@ const USAGE = `Usage: check.ts --repo <owner/name>
 
   Reads, through gh, the GitHub side the factory needs and prints one line per item:
   ok, or missing with the gh command that would fix it. Writes nothing; reads secret
-  names only. Exit 0 when every item is ok, 1 when one is missing, 2 on an error.`;
+  names only, and reports each secret not visible when the token cannot list them.
+  Exit 0 when every item is ok, 1 when one is missing, 2 on an error.`;
 
 export const LABELS: readonly { readonly name: string; readonly description: string }[] = [
   { name: "ready", description: "The owner hands this issue to the factory" },
@@ -37,8 +40,13 @@ export type Facts = {
   readonly allowAutoMerge: boolean | null;
   readonly labels: ReadonlySet<string>;
   readonly rules: BranchRules;
-  readonly secrets: ReadonlySet<string>;
+  readonly secrets: Secrets;
 };
+
+/** The repository's secret names, or why the token could not list them. */
+export type Secrets =
+  | { readonly kind: "listed"; readonly names: ReadonlySet<string> }
+  | { readonly kind: "hidden"; readonly reason: string };
 
 export type Item = { readonly name: string; readonly ok: boolean; readonly fix: string };
 
@@ -122,8 +130,11 @@ export function evaluate(facts: Facts): Item[] {
       fix: `gh repo edit ${repo} --enable-auto-merge`,
     },
     ...SECRETS.map((secret) => ({
-      name: `secret ${secret}`,
-      ok: facts.secrets.has(secret),
+      name:
+        facts.secrets.kind === "hidden"
+          ? `secret ${secret} (not visible: ${facts.secrets.reason})`
+          : `secret ${secret}`,
+      ok: facts.secrets.kind === "listed" && facts.secrets.names.has(secret),
       fix: `gh secret set ${secret} --repo ${repo}`,
     })),
   ];
@@ -135,18 +146,30 @@ export function format(items: readonly Item[]): string {
     .join("\n");
 }
 
-async function gh(args: readonly string[]): Promise<string> {
+type GhAnswer =
+  | { readonly kind: "ok"; readonly stdout: string }
+  | { readonly kind: "failed"; readonly reason: string };
+
+async function ghAnswer(args: readonly string[]): Promise<GhAnswer> {
   const result = await run(["gh", ...args]);
 
   if (result.kind === "missing") throw new Error("gh is not on the PATH");
 
   if (result.kind === "timedOut" || result.code !== 0 || result.outputLost === true) {
-    const why = result.stderr.trim() === "" ? "no output" : result.stderr.trim();
+    const [first = "no output"] = lines(result.stderr.trim());
 
-    throw new Error(`gh ${args.join(" ")} failed: ${why}`);
+    return { kind: "failed", reason: first };
   }
 
-  return result.stdout;
+  return { kind: "ok", stdout: result.stdout };
+}
+
+async function gh(args: readonly string[]): Promise<string> {
+  const answer = await ghAnswer(args);
+
+  if (answer.kind === "failed") throw new Error(`gh ${args.join(" ")} failed: ${answer.reason}`);
+
+  return answer.stdout;
 }
 
 async function readFacts(repo: string): Promise<Facts> {
@@ -163,7 +186,7 @@ async function readFacts(repo: string): Promise<Facts> {
       "--jq",
       RULES_JQ,
     ]),
-    gh(["secret", "list", "--repo", repo, "--json", "name", "--jq", ".[].name"]),
+    ghAnswer(["secret", "list", "--repo", repo, "--json", "name", "--jq", ".[].name"]),
   ]);
 
   return {
@@ -171,26 +194,53 @@ async function readFacts(repo: string): Promise<Facts> {
     ...repository,
     labels: new Set(lines(labels)),
     rules: parseRuleLines(rules),
-    secrets: new Set(lines(secrets)),
+    secrets:
+      secrets.kind === "ok"
+        ? { kind: "listed", names: new Set(lines(secrets.stdout)) }
+        : { kind: "hidden", reason: secrets.reason },
   };
 }
 
-async function main(argv: readonly string[]): Promise<number> {
-  const [flag, repo, ...extra] = argv;
+const OPTIONS = {
+  repo: { type: "string" },
+  help: { type: "boolean", short: "h", default: false },
+} as const;
 
-  if (flag === "-h" || flag === "--help") {
+/** The repository to check, or the reason the arguments name none. */
+export function repoArgument(argv: readonly string[]): { repo: string } | { error: string } | null {
+  let values: { repo?: string | undefined; help: boolean };
+
+  try {
+    ({ values } = parseArgs({ args: [...argv], options: OPTIONS, strict: true }));
+  } catch (error) {
+    return { error: messageOf(error) };
+  }
+
+  if (values.help) return null;
+
+  if (values.repo === undefined) return { error: "--repo is missing" };
+
+  return isRepo(values.repo)
+    ? { repo: values.repo }
+    : { error: `--repo is not owner/name: ${JSON.stringify(values.repo)}` };
+}
+
+async function main(argv: readonly string[]): Promise<number> {
+  const parsed = repoArgument(argv);
+
+  if (parsed === null) {
     console.log(USAGE);
 
     return 0;
   }
 
-  if (flag !== "--repo" || repo === undefined || extra.length > 0 || !isRepo(repo)) {
-    console.error(USAGE);
+  if ("error" in parsed) {
+    console.error(`check: ${parsed.error}\n\n${USAGE}`);
 
     return 2;
   }
 
-  const items = evaluate(await readFacts(repo));
+  const items = evaluate(await readFacts(parsed.repo));
   console.log(format(items));
 
   return items.every((item) => item.ok) ? 0 : 1;

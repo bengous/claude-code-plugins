@@ -67,7 +67,7 @@ jobs:
           SELF: ${{ steps.change.outputs.self }}
         run: |
           set -euo pipefail
-          # claude-code-action skips itself when this file differs from main. Only a pull request that stays
+          # claude-code-action skips itself when this file differs from {{BRANCH}}. Only a pull request that stays
           # inside .github/ goes through unreviewed: CODEOWNERS holds it for the owner.
           if [ -z "$OUTPUT" ] && [ "$SELF" -gt 0 ]; then
             if [ "$OUTSIDE" -eq 0 ]; then
