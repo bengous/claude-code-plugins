@@ -35,7 +35,6 @@ describe("loadProfile", () => {
     expect(loadProfile(configPath(temp.repo))).toEqual({
       landing: { kind: "absent" },
       approvals: { kind: "absent" },
-      commitMessages: { kind: "absent" },
       worktree: { kind: "absent" },
     });
   });
@@ -43,12 +42,7 @@ describe("loadProfile", () => {
   test("a file that does not parse, or whose profile is no object, leaves every key unreadable, naming the error", () => {
     const invalid = profileOf("{ nope");
 
-    for (const read of [
-      invalid.landing,
-      invalid.approvals,
-      invalid.commitMessages,
-      invalid.worktree,
-    ]) {
+    for (const read of [invalid.landing, invalid.approvals, invalid.worktree]) {
       expect(read.kind).toBe("unreadable");
       expect(read.kind === "unreadable" ? read.error : "").toStartWith(
         `agent-hooks: ${configPath(temp.repo)}: invalid JSONC: `,
@@ -63,7 +57,6 @@ describe("loadProfile", () => {
     expect(profileOf(`{ "profile": 1 }`)).toEqual({
       landing: unreadable,
       approvals: unreadable,
-      commitMessages: unreadable,
       worktree: unreadable,
     });
   });
@@ -72,7 +65,7 @@ describe("loadProfile", () => {
     mkdirSync(configPath(temp.repo), { recursive: true });
     const read = loadProfile(configPath(temp.repo));
 
-    for (const key of [read.landing, read.approvals, read.commitMessages, read.worktree]) {
+    for (const key of [read.landing, read.approvals, read.worktree]) {
       expect(key.kind === "unreadable" ? key.error : "").toStartWith(
         `agent-hooks: ${configPath(temp.repo)}: cannot read: `,
       );
@@ -82,7 +75,7 @@ describe("loadProfile", () => {
   test("reads the file once for every key", () => {
     writeConfig(
       temp.repo,
-      `{ "profile": { "landing": { "trunk": "dev", "release": "main" }, "commitMessages": "judged", ${APPROVALS} } }`,
+      `{ "profile": { "landing": { "trunk": "dev", "release": "main" }, "worktree": "per-task", ${APPROVALS} } }`,
     );
     const reads = spyOn(fs, "readFileSync");
 
@@ -130,14 +123,6 @@ describe("loadProfile", () => {
     ).toEqual({ kind: "absent" });
   });
 
-  test("reads profile.commitMessages alone: the rest of the file may be invalid", () => {
-    expect(
-      profileOf(
-        `{ "presets": ["no-such-preset"], "profile": { "commitMessages": "judged", "worktree": "each" } }`,
-      ).commitMessages,
-    ).toEqual({ kind: "read", value: "judged" });
-  });
-
   test("reads profile.worktree alone: absent without it, an invalid one names its key", () => {
     expect(
       profileOf(
@@ -151,17 +136,9 @@ describe("loadProfile", () => {
     });
   });
 
-  test("no commitMessages reads as absent, an invalid one names its key", () => {
-    expect(profileOf("{}").commitMessages).toEqual({ kind: "absent" });
-    expect(profileOf(`{ "profile": { "commitMessages": true } }`).commitMessages).toEqual({
-      kind: "unreadable",
-      error: `agent-hooks: ${configPath(temp.repo)}: profile.commitMessages: expected judged`,
-    });
-  });
-
   test("an invalid key leaves the others read: an invalid approvals keeps the landing, and an invalid landing the approvals", () => {
     const approvalsInvalid = profileOf(
-      `{ "profile": { "landing": { "trunk": "dev", "release": "main" }, "approvals": {}, "commitMessages": "judged" } }`,
+      `{ "profile": { "landing": { "trunk": "dev", "release": "main" }, "approvals": {}, "worktree": "per-task" } }`,
     );
 
     expect(approvalsInvalid).toEqual({
@@ -170,8 +147,7 @@ describe("loadProfile", () => {
         kind: "unreadable",
         error: `agent-hooks: ${configPath(temp.repo)}: profile.approvals: expected workflows or labels`,
       },
-      commitMessages: { kind: "read", value: "judged" },
-      worktree: { kind: "absent" },
+      worktree: { kind: "read", value: "per-task" },
     });
 
     const landingInvalid = profileOf(
@@ -183,7 +159,7 @@ describe("loadProfile", () => {
       error: `agent-hooks: ${configPath(temp.repo)}: profile.landing: trunk and release name one branch`,
     });
     expect(landingInvalid.approvals.kind).toBe("read");
-    expect(landingInvalid.commitMessages).toEqual({ kind: "absent" });
+    expect(landingInvalid.worktree).toEqual({ kind: "absent" });
   });
 });
 
@@ -199,7 +175,6 @@ describe("parseProfile", () => {
       approvals: null,
       review: { risky: ["a"] },
       worktree: "per-task",
-      commitMessages: null,
     });
   });
 

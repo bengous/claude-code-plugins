@@ -17,8 +17,8 @@ export type Verdict =
 
 export const ALLOW: Extract<Verdict, { kind: "allow" }> = { kind: "allow" };
 
-/** The verdicts the landing guard and the commit judge give. */
+/** The verdicts the landing guard gives. */
 export type PreBashVerdict = Extract<Verdict, { kind: "allow" | "note" | "deny" }>;
 
-/** What pre-bash answers: a verdict of the landing guard or the commit judge, or the per-task line for the agent. */
+/** What pre-bash answers: a verdict of the landing guard, or the per-task line for the agent. */
 export type PreBashAnswer = PreBashVerdict | Extract<Verdict, { kind: "context" }>;

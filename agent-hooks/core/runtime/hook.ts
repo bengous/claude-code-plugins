@@ -97,7 +97,6 @@ export type PreBashContext = {
   readonly now: number;
   readonly deadline: Deadline;
   readonly deadlineMs: number;
-  readonly runner: Runner;
 };
 
 export type Handler = (context: HookContext) => Promise<Verdict>;
@@ -263,8 +262,7 @@ type RootRun = RunHookOptions & { readonly hook: RootHookKind };
 type PreBashRun = RunHookOptions & { readonly hook: "pre-bash" };
 
 /**
- * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat and no
- * commit judge. A crash lets the command through with a note.
+ * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat. A crash lets the command through with a note.
  */
 async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBashAnswer | null> {
   const { payload } = options;
@@ -296,7 +294,6 @@ async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBash
       now,
       deadline: deadlineIn(deadlineMs, now),
       deadlineMs,
-      runner: options.runner ?? run,
     });
   } catch (error) {
     const message = messageOf(error);

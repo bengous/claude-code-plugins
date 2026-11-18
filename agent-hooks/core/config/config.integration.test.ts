@@ -381,13 +381,12 @@ describe("loadConfig errors", () => {
 });
 
 describe("loadConfig profile", () => {
-  test("no profile reads as no landing, no approvals, no review, a shared checkout and no commit judge", () => {
+  test("no profile reads as no landing, no approvals, no review, and a shared checkout", () => {
     expect(load("{}").profile).toEqual({
       landing: null,
       approvals: null,
       review: null,
       worktree: "shared",
-      commitMessages: null,
     });
   });
 
@@ -399,7 +398,6 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: null,
       worktree: "shared",
-      commitMessages: null,
     });
   });
 
@@ -412,7 +410,6 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: { risky: ["scripts/land.ts", ".github/workflows/**"] },
       worktree: "shared",
-      commitMessages: null,
     });
   });
 
@@ -442,7 +439,6 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: null,
       worktree: "per-task",
-      commitMessages: null,
     });
     expect(load(`{ "profile": { "worktree": "shared" } }`).profile.worktree).toBe("shared");
     expect(
@@ -454,7 +450,6 @@ describe("loadConfig profile", () => {
       approvals: null,
       review: null,
       worktree: "per-task",
-      commitMessages: null,
     });
   });
 
@@ -465,15 +460,9 @@ describe("loadConfig profile", () => {
     expectConfigError(`{ "profile": { "worktree": true } }`, "profile.worktree");
   });
 
-  test("reads profile.commitMessages", () => {
-    expect(load(`{ "profile": { "commitMessages": "judged" } }`).profile.commitMessages).toBe(
-      "judged",
-    );
-  });
-
-  test("a commitMessages other than judged", () => {
-    expect(configErrorOf(`{ "profile": { "commitMessages": "trailers" } }`).message).toBe(
-      `agent-hooks: ${configPath(temp.repo)}: profile.commitMessages: expected judged`,
+  test("commitMessages is an unknown profile key", () => {
+    expect(configErrorOf(`{ "profile": { "commitMessages": "judged" } }`).message).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.commitMessages: unknown key`,
     );
   });
 

@@ -5,7 +5,6 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { writeAtomicSync } from "../../lib/platform/fs.ts";
-import { isErrno } from "../../lib/platform/pure.ts";
 import { sha256 } from "../util/hash.ts";
 import { isRecord } from "../util/json.ts";
 
@@ -16,8 +15,6 @@ export const STATE_VERSION = 2;
 const TEMPORARY_SUFFIX = ".tmp";
 
 const BEAT_SUFFIX = ".beat";
-
-const REFUSED_SUFFIX = ".refused";
 
 /** A beat's content while its agent's turn ended with a background task running or pending; empty while it works. */
 const WAITING = "waiting";
@@ -264,7 +261,7 @@ export function saveState(state: SessionState, now = Date.now()): void {
 
 /**
  * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, every
- * heartbeat and refused-messages file whose mtime is older than the TTL, and every temporary file older than
+ * heartbeat whose mtime is older than the TTL, and every temporary file older than
  * `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its own within one hook, so a
  * younger one may be a save under way, half written.
  */
@@ -295,7 +292,7 @@ function isStale(file: string, filePath: string, staleTemporaryMs: number, now: 
     return now - modifiedAt(filePath) > staleTemporaryMs;
   }
 
-  if (file.endsWith(BEAT_SUFFIX) || file.endsWith(REFUSED_SUFFIX)) {
+  if (file.endsWith(BEAT_SUFFIX)) {
     return now - modifiedAt(filePath) > STATE_TTL_MS;
   }
 
@@ -477,42 +474,6 @@ function isLive(file: string, now: number): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * The file holding the hashes of the commit messages the judge refused to agent `key`: each of them, committed again
- * unchanged, passes. Kept apart from the state files, which are per checkout and saved by the edit hooks.
- */
-export function refusedPath(key: string): string {
-  return path.join(stateDir(), `${sanitize(key)}${REFUSED_SUFFIX}`);
-}
-
-/** The hashes the judge refused to agent `key`; none when absent, and none when unreadable, which is reported. */
-export function loadRefused(key: string): string[] {
-  const file = refusedPath(key);
-  let value: unknown;
-
-  try {
-    value = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    if (!isErrno(error, "ENOENT")) {
-      console.error(`agent-hooks: ${file}: unreadable refused messages, ignored`);
-    }
-
-    return [];
-  }
-
-  if (!Array.isArray(value) || !value.every((hash) => typeof hash === "string")) {
-    console.error(`agent-hooks: ${file}: unreadable refused messages, ignored`);
-
-    return [];
-  }
-
-  return value;
-}
-
-export function saveRefused(key: string, hashes: readonly string[]): void {
-  writeAtomically(refusedPath(key), JSON.stringify(hashes));
 }
 
 function sanitize(value: string): string {

@@ -24,13 +24,10 @@ import {
   freshState,
   latestStateForCheckout,
   liveOthers,
-  loadRefused,
   loadState,
   pruneStates,
-  refusedPath,
   rootName,
   rootRecord,
-  saveRefused,
   saveState,
   stateDir,
   statePath,
@@ -521,42 +518,5 @@ describe("heartbeats", () => {
         path.basename(statePath("s1", temp.repo)),
       ].toSorted(),
     );
-  });
-});
-
-describe("refused messages", () => {
-  test("saved hashes read back; absent ones read as none, unreadable ones as none, reported", () => {
-    const error = spyOn(console, "error").mockImplementation(() => {});
-
-    try {
-      expect(loadRefused("s1.a2")).toEqual([]);
-
-      saveRefused("s1.a2", ["h1", "h2"]);
-
-      expect(loadRefused("s1.a2")).toEqual(["h1", "h2"]);
-      expect(loadRefused("s1")).toEqual([]);
-
-      writeFileSync(refusedPath("s1.a2"), '{"h1":true}');
-
-      expect(loadRefused("s1.a2")).toEqual([]);
-      expect(error).toHaveBeenCalledTimes(1);
-    } finally {
-      error.mockRestore();
-    }
-  });
-
-  test("a refused-messages file ages out with the beats", () => {
-    const now = 100 * DAY_MS;
-    saveRefused("old", ["h1"]);
-    saveRefused("recent", ["h1"]);
-    const old = new Date(now - 8 * DAY_MS);
-    const recent = new Date(now - 6 * DAY_MS);
-    utimesSync(refusedPath("old"), old, old);
-    utimesSync(refusedPath("recent"), recent, recent);
-
-    pruneStates(STALE_TEMPORARY_MS, now);
-
-    expect(existsSync(refusedPath("old"))).toBe(false);
-    expect(existsSync(refusedPath("recent"))).toBe(true);
   });
 });

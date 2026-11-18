@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing and per-task worktree guards on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, whether its tasks take their own worktrees or whether Haiku judges agent commit messages (commit judge), to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), when the kit says another session is live in the checkout, when the landing guard refuses a push, a merge or a release, or when a workflow dispatch or a label waits for the human's approval, or the kit blocks a slash command.
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing and per-task worktree guards on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), when the kit says another session is live in the checkout, when the landing guard refuses a push, a merge or a release, or when a workflow dispatch or a label waits for the human's approval, or the kit blocks a slash command.
 argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -132,57 +132,14 @@ Two hooks read this definition, and neither blocks:
   `git -C <checkout> worktree add <path> -b <branch> <trunk>`, the trunk being `profile.landing.trunk`
   when the repo file declares `landing`, else the checkout's current branch (`HEAD` when detached). A
   linked worktree never counts, and the profile read is the one of the checkout the command acts in,
-  whatever repository the session runs in. A refusal of the landing guard or the commit judge wins,
-  without the line; a note of theirs joins the line, read by the agent and not shown to the user.
+  whatever repository the session runs in. A refusal of the landing guard wins,
+  without the line; its note joins the line, read by the agent and not shown to the user.
 
 SessionEnd hooks share Claude Code's 1.5-second budget, which a plugin's own `timeout` does not raise
 ([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` runs well inside it. The SessionStart payload names no session that `/clear`
 replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
 measured. A SessionEnd that ran late costs one needless line at SessionStart; one that never ran leaves a
 waiting session live until the 7-day TTL, with its lines; neither blocks.
-
-## Commit judge
-
-`"profile": { "commitMessages": "judged" }`, read from the repo file alone, has `pre-bash` ask Haiku about
-the message of each commit an agent runs in that repository, before the commit runs. A commit message says
-what the code does and why, the reason in words; how the change came about and how it was checked go in the
-pull request.
-
-- What is judged: a `git commit` written as such, in a subshell too, that writes a message (`-m`, the
-  heredoc `-F -` reads, or the file `-F` names), its `--trailer` values with it, an amend that writes one
-  included. The landing guard's refusal wins: Haiku, started beside it, has its answer dropped, and no
-  refusal of it is kept. A
-  message only the line's run gives goes unjudged with a note, since the hook runs before the line: a value
-  Bash expands (`-m "$MSG"`, `-m "$(cat msg.txt)"`, `-F "$HOME/msg"`, backticks; a heredoc read by `cat`
-  alone, `"$(cat <<'EOF'` … `)"`, with a quoted or escaped delimiter, is literal), a `-F -` fed by a pipe or
-  by a heredoc Bash expands, a `-F` file whose name the line names as a word before the commit, a `-F` file
-  over 64 KiB. Not judged: a commit that keeps or reuses a message (`--no-edit`, `-C`,
-  `--fixup=amend:`), one that makes none (`--dry-run`, `--porcelain`, `-h`), a commit inside `$(…)` or
-  backticks, behind `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function; a commit
-  whose `cd` the walk cannot follow and that no absolute `git -C` places (with a note); `merge`,
-  `cherry-pick`, `revert`, `rebase`; every other command.
-- Haiku runs as `claude -p --model haiku`, with no tool, hook, MCP server or saved session, given the
-  message, then the files the commit takes, on stdin: the index (`git diff --cached --name-only`), or the
-  tracked changes on disk for `-a` and pathspecs (`git diff --name-only HEAD`), read before the line runs;
-  the commits of one line at once. It lists each passage that could break the rule with a kind, and the kit
-  refuses when one is `process` (the change explained by what produced it: a review and its findings, a
-  session, a lead's decision, a plan label) or `check-event` (a check reported as an event: a test seen
-  red, before and after numbers, a run id, a statistic given to justify a choice), and its quote is in the
-  message, whitespace aside. A bare `#N` passes. `JUDGE_PROMPT` in `judge/commit-judge.ts` is the prompt measured: a change to it is measured
-  again before it lands.
-- A refusal is a PreToolUse deny whose reason starts with `agent-hooks:`, quotes each passage, and gives
-  both ways out on the same footing: rewrite these passages, or rerun exactly the same command when the
-  message is right. A refusal holds once per message: `~/.local/state/agent-hooks/<agent>.refused` keeps
-  the hash of each message refused to that agent, and that message committed again unchanged passes
-  unjudged from then on, a rerun that a red pre-commit or a denied prompt stopped included. It ages out
-  with the beats. A refusal the kit cannot save lets the commit through, with a note: its rerun would be
-  judged again. A refusal carries the notes of the line's other commits and the landing guard's. `noise` counts these refusals with
-  the landing guard's.
-- Haiku with no answer (no `claude` on PATH, an error exit, an unreadable answer twice, no time left before
-  the hook's deadline) lets the commit through, with a `systemMessage` that starts with `agent-hooks:`. A
-  commit Haiku passes is silent. Haiku runs beside the landing guard, so a judged commit waits for the longer
-  of the two; a refusal the guard's refusal hid is not kept. A long option is read by any unique prefix, as
-  git reads it (`--mess=…`).
 
 ## Reading a Stop
 

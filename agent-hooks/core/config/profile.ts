@@ -56,15 +56,11 @@ export type ReviewProfile = { readonly risky: readonly string[] };
 /** Whether the agents of a repository share its checkout, or each task takes a worktree of its own. */
 export type WorktreeMode = "per-task" | "shared";
 
-/** Whether pre-bash has Haiku judge an agent's commit message before the commit runs. */
-export type CommitMessagesMode = "judged";
-
 export type Profile = {
   readonly landing: LandingProfile | null;
   readonly approvals: ApprovalsProfile | null;
   readonly review: ReviewProfile | null;
   readonly worktree: WorktreeMode;
-  readonly commitMessages: CommitMessagesMode | null;
 };
 
 /** A profile key of the repo file: absent with the file or the key, or unreadable, its error named. */
@@ -76,13 +72,12 @@ export type KeyRead<T> =
 export type ProfileKeys = {
   readonly landing: KeyRead<LandingProfile>;
   readonly approvals: KeyRead<ApprovalsProfile>;
-  readonly commitMessages: KeyRead<CommitMessagesMode>;
   readonly worktree: KeyRead<WorktreeMode>;
 };
 
 const ABSENT = { kind: "absent" } as const;
 
-const PROFILE_KEYS = new Set(["landing", "approvals", "review", "worktree", "commitMessages"]);
+const PROFILE_KEYS = new Set(["landing", "approvals", "review", "worktree"]);
 
 const LANDING_KEYS = new Set(["trunk", "release", "by"]);
 
@@ -107,19 +102,18 @@ const REVIEW_KEYS = new Set(["risky"]);
  */
 export function loadProfile(configFile: string): ProfileKeys {
   if (!existsSync(configFile)) {
-    return { landing: ABSENT, approvals: ABSENT, commitMessages: ABSENT, worktree: ABSENT };
+    return { landing: ABSENT, approvals: ABSENT, worktree: ABSENT };
   }
 
   const profile = keyOf(() => profileIn(configFile, readText(configFile)));
 
   if (profile.kind !== "read") {
-    return { landing: profile, approvals: profile, commitMessages: profile, worktree: profile };
+    return { landing: profile, approvals: profile, worktree: profile };
   }
 
   return {
     landing: keyOf(() => readLanding(profile.value)),
     approvals: keyOf(() => readApprovals(profile.value)),
-    commitMessages: keyOf(() => readCommitMessages(profile.value)),
     worktree: keyOf(() => readWorktree(profile.value)),
   };
 }
@@ -159,16 +153,11 @@ export function readProfile(reader: Reader): Profile {
     approvals: readApprovals(reader),
     review: readReview(reader),
     worktree: readWorktree(reader) ?? "shared",
-    commitMessages: readCommitMessages(reader),
   };
 }
 
 function readWorktree(profile: Reader): WorktreeMode | null {
   return oneOf<WorktreeMode>(profile, "worktree", ["per-task", "shared"]) ?? null;
-}
-
-function readCommitMessages(profile: Reader): CommitMessagesMode | null {
-  return oneOf<CommitMessagesMode>(profile, "commitMessages", ["judged"]) ?? null;
 }
 
 function readLanding(profile: Reader): LandingProfile | null {
