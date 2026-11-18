@@ -20,8 +20,8 @@ jobs:
         run: |
           set -euo pipefail
           # An agent acts with the owner's account but through the Claude GitHub App; only a label added without an app counts.
-          by_owner=$(gh api "repos/$REPO/issues/$ISSUE/events?per_page=100" \
-            --jq "[.[] | select(.event == \"labeled\" and .label.name == \"ready\")] | last | (.performed_via_github_app == null and .actor.login == \"$OWNER\")")
+          by_owner=$(gh api --paginate "repos/$REPO/issues/$ISSUE/events?per_page=100" \
+            --jq ".[] | select(.event == \"labeled\" and .label.name == \"ready\") | (.performed_via_github_app == null and .actor.login == \"$OWNER\")" | tail -n1)
           if [ "$by_owner" != "true" ]; then
             echo "::error::The ready label on #$ISSUE was not added by $OWNER."
             exit 1
