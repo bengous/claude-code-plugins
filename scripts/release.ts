@@ -124,7 +124,7 @@ export type ShipOutcome =
   | { readonly kind: "after-bumps"; readonly head: CommitId; readonly why: string }
   | ReleaseOutcome;
 
-/** What the command line asks: `--dry-run` anywhere among the arguments, as the landing guard reads it. */
+/** What the command line asks: `--dry-run` anywhere among the arguments. */
 export type Cli =
   | { readonly kind: "dry-run"; readonly ref: string | null; readonly json: boolean }
   | { readonly kind: "apply"; readonly digest: string }

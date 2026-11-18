@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- this module IS the reader of `.claude/agent-hooks.jsonc` and the presets: each typeof check validates one key and names its key path in the error, and nothing past `loadConfig` and the profile readers sees the document untyped. */
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- this module IS the reader of `.claude/agent-hooks.jsonc` and the presets: each typeof check validates one key and names its key path in the error, and nothing past `loadConfig` sees the document untyped. */
 import { readFileSync } from "node:fs";
 
 import { messageOf } from "../util/errors.ts";

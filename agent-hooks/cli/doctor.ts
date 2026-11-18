@@ -4,9 +4,8 @@ import path from "node:path";
 
 import type { Config, Fixer, Lane } from "../core/config/config.ts";
 import { configPath, loadConfig } from "../core/config/config.ts";
-import type { ReviewProfile } from "../core/config/profile.ts";
 import { ConfigError } from "../core/config/reader.ts";
-import { checkoutOf, findRoot, git, takePhoto } from "../core/session/scope.ts";
+import { checkoutOf, findRoot, takePhoto } from "../core/session/scope.ts";
 import { latestStateForCheckout, rootRecord } from "../core/session/state.ts";
 import { resolveProgram } from "../core/util/exec.ts";
 import { isRecord, parseJsonc, recordField, stringField } from "../core/util/json.ts";
@@ -22,7 +21,7 @@ const PLUGIN_ID_PREFIX = "agent-hooks@";
  * name is a whole word, so `agent-hooks stop-gates` is none.
  */
 const KIT_COMMAND =
-  /agent-hooks(?:\.ts)?["']?\s+(stop|pre-edit|post-edit|session-start|user-prompt-submit|pre-bash)(?=\s|["']|$)/u;
+  /agent-hooks(?:\.ts)?["']?\s+(stop|pre-edit|post-edit|session-start)(?=\s|["']|$)/u;
 
 export type DoctorOptions = {
   readonly cwd: string;
@@ -92,16 +91,6 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
 
   print(`ok      checkout: ${checkout}`);
 
-  const tracked = git(checkout, ["ls-files", "-z"]);
-
-  if (tracked === null) {
-    print("WARN    review: git ls-files failed, so no risky glob was checked");
-  } else {
-    for (const check of reviewGlobs(config.profile.review, tracked.split("\0"))) {
-      print(check.line);
-    }
-  }
-
   const started = Date.now();
   const photo = takePhoto(checkout);
   print(
@@ -120,33 +109,6 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   const report = await runVerify({ root, cwd: root, config, all: false, files: [], print });
 
   return checks.some((check) => !check.ok) || report.exitCode !== 0 ? 1 : 0;
-}
-
-/** A WARN for each risky glob of `review` that matches none of the `tracked` paths: a typo guards nothing. */
-export function reviewGlobs(review: ReviewProfile | null, tracked: readonly string[]): Check[] {
-  if (review === null) {
-    return [];
-  }
-
-  const unmatched = review.risky.filter(
-    (glob) => !tracked.some((file) => new Bun.Glob(glob).match(file)),
-  );
-
-  if (unmatched.length === 0) {
-    const count = review.risky.length;
-
-    return [
-      {
-        ok: true,
-        line: `ok      review: ${count} risky glob${count === 1 ? "" : "s"}, each matching a tracked file`,
-      },
-    ];
-  }
-
-  return unmatched.map((glob) => ({
-    ok: true,
-    line: `WARN    review: risky glob ${glob} matches no tracked file`,
-  }));
 }
 
 function checkFixer(fixer: Fixer, root: string): Check {

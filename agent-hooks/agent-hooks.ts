@@ -12,17 +12,13 @@ import type { HookKind, HookRun } from "./core/runtime/hook.ts";
 import { isHarness, isHookKind, runHook } from "./core/runtime/hook.ts";
 import { readPayload } from "./core/runtime/payload.ts";
 import { findRoot, realPathOf } from "./core/session/scope.ts";
-import { runPreBash } from "./hooks/pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./hooks/pre-edit.ts";
-import { runSessionEnd, runSessionStart, runUserPromptSubmit } from "./hooks/session-start.ts";
+import { runSessionStart } from "./hooks/session-start.ts";
 import { runStop } from "./hooks/stop.ts";
-import { runUserPromptExpansion } from "./hooks/user-prompt-expansion.ts";
 
 const USAGE = [
   "usage:",
-  "  agent-hooks <session-start|pre-edit|post-edit|stop|pre-bash|user-prompt-expansion> [--harness claude|codex]   (payload on stdin)",
-  "  agent-hooks user-prompt-submit   (UserPromptSubmit payload on stdin)",
-  "  agent-hooks session-end   (Claude Code SessionEnd payload on stdin)",
+  "  agent-hooks <session-start|pre-edit|post-edit|stop> [--harness claude|codex]   (payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
   "  agent-hooks init --print",
@@ -47,14 +43,6 @@ function hookRun(hook: HookKind): HookRun {
 
     case "stop": {
       return { hook, handler: runStop };
-    }
-
-    case "pre-bash": {
-      return { hook, handler: runPreBash };
-    }
-
-    case "user-prompt-expansion": {
-      return { hook, handler: runUserPromptExpansion };
     }
 
     default: {
@@ -100,18 +88,6 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   switch (command) {
-    case "user-prompt-submit": {
-      runUserPromptSubmit(await readPayload());
-
-      return 0;
-    }
-
-    case "session-end": {
-      runSessionEnd(await readPayload());
-
-      return 0;
-    }
-
     case "verify": {
       return verify(values.all, rest);
     }

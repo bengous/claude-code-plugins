@@ -122,14 +122,6 @@
       "rules": {
         "max-lines": "off"
       }
-    },
-    {
-      "files": [
-        "agent-hooks/guard/shell.ts"
-      ],
-      "rules": {
-        "max-lines": "off"
-      }
     }
   ],
   "rules": {

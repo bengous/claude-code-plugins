@@ -6,56 +6,35 @@ import { DEFAULT_CAP, loadConfig } from "../config/config.ts";
 import { ConfigError } from "../config/reader.ts";
 import { checkoutOf, findRoot, realPathOf } from "../session/scope.ts";
 import type { SessionState } from "../session/state.ts";
-import {
-  AGENT_SEPARATOR,
-  beat,
-  endBeats,
-  freshState,
-  loadState,
-  saveState,
-  statesOf,
-  waitBeat,
-} from "../session/state.ts";
+import { AGENT_SEPARATOR, freshState, loadState, saveState, statesOf } from "../session/state.ts";
 import { messageOf } from "../util/errors.ts";
 import type { Deadline, Runner } from "../util/exec.ts";
 import { OUTPUT_GRACE_MS, deadlineIn, run } from "../util/exec.ts";
-import { isRecord, recordField, stringField } from "../util/json.ts";
+import { isRecord, stringField } from "../util/json.ts";
 import { encode } from "./encode.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
 import type { Input } from "./payload.ts";
-import { ACTIVE_TASK_STATUSES, parseInput } from "./payload.ts";
-import type { PreBashAnswer, Verdict } from "./verdict.ts";
+import { parseInput } from "./payload.ts";
+import type { Verdict } from "./verdict.ts";
 import { ALLOW } from "./verdict.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
 
 export type Harness = (typeof HARNESSES)[number];
 
-export const HOOK_KINDS = [
-  "session-start",
-  "pre-edit",
-  "post-edit",
-  "stop",
-  "pre-bash",
-  "user-prompt-expansion",
-] as const;
+export const HOOK_KINDS = ["session-start", "pre-edit", "post-edit", "stop"] as const;
 
 export type HookKind = (typeof HOOK_KINDS)[number];
 
-/**
- * The hooks that run at one root, the one around their file or cwd; the Stop runs over every checkout instead, and
- * pre-bash in any repository, with no config or state.
- */
-export type RootHookKind = Exclude<HookKind, "stop" | "pre-bash">;
+/** The hooks that run at one root, the one around their file or cwd; the Stop runs over every checkout instead. */
+export type RootHookKind = Exclude<HookKind, "stop">;
 
 export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   "session-start": 4000,
   "pre-edit": 25_000,
   "post-edit": 50_000,
   stop: 200_000,
-  "pre-bash": 25_000,
-  "user-prompt-expansion": 25_000,
 };
 
 /** A killed command's output grace, then the time to blame, record and encode the run. */
@@ -86,29 +65,13 @@ export type StopContext = {
   readonly runner: Runner;
 };
 
-/** What pre-bash runs with: the Bash command, and an input only when the payload names its session. */
-export type PreBashContext = {
-  readonly harness: Harness;
-  readonly input: Input | null;
-  readonly command: string;
-  /** The payload's cwd as written, else the process's. */
-  readonly cwd: string;
-  readonly sessionId: string;
-  readonly now: number;
-  readonly deadline: Deadline;
-  readonly deadlineMs: number;
-};
-
 export type Handler = (context: HookContext) => Promise<Verdict>;
 
 export type StopHandler = (context: StopContext) => Promise<Verdict>;
 
-export type PreBashHandler = (context: PreBashContext) => Promise<PreBashAnswer>;
-
-/** A hook with its handler: the Stop's reads every checkout, pre-bash's one command, a root hook's one root. */
+/** A hook with its handler: the Stop's reads every checkout, a root hook's one root. */
 export type HookRun =
   | { readonly hook: "stop"; readonly handler: StopHandler }
-  | { readonly hook: "pre-bash"; readonly handler: PreBashHandler }
   | { readonly hook: RootHookKind; readonly handler: Handler };
 
 export type RunHookOptions = HookRun & {
@@ -166,12 +129,6 @@ function editedPaths(input: Input): string[] {
 export async function runHook(options: RunHookOptions): Promise<string | null> {
   const { harness, payload } = options;
 
-  if (options.hook === "pre-bash") {
-    const verdict = await runPreBashHook(options, options.now ?? Date.now());
-
-    return verdict === null ? null : encode(verdict, harness, options.hook);
-  }
-
   if (!isRecord(payload)) {
     console.error("agent-hooks: empty or invalid payload on stdin");
 
@@ -187,16 +144,11 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   }
 
   const now = options.now ?? Date.now();
-  heartbeat(input);
 
   const verdict =
     options.hook === "stop"
       ? await runStopHook(options, input, now)
       : await runRootHook(options, input, now);
-
-  if (options.hook === "stop") {
-    settleBeats(input, verdict);
-  }
 
   return verdict === null ? null : encode(verdict, harness, options.hook);
 }
@@ -211,100 +163,9 @@ export function stateKey(input: Input): string {
     : `${input.sessionId}${AGENT_SEPARATOR}${input.agentId}`;
 }
 
-/**
- * Marks the agent live in the checkout around its cwd, when a root encloses it: every kit hook beats, so a session
- * that stops calling them there ages out. A beat that cannot be placed or written is reported and costs nothing else.
- */
-export function heartbeat(input: Input): void {
-  try {
-    const checkout = cwdCheckout(input);
-
-    if (checkout !== null) {
-      beat(stateKey(input), checkout);
-    }
-  } catch (error) {
-    console.error(`agent-hooks: heartbeat not saved: ${messageOf(error)}`);
-  }
-}
-
-/**
- * The main session's beats once its Stop answered. A block keeps it working. A turn that ends with a background task
- * running or pending, of any type, leaves it waiting in the checkout around its cwd, live there until its session
- * ends, its other beats working; one that ends without leaves it idle in every checkout until a hook of its next turn
- * beats. A subagent's Stop leaves every beat as it is.
- */
-function settleBeats(input: Input, verdict: Verdict | null): void {
-  if (input.agentId !== undefined || verdict?.kind === "block") {
-    return;
-  }
-
-  try {
-    if (!input.backgroundTasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))) {
-      endBeats(input.sessionId);
-
-      return;
-    }
-
-    const checkout = cwdCheckout(input);
-
-    if (checkout !== null) {
-      waitBeat(input.sessionId, checkout);
-    }
-  } catch (error) {
-    console.error(`agent-hooks: beats not settled: ${messageOf(error)}`);
-  }
-}
-
 type StopRun = RunHookOptions & { readonly hook: "stop" };
 
 type RootRun = RunHookOptions & { readonly hook: RootHookKind };
-
-type PreBashRun = RunHookOptions & { readonly hook: "pre-bash" };
-
-/**
- * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat. A
- * crash lets the command through with a note.
- */
-async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBashAnswer | null> {
-  const { payload } = options;
-  const deadlineMs = options.deadlineMs ?? DEADLINES_MS["pre-bash"];
-
-  if (!isRecord(payload)) {
-    return null;
-  }
-
-  try {
-    const input = parseInput(payload);
-
-    if (input !== null) {
-      heartbeat(input);
-    }
-
-    const command = stringField(recordField(payload, "tool_input") ?? {}, "command");
-
-    if (command === undefined) {
-      return null;
-    }
-
-    return await options.handler({
-      harness: options.harness,
-      input,
-      command,
-      cwd: stringField(payload, "cwd") ?? process.cwd(),
-      sessionId: stringField(payload, "session_id") ?? "",
-      now,
-      deadline: deadlineIn(deadlineMs, now),
-      deadlineMs,
-    });
-  } catch (error) {
-    const message = messageOf(error);
-
-    return {
-      kind: "note",
-      text: `agent-hooks: pre-bash crashed (${message}): the command went unchecked`,
-    };
-  }
-}
 
 /** A Stop: every checkout's state read once, the handler over all of them, every state saved. */
 async function runStopHook(options: StopRun, input: Input, now: number): Promise<Verdict | null> {
@@ -472,7 +333,7 @@ function persist(state: SessionState, now: number): void {
 
 /**
  * A root hook's own failure never blocks: an invalid config is a note the user must act on; a crash, or a run past
- * the deadline, is reported on stderr and lets the tool run or the command expand as asked.
+ * the deadline, is reported on stderr and lets the tool run as asked.
  */
 async function rootVerdict(
   options: RootRun,

@@ -2361,6 +2361,19 @@ describe("riskyOf", () => {
     expect(riskyOf(work, "origin/nowhere").kind).toBe("unreadable");
   });
 
+  test("reads this repository's review file, each glob matching a tracked file: a typo guards nothing", () => {
+    const repo = join(import.meta.dir, "..");
+    const review = riskyOf(repo, "HEAD");
+
+    if (review.kind === "unreadable") throw new Error(review.why);
+
+    const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: repo }).stdout.toString().split("\n");
+
+    expect(
+      review.risky.filter((glob) => !tracked.some((path) => new Bun.Glob(glob).match(path))),
+    ).toEqual([]);
+  });
+
   test("names the review file as git does, with forward slashes", () => {
     expect(reviewSpec("origin/dev")).toBe("origin/dev:.claude/review.jsonc");
   });

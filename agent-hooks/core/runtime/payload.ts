@@ -16,18 +16,10 @@ export type Input = {
   readonly cwd: string | undefined;
   /** `prompt_id` under Claude Code, `turn_id` under Codex. */
   readonly promptId: string | undefined;
-  /** How a session started, at SessionStart: `startup`, `resume`, `clear`, `compact` or `fork`. */
-  readonly source: string | undefined;
   readonly permissionMode: string | undefined;
   readonly backgroundTasks: readonly BackgroundTaskSummary[];
   readonly toolName: string | undefined;
   readonly toolInput: Record<string, unknown>;
-  /** The main session's transcript, a subagent's tool calls included. */
-  readonly transcriptPath: string | undefined;
-  /** At UserPromptExpansion: `slash_command` for a skill or command the human typed, its name and its arguments. */
-  readonly expansionType: string | undefined;
-  readonly commandName: string | undefined;
-  readonly commandArgs: string | undefined;
 };
 
 export async function readPayload(): Promise<unknown> {
@@ -61,15 +53,10 @@ export function parseInput(payload: Record<string, unknown>): Input | null {
     agentId: stringField(payload, "agent_id"),
     cwd: cwd === undefined ? undefined : realPathOf(cwd),
     promptId: stringField(payload, "prompt_id") ?? stringField(payload, "turn_id"),
-    source: stringField(payload, "source"),
     permissionMode: stringField(payload, "permission_mode"),
     backgroundTasks: Array.isArray(tasks) ? tasks.filter((task) => isBackgroundTask(task)) : [],
     toolName: stringField(payload, "tool_name"),
     toolInput: recordField(payload, "tool_input") ?? {},
-    transcriptPath: stringField(payload, "transcript_path"),
-    expansionType: stringField(payload, "expansion_type"),
-    commandName: stringField(payload, "command_name"),
-    commandArgs: stringField(payload, "command_args"),
   };
 }
 

@@ -2,14 +2,13 @@
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { runSessionStart, runUserPromptSubmit } from "../../hooks/session-start.ts";
+import { runSessionStart } from "../../hooks/session-start.ts";
 import { runStop } from "../../hooks/stop.ts";
 import type { TempRepo } from "../../test-support.ts";
 import {
-  MINUTE_MS,
   createTempRepo,
   fakeTool,
   fixtureNames,
@@ -19,13 +18,13 @@ import {
   writeConfig,
 } from "../../test-support.ts";
 import { CONFIG_RELATIVE_PATH } from "../config/config.ts";
-import { beat, beatPath, liveOthers, statePath } from "../session/state.ts";
+import { statePath } from "../session/state.ts";
 import type { Runner } from "../util/exec.ts";
 import { run } from "../util/exec.ts";
 import { isRecord, stringField } from "../util/json.ts";
 import { encode } from "./encode.ts";
 import type { HookKind, StopHandler } from "./hook.ts";
-import { heartbeat, runHook, searchStarts } from "./hook.ts";
+import { runHook, searchStarts } from "./hook.ts";
 import type { Input } from "./payload.ts";
 import { parseInput } from "./payload.ts";
 import type { Verdict } from "./verdict.ts";
@@ -274,15 +273,12 @@ describe("encode", () => {
       expect(encode(context, harness, "session-start")).toBe(
         `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":${textJson}}}`,
       );
-      expect(encode(context, harness, "user-prompt-expansion")).toBe(
-        `{"hookSpecificOutput":{"hookEventName":"UserPromptExpansion","additionalContext":${textJson}},"systemMessage":${textJson}}`,
-      );
     }
   });
 
   test("block", () => {
     for (const harness of ["claude", "codex"] as const) {
-      for (const hook of [...editHooks, "stop", "user-prompt-expansion"] as const) {
+      for (const hook of [...editHooks, "stop"] as const) {
         expect(encode(block, harness, hook)).toBe(`{"decision":"block","reason":${textJson}}`);
       }
     }
@@ -366,165 +362,6 @@ describe("runHook", () => {
 
     expect(second["decision"]).toBeUndefined();
     expect(stringField(second, "systemMessage")).toContain('missing "on"');
-  });
-
-  test("every hook beats for its agent in the checkout around its cwd, in a root only", async () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-
-    for (const hook of ["session-start", "pre-edit", "post-edit"] as const) {
-      const key = `s-${hook}`;
-      await runHook({
-        hook,
-        harness: "claude",
-        payload: { ...payload(), session_id: key },
-        handler: allow,
-      });
-
-      expect(existsSync(beatPath(key, temp.repo))).toBeTrue();
-    }
-
-    await runHook({
-      hook: "stop",
-      harness: "claude",
-      payload: { ...payload(), agent_id: "a1" },
-      handler: allow,
-    });
-
-    expect(existsSync(beatPath("s1.a1", temp.repo))).toBeTrue();
-
-    fs.rmSync(path.join(temp.repo, CONFIG_RELATIVE_PATH));
-    await runHook({
-      hook: "pre-edit",
-      harness: "claude",
-      payload: { ...payload(), session_id: "s-none" },
-      handler: allow,
-    });
-
-    expect(existsSync(beatPath("s-none", temp.repo))).toBeFalse();
-  });
-
-  test("a main Stop that ends the turn with no task under way leaves the session idle: its beats go, in every checkout", async () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-    const other = path.join(temp.dir, "other");
-    beat("s1", other);
-    beat("s1.a1", temp.repo);
-    beat("s2", temp.repo);
-
-    await runHook({
-      hook: "stop",
-      harness: "claude",
-      payload: {
-        ...payload(),
-        background_tasks: [
-          { id: "t1", type: "shell", status: "completed", description: "a finished build" },
-        ],
-      },
-      handler: allow,
-    });
-
-    expect(existsSync(beatPath("s1", temp.repo))).toBeFalse();
-    expect(existsSync(beatPath("s1", other))).toBeFalse();
-    expect(existsSync(beatPath("s1.a1", temp.repo))).toBeFalse();
-    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
-    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
-  });
-
-  test("a UserPromptSubmit makes a session its idle Stop left live again in the checkout around its cwd, before any tool", async () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-
-    await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: allow });
-
-    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
-
-    runUserPromptSubmit({ ...payload(), hook_event_name: "UserPromptSubmit", prompt: "go on" });
-
-    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
-  });
-
-  test("a UserPromptSubmit with no session_id beats nothing and says so on stderr", () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-
-    runUserPromptSubmit({ cwd: temp.repo, hook_event_name: "UserPromptSubmit", prompt: "go on" });
-
-    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
-    expect(errors.mock.calls.flat().join("\n")).toContain(
-      "agent-hooks: user-prompt-submit payload has no session_id",
-    );
-  });
-
-  test("a main Stop with a background task running or pending, of any type, leaves the session waiting around its cwd: live there past the cap", async () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-    const left = path.join(temp.dir, "left");
-
-    for (const [type, status] of [
-      ["shell", "running"],
-      ["monitor", "pending"],
-    ] as const) {
-      beat("s1", left);
-
-      await runHook({
-        hook: "stop",
-        harness: "claude",
-        payload: {
-          ...payload(),
-          background_tasks: [{ id: "t1", type, status, description: "a long wait" }],
-        },
-        handler: allow,
-      });
-
-      const at = new Date(Date.now() - 61 * MINUTE_MS);
-      utimesSync(beatPath("s1", temp.repo), at, at);
-      utimesSync(beatPath("s1", left), at, at);
-
-      expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
-      expect(liveOthers(left, "s2", Date.now())).toEqual([]);
-    }
-  });
-
-  test("a main Stop that blocks keeps the session working: its turn goes on", async () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-
-    await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: blocking });
-
-    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual(["s1"]);
-
-    const at = new Date(Date.now() - 61 * MINUTE_MS);
-    utimesSync(beatPath("s1", temp.repo), at, at);
-
-    expect(liveOthers(temp.repo, "s2", Date.now())).toEqual([]);
-  });
-
-  test("a SubagentStop keeps every beat: it never makes the main session idle", async () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-    beat("s1", temp.repo);
-
-    await runHook({
-      hook: "stop",
-      harness: "claude",
-      payload: { ...payload(), agent_id: "a1", hook_event_name: "SubagentStop" },
-      handler: allow,
-    });
-
-    expect(liveOthers(temp.repo, "s2", Date.now()).toSorted()).toEqual(["s1", "s1.a1"]);
-  });
-
-  test("a heartbeat that cannot find its checkout reports it and throws nothing", () => {
-    writeConfig(temp.repo, VALID_CONFIG);
-    const input = parseInput(payload());
-
-    const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => {
-      throw new Error('Executable not found in $PATH: "git"');
-    });
-
-    try {
-      expect(input).not.toBeNull();
-      expect(() => input !== null && heartbeat(input)).not.toThrow();
-    } finally {
-      spawn.mockRestore();
-    }
-
-    expect(errors.mock.calls.flat().join("\n")).toContain("agent-hooks: heartbeat not saved: ");
-    expect(existsSync(beatPath("s1", temp.repo))).toBeFalse();
   });
 
   test("notes an invalid config at session start", async () => {

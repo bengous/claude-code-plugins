@@ -159,10 +159,5 @@ export default defineConfig({
       files: ["agent-hooks/**/*.test.ts"],
       rules: { "max-lines": "off" },
     },
-    {
-      // Over the size on purpose: the Bash parser, one scanner whose closures share its state.
-      files: ["agent-hooks/guard/shell.ts"],
-      rules: { "max-lines": "off" },
-    },
   ],
 });

@@ -1,23 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, realpathSync, utimesSync } from "node:fs";
+import { existsSync, utimesSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "../core/config/config.ts";
 import { DEADLINES_MS, runHook } from "../core/runtime/hook.ts";
-import { freshState, loadState, saveState } from "../core/session/state.ts";
+import { loadState } from "../core/session/state.ts";
 import type { TempRepo } from "../test-support.ts";
 import {
-  beatAgo,
   createTempRepo,
-  MINUTE_MS,
   readRepoFile,
   removeTempRepo,
   scrubGitEnv,
-  writeConfig,
   writeRepoFile,
 } from "../test-support.ts";
-import { runSessionEnd, runSessionStart } from "./session-start.ts";
-import { runStop } from "./stop.ts";
+import { runSessionStart } from "./session-start.ts";
 
 const STALE_MS = DEADLINES_MS["pre-edit"] + 60_000;
 
@@ -90,143 +86,5 @@ describe("runSessionStart", () => {
     expect(existsSync(shortSuffix)).toBeTrue();
     expect(existsSync(path.join(temp.repo, "src/.agent-hooks-abcdef/tracked.ts"))).toBeTrue();
     expect(existsSync(stale)).toBeFalse();
-  });
-});
-
-function worktreeNote(dir: string): string {
-  return JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: `agent-hooks: another session is live in ${dir}, and this repository takes one worktree per task: do this task in a worktree of its own (EnterWorktree, or git worktree add), not in this checkout.`,
-    },
-  });
-}
-
-describe("runSessionStart under profile.worktree", () => {
-  let temp: TempRepo;
-  let checkout: string;
-
-  beforeEach(() => {
-    scrubGitEnv();
-    temp = createTempRepo("agent-hooks-worktree-", {
-      [CONFIG_RELATIVE_PATH]: `{ "profile": { "worktree": "per-task" } }`,
-    });
-    checkout = realpathSync(temp.repo);
-  });
-
-  afterEach(() => {
-    removeTempRepo(temp);
-  });
-
-  function sessionStart(source = "startup", sessionId = "s1"): Promise<string | null> {
-    return runHook({
-      hook: "session-start",
-      harness: "claude",
-      payload: { session_id: sessionId, cwd: temp.repo, source },
-      handler: runSessionStart,
-    });
-  }
-
-  /** The main Stop of session s2 in the checkout, with these background tasks. */
-  function stop(backgroundTasks: readonly Record<string, string>[]): Promise<string | null> {
-    return runHook({
-      hook: "stop",
-      harness: "claude",
-      payload: { session_id: "s2", cwd: temp.repo, background_tasks: backgroundTasks },
-      handler: runStop,
-    });
-  }
-
-  test("per-task, another session working in the checkout within the cap: a note naming the checkout", async () => {
-    beatAgo("s2", checkout, 59 * MINUTE_MS);
-
-    expect(await sessionStart()).toBe(worktreeNote(checkout));
-  });
-
-  test("another session's subagent counts as another session", async () => {
-    beatAgo("s2.a1", checkout, MINUTE_MS);
-
-    expect(await sessionStart()).toBe(worktreeNote(checkout));
-  });
-
-  test("a working beat past the cap is a session gone: no note", async () => {
-    beatAgo("s2", checkout, 61 * MINUTE_MS);
-
-    expect(await sessionStart()).toBeNull();
-  });
-
-  test("a session whose turn ended idle at its Stop is not live; one waiting on a background task is", async () => {
-    await stop([]);
-
-    expect(await sessionStart()).toBeNull();
-
-    await stop([{ id: "t1", type: "shell", status: "running", description: "dev server" }]);
-
-    expect(await sessionStart()).toBe(worktreeNote(checkout));
-  });
-
-  test("a state file without a beat is no live session", async () => {
-    saveState(freshState("s2", checkout));
-
-    expect(await sessionStart()).toBeNull();
-  });
-
-  test("only a session that starts, from scratch or after /clear, is told: never one resumed, compacted or forked mid-task", async () => {
-    beatAgo("s2", checkout, MINUTE_MS);
-
-    expect(await sessionStart("clear")).toBe(worktreeNote(checkout));
-
-    for (const source of ["resume", "compact", "fork"]) {
-      expect(await sessionStart(source)).toBeNull();
-    }
-  });
-
-  test("the session's own beats and its own subagents' never count", async () => {
-    beatAgo("s1", checkout, MINUTE_MS);
-    beatAgo("s1.a1", checkout, MINUTE_MS);
-
-    expect(await sessionStart()).toBeNull();
-  });
-
-  test("a session that ended took its beats along: the one /clear starts after it is not told", async () => {
-    await sessionStart("startup", "s2");
-    runSessionEnd({ session_id: "s2", cwd: temp.repo, reason: "clear" });
-
-    expect(await sessionStart("clear", "s3")).toBeNull();
-  });
-
-  test("another session's beat in another checkout: no note", async () => {
-    beatAgo("s2", path.join(temp.dir, "other"), MINUTE_MS);
-
-    expect(await sessionStart()).toBeNull();
-  });
-
-  test("a shared checkout, declared or by default, takes no note", async () => {
-    beatAgo("s2", checkout, MINUTE_MS);
-
-    for (const config of [`{ "profile": { "worktree": "shared" } }`, "{}"]) {
-      writeConfig(temp.repo, config);
-
-      expect(await sessionStart()).toBeNull();
-    }
-  });
-
-  test("an invalid worktree value is a note to the user at SessionStart, naming the key", async () => {
-    writeConfig(temp.repo, `{ "profile": { "worktree": "each" } }`);
-
-    expect(await sessionStart()).toBe(
-      JSON.stringify({
-        systemMessage: `agent-hooks: ${path.join(checkout, CONFIG_RELATIVE_PATH)}: profile.worktree: expected per-task|shared`,
-      }),
-    );
-  });
-
-  test("the photo is taken as without the note", async () => {
-    beatAgo("s2", checkout, MINUTE_MS);
-    writeRepoFile(temp.repo, "dirty.ts", "x\n");
-
-    await sessionStart();
-
-    expect(Object.keys(loadState("s1", checkout).photo?.files ?? {})).toEqual(["dirty.ts"]);
   });
 });

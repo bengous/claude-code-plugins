@@ -14,17 +14,6 @@ export const STATE_VERSION = 2;
 
 const TEMPORARY_SUFFIX = ".tmp";
 
-const BEAT_SUFFIX = ".beat";
-
-/** A beat's content while its agent's turn ended with a background task running or pending; empty while it works. */
-const WAITING = "waiting";
-
-/**
- * How long a working agent stays live past its last kit hook: a turn cut before its Stop (a crash, a kill, an
- * interrupt) leaves its beats working. A judgment, not a measurement.
- */
-export const WORKING_CAP_MS = 60 * 60 * 1000;
-
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
 
@@ -260,8 +249,8 @@ export function saveState(state: SessionState, now = Date.now()): void {
 }
 
 /**
- * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, every
- * heartbeat whose mtime is older than the TTL, and every temporary file older than
+ * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, and every
+ * temporary file older than
  * `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its own within one hook, so a
  * younger one may be a save under way, half written.
  */
@@ -290,10 +279,6 @@ export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
 function isStale(file: string, filePath: string, staleTemporaryMs: number, now: number): boolean {
   if (file.endsWith(TEMPORARY_SUFFIX)) {
     return now - modifiedAt(filePath) > staleTemporaryMs;
-  }
-
-  if (file.endsWith(BEAT_SUFFIX)) {
-    return now - modifiedAt(filePath) > STATE_TTL_MS;
   }
 
   return file.endsWith(".json") && now - updatedAtOf(filePath) > STATE_TTL_MS;
@@ -390,90 +375,6 @@ export function latestStateForCheckout(checkout: string): SessionState | null {
   });
 
   return states.toSorted((left, right) => right.updatedAt - left.updatedAt).at(0) ?? null;
-}
-
-export function beatPath(key: string, checkout: string): string {
-  return path.join(stateDir(), `${sanitize(key)}__${checkoutKey(checkout)}${BEAT_SUFFIX}`);
-}
-
-/**
- * Marks agent `key` working in the checkout: an empty file whose mtime is the last kit hook the agent ran there.
- */
-export function beat(key: string, checkout: string): void {
-  writeAtomically(beatPath(key, checkout), "");
-}
-
-/**
- * The keys of the agents of other sessions, subagents included, live in this checkout at `now`: a waiting one until
- * its session ends, a working one until WORKING_CAP_MS past its last kit hook. `sessionId` and its own subagents left
- * out.
- */
-export function liveOthers(checkout: string, sessionId: string, now: number): string[] {
-  const here = checkoutKey(checkout);
-
-  return beatFiles().flatMap(({ file, key, checkout: beatCheckout }) =>
-    beatCheckout !== here || isOfSession(key, sessionId) || !isLive(file, now) ? [] : [key],
-  );
-}
-
-/** Marks agent `key` waiting in the checkout: its turn ended there while a background task runs. */
-export function waitBeat(key: string, checkout: string): void {
-  writeAtomically(beatPath(key, checkout), WAITING);
-}
-
-/** Removes the beats of a session and of its subagents, in every checkout: it ended, or its turn did, idle. */
-export function endBeats(sessionId: string): void {
-  for (const { file, key } of beatFiles()) {
-    if (isOfSession(key, sessionId)) {
-      try {
-        unlinkSync(path.join(stateDir(), file));
-      } catch {
-        // A file removed by a concurrent session is not an error.
-      }
-    }
-  }
-}
-
-type BeatFile = { readonly file: string; readonly key: string; readonly checkout: string };
-
-/** The beats in the state dir, each with the agent key and the checkout key its name holds; none without the dir. */
-function beatFiles(): BeatFile[] {
-  let files: string[];
-
-  try {
-    files = readdirSync(stateDir());
-  } catch {
-    return [];
-  }
-
-  return files.flatMap((file) => {
-    const name = file.endsWith(BEAT_SUFFIX) ? file.slice(0, -BEAT_SUFFIX.length) : "";
-    const split = name.lastIndexOf("__");
-
-    return split === -1
-      ? []
-      : [{ file, key: name.slice(0, split), checkout: name.slice(split + "__".length) }];
-  });
-}
-
-function isOfSession(key: string, sessionId: string): boolean {
-  const own = sanitize(sessionId);
-
-  return key === own || key.startsWith(`${own}${AGENT_SEPARATOR}`);
-}
-
-/** Whether the beat is waiting, or working within the cap: one removed since the dir was listed is not live. */
-function isLive(file: string, now: number): boolean {
-  const filePath = path.join(stateDir(), file);
-
-  try {
-    return (
-      readFileSync(filePath, "utf8") === WAITING ||
-      statSync(filePath).mtimeMs >= now - WORKING_CAP_MS
-    );
-  } catch {
-    return false;
-  }
 }
 
 function sanitize(value: string): string {

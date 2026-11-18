@@ -7,8 +7,6 @@ const HOOK_EVENTS: Readonly<Record<HookKind, string>> = {
   "pre-edit": "PreToolUse",
   "post-edit": "PostToolUse",
   stop: "Stop",
-  "pre-bash": "PreToolUse",
-  "user-prompt-expansion": "UserPromptExpansion",
 };
 
 /** The wire shape of a verdict. Key order is part of the contract: the tests pin the bytes. */
@@ -25,31 +23,13 @@ export function encode(verdict: Verdict, harness: Harness, hook: HookKind): stri
     }
 
     case "context": {
-      const hookSpecificOutput = {
-        hookEventName: HOOK_EVENTS[hook],
-        additionalContext: verdict.text,
-      };
-
-      // The pull requests UserPromptExpansion labels carry the human's ok: the human sees which, not only the agent.
-      return JSON.stringify(
-        hook === "user-prompt-expansion"
-          ? { hookSpecificOutput, systemMessage: verdict.text }
-          : { hookSpecificOutput },
-      );
+      return JSON.stringify({
+        hookSpecificOutput: { hookEventName: HOOK_EVENTS[hook], additionalContext: verdict.text },
+      });
     }
 
     case "block": {
       return JSON.stringify({ decision: "block", reason: verdict.reason });
-    }
-
-    case "deny": {
-      return JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason: verdict.reason,
-        },
-      });
     }
 
     case "rewrite": {

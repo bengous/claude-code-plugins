@@ -34,8 +34,8 @@ export function deadlineIn(ms: number, start = Date.now()): Deadline {
 
 /**
  * The platform's `run`, where a program that cannot start is `missing` whatever stops it: a name the PATH does not
- * hold, a path to no program, a program it may not run, or a cwd gone from disk, which the landing guard derives
- * from the command it reads. Any other throw is no failed start, and goes up.
+ * hold, a path to no program, a program it may not run, or a cwd gone from disk. Any other throw is no failed start,
+ * and goes up.
  */
 export async function run(argv: Argv, options: RunOptions): Promise<RunResult> {
   try {

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./core/config/config.ts";
-import { beatPath, statePath } from "./core/session/state.ts";
+import { statePath } from "./core/session/state.ts";
 import { isRecord } from "./core/util/json.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
@@ -146,39 +146,15 @@ describe("agent-hooks CLI", () => {
     expect(existsSync(statePath("s1", temp.repo))).toBe(true);
   });
 
-  test("user-prompt-submit beats for the session in the checkout around its cwd, under either harness, exits 0 without output", async () => {
-    for (const harness of ["claude", "codex"]) {
-      const result = await hook(
-        "user-prompt-submit",
-        {
-          session_id: `s-${harness}`,
-          cwd: temp.repo,
-          hook_event_name: "UserPromptSubmit",
-          prompt: "go on",
-        },
-        harness,
-      );
+  test.each(["pre-bash", "user-prompt-expansion", "user-prompt-submit", "session-end"])(
+    "%s is no subcommand: exits 2 with the usage",
+    async (name) => {
+      const result = await hook(name, { session_id: "s1", cwd: temp.repo });
 
-      expect(result).toMatchObject({ code: 0, stdout: "" });
-      expect(existsSync(beatPath(`s-${harness}`, temp.repo))).toBe(true);
-    }
-  });
-
-  test("session-end removes the beats session-start left, exits 0 without output", async () => {
-    await hook("session-start", fixtureIn("claude", "session-start-startup", temp.repo));
-
-    expect(existsSync(beatPath("s1", temp.repo))).toBe(true);
-
-    const result = await hook("session-end", {
-      session_id: "s1",
-      cwd: temp.repo,
-      hook_event_name: "SessionEnd",
-      reason: "clear",
-    });
-
-    expect(result).toMatchObject({ code: 0, stdout: "" });
-    expect(existsSync(beatPath("s1", temp.repo))).toBe(false);
-  });
+      expect(result).toMatchObject({ code: 2, stdout: "" });
+      expect(result.stderr).toContain("usage:");
+    },
+  );
 
   test("stop blocks on a file added after the photo", async () => {
     await hook("session-start", fixtureIn("claude", "session-start-startup", temp.repo));

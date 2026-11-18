@@ -8,16 +8,8 @@ import { isRecord, recordField, stringField } from "../core/util/json.ts";
 const DEADLINES: ReadonlyMap<string, number> = new Map([
   ["session-start", DEADLINES_MS["session-start"]],
   ["pre-edit", DEADLINES_MS["pre-edit"]],
-  ["pre-bash", DEADLINES_MS["pre-bash"]],
   ["stop", DEADLINES_MS.stop],
-  ["user-prompt-expansion", DEADLINES_MS["user-prompt-expansion"]],
 ]);
-
-/** The subcommands that run no handler, so the kit gives them no deadline. */
-const UNDEADLINED = new Set(["user-prompt-submit", "session-end"]);
-
-/** Claude Code's default timeout for a UserPromptSubmit command hook, in seconds. */
-const PROMPT_DEFAULT_TIMEOUT_S = 30;
 
 const manifest: unknown = JSON.parse(
   readFileSync(path.join(import.meta.dir, "hooks.json"), "utf8"),
@@ -39,21 +31,18 @@ const commands = Object.entries(
 );
 
 describe("hooks/hooks.json", () => {
-  test("wires every subcommand of the kit's hooks", () => {
-    expect(new Set(commands.map(([, subcommand]) => subcommand))).toEqual(
+  test("wires every subcommand of the kit's Claude Code hooks", () => {
+    expect(new Set(commands.map(([event, subcommand]) => `${event} ${subcommand}`))).toEqual(
       new Set([
-        "session-start",
-        "user-prompt-submit",
-        "pre-edit",
-        "pre-bash",
-        "stop",
-        "session-end",
-        "user-prompt-expansion",
+        "SessionStart session-start",
+        "PreToolUse pre-edit",
+        "Stop stop",
+        "SubagentStop stop",
       ]),
     );
   });
 
-  test.each(commands.filter(([, subcommand]) => !UNDEADLINED.has(subcommand)))(
+  test.each(commands)(
     "%s %s: its timeout outlasts the kit's deadline, so the kit answers before the harness cuts it",
     (_event, subcommand, timeout) => {
       expect(timeout).toBeNumber();
@@ -62,20 +51,4 @@ describe("hooks/hooks.json", () => {
       );
     },
   );
-
-  test("session-end declares no timeout, the kit giving it no deadline", () => {
-    expect(
-      commands
-        .filter(([, subcommand]) => subcommand === "session-end")
-        .map(([, , timeout]) => timeout),
-    ).toEqual([undefined]);
-  });
-
-  test("user-prompt-submit runs at UserPromptSubmit alone, under a timeout shorter than that event's default: the prompt waits for it", () => {
-    const wired = commands.filter(([, subcommand]) => subcommand === "user-prompt-submit");
-
-    expect(wired.map(([event]) => event)).toEqual(["UserPromptSubmit"]);
-    expect(wired[0]?.[2]).toBeNumber();
-    expect(Number(wired[0]?.[2])).toBeLessThan(PROMPT_DEFAULT_TIMEOUT_S);
-  });
 });

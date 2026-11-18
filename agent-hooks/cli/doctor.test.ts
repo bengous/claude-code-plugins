@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { claudeWiring, codexWiring, reviewGlobs } from "./doctor.ts";
+import { claudeWiring, codexWiring } from "./doctor.ts";
 
 const PLUGIN = "agent-hooks@bengous-plugins";
 
@@ -81,30 +81,8 @@ describe("claudeWiring", () => {
     );
   });
 
-  test("a user-prompt-submit hook in project settings beside the plugin counts as a second wiring", () => {
-    const project = settings(
-      "project.json",
-      hook("UserPromptSubmit", 'bun "/cache/agent-hooks/agent-hooks.ts" user-prompt-submit'),
-    );
-
-    expect(claudeWiring([user({ enabledPlugins: { [PLUGIN]: true } }), project]).line).toStartWith(
-      `WARN    claude wiring: plugin ${PLUGIN} and a hook in ${project}`,
-    );
-  });
-
   test("a pre-edit hook in project settings beside the plugin counts as a second wiring", () => {
     const project = settings("project.json", hook("PreToolUse", "agent-hooks pre-edit"));
-
-    expect(claudeWiring([user({ enabledPlugins: { [PLUGIN]: true } }), project]).line).toStartWith(
-      `WARN    claude wiring: plugin ${PLUGIN} and a hook in ${project}`,
-    );
-  });
-
-  test("a pre-bash hook in project settings beside the plugin counts as a second wiring", () => {
-    const project = settings(
-      "project.json",
-      hook("PreToolUse", 'bun "/cache/agent-hooks/1.2.0/agent-hooks.ts" pre-bash'),
-    );
 
     expect(claudeWiring([user({ enabledPlugins: { [PLUGIN]: true } }), project]).line).toStartWith(
       `WARN    claude wiring: plugin ${PLUGIN} and a hook in ${project}`,
@@ -189,26 +167,6 @@ describe("claudeWiring", () => {
 
   test("every check is a WARN at worst, never a failure", () => {
     expect(claudeWiring([file("broken.json", "{")]).ok).toBe(true);
-  });
-});
-
-describe("reviewGlobs", () => {
-  test("warns on each risky glob that matches no tracked file, never failing", () => {
-    const checks = reviewGlobs({ risky: ["scripts/land.ts", "ci/**", ".lefthook/**"] }, [
-      "scripts/land.ts",
-      ".lefthook/pre-push/gates.sh",
-    ]);
-
-    expect(checks).toEqual([
-      { ok: true, line: "WARN    review: risky glob ci/** matches no tracked file" },
-    ]);
-  });
-
-  test("says so in one line when every glob matches, and nothing without a review", () => {
-    expect(reviewGlobs({ risky: ["a.ts"] }, ["a.ts"])).toEqual([
-      { ok: true, line: "ok      review: 1 risky glob, each matching a tracked file" },
-    ]);
-    expect(reviewGlobs(null, ["a.ts"])).toEqual([]);
   });
 });
 

@@ -1,29 +1,18 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { existsSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { TempRepo } from "../../test-support.ts";
-import {
-  beatAgo,
-  createTempRepo,
-  MINUTE_MS,
-  removeTempRepo,
-  scrubGitEnv,
-} from "../../test-support.ts";
+import { createTempRepo, removeTempRepo, scrubGitEnv } from "../../test-support.ts";
 import { sha256 } from "../util/hash.ts";
 import type { SessionState } from "./state.ts";
 import {
   STATE_TTL_MS,
   STATE_VERSION,
-  WORKING_CAP_MS,
-  beat,
-  beatPath,
   checkoutKey,
-  endBeats,
   freshState,
   latestStateForCheckout,
-  liveOthers,
   loadState,
   pruneStates,
   rootName,
@@ -32,7 +21,6 @@ import {
   stateDir,
   statePath,
   statesOf,
-  waitBeat,
 } from "./state.ts";
 
 const ENV_NAMES = ["AGENT_HOOKS_STATE_DIR", "XDG_STATE_HOME", "HOME"] as const;
@@ -344,17 +332,6 @@ describe("pruneStates", () => {
     expect(existsSync(scratch)).toBe(false);
   });
 
-  test("removes a heartbeat older than the TTL, keeps a younger one", () => {
-    beat("old", temp.repo);
-    beat("recent", temp.repo);
-    const old = new Date(Date.now() - STATE_TTL_MS - DAY_MS);
-    utimesSync(beatPath("old", temp.repo), old, old);
-
-    pruneStates(STALE_TEMPORARY_MS);
-
-    expect(stateFiles()).toEqual([path.basename(beatPath("recent", temp.repo))]);
-  });
-
   test("keeps a file exactly at the TTL", () => {
     const now = 100 * DAY_MS;
     saveState(freshState("edge", temp.repo), now - STATE_TTL_MS);
@@ -414,109 +391,5 @@ describe("latestStateForCheckout", () => {
     saveState(freshState("d", path.join(temp.dir, "other")));
 
     expect(latestStateForCheckout(temp.repo)).toBeNull();
-  });
-});
-
-describe("heartbeats", () => {
-  test("a beat is a file per agent and checkout, its mtime the last hook the agent ran there", () => {
-    const before = Date.now() - 1000;
-    beat("s1.a1", temp.repo);
-
-    expect(path.basename(beatPath("s1.a1", temp.repo))).toBe(
-      `s1.a1__${checkoutKey(temp.repo)}.beat`,
-    );
-    expect(statSync(beatPath("s1.a1", temp.repo)).mtimeMs).toBeGreaterThan(before);
-  });
-
-  test("a beat on an agent's old beat moves its mtime to now", () => {
-    beatAgo("s1", temp.repo, 60 * MINUTE_MS);
-    const before = Date.now() - 1000;
-
-    beat("s1", temp.repo);
-
-    expect(statSync(beatPath("s1", temp.repo)).mtimeMs).toBeGreaterThan(before);
-  });
-
-  test("liveOthers counts a beat removed after the state dir was listed as not live", () => {
-    beatAgo("s2", temp.repo, MINUTE_MS);
-    const vanished = path.basename(beatPath("s3", temp.repo));
-    const listed = readdirSync(temp.stateDir);
-    // SAFETY: liveOthers calls readdirSync with a path alone, whose overload returns string[].
-    const list = spyOn(fs, "readdirSync").mockReturnValue([...listed, vanished] as never);
-
-    try {
-      expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
-    } finally {
-      list.mockRestore();
-    }
-  });
-
-  test("liveOthers: the agents of other sessions working in this checkout within the cap", () => {
-    const other = path.join(temp.dir, "other");
-    beatAgo("s1", temp.repo, MINUTE_MS);
-    beatAgo("s1.a1", temp.repo, MINUTE_MS);
-    beatAgo("s10", temp.repo, MINUTE_MS);
-    beatAgo("s2.a1", temp.repo, 59 * MINUTE_MS);
-    beatAgo("s3", temp.repo, 61 * MINUTE_MS);
-    beatAgo("s4", other, MINUTE_MS);
-    saveState(freshState("s5", temp.repo));
-
-    expect(liveOthers(temp.repo, "s1", Date.now()).toSorted()).toEqual(["s10", "s2.a1"]);
-    expect(WORKING_CAP_MS).toBe(60 * MINUTE_MS);
-  });
-
-  test("an agent waiting in a checkout stays live there past the cap, until its beats go", () => {
-    const other = path.join(temp.dir, "other");
-    beatAgo("s2.a1", temp.repo, MINUTE_MS);
-    beatAgo("s2", other, MINUTE_MS);
-    beatAgo("s3", temp.repo, MINUTE_MS);
-
-    waitBeat("s2", temp.repo);
-
-    for (const [key, checkout] of [
-      ["s2", temp.repo],
-      ["s2.a1", temp.repo],
-      ["s2", other],
-      ["s3", temp.repo],
-    ] as const) {
-      const at = new Date(Date.now() - 2 * WORKING_CAP_MS);
-      utimesSync(beatPath(key, checkout), at, at);
-    }
-
-    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual(["s2"]);
-    expect(liveOthers(other, "s1", Date.now())).toEqual([]);
-
-    endBeats("s2");
-
-    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
-  });
-
-  test("a beat after the wait marks its agent working again, under the cap", () => {
-    waitBeat("s2", temp.repo);
-    beatAgo("s2", temp.repo, 61 * MINUTE_MS);
-
-    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
-  });
-
-  test("none without a state dir", () => {
-    expect(liveOthers(temp.repo, "s1", Date.now())).toEqual([]);
-  });
-
-  test("endBeats removes the beats of a session and its subagents, in every checkout, and no other's", () => {
-    const other = path.join(temp.dir, "other");
-    beat("s1", temp.repo);
-    beat("s1", other);
-    beat("s1.a1", temp.repo);
-    beat("s10", temp.repo);
-    saveState(freshState("s1", temp.repo));
-
-    endBeats("s1");
-
-    expect(stateFiles()).toEqual(
-      [
-        path.basename(beatPath("s10", temp.repo)),
-        path.basename(statePath("s1", temp.repo)),
-      ].toSorted(),
-    );
   });
 });

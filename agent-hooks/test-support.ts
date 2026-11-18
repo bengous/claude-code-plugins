@@ -1,18 +1,9 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./core/config/config.ts";
-import { beat, beatPath } from "./core/session/state.ts";
 import { isRecord } from "./core/util/json.ts";
 
 export type TempRepo = {
@@ -28,8 +19,6 @@ const TEST_GIT_IDENTITY = {
   GIT_COMMITTER_NAME: "Test",
   GIT_COMMITTER_EMAIL: "test@example.com",
 } as const;
-
-export const MINUTE_MS = 60_000;
 
 const FIXTURES_DIR = path.join(import.meta.dir, "__fixtures__");
 
@@ -102,13 +91,6 @@ export function readRepoFile(repo: string, name: string): string {
   return readFileSync(path.join(repo, name), "utf8");
 }
 
-/** The heartbeat of agent `key` in `checkout`, last refreshed `ageMs` ago. */
-export function beatAgo(key: string, checkout: string, ageMs: number): void {
-  beat(key, checkout);
-  const at = new Date(Date.now() - ageMs);
-  utimesSync(beatPath(key, checkout), at, at);
-}
-
 export function writeConfig(repo: string, jsonc: string): void {
   writeRepoFile(repo, CONFIG_RELATIVE_PATH, jsonc);
 }
@@ -159,58 +141,6 @@ export function fixtureIn(
   parsed["session_id"] = sessionId;
 
   return parsed;
-}
-
-/**
- * A transcript record of the shape `name`, taken from a real Claude Code transcript with its texts and ids replaced
- * (`__fixtures__/transcript/records.json`), each `[from, to]` of `replace` applied to its JSON.
- */
-export function transcriptRecord(
-  name: string,
-  replace: readonly (readonly [string, string])[] = [],
-): Record<string, unknown> {
-  const records: unknown = JSON.parse(
-    readFileSync(path.join(FIXTURES_DIR, "transcript", "records.json"), "utf8"),
-  );
-
-  const record = isRecord(records) ? records[name] : undefined;
-
-  if (!isRecord(record)) {
-    throw new Error(`no transcript record ${name}`);
-  }
-
-  const text = replace.reduce(
-    (json, [from, to]) => json.replaceAll(from, to),
-    JSON.stringify(record),
-  );
-
-  const parsed: unknown = JSON.parse(text);
-
-  if (!isRecord(parsed)) {
-    throw new Error(`transcript record ${name} is not an object`);
-  }
-
-  return parsed;
-}
-
-/** Writes `records` as a transcript, one JSON line each, the nth stamped `start` + n seconds; returns its path. */
-export function writeTranscript(
-  file: string,
-  records: readonly Record<string, unknown>[],
-  start: number,
-): string {
-  mkdirSync(path.dirname(file), { recursive: true });
-
-  writeFileSync(
-    file,
-    records
-      .map((record, index) =>
-        JSON.stringify({ ...record, timestamp: new Date(start + index * 1000).toISOString() }),
-      )
-      .join("\n") + "\n",
-  );
-
-  return file;
 }
 
 export function fixtureNames(harness: "claude" | "codex"): string[] {

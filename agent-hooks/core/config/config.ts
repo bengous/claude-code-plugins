@@ -3,8 +3,6 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { isRecord } from "../util/json.ts";
-import type { Profile } from "./profile.ts";
-import { readProfile } from "./profile.ts";
 import type { Reader } from "./reader.ts";
 import {
   ConfigError,
@@ -21,9 +19,6 @@ import {
 } from "./reader.ts";
 
 export const CONFIG_RELATIVE_PATH = path.join(".claude", "agent-hooks.jsonc");
-
-/** The repo file as git names it in a tree: `/`-separated on every platform. */
-export const CONFIG_GIT_PATH = path.posix.join(".claude", "agent-hooks.jsonc");
 
 export const PRESETS_DIR = path.join(import.meta.dir, "..", "..", "presets");
 
@@ -60,7 +55,6 @@ export type Fixer = {
 };
 
 export type Config = {
-  readonly profile: Profile;
   readonly preEdit: { readonly exclude: readonly string[]; readonly fixers: readonly Fixer[] };
   readonly stop: {
     readonly cap: number;
@@ -94,14 +88,13 @@ type RawStopFixers = "pre-edit" | "none" | Map<string, RawFixer>;
 type RawDocument = {
   readonly file: string;
   readonly presets: readonly string[];
-  readonly profile: Profile;
   readonly preEdit: { exclude: string[]; fixers: Map<string, RawFixer> };
   readonly stop: { cap?: number; fixers?: RawStopFixers; lanes: Map<string, RawLane> };
 };
 
 type DocumentKind = "repo" | "preset";
 
-const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "stop"]);
+const DOCUMENT_KEYS = new Set(["presets", "extends", "pre-edit", "stop"]);
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
 
@@ -198,7 +191,6 @@ function readDocument(file: string, kind: DocumentKind): RawDocument {
   return {
     file,
     presets: stringArray(root, presetsKey) ?? [],
-    profile: readProfile(child(root, "profile")),
     preEdit: readPreEdit(child(root, "pre-edit")),
     stop: readStop(child(root, "stop")),
   };
@@ -349,8 +341,6 @@ function mergeDocuments(documents: readonly RawDocument[], repo: RawDocument): R
   const merged: RawDocument = {
     file: repo.file,
     presets: [],
-    // A profile describes the repository, never a preset's language.
-    profile: repo.profile,
     preEdit: { exclude: [], fixers: new Map() },
     stop: { lanes: new Map() },
   };
@@ -398,7 +388,6 @@ function finalize(raw: RawDocument, file: string): Config {
   const preEditFixers = finalizeFixers(raw.preEdit.fixers, file, "pre-edit.fixers");
 
   return {
-    profile: raw.profile,
     preEdit: { exclude: raw.preEdit.exclude, fixers: preEditFixers },
     stop: {
       cap: raw.stop.cap ?? DEFAULT_CAP,

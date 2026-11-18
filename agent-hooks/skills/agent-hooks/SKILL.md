@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing and per-task worktree guards on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), when the kit says another session is live in the checkout, when the landing guard refuses a push, a merge or a release, or when a workflow dispatch or a label waits for the human's approval, or the kit blocks a slash command.
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers before each write and Stop lanes this plugin wires). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to measure what the hooks inject into the context (noise), or when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool).
 argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -11,15 +11,14 @@ The kit is this plugin, run as `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts`. Its `hook
 Claude Code wherever the plugin is enabled. Codex has no plugin: its own hook config calls the same
 entry with `--harness codex`, through `~/.local/bin/agent-hooks`, a symlink to the entry in a checkout
 that does not move with the plugin's version. A repository opts in with one file,
-`.claude/agent-hooks.jsonc`; without it the kit runs only its landing guard. Never copy kit code into a repository and
+`.claude/agent-hooks.jsonc`; without it the kit does nothing there. Never copy kit code into a repository and
 never redeclare its hooks in a `.claude/settings.json` or `.codex/config.toml`: a hook declared at two
 levels runs twice.
 
 A key the kit adds, or a new form of a key's value, lands in two steps: first the kit's version that
 reads it, then the repository's file, once the plugin installed where the repository's agents run is at that version (a catalog that
-installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
-and, for a key under `profile`, a kit before 1.4.0 also refuses every door in a checkout holding it, its
-landing guard reading the whole profile; from 1.4.0 the guard reads `profile.landing` alone.
+installs on landing, after it has). A kit refuses a key it does not know, a typo included: its Stop
+fails on the file.
 
 ## init
 
@@ -64,8 +63,7 @@ Exit 1 means at least one `MISSING` or a failing lane.
 of the agent and the user, from the Claude Code transcripts under `$CLAUDE_CONFIG_DIR/projects` (default
 `~/.claude/projects`), each subagent's included, written in the window. A transcript counts when one of its
 cwds lies under a root holding `.claude/agent-hooks.jsonc`, looked up now: a removed worktree counts for
-the root above it, and the landing guard's refusals in a repository without that file are not counted. It
-prints aggregates only, never a line of a transcript:
+the root above it. It prints aggregates only, never a line of a transcript:
 
 - per hook event and channel, the count and characters of `additionalContext` and block reasons, which
   reach the agent's context, and of `systemMessage`, which Claude Code shows the user;
@@ -77,69 +75,12 @@ prints aggregates only, never a line of a transcript:
 
 Each output is read once, from the one record Claude Code writes for it that names the hook, as measured
 on the local transcripts: a hook's stdout in its `hook_success`; a Stop block in its
-`hook_blocking_error`, with no `hook_success` beside it; a pre-bash refusal in the tool result Claude
+`hook_blocking_error`, with no `hook_success` beside it; a PreToolUse refusal in the tool result Claude
 Code replaced, a string that starts `PreToolUse:<tool> hook error: agent-hooks:`. A subagent's records
 are in its own transcript only, never in a parent's. The kit is
 known by a command running one of its subcommands or by a `statusMessage` of `hooks/hooks.json`, which
 Claude Code records in place of the command. The `hook_system_message` and `hook_additional_context`
 records repeat a stdout without naming its hook and are not read. Codex transcripts are not read.
-
-## Worktrees
-
-`"profile": { "worktree": "per-task" }` says each task takes a worktree of its own; `"shared"`, the default,
-says the agents share the checkout. Like `landing`, it is read from the repo file only. An invalid value is
-a note to the user at SessionStart and an error of the config at the Stop and in `doctor`; the landing
-guard, which reads `profile.landing` alone, is not affected.
-
-A session is live in a checkout while one of its beats there is live: the kit hooks write the beats, and the
-Stop of its main session settles them. Every kit hook (SessionStart, UserPromptSubmit, UserPromptExpansion,
-pre-edit, post-edit, pre-bash, Stop, SubagentStop) beats for its agent in the checkout around its cwd, when a
-root encloses it: it writes `~/.local/state/agent-hooks/<agent>__<checkout hash>.beat` empty, the agent
-working, and refreshes its mtime. UserPromptSubmit does nothing else and adds nothing to the context. The
-prompt waits for it, 5 s at most. The Stop of the main session then settles the session's beats:
-
-- A Stop that blocks settles nothing: the turn goes on.
-- A turn that ends with a background task running or pending, of any type (`shell`, `subagent`,
-  `workflow`, `monitor`, `teammate`), writes `waiting` into the session's beat in the checkout around its
-  cwd; its beats elsewhere stay working.
-- A turn that ends without one removes them, in every checkout: the session is idle there until a kit
-  hook of its next turn beats again. In Claude Code, the UserPromptSubmit of each turn beats in the
-  checkout around its cwd, before any tool of that turn runs.
-
-The Codex wiring calls no `user-prompt-submit`: a Codex session is idle from its Stop until its next kit
-hook. A Codex config that wires it needs an entry that knows the subcommand: an older one prints its usage
-and exits 2, which blocks every prompt.
-
-A SubagentStop beats for its subagent and settles nothing. SessionEnd, `/clear` included, removes the beats
-of the session and its subagents. A waiting beat stays live with no time limit; the state TTL of 7 days
-removes one no SessionEnd removed. A working beat stays live for 60 minutes past the last kit hook of its
-agent; past them, a turn cut before its Stop (a crash, a kill, a turn the user interrupted) reads as not
-live, and so does a turn that runs no kit hook for that long (reads and searches alone, a permission prompt
-the user leaves open). The 60 minutes are a judgment, not a measurement.
-
-Two hooks read this definition, and neither blocks:
-
-- Under `per-task`, a SessionStart whose source is `startup` or `clear` (never `resume`, `compact` or
-  `fork`: a session mid-task is not told to move) adds one line of `additionalContext` naming its
-  checkout when another session (its subagents included, never this session's own) is live there, and
-  tells the agent to work in a worktree of its own (EnterWorktree, or `git worktree add`).
-- `pre-bash`, in every repository, reads each `git pull`, `git switch`, `git checkout` and `git commit`
-  of a Bash line, in any segment of a compound line, global flags before the subcommand included, where
-  `git -C`, an earlier `cd` of the line or the cwd puts it, as the landing guard reads a line. When that
-  place is the main checkout of a repository whose own file declares `per-task`, and another session is
-  live in that checkout, the command runs and the agent reads one line of `additionalContext` per such
-  checkout beside its result: the checkout, the policy, and
-  `git -C <checkout> worktree add <path> -b <branch> <trunk>`, the trunk being `profile.landing.trunk`
-  when the repo file declares `landing`, else the checkout's current branch (`HEAD` when detached). A
-  linked worktree never counts, and the profile read is the one of the checkout the command acts in,
-  whatever repository the session runs in. A refusal of the landing guard wins,
-  without the line; its note joins the line, read by the agent and not shown to the user.
-
-SessionEnd hooks share Claude Code's 1.5-second budget, which a plugin's own `timeout` does not raise
-([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` runs well inside it. The SessionStart payload names no session that `/clear`
-replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
-measured. A SessionEnd that ran late costs one needless line at SessionStart; one that never ran leaves a
-waiting session live until the 7-day TTL, with its lines; neither blocks.
 
 ## Reading a Stop
 
@@ -174,7 +115,7 @@ The Stop measures checkouts (git work trees); roots only check. Each fact has on
   runs.
 - State: `~/.local/state/agent-hooks/<agent>__<checkout hash>.json`, `<agent>` the session id or
   `<session>.<agent id>` for a subagent: the photo, the brake, and per root its green keys and
-  `lastRun.lanes`; pruned after 7 days, as the agent's `.beat` beside it (see Worktrees).
+  `lastRun.lanes`; pruned after 7 days.
 - Pre-edit fixes a copy of the new content in `.agent-hooks-XXXXXX/` beside the file, so the fixers find
   the config and the overrides of the real path. The kit's own scope never counts that copy, but another
   tool watching the tree can see it while the fixers run, and a pre-edit killed past its deadline leaves
@@ -199,118 +140,3 @@ What the model bounds and the kit does not try to cross:
   again; the changes made before the change of version are not measured.
 - A root outside git has no checkout: nothing is photographed and nothing is checked there. `doctor`
   says so; the Stop does not.
-
-## Landing guard
-
-- `pre-bash`, a PreToolUse hook on Bash, runs in every repository, with or without
-  `.claude/agent-hooks.jsonc`. It first reads the raw text, line continuations joined, for a door:
-  `push` after `git` or a git alias that pushes, `merge` after `gh`, `gh api` on `git/refs` or a merge
-  endpoint, a GraphQL `mergePullRequest`, `mergeBranch`, `updateRef` or `deleteRef`, `release` after
-  `gh`, a `scripts/release` path (with or without extension), a `package.json` script that runs one of
-  them in a manifest the line can reach; where a repository the line names (its cwd, a `cd`, `--cwd`,
-  `--prefix` or `-C`) declares `profile.approvals`, also `workflow`, `dispatches`, `--add-label`,
-  `--label`, `-l`, `labels`, `labelIds` or `addLabelsToLabelable` after `gh`. No mention, the command passes unparsed.
-- Each mention is then accounted for. Inert: text inside a quoted argument or a heredoc body of a
-  command that does not run it (a commit message, `echo`, `rg`, an interpreter heredoc that calls no
-  process API), an argument of a command that only reads it (`git log`, `cat`, `oxlint`). A door: an
-  invocation whose deciding words are literal at hook time, the variables the line assigns a literal
-  once, unconditionally, included, run where the guard can follow (`cd` to an existing directory,
-  `git -C`, `env -C`, `sudo`, `nice`, `timeout`, `time`, `flock <lock> <command>`,
-  `systemd-run --scope`, `mise exec --`, a literal `bash -c '…'`), with no earlier change in the same
-  line to what it reads (`git checkout`, `git switch`, `git rebase <upstream> <branch>`,
-  `git worktree add`, `git remote add`, a config write, a `cd` the guard cannot follow). Anything else
-  is unresolved: a word known only at run time, a wrapper that hides its command (`xargs`, `env -S`,
-  `flock -c`) or that the guard does not read (`stdbuf`, `watch`, `npx tsx`), a shell fed a heredoc
-  or a pipe, an unquoted heredoc that runs `$(…)`, interpreter code that starts a process, `eval`, a
-  shell function, a git alias or a `git -c` that moves the push, a GraphQL mutation. An unresolved
-  mention is refused, naming the explicit form to use: `git push origin <branch>` alone from the
-  repository, `gh pr merge <number>`, or, for a release, `bun ./scripts/release.ts --dry-run`.
-- A repository whose agents land on their own declares its branches in its own file:
-  `"profile": { "landing": { "trunk": "dev", "release": "main" } }`, never read from a preset, and read
-  alone: an error elsewhere in the file leaves it in force. A resolved door is then refused when it
-  pushes to `release` (a deletion, `--all` and `--mirror` included), force-pushes or deletes `trunk`,
-  merges into `release`, merges with a check red, running or none reported (`--auto` included: gh
-  merges a mergeable pull request at once), merges a pull request that is not mergeable, or runs
-  `gh release create` or `scripts/release` (its `--dry-run` passes). `gh api` is judged as what it
-  does: `PUT pulls/<n>/merge` as `gh pr merge <n>`, a ref update, deletion or `merges` call as a push.
-  The checks are the newest run per name, workflow and event, as `gh pr checks` keeps them. A push
-  without refspec goes where `@{push}` says, the current branch when git cannot tell. Each refusal
-  names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has
-  that script. A file that does not parse, or an invalid `profile.landing`, refuses every door there, naming the
-  error.
-- `"by": "action"` in `profile.landing` (default `"agent"`) says a server-side action moves `trunk`,
-  fast-forwarding it to the head of a pull request whose run is green. Every push to `trunk` is then
-  refused too, a `gh api` ref update or `merges` call included, and so is `gh pr merge` into `trunk`:
-  the way through is the task branch, pushed, with its pull request open against `trunk`.
-- `"profile": { "approvals": { "workflows": { "<file>.yml": ["<phrase>", …] }, "labels": { "<label>": ["<phrase with {pr}>", …] } } }`,
-  read from the repo file alone like `landing`, names the doors that open only on the human's own
-  words. A dispatch of a listed workflow (`gh workflow run <workflow>`, the workflow named by its file,
-  its `.github/workflows/` path or the `name:` its file declares, or `POST
-  repos/<owner>/<repo>/actions/workflows/<file>/dispatches` through `gh api`) passes only when the
-  human's latest typed message holds one of its phrases. A listed label added to pull request `N`
-  (`gh pr edit N --add-label`, `gh issue edit N --add-label`, `POST` or `PUT
-  repos/<owner>/<repo>/issues/N/labels`, `PATCH repos/<owner>/<repo>/issues/N` with `labels`) passes
-  only when a line of that message opens with one of its phrases, `N` in place of `{pr}`, for each `N` the command
-  names (`gh issue edit 12 13`); one added with no literal number (`gh pr edit` alone, a branch,
-  `gh pr create --label`) is refused, and so are a GraphQL `labelIds` or `addLabelsToLabelable`, and a
-  dispatch or label endpoint the guard does not read (`repositories/<id>/…`), whatever the message. A phrase matches
-  as whole words, any case, any run of whitespace between them, and no word around a workflow's phrase
-  counts: `pas de release` holds `release`, so it passes there; a label's phrase must open a line, so
-  no word before it can negate it, and `pas ok #12` does not pass `ok #{pr}`. The message is the latest one the human typed in the session's transcript, a
-  message queued while the agent worked included, read from the main transcript in a subagent too; a
-  task notification, a tool result, a peer session's or a teammate's message and an approved plan are
-  not typed (`readHuman` in `guard/transcript.ts`). A transcript that cannot
-  be read, or does not yet hold the turn's prompt, refuses. A workflow named by its numeric id is
-  refused, since the guard cannot match it to a file. A door whose `--repo` or endpoint names the
-  repository of the hook's cwd is judged by its profile wherever the line `cd`s; one that names
-  another repository is left alone, and an invalid `profile.approvals` refuses these doors,
-  naming the error. A prompt suggestion the human accepted counts as typed. Not gated: a rerun of a
-  past run of a listed workflow (`gh run rerun`, `actions/runs/<id>/rerun`), whose workflow the guard
-  cannot tell without asking GitHub.
-- A label may name a command in place of phrases: `"labels": { "<label>": { "command": "<name>",
-  "targets": "<command with {args}>" } }`, `<name>` written without its slash (`land`). Then the agent
-  never adds it: the guard refuses every addition of it, whatever the message, and names `/<name> n`
-  for the human to type. The human's own `/<name> n` puts it on: Claude Code fires
-  UserPromptExpansion on a command the human typed, a queued one included, and on no peer message,
-  task notification or Skill call of the model's (measured in the terminal; Desktop not measured).
-  The kit's `user-prompt-expansion` hook takes one number, `n` or `#n`, and runs `targets` from the
-  root, split into words with no shell (no pipe, `&&` or variable), `{args}` replaced by the number's
-  digits. Its stdout is one JSON object: `"layers"`, each with a numeric `"number"`, and an optional
-  numeric `"stack"`. The hook puts the label on each of those pull requests, one at a time, taken off
-  first when it is on so GitHub dates it anew, and its `additionalContext` names them for the agent.
-  The same line goes to the human as a `systemMessage`. An argument other than one number, `targets`
-  failing or printing another shape, or a label that does not go on blocks the command, the reason
-  shown to the human; the pull requests already labelled keep it, and the reason names them. An error
-  anywhere in the repo file, not only in `approvals`, is a `systemMessage` instead, and the command
-  expands with no label put on. A crash or a run past the hook's deadline lets the command expand with
-  no line at all: the pull requests labelled before it keep the label, and one the hook took it off
-  stays without it. The command is a skill of the repository itself, written with
-  `disable-model-invocation: true`: the kit does not check it, and a skill the model can invoke runs
-  with no label on. pre-bash also refuses a command that runs the kit's `user-prompt-expansion` hook
-  itself (`agent-hooks.ts`, or its `agent-hooks` symlink, followed by that word or a word known only
-  when it runs), in any repository; and, where the cwd's profile names a label command, a line that
-  hands a prompt to a Claude Code session (`claude`, `tmux`, `screen`, the repository's
-  `field-test.ts`) while one of its words or heredocs holds `/<name>` at a prompt's start or after a
-  space: that session takes it as the human's typing. Not covered: a prompt held in a variable or a
-  file, keys sent one character at a time, another program that drives a terminal, a script written
-  then run, a checkout whose profile names no such command, a tool other than Bash.
-- `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
-  clean review verdict for that exact change. The kit validates the list and enforces nothing with it:
-  the repository's own land script reads it. A glob is relative to the repository root, as git names a
-  path, so one that starts with `./` or `/` is refused; `doctor` warns on a glob that matches no tracked
-  file (`WARN    review: risky glob …`), which guards nothing.
-- Without a profile, a resolved push, ref move or merge to the default branch of a public repository is
-  refused. The visibility and the default branch come from `gh repo view`, read once per repository and
-  session into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails, a call past
-  its 25 s deadline, or a crash lets the command through with a `systemMessage` that starts with
-  `agent-hooks:`. A remote that names no `host/owner/name` (a local path) is not checked.
-- The profile and the package scripts are read where the walk reached (after `cd`, `--cwd`, `-C`); a
-  release command or a door script whose directory the guard cannot follow is unresolved. `gh --repo`
-  and a `gh api` endpoint keep the cwd's profile when they name its `origin`, and take the default
-  otherwise. A release command is a door only in a repository with a profile.
-- Known ceilings, let through, each rare or absent in the local transcripts: a release script named
-  from its own directory (`cd scripts && bun release.ts`), a wrapper the guard does not know around a
-  quoted command (`chronic sh -c '…'`, `direnv exec . bash -c '…'`), a heredoc fed to `ssh`, a script
-  written then run (`cat > x.sh <<EOF … git push … EOF; bash x.sh`), git's dashed `git-push`, a
-  keyword split by quotes (`git pu''sh`), a GitHub API client other than `gh` (`curl …/merge`), a
-  package script reached in a manifest no `cd`, `--cwd` or `-C` of the line names, a gh alias. The Codex wiring calls no `pre-bash`.

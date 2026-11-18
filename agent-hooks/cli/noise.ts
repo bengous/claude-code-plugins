@@ -97,7 +97,14 @@ const LEGEND =
  * a link to it, or a status message of the plugin's `hooks.json`, which Claude Code records in place of the command.
  */
 export function kitCommands(): KitCommand {
-  const subcommands = [...HOOK_KINDS, "user-prompt-submit", "session-end"].join("|");
+  // A transcript a session wrote under a kit that wired these hooks holds their records too: they are the kit's.
+  const subcommands = [
+    ...HOOK_KINDS,
+    "pre-bash",
+    "user-prompt-expansion",
+    "user-prompt-submit",
+    "session-end",
+  ].join("|");
 
   const invocation = new RegExp(
     String.raw`(?:^|[\s/\\"'])agent-hooks(?:\.ts)?["']?\s+(?:${subcommands})(?=\s|$)`,
