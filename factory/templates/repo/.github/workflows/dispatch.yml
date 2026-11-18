@@ -1,0 +1,34 @@
+name: Dispatch
+on:
+  issues:
+    types: [labeled]
+jobs:
+  dispatch:
+    if: github.event.label.name == 'ready' && github.event.sender.login == '{{OWNER}}' && github.event.issue.user.login == '{{OWNER}}'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+      OWNER: {{OWNER}}
+      FIRE_URL: https://api.anthropic.com/v1/claude_code/routines/{{ROUTINE_ID}}/fire
+      FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+    steps:
+      - name: Fire the routine for an issue the owner labeled ready
+        run: |
+          set -euo pipefail
+          # An agent acts with the owner's account but through the Claude GitHub App; only a label added without an app counts.
+          by_owner=$(gh api "repos/$REPO/issues/$ISSUE/events?per_page=100" \
+            --jq "[.[] | select(.event == \"labeled\" and .label.name == \"ready\")] | last | (.performed_via_github_app == null and .actor.login == \"$OWNER\")")
+          if [ "$by_owner" != "true" ]; then
+            echo "::error::The ready label on #$ISSUE was not added by $OWNER."
+            exit 1
+          fi
+          curl -sS --fail-with-body -X POST "$FIRE_URL" \
+            -H "Authorization: Bearer $FIRE_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"Work on issue #$ISSUE.\"}" | jq -r .claude_code_session_url

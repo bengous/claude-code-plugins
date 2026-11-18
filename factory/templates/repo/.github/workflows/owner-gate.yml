@@ -1,0 +1,71 @@
+name: Owner gate
+# pull_request_target runs this file as it is on main, so a PR cannot edit the gate that judges it.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  merge_group:
+jobs:
+  owner-gate:
+    # The merge queue requires every required check on its merge group; a skipped job reports success.
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      BASE: ${{ github.event.pull_request.base.ref }}
+      ACTION: ${{ github.event.action }}
+      OWNER: {{OWNER}}
+    steps:
+      - name: Hold PRs that touch owner paths until the owner labels them owner-ok
+        run: |
+          set -euo pipefail
+          # No globbing: a CODEOWNERS path is compared as text, never expanded by the shell.
+          set -f
+          prefixes=$(gh api "repos/$REPO/contents/.github/CODEOWNERS?ref=$BASE" --jq .content | base64 -d | awk '!/^#/ && NF {print $1}')
+          # A rename moves a file out of an owner path under its new name only, so the old name counts too.
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          owned=""
+          for p in $prefixes; do
+            case "$p" in
+              /*[*?[]*|[!/]*)
+                # Holding everything keeps the pull request that fixes CODEOWNERS mergeable, with the owner's label.
+                echo "::warning::owner-gate reads CODEOWNERS paths as prefixes from the root and cannot read $p: every pull request is held."
+                owned="$files" ;;
+            esac
+          done
+          if [ -z "$owned" ]; then
+            owned=$(while IFS= read -r f; do
+              for p in $prefixes; do
+                case "/$f" in "$p"*) echo "$f" ;; esac
+              done
+            done <<<"$files")
+          fi
+          if [ -z "$owned" ]; then
+            echo "No owner path touched."
+            exit 0
+          fi
+          echo "Owner paths touched: $(tr '\n' ' ' <<<"$owned")"
+          case "$ACTION" in
+            synchronize|reopened)
+              # The owner approved the commits that were there, not the ones a push adds.
+              labels=$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name')
+              if grep -qx owner-ok <<<"$labels"; then
+                gh api -X DELETE "repos/$REPO/issues/$PR/labels/owner-ok" --silent
+              fi
+              echo "::error::New commits on a pull request that touches owner paths: $OWNER adds the owner-ok label again."
+              exit 1 ;;
+          esac
+          # An agent acts with the owner's account but through the Claude GitHub App; only a label added without an app counts.
+          last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+            --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "owner-ok") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
+          if [ "$last" = "labeled true $OWNER" ]; then
+            echo "Approved by $OWNER."
+            exit 0
+          fi
+          echo "::error::Waiting for $OWNER to add the owner-ok label."
+          exit 1

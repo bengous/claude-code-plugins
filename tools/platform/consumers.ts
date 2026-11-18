@@ -11,6 +11,7 @@ export const CONSUMERS: readonly string[] = [
   "clean-comments/lib/platform",
   "context-management/lib/platform",
   "design-studio/lib/platform",
+  "factory/lib/platform",
   "git/lib/platform",
   "git-sweep/lib/platform",
   "github-flow/lib/platform",

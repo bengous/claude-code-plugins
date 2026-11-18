@@ -1,0 +1,85 @@
+name: Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  merge_group:
+# A push cancels the review of the commit it replaces, so a stale run posts nothing.
+concurrency:
+  group: review-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+jobs:
+  review:
+    # The merge queue requires every required check on its merge group; a skipped job reports success.
+    # A draft is reviewed once, when it becomes ready.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      BASE: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Read what the pull request changes
+        id: change
+        run: |
+          set -euo pipefail
+          # No globbing: a listed path is compared as text, never expanded by the shell.
+          set -f
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          # The list is optional: a repository without it gets the normal depth everywhere.
+          list=$(gh api "repos/$REPO/contents/.github/deep-review-paths?ref=$BASE" --jq .content 2>/dev/null | base64 -d || true)
+          effort=high
+          deep=""
+          while IFS= read -r f; do
+            for p in $(awk '!/^#/ && NF {print $1}' <<<"$list"); do
+              case "/$f" in "$p"*) effort=xhigh; deep="--deep " ;; esac
+            done
+          done <<<"$files"
+          {
+            echo "effort=$effort"
+            echo "target=$deep$REPO/pull/$PR"
+            echo "outside=$(grep -cv '^\.github/' <<<"$files" || true)"
+            echo "self=$(grep -cx '\.github/workflows/review\.yml' <<<"$files" || true)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        id: review
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: "/pr-review --comment ${{ steps.change.outputs.target }}"
+          claude_args: |
+            --model claude-opus-5-5
+            --effort ${{ steps.change.outputs.effort }}
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            --json-schema '{"type":"object","properties":{"findings":{"type":"integer","minimum":0}},"required":["findings"]}'
+      # The author's session can resolve a review thread it declines, so the thread rule alone does not hold a finding.
+      - name: Fail while the review has findings
+        env:
+          OUTPUT: ${{ steps.review.outputs.structured_output }}
+          OUTSIDE: ${{ steps.change.outputs.outside }}
+          SELF: ${{ steps.change.outputs.self }}
+        run: |
+          set -euo pipefail
+          # claude-code-action skips itself when this file differs from main. Only a pull request that stays
+          # inside .github/ goes through unreviewed: CODEOWNERS holds it for the owner.
+          if [ -z "$OUTPUT" ] && [ "$SELF" -gt 0 ]; then
+            if [ "$OUTSIDE" -eq 0 ]; then
+              echo "::notice::Not reviewed: this pull request changes the review workflow."
+              exit 0
+            fi
+            echo "::error::This pull request changes the review workflow and files outside .github/: the review cannot run on it. Split it."
+            exit 1
+          fi
+          findings=$(jq -er .findings <<<"$OUTPUT")
+          echo "Review: $findings finding(s)." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$findings" -gt 0 ]; then
+            echo "::error::The review found $findings issue(s). Push a fix: the next review judges it."
+            exit 1
+          fi

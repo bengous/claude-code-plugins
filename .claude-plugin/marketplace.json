@@ -576,6 +576,27 @@
         "codebase-map"
       ],
       "source": "./architecture-map"
+    },
+    {
+      "name": "factory",
+      "description": "A native software factory for a GitHub repository: the owner labels an issue ready, a claude.ai routine's cloud session ships the pull request, and a reviewer, an owner gate and the merge queue land it with no human in the loop; an install skill that writes the workflows and reports the GitHub setup still missing, and a lead skill that dispatches issues, wakes stuck sessions and sends blocked issues back",
+      "version": "0.1.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "github",
+        "factory",
+        "routine",
+        "cloud",
+        "merge-queue",
+        "code-review",
+        "automation"
+      ],
+      "source": "./factory"
     }
   ],
   "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"
