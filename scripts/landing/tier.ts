@@ -9,7 +9,7 @@
  *
  * The change runs from `--base` to `--head`, `HEAD` by default; the base is the pull request's own on origin with
  * `--pr`, else `origin/dev`. The floor (`scripts/landing/tier-floor.ts`) decides first, the risky paths read from
- * `origin/dev`'s profile so a branch cannot loosen them. Past it, Haiku reads the change, headless, with no tool, hook, setting file or MCP server, from a
+ * `origin/dev`'s `.claude/review.jsonc` so a branch cannot loosen them. Past it, Haiku reads the change, headless, with no tool, hook, setting file or MCP server, from a
  * private empty directory: a CLAUDE.md planted in the shared tmpdir would be read. With `--pr`, a change that reads low
  * is read again with the pull request's *Left open* section, which can thus raise the tier and never lower it. The judge answers only with the model and the prompt that
  * `scripts/landing/tier.cases.json` was validated with; anything else, and any failure, answers `human` with its reason: the

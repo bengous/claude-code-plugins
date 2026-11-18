@@ -46,8 +46,9 @@
  * change: the head GitHub held when the label was added, by its push times,
  * has the patch, against the pull request's base, of the head the landing
  * starts from. Only the human puts the label on, by their own `/land <n>`
- * (`.claude/skills/land`) or by hand on GitHub, and the agent-hooks guard
- * refuses an agent that adds it. A `land-ok` whose change is no longer the head's
+ * (`.claude/skills/land`, labelled by `.claude/hooks/land-label.ts`) or by
+ * hand on GitHub, and `.claude/hooks/guard-land-ok.ts` refuses an agent's
+ * command that adds it. A `land-ok` whose change is no longer the head's
  * comes off, with a comment naming the commits since and GitHub's compare view
  * of the two heads: the human reads those alone, then types `/land <n>` again,
  * which adds the label anew. A low one without it is refused while a `red-dev`
@@ -55,9 +56,9 @@
  * Renovate's branches and the types branch have guards of their own.
  *
  * Before any wait, refused unless the pull request shows the head, its tier
- * lets it land, and a branch that touches a path of `origin/dev`'s
- * `profile.review.risky` carries a clean review verdict for its patch on the
- * pull request (`scripts/landing/review-verdict.ts`); while that profile does
+ * lets it land, and a branch that touches a path `origin/dev`'s
+ * `.claude/review.jsonc` lists as risky carries a clean review verdict for its patch on the
+ * pull request (`scripts/landing/review-verdict.ts`); while that file does
  * not read, every path is risky. Then it takes the landing lock
  * (`scripts/landing/landing-lock.ts`), which every checkout of the repository
  * on this machine shares, waited for an hour at most and held to the end; the
@@ -187,7 +188,7 @@ const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 /** Renovate's branches: `scripts/headless/renovate-agent.ts` and the verdict it posts guard them, not the tier. */
 const BOT_BRANCH = /^renovate\//u;
 
-/** The human's ok on one pull request, added only on the human's own words (`profile.approvals.labels`). */
+/** The human's ok on one pull request, added only on the human's own words (`.claude/hooks/land-label.ts`). */
 export const LAND_OK = "land-ok";
 
 export const TIER_LABELS: Readonly<
@@ -382,7 +383,7 @@ export function changedPaths(checkout: string, base: string, head = "HEAD"): Pat
  * Why the branch, `reviewed` on its pull request and `rebased` here, changing `paths`, may not land without another
  * review; null when it touches no risky path or a clean verdict holds its patch against the pull request's base. The
  * risky paths are read from `origin/dev`, never the checkout, so a branch cannot loosen the rule it lands under;
- * while that profile does not read, every path is risky, and a verdict still lands the branch that repairs it.
+ * while that file does not read, every path is risky, and a verdict still lands the branch that repairs it.
  */
 function reviewRefusal(
   branch: string,
@@ -390,8 +391,8 @@ function reviewRefusal(
   checkout: string,
   { reviewed, rebased, paths }: { reviewed: string; rebased: string; paths: readonly string[] },
 ): string | null {
-  const profile = riskyOf(checkout, BASE);
-  const touched = riskyPaths(paths, profile);
+  const review = riskyOf(checkout, BASE);
+  const touched = riskyPaths(paths, review);
 
   if (touched.length === 0) return null;
 
@@ -411,8 +412,8 @@ function reviewRefusal(
   }
 
   const risky =
-    profile.kind === "unreadable"
-      ? `${profile.why}; until it reads, every path counts as risky, and ${branch} changes ${touched.join(", ")}`
+    review.kind === "unreadable"
+      ? `${review.why}; until it reads, every path counts as risky, and ${branch} changes ${touched.join(", ")}`
       : `${branch} touches risky paths (${touched.join(", ")})`;
 
   return `${risky}; #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review ${short(reviewed)}, and once no finding is open, ${recordCommand(branch, reviewed)}; then land again`;

@@ -60,7 +60,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 
 ## Non-Obvious Directories
 
-- `scripts/` - the repo's own tooling, one directory per concern (`gates/`, `landing/`, `releasing/`, `ci/`, `headless/`, `sessions/`, `reports/`), `lib/` for the helpers that belong to none. `land.ts` and `release.ts` stay at the root, and no directory is named `release/`: the agent-hooks guard reads `scripts/land.ts` and `scripts/release` by convention (`agent-hooks/guard/repo.ts`, `guard/argv.ts`, `guard/mentions.ts`).
+- `scripts/` - the repo's own tooling, one directory per concern (`gates/`, `landing/`, `releasing/`, `ci/`, `headless/`, `sessions/`, `reports/`), `lib/` for the helpers that belong to none. `land.ts` and `release.ts` stay at the root.
 - `archive/` - retired plugins, not in the marketplace.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
 - `tools/platform/` - the file, path and process helpers; edit here, then `bun ./scripts/gates/sync-platform.ts --write`; never edit a copy.
@@ -70,13 +70,13 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 
 `dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. Every commit carries the user's signature: the remote refuses an unsigned one, so never pass `-c commit.gpgsign=false`. `origin/dev` is the source of truth; a local `dev` goes stale each time someone else lands.
 
-Claude Code's built-in "Commit or push only when the user asks" does not hold here: agents commit and push to `dev` (inline lane) and to their own `feature/`|`fix/` branches without asking, and land a branch with `bun ./scripts/land.ts <branch>`; `main` is the human's release, and a hook refuses every agent push to it.
+Claude Code's built-in "Commit or push only when the user asks" does not hold here: agents commit and push to `dev` (inline lane) and to their own `feature/`|`fix/` branches without asking, and land a branch with `bun ./scripts/land.ts <branch>`; `main` is the human's release, and the owner's global `guard-git-push` hook refuses a push to `main` of a public repository; no hook of this repository guards it.
 
 Two lanes; the agent judges by scope, the user can override:
 
 - Inline — one concern, small diff: commit directly on `dev`. A commit that touches the e2e paths (listed in `scripts/gates/check-e2e-green.ts`) goes through a branch instead: the pre-push hook lets it reach `dev` only once its SHA has a green `e2e` run, and that run needs a pushed branch.
 - Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`. During a feature the branch ignores `dev`; rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
 
-Review: one agent review of each branch, before `github-flow:pr` publishes it; on a branch that touches the `profile.review.risky` paths of `.claude/agent-hooks.jsonc`, `land.ts` requires its verdict. The change sets the tier: a `tier:low` pull request lands through its worker once green, a `tier:human` one waits until the human types `/land <n>`. The inline lane stays outside the tier, at its author's judgement, so the loop's *Low escapes* does not cover all of `dev`. The human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause.
+Review: one agent review of each branch, before `github-flow:pr` publishes it; on a branch that touches a `risky` path of `.claude/review.jsonc`, `land.ts` requires its verdict. The change sets the tier: a `tier:low` pull request lands through its worker once green, a `tier:human` one waits until the human types `/land <n>`, whose hook alone puts `land-ok` on. The inline lane stays outside the tier, at its author's judgement, so the loop's *Low escapes* does not cover all of `dev`. The human reviews contracts and tests at the end of a chantier and before each release. A finding gives the input, the output observed and the cause.
 
 Before any push or release: follow [Repo operations](docs/repo-ops.md); landing is remote-first.

@@ -323,7 +323,7 @@ describe("fixerVerdictWhy", () => {
     expect(why).toStartWith("No review:");
     expect(why).toContain("oxfmt 0.73.0, `oxlint --fix` of oxlint 1.89.0, then oxfmt again");
     expect(why).toContain(`rebased Renovate's head ${SHA} onto \`origin/dev\` at ${BASE_SHA}`);
-    expect(why).toContain("`profile.review.risky`");
+    expect(why).toContain("`.claude/review.jsonc`");
     expect(why).toContain("while its patch against `origin/dev` stays the same");
   });
 });
@@ -402,11 +402,11 @@ describe("renovate.json", () => {
       .flatMap((rule) => rule.matchFileNames ?? [])
       .map((glob) => new Bun.Glob(glob));
 
-    const profile = riskyOf(REPO, "HEAD");
+    const review = riskyOf(REPO, "HEAD");
 
-    if (profile.kind === "unreadable") throw new Error(profile.why);
+    if (review.kind === "unreadable") throw new Error(review.why);
 
-    const risky = profile.risky.map((glob) => new Bun.Glob(glob));
+    const risky = review.risky.map((glob) => new Bun.Glob(glob));
 
     const packageFiles = Bun.spawnSync(["git", "ls-files"], { cwd: REPO })
       .stdout.toString()
@@ -520,7 +520,7 @@ const NOTIFY_STUB = `#!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
 `;
 
-const RISKY_PROFILE = '{ "profile": { "review": { "risky": ["scripts/**"] } } }\n';
+const RISKY_REVIEW = '{ "risky": ["scripts/**"] }\n';
 
 let root = "";
 
@@ -664,7 +664,7 @@ beforeEach(() => {
   git(project, "remote", "add", "origin", origin);
   write(join(project, "package.json"), '{"devDependencies":{"x":"1.2.2"}}\n');
   write(join(project, "scripts", "tool.ts"), "export {};\n");
-  write(join(project, ".claude", "agent-hooks.jsonc"), RISKY_PROFILE);
+  write(join(project, ".claude", "review.jsonc"), RISKY_REVIEW);
   git(project, "add", "-A");
   git(project, "commit", "-qm", "initial commit");
   git(project, "push", "-q", "origin", "dev");

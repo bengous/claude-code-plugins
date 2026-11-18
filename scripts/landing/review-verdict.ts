@@ -2,7 +2,7 @@
 
 /**
  * A clean review verdict bound to the change it judged: `scripts/land.ts` lands a
- * branch that touches a path of `profile.review.risky` (`.claude/agent-hooks.jsonc`)
+ * branch that touches a risky path (`.claude/review.jsonc`)
  * only when its pull request carries one for its patch (docs/repo-ops/git.md).
  *
  *   bun ./scripts/landing/review-verdict.ts record <branch> --sha <reviewed head>
@@ -16,7 +16,7 @@
  * changes the lines around a hunk. A verdict stands for a review, or
  * for `scripts/headless/renovate-agent.ts`'s own (`postVerdict`), posted with no review
  * on a branch of Renovate's commits plus a repair of the lint and format
- * fixers alone, whose configuration `profile.review.risky` holds.
+ * fixers alone, whose configuration `.claude/review.jsonc` lists as risky.
  */
 
 import { parseArgs } from "node:util";

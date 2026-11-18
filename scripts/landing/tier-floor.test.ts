@@ -7,6 +7,7 @@ import {
   floorOf,
   LINE_CAP,
   linesOf,
+  parseReview,
   riskyPaths,
 } from "./tier-floor.ts";
 
@@ -36,13 +37,12 @@ describe("floorOf", () => {
     expect(floorOf(input([renamed]))?.reason).toContain("scripts/land.ts");
   });
 
-  test("counts every path as risky while the profile does not read", () => {
-    const unreadable = { kind: "unreadable", why: "profile.reveiw: unknown key" } as const;
+  test("counts every path as risky while the review file does not read", () => {
+    const unreadable = { kind: "unreadable", why: 'unknown key "riksy"' } as const;
 
     expect(floorOf(input([modified("docs/x.md")], { risky: unreadable }))).toEqual({
       tier: "human",
-      reason:
-        "the review profile does not read, so every path is risky: profile.reveiw: unknown key",
+      reason: 'the review file does not read, so every path is risky: unknown key "riksy"',
     });
   });
 
@@ -138,5 +138,34 @@ describe("riskyPaths", () => {
     expect(riskyPaths(["docs/x.md", ".github/workflows/ci.yml"], RISKY)).toEqual([
       ".github/workflows/ci.yml",
     ]);
+  });
+});
+
+describe("parseReview", () => {
+  const SPEC = "origin/dev:.claude/review.jsonc";
+
+  test("reads the risky globs of a commented file", () => {
+    expect(parseReview(SPEC, '// why\n{ "risky": ["scripts/land.ts", ".github/**",] }\n')).toEqual({
+      kind: "read",
+      risky: ["scripts/land.ts", ".github/**"],
+    });
+  });
+
+  test.each([
+    ["{\n", "invalid JSONC"],
+    ["[]", "expected an object"],
+    ['{ "riksy": ["a"] }', 'unknown key "riksy"'],
+    ['{ "risky": ["a"], "more": 1 }', 'unknown key "more"'],
+    ["{}", "risky: expected a list of globs"],
+    ['{ "risky": "scripts/**" }', "risky: expected a list of globs"],
+    ['{ "risky": [] }', "risky: expected a list of globs"],
+    ['{ "risky": [1] }', "risky: expected a list of globs"],
+    ['{ "risky": ["./scripts/**"] }', '"./scripts/**" is anchored'],
+  ])("does not read %p, so every path is risky", (text, why) => {
+    const read = parseReview(SPEC, text);
+
+    expect(read.kind).toBe("unreadable");
+    expect(read.kind === "unreadable" ? read.why : "").toContain(`${SPEC}: `);
+    expect(read.kind === "unreadable" ? read.why : "").toContain(why);
   });
 });

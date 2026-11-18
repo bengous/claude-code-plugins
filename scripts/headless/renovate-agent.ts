@@ -10,7 +10,7 @@
  * path itself, by branch automerge, once CI is green on its branch
  * (`renovate.json`). Among the open Renovate pull requests against `dev` whose
  * `ci.yml` runs have concluded, one that touches a path of `origin/dev`'s
- * `profile.review.risky` lands through `land.ts` only with a review verdict
+ * `.claude/review.jsonc` lists lands through `land.ts` only with a review verdict
  * for its patch: a review's, or this run's for a repair of the lint and
  * format fixers alone, whose configuration is itself risky. Without one it
  * goes to the human; with one, the run lands it again, and a red CI sends it
@@ -300,7 +300,7 @@ export function fixerVerdictWhy(
   renovateHead: string,
   base: string,
 ): string {
-  return `No review: \`scripts/headless/renovate-agent.ts\` rebased Renovate's head ${renovateHead} onto \`${BASE}\` at ${base}, ran ${fixersRan(versions)}, and committed what they changed: a repair anyone reproduces by running them again, under a lint and format configuration \`profile.review.risky\` holds. \`scripts/land.ts\` lands this change while its patch against \`${BASE}\` stays the same: any other commit changes it, and the branch then waits for a human review.`;
+  return `No review: \`scripts/headless/renovate-agent.ts\` rebased Renovate's head ${renovateHead} onto \`${BASE}\` at ${base}, ran ${fixersRan(versions)}, and committed what they changed: a repair anyone reproduces by running them again, under a lint and format configuration \`.claude/review.jsonc\` lists as risky. \`scripts/land.ts\` lands this change while its patch against \`${BASE}\` stays the same: any other commit changes it, and the branch then waits for a human review.`;
 }
 
 /** Opus for a major update, whose breaking changes the repair has to follow; Sonnet for the rest. */
@@ -1196,7 +1196,7 @@ function unique(heads: readonly string[]): string[] {
   return [...new Set(heads)];
 }
 
-/** The risky-path predicate of `origin/dev`'s profile, every path while it does not read, as land.ts reads it. */
+/** The risky-path predicate of `origin/dev`'s `.claude/review.jsonc`, every path while it does not read, as land.ts reads it. */
 function riskyPaths(cwd: string): RiskyPath {
   return riskyMatcher(riskyOf(cwd, BASE));
 }

@@ -3,9 +3,7 @@
  * `scripts/landing/tier.ts` before it asks Haiku, and by `scripts/land.ts` on the rebased head of each landing.
  */
 
-import { CONFIG_GIT_PATH } from "../../agent-hooks/core/config/config.ts";
-import { parseProfile } from "../../agent-hooks/core/config/profile.ts";
-import { ConfigError } from "../../agent-hooks/core/config/reader.ts";
+import { isRecord, isStringArray } from "../../agent-hooks/core/util/json.ts";
 import { isE2ePath } from "../gates/check-e2e-green.ts";
 import { BREAKING } from "../lib/breaking-subject.ts";
 import { run } from "../lib/run.ts";
@@ -54,17 +52,20 @@ const STRUCTURAL = new Set(["A", "D", "R", "C"]);
 
 const SHOWN = 3;
 
-/** The profile file in `rev`, as `git show` names it. */
-export function profileSpec(rev: string): string {
-  return `${rev}:${CONFIG_GIT_PATH}`;
+/** The file that lists the paths a change lands through only with a clean review verdict, from the repository root. */
+export const REVIEW_GIT_PATH = ".claude/review.jsonc";
+
+/** The review file in `rev`, as `git show` names it. */
+export function reviewSpec(rev: string): string {
+  return `${rev}:${REVIEW_GIT_PATH}`;
 }
 
-/** The risky globs of the profile in `rev`: none only when `rev` holds no profile file or no review in it. */
+/** The risky globs of the review file in `rev`: none only when `rev` holds no review file. */
 export function riskyOf(checkout: string, rev: string): RiskyRead {
-  const spec = profileSpec(rev);
+  const spec = reviewSpec(rev);
 
   const listed = run(
-    ["git", "ls-tree", "--full-tree", "--name-only", rev, "--", CONFIG_GIT_PATH],
+    ["git", "ls-tree", "--full-tree", "--name-only", rev, "--", REVIEW_GIT_PATH],
     checkout,
   );
 
@@ -76,16 +77,47 @@ export function riskyOf(checkout: string, rev: string): RiskyRead {
 
   if (!shown.ok) return { kind: "unreadable", why: `git show ${spec}: ${shown.err}` };
 
-  try {
-    return { kind: "read", risky: parseProfile(spec, shown.out).review?.risky ?? [] };
-  } catch (error) {
-    if (error instanceof ConfigError) return { kind: "unreadable", why: error.message };
-
-    throw error;
-  }
+  return parseReview(spec, shown.out);
 }
 
-/** Whether a path is risky, the globs compiled once: every path while the profile does not read. */
+/**
+ * The review file's text read strictly: one key, `risky`, a list of globs relative to the repository root. Anything
+ * else does not read, which makes every path risky, so a typo never lets a change through unreviewed.
+ */
+export function parseReview(spec: string, text: string): RiskyRead {
+  const unreadable = (why: string): RiskyRead => ({ kind: "unreadable", why: `${spec}: ${why}` });
+  let parsed: unknown;
+
+  try {
+    parsed = Bun.JSONC.parse(text);
+  } catch (error) {
+    return unreadable(`invalid JSONC: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (!isRecord(parsed)) return unreadable("expected an object");
+
+  const unknown = Object.keys(parsed).find((key) => key !== "risky");
+
+  if (unknown !== undefined) return unreadable(`unknown key "${unknown}"`);
+
+  const globs = parsed["risky"];
+
+  if (!isStringArray(globs) || globs.length === 0 || globs.some((glob) => glob.trim() === "")) {
+    return unreadable("risky: expected a list of globs");
+  }
+
+  const anchored = globs.find((glob) => glob.startsWith("/") || glob.startsWith("./"));
+
+  if (anchored !== undefined) {
+    return unreadable(
+      `risky: "${anchored}" is anchored; a glob is relative to the repository root`,
+    );
+  }
+
+  return { kind: "read", risky: globs };
+}
+
+/** Whether a path is risky, the globs compiled once: every path while the review file does not read. */
 export function riskyMatcher(risky: RiskyRead): (path: string) => boolean {
   if (risky.kind === "unreadable") return () => true;
 
@@ -94,7 +126,7 @@ export function riskyMatcher(risky: RiskyRead): (path: string) => boolean {
   return (path) => globs.some((glob) => glob.match(path));
 }
 
-/** The paths among `paths` that a risky glob matches: all of them while the profile does not read. */
+/** The paths among `paths` that a risky glob matches: all of them while the review file does not read. */
 export function riskyPaths(paths: readonly string[], risky: RiskyRead): readonly string[] {
   const isRisky = riskyMatcher(risky);
 
@@ -145,7 +177,7 @@ export function floorOf({ changes, subjects, risky, lines }: FloorInput): Verdic
   if (changes.length === 0) return human("the change touches no file");
 
   if (risky.kind === "unreadable") {
-    return human(`the review profile does not read, so every path is risky: ${risky.why}`);
+    return human(`the review file does not read, so every path is risky: ${risky.why}`);
   }
 
   const paths = [...new Set(changes.flatMap((change) => change.paths))];

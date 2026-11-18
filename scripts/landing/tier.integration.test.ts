@@ -97,11 +97,7 @@ beforeEach(() => {
   git("init", "--quiet", "--initial-branch=dev");
   git("config", "user.name", "Test");
   git("config", "user.email", "test@example.com");
-  commit(
-    ".claude/agent-hooks.jsonc",
-    "profile",
-    '{ "profile": { "review": { "risky": ["scripts/land.ts"] } } }\n',
-  );
+  commit(".claude/review.jsonc", "review file", '{ "risky": ["scripts/land.ts"] }\n');
   git("update-ref", "refs/remotes/origin/dev", "HEAD");
   git("switch", "--quiet", "-c", "feature/x");
 });
@@ -136,7 +132,7 @@ describe("tierOf", () => {
   });
 
   test("reads the risky paths from the base, so the branch cannot loosen them", async () => {
-    commit(".claude/agent-hooks.jsonc", "chore: loosen", '{ "profile": {} }\n');
+    commit(".claude/review.jsonc", "chore: loosen", '{ "risky": ["docs/**"] }\n');
     commit("scripts/land.ts", "fix: land");
 
     expect((await branchTier(judging(LOW).judge)).reason).toContain("scripts/land.ts");

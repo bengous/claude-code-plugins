@@ -58,10 +58,31 @@
         "matcher": "Bash",
         "hooks": [
           {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-land-ok.ts\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
             "type": "prompt",
             "if": "Bash(git commit *)",
             "continueOnBlock": true,
             "prompt": "You check the message of a git commit before it runs. Allow at once any command that runs no git commit. A commit message says what the code does now, and why, as facts a reader can check on this commit alone, years later. How the change came about and how it was checked belong in the pull request.\nRefuse the commit when a passage of its message does one of these:\n- explains the change by what produced it: a review, an audit, their findings, a round of feedback, a session, a conversation, a person's decision or request, a plan step or decision label;\n- reports a check as an event: a test seen red before the fix, before and after numbers, a check in a browser, a run id, an eval score, who reviewed the change.\nAllow: the defect itself, even told in the past tense as what the old code did; what a test feeds in, asserts or cannot see; a measured fact about a dependency or platform that explains the code; a bare issue or pull request number; a trailer that names the session or an author; the words review, audit or session when the change itself is about that thing.\nThe message is what the command's -m, --trailer and heredoc values carry. Allow a command whose message you cannot read.\nWhen you refuse, quote each passage and say it belongs in the pull request."
+          }
+        ]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/land-label.ts\"",
+            "timeout": 30
           }
         ]
       }

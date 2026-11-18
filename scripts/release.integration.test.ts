@@ -15,7 +15,6 @@ import { dirname, join } from "node:path";
 
 import { parse, stringify } from "yaml";
 
-import { releaseScriptOf } from "../agent-hooks/guard/argv.ts";
 import type { Gh } from "./landing/ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import {
@@ -994,12 +993,8 @@ describe("the command line", () => {
     [["--plan"], "usage"],
     [["abc123"], "usage"],
     [[], "usage"],
-  ])("reads --dry-run where the landing guard does: %p is %s", (args, kind) => {
-    const guarded = releaseScriptOf(["bun", "./scripts/release.ts", ...args], "/r");
-
+  ])("reads %p as %s", (args, kind) => {
     expect<string>(parseCli(args).kind).toBe(kind);
-    expect(guarded?.dryRun).toBe(args.includes("--dry-run"));
-    expect(kind === "apply" && guarded?.dryRun).toBe(false);
   });
 
   test("applies only a plan named by its digest", () => {

@@ -19,7 +19,7 @@
       "automerge": false
     },
     {
-      "description": "The package files under .claude/agent-hooks.jsonc's profile.review.risky land only with a human review verdict; scripts/headless/renovate-agent.integration.test.ts holds this list to that profile.",
+      "description": "The package files under a risky path of .claude/review.jsonc land only with a human review verdict; scripts/headless/renovate-agent.integration.test.ts holds this list to that file.",
       "matchFileNames": [".github/workflows/**"],
       "automerge": false
     }

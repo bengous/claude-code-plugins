@@ -96,7 +96,7 @@ export const REGISTRY: Registry = {
     "660d31af": {
       quote: "In an agent worktree, a Bash call runs one simple command:",
       prose:
-        "the guard that refuses is Claude Code's own; this repo's Bash hooks guard pushes, releases and settings writes, not a command's shape",
+        "the guard that refuses is Claude Code's own; this repo's Bash hooks guard `land-ok` and settings writes, not a command's shape",
     },
     "70ce207e": {
       quote: "A step that code can decide is done by the script or the",
@@ -116,9 +116,9 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/anti-slop/` - vendored lint plugin. Do not",
       held: ["gate lint-config"],
     },
-    "9018ee0e": {
+    "6fe85f47": {
       quote: "`scripts/` - the repo's own tooling, one directory per",
-      prose: "a fact about the layout; the convention is agent-hooks', read in its guard",
+      prose: "a fact about the layout",
     },
     "667fb01a": {
       quote: "`tools/platform/` - the file, path and process helpers; edit",
@@ -131,14 +131,12 @@ export const REGISTRY: Registry = {
     e4faa8be: {
       quote: "`dev` is the working trunk; `main` is the release channel",
       prose:
-        "lefthook's `block-commit-to-main` and the agent-hooks landing guard refuse an agent's commit and push to `main`, but the fast-forward, the linear history and the signed commits are the GitHub rulesets', which no check of this repo reads",
+        "lefthook's `block-commit-to-main` refuses a commit to `main` and the owner's global `guard-git-push` hook a push to it, but the fast-forward, the linear history and the signed commits are the GitHub rulesets', which no check of this repo reads",
     },
-    efdba6e9: {
+    "9c7f25c4": {
       quote: "Claude Code's built-in \"Commit or push only when the user",
-      held: [
-        "hook agent-hooks/agent-hooks.ts",
-        "test agent-hooks/hooks/pre-bash.integration.test.ts",
-      ],
+      prose:
+        "who commits and pushes where is a convention; the `guard-git-push` hook that refuses a push to `main` is the owner's machine's, outside this repository, which no check of it reads",
     },
     b5f9452a: {
       quote: "Two lanes; the agent judges by scope, the user can override:",
@@ -152,14 +150,20 @@ export const REGISTRY: Registry = {
       quote: "Branch — several concerns, big work (large feature, large",
       prose: "the lane, the split into PRs and when to rebase are judgements of scope",
     },
-    "5dd47724": {
+    "5e069813": {
       quote: "Review: one agent review of each branch, before",
-      held: ["test scripts/land.integration.test.ts", "hook agent-hooks/agent-hooks.ts"],
+      held: [
+        "test scripts/land.integration.test.ts",
+        "hook .claude/hooks/land-label.ts",
+        "hook .claude/hooks/guard-land-ok.ts",
+        "test .claude/hooks/land-label.test.ts",
+        "test .claude/hooks/guard-land-ok.test.ts",
+      ],
     },
     b3476aba: {
       quote: "Before any push or release: follow [Repo",
       prose:
-        "a procedure to follow; the agent-hooks landing guard refuses its pushes to `main` agent-side",
+        "a procedure to follow; the owner's global `guard-git-push` hook refuses a push to `main`, outside this repository",
     },
   },
   ".claude/rules/function-hooks.md": {

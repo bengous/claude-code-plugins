@@ -41,7 +41,7 @@ import {
 import type { Clock } from "./landing/ci-wait.ts";
 import { lockPaths } from "./landing/landing-lock.ts";
 import { type Comment, record } from "./landing/review-verdict.ts";
-import { profileSpec, riskyOf } from "./landing/tier-floor.ts";
+import { reviewSpec, riskyOf } from "./landing/tier-floor.ts";
 import { digestOf, evidenceOf, type Judge, messagesOf, tierOf } from "./landing/tier.ts";
 
 let root = "";
@@ -1065,7 +1065,7 @@ function lines(changed: number, text: string): string {
     .concat("\n");
 }
 
-const RISKY_PROFILE = '{ "profile": { "review": { "risky": ["risky/**", "scripts/**"] } } }\n';
+const RISKY_REVIEW = '{ "risky": ["risky/**", "scripts/**"] }\n';
 
 /** The comment `review-verdict.ts record` posted, as the owner's. */
 function posted(): Comment {
@@ -1091,7 +1091,7 @@ describe("land, a branch that touches a risky path", () => {
   const RECORD = "bun ./scripts/landing/review-verdict.ts record feature/x --sha";
 
   beforeEach(() => {
-    onDev(".claude/agent-hooks.jsonc", "review profile", RISKY_PROFILE);
+    onDev(".claude/review.jsonc", "review file", RISKY_REVIEW);
     commit(work, "risky/a.ts", "risky");
     pushBranch();
   });
@@ -1233,39 +1233,35 @@ describe("land, a branch that touches a risky path", () => {
     expect((await landing()).kind).toBe("landed");
   });
 
-  test("counts every changed path as risky while dev's profile does not parse, and says so", async () => {
-    onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
+  test("counts every changed path as risky while dev's review file does not parse, and says so", async () => {
+    onDev(".claude/review.jsonc", "broken review file", "{\n");
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
     serve(approved());
 
     const landed = await landing();
 
-    expect(why(landed)).toContain("origin/dev:.claude/agent-hooks.jsonc");
+    expect(why(landed)).toContain("origin/dev:.claude/review.jsonc");
     expect(why(landed)).toContain("every path counts as risky");
     expect(why(landed)).toContain("b.txt");
   });
 
-  test("counts every changed path as risky while dev's profile holds a misspelled key", async () => {
-    onDev(
-      ".claude/agent-hooks.jsonc",
-      "misspelled profile",
-      '{ "profile": { "reveiw": { "risky": ["risky/**"] } } }\n',
-    );
+  test("counts every changed path as risky while dev's review file holds a misspelled key", async () => {
+    onDev(".claude/review.jsonc", "misspelled review file", '{ "riksy": ["risky/**"] }\n');
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
     serve(approved());
 
     const landed = await landing();
 
-    expect(why(landed)).toContain("profile.reveiw");
+    expect(why(landed)).toContain('unknown key "riksy"');
     expect(why(landed)).toContain("every path counts as risky");
     expect(why(landed)).toContain("b.txt");
   });
 
-  test("lands the branch that fixes dev's unreadable profile once it has a verdict", async () => {
-    onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
-    commit(work, ".claude/agent-hooks.jsonc", "fix the profile", RISKY_PROFILE);
+  test("lands the branch that fixes dev's unreadable review file once it has a verdict", async () => {
+    onDev(".claude/review.jsonc", "broken review file", "{\n");
+    commit(work, ".claude/review.jsonc", "fix the review file", RISKY_REVIEW);
     pushBranch();
 
     const verdict = recordVerdict();
@@ -1759,7 +1755,7 @@ describe("land, a stack", () => {
   });
 
   test("refuses a layer that touches a risky path with no review verdict, before any run is listed", async () => {
-    onDev(".claude/agent-hooks.jsonc", "review profile", RISKY_PROFILE);
+    onDev(".claude/review.jsonc", "review file", RISKY_REVIEW);
     buildStack(["risky/a.ts", "s-2.txt", "s-3.txt"]);
     serveStack([APPROVED_LAYER]);
 
@@ -2357,16 +2353,16 @@ describe("record", () => {
 });
 
 describe("riskyOf", () => {
-  test("reads no risky path from a revision without the profile file", () => {
+  test("reads no risky path from a revision without the review file", () => {
     expect(riskyOf(work, "origin/dev")).toEqual({ kind: "read", risky: [] });
   });
 
-  test("reads a revision it cannot resolve as unreadable, never as no profile", () => {
+  test("reads a revision it cannot resolve as unreadable, never as no review file", () => {
     expect(riskyOf(work, "origin/nowhere").kind).toBe("unreadable");
   });
 
-  test("names the profile file as git does, with forward slashes", () => {
-    expect(profileSpec("origin/dev")).toBe("origin/dev:.claude/agent-hooks.jsonc");
+  test("names the review file as git does, with forward slashes", () => {
+    expect(reviewSpec("origin/dev")).toBe("origin/dev:.claude/review.jsonc");
   });
 });
 
