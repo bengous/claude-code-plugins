@@ -41,7 +41,13 @@ export function isRoutineId(value: string): boolean {
 
 /** A branch name git accepts (`git check-ref-format --branch`). */
 export function isBranch(value: string): boolean {
-  if (value === "" || value === "@" || value.startsWith("-") || REF_FORBIDDEN.test(value)) {
+  if (
+    value === "" ||
+    value === "@" ||
+    value === "HEAD" ||
+    value.startsWith("-") ||
+    REF_FORBIDDEN.test(value)
+  ) {
     return false;
   }
 

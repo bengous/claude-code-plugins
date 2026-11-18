@@ -107,6 +107,7 @@ describe("parameter shapes", () => {
   test.each([
     "",
     "@",
+    "HEAD",
     "-x",
     "a..b",
     "a b",

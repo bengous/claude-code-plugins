@@ -11,6 +11,8 @@ A native software factory for a GitHub repository: cloud Claude sessions take th
 
 A session stopped by something outside its issue comments on the issue and labels it `blocked`. A pull request that touches a path of `CODEOWNERS` waits until the owner labels it `owner-ok`; a new push removes the label.
 
+The factory's pull requests target the repository's default branch, and `check.ts` reads that branch's ruleset. A repository whose working trunk is not its default branch is not supported by this version.
+
 ## Skills
 
 | Skill | Invocation | What it does |
@@ -48,6 +50,8 @@ Each subject of `install.ts` takes exactly the parameter flags its templates nam
 - `bun`
 - `gh`, signed in as the owner
 - The Claude GitHub App on the repository, a claude.ai routine with an API trigger, and the secrets `CLAUDE_CODE_OAUTH_TOKEN` and `ROUTINE_FIRE_TOKEN`
+- A CI job named `test` that runs on `pull_request`, `merge_group` and `push` to the default branch
+- The owner's routine convention, which the install skill follows: each routine is versioned in `~/dotfiles/cloud/routines/<name>/` (`routine.json`, `prompt.md`), created to match, and `bun run routines:check` in `~/dotfiles` exits 0
 
 ## License
 

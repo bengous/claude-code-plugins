@@ -9,6 +9,8 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_P
 
 The factory runs with no human in the loop: the owner labels his own issue `ready`, `dispatch.yml` fires a claude.ai routine, a cloud session implements the issue and opens a pull request with auto-merge on, and the merge queue lands it once `test`, `review` and `owner-gate` pass and every thread is resolved. This skill puts the files in place and reports the rest; the owner decides each change outside the working tree.
 
+Run it from a checkout of `<REPO>`. The factory's pull requests target the repository's default branch, and `check.ts` reads that branch's ruleset: a repository whose working trunk is not its default branch (a `dev` beside a `main` release branch) is not supported by this version.
+
 ## Ask before
 
 Ask the owner, in the session, before each of these, and do it only on a yes:
@@ -21,9 +23,9 @@ Writing into this repository's working tree needs no ask: `install.ts` refuses t
 
 ## 1. Parameters
 
-- `REPO`: `$ARGUMENTS` when given, else `gh repo view --json nameWithOwner --jq .nameWithOwner`.
+- `REPO`: `$ARGUMENTS` when given, else `gh repo view --json nameWithOwner --jq .nameWithOwner`. It must be the repository of the current checkout.
 - `OWNER`: the login of the human who labels issues `ready` and pull requests `owner-ok`. Propose `gh api user --jq .login` and have the owner confirm it: the workflows trust that login alone.
-- `BRANCH`: the default branch, the base of every pull request: `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`.
+- `BRANCH`: the repository's default branch, the base of every pull request: `gh repo view <REPO> --json defaultBranchRef --jq .defaultBranchRef.name`.
 - `ROUTINE_ID`: the `trig_…` id of the routine, known once step 2 created it.
 
 Each `install.ts` subject takes exactly the flags shown below and refuses any other.
@@ -39,7 +41,7 @@ Each routine is versioned in `~/dotfiles/cloud/routines/<name>/` first, then cre
    ```
 
 2. Write `routine.json` beside it, on the model of an existing routine there: `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, the cloud environment the owner names. Its `id` is filled once the routine exists.
-3. Create the routine from these two files and write its `trig_…` id into `routine.json`.
+3. Create the routine from these two files with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`), and write its `trig_…` id into `routine.json`.
 4. Run `bun run routines:check` in `~/dotfiles`: it must exit 0.
 
 The routine has no trigger yet, and only the owner can add one: on the routine's page on claude.ai, *Edit*, the *Trigger* row, **+**, *API*, *Generate token*. The token is shown once. Ask him to do it, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
@@ -56,7 +58,7 @@ Then, with the owner:
 
 - `.github/deep-review-paths` lists `/.github/` alone. Add this repository's sensitive paths, one prefix per line: the review reads every caller and test of a change there, at a higher effort.
 - Merge the sections of `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-sections.md` into `CLAUDE.md`: the cloud session and the review both follow them. Write `<BRANCH>` where the file says `{{BRANCH}}`. Its test command and its *Code* rules are the trial's: adapt them to this repository and show the owner the result.
-- The ruleset will require a check named `test`: a CI job named `test` that runs on `pull_request` and `merge_group`. Say so if the repository has none.
+- The ruleset will require a check named `test`: a CI job named `test` that runs on `pull_request`, `merge_group`, and `push` to the default branch, from which the lead reads a red main. Say so if the repository has none.
 
 Commit the files on a branch and have them reach the default branch before step 4's ruleset requires the checks: `owner-gate.yml` runs as it is on the default branch, so a pull request opened before it lands waits for a check that never reports.
 
@@ -89,7 +91,7 @@ One line per item, `ok` or `missing` with the `gh` command that fixes it; exit 1
   ```
 
 - **Auto-merge**: the cloud session enables it on its pull request; the fix allows it on the repository.
-- **`CLAUDE_CODE_OAUTH_TOKEN`**: the review workflow's token. The owner generates it with `claude setup-token` and sets it with the printed `gh secret set` command, in his terminal.
+- **`CLAUDE_CODE_OAUTH_TOKEN`**: the review workflow's token. The owner generates it with `claude setup-token` and pastes it into `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <REPO>`, in his terminal.
 - **`ROUTINE_FIRE_TOKEN`**: step 2.
 
 `check.ts` does not see two things the factory also needs: the Claude GitHub App installed on the repository, through which the cloud session pushes and the review comments; and the routine itself, which step 2 checks. Ask the owner to confirm the App.

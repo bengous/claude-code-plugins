@@ -82,7 +82,11 @@ export function report(decisions: readonly Decision[]): string {
 }
 
 function currentContent(dest: string): string | null {
-  return existsSync(dest) ? readFileSync(dest, "utf8") : null;
+  if (!existsSync(dest)) return null;
+
+  if (isDirectory(dest)) throw new Error(`${dest} is a directory, where a file goes`);
+
+  return readFileSync(dest, "utf8");
 }
 
 function isDirectory(path: string): boolean {
@@ -148,8 +152,8 @@ function subjectOf({ values, positionals }: Parsed): Subject | { readonly error:
 
   if (extra.length > 0) return { error: `unexpected argument: ${extra.join(" ")}` };
 
-  if (values.target === "" || values.dir === "") {
-    return { error: `--${values.target === "" ? "target" : "dir"} is empty` };
+  for (const flag of ["target", "dir"] as const) {
+    if (values[flag]?.trim() === "") return { error: `--${flag} is empty` };
   }
 
   if (kind === "repo") {
@@ -223,7 +227,15 @@ export function main(argv: readonly string[]): number {
     return 2;
   }
 
-  const decisions = decide(placements(rendered.files, subject), currentContent, values.force);
+  let decisions: Decision[];
+
+  try {
+    decisions = decide(placements(rendered.files, subject), currentContent, values.force);
+  } catch (error) {
+    console.error(`install: ${messageOf(error)}`);
+
+    return 1;
+  }
 
   for (const { placement, outcome } of decisions) {
     if (outcome === "wrote" || outcome === "overwrote") {

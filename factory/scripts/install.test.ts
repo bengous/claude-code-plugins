@@ -131,7 +131,12 @@ describe("main", () => {
       ["prompt", "--owner", "octo", "--repo", "octo/w", "--branch", "main", "--dir", ""],
       "install: --dir is empty",
     ],
-  ])("refuses an empty path %p", (argv, reason) => {
+    [["repo", "--target", "  "], "install: --target is empty"],
+    [
+      ["prompt", "--owner", "octo", "--repo", "octo/w", "--branch", "main", "--dir", " "],
+      "install: --dir is empty",
+    ],
+  ])("refuses an empty or blank path %p", (argv, reason) => {
     expect(run(...argv)).toBe(2);
     expect(err.join("\n")).toContain(reason);
   });
@@ -152,6 +157,15 @@ describe("main", () => {
       run("prompt", "--owner", "octo", "--repo", "octo/w", "--branch", "dev", "--dir", dir),
     ).toBe(0);
     expect(readFileSync(join(dir, "prompt.md"), "utf8")).toContain("pull request against `dev`");
+  });
+
+  test("refuses a destination that is a directory, in one line naming it, and writes nothing", () => {
+    const owners = join(root, ".github/CODEOWNERS");
+    mkdirSync(owners, { recursive: true });
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(1);
+    expect(err).toEqual([`install: ${owners} is a directory, where a file goes`]);
+    expect(out).toEqual([]);
   });
 
   test("refuses a branch git would refuse", () => {
