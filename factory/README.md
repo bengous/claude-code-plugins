@@ -20,7 +20,7 @@ A session stopped by something outside its issue comments on the issue and label
 
 ## Templates
 
-`templates/` holds the files of the proven trial, byte for byte, but for three parameters:
+`templates/` holds the files of the proven trial, byte for byte, but for the trial's own path in `deep-review-paths` and three parameters:
 
 | Parameter | Value |
 |-----------|-------|

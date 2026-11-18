@@ -36,10 +36,10 @@ Each routine is versioned in `~/dotfiles/cloud/routines/<name>/` first, then cre
    ```
 
 2. Write `routine.json` beside it, on the model of an existing routine there: `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, the cloud environment the owner names. Its `id` is filled once the routine exists.
-3. Create the routine from these two files, with an API trigger, and write its `trig_…` id into `routine.json`.
+3. Create the routine from these two files and write its `trig_…` id into `routine.json`.
 4. Run `bun run routines:check` in `~/dotfiles`: it must exit 0.
 
-Only the owner can generate the trigger's token, on the routine's page on claude.ai. Ask him to, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
+The routine has no trigger yet, and only the owner can add one: on the routine's page on claude.ai, *Edit*, the *Trigger* row, **+**, *API*, *Generate token*. The token is shown once. Ask him to do it, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
 
 ## 3. Files
 
@@ -51,7 +51,7 @@ Run it from the repository's root. Each line is `wrote`, `identical` or `refused
 
 Then, with the owner:
 
-- `.github/deep-review-paths` lists the trial's sensitive paths. Replace them with this repository's: the review reads every caller and test of a change there.
+- `.github/deep-review-paths` lists `/.github/` alone. Add this repository's sensitive paths, one prefix per line: the review reads every caller and test of a change there, at a higher effort.
 - Merge the sections of `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-sections.md` into `CLAUDE.md`: the cloud session and the review both follow them. Its test command, its base branch `main` and its *Code* rules are the trial's: adapt them to this repository and show the owner the result.
 - The ruleset will require a check named `test`: a CI job named `test` that runs on `pull_request` and `merge_group`. Say so if the repository has none.
 

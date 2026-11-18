@@ -1,3 +1,2 @@
 # Paths whose changes get the deep review. One path prefix per line, as in CODEOWNERS.
-/src/pr.ts
 /.github/
