@@ -1,62 +1,37 @@
-/* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { CONFIG_RELATIVE_PATH } from "./core/config/config.ts";
-import { statePath } from "./core/session/state.ts";
-import { isRecord } from "./core/util/json.ts";
-import type { TempRepo } from "./test-support.ts";
+import type { Json, TempRepo } from "./test-support.ts";
 import {
   createTempRepo,
   fakeTool,
   fixtureIn,
-  fixtureNames,
   removeTempRepo,
   scrubGitEnv,
   writeConfig,
   writeRepoFile,
 } from "./test-support.ts";
 
-const CLI = path.join(import.meta.dir, "agent-hooks.ts");
+const ENTRY = path.join(import.meta.dir, "agent-hooks.ts");
 
-const MISSING_TOOL_EXAMPLE = path.join(
-  import.meta.dir,
-  "presets",
-  "examples",
-  "missing-tool.jsonc",
-);
+let temp: TempRepo;
 
-const BAD_CHECKER =
-  'status=0; for f in "$@"; do if grep -q BAD "$f"; then echo "$f:1:1: bad"; status=1; fi; done; exit $status';
-
-const CONFIG = JSON.stringify({
-  stop: {
-    lanes: {
-      lint: { on: "**/*.ts", takes: "files", run: "checker {files}" },
-      docs: { on: "**/*.md", takes: "files", run: "docs-checker {files}" },
-    },
-  },
+beforeEach(() => {
+  scrubGitEnv();
+  temp = createTempRepo({ "src/clean.ts": "ok\n" });
 });
 
-const FIXTURES = (["claude", "codex"] as const).flatMap((harness) =>
-  fixtureNames(harness).map((fixture) => [harness, fixture] as const),
-);
+afterEach(() => {
+  removeTempRepo(temp);
+});
 
-type CliResult = { readonly code: number; readonly stdout: string; readonly stderr: string };
+type Ran = { readonly code: number; readonly stdout: string; readonly stderr: string };
 
-type CliOptions = { readonly cwd: string; readonly stateDir: string; readonly stdin?: string };
-
-async function cli(args: readonly string[], options: CliOptions): Promise<CliResult> {
-  const proc = Bun.spawn([process.execPath, CLI, ...args], {
-    cwd: options.cwd,
-    env: {
-      ...process.env,
-      AGENT_HOOKS_STATE_DIR: options.stateDir,
-      PATH: process.env["PATH"] ?? "",
-    },
-    stdin: options.stdin === undefined ? "ignore" : new Response(options.stdin),
+async function cli(args: readonly string[], stdin = "", cwd = temp.repo): Promise<Ran> {
+  const proc = Bun.spawn([process.execPath, ENTRY, ...args], {
+    cwd,
+    env: { ...process.env, AGENT_HOOKS_STATE_DIR: temp.stateDir },
+    stdin: new Response(stdin),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -70,344 +45,149 @@ async function cli(args: readonly string[], options: CliOptions): Promise<CliRes
   return { code, stdout, stderr };
 }
 
-function hookOf(fixture: string): string {
-  const prefix = ["session-start", "pre-edit", "post-edit", "stop"].find((hook) =>
-    fixture.startsWith(hook),
-  );
-
-  if (prefix === undefined) {
-    throw new Error(`no hook for fixture ${fixture}`);
-  }
-
-  return prefix;
+function payload(name: string, fields: Readonly<Json> = {}): string {
+  return JSON.stringify(fixtureIn(name, temp.repo, fields));
 }
 
-function parsedObject(text: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(text);
+describe("agent-hooks <hook>", () => {
+  test.each(["session-start", "pre-edit", "stop"])(
+    "%s in a checkout without the config exits 0 in silence",
+    async (hook) => {
+      writeRepoFile(temp.repo, "src/a.ts", "x\n");
 
-  if (!isRecord(value)) {
-    throw new Error(`${text} is not a JSON object`);
-  }
+      const name =
+        hook === "pre-edit" ? "pre-edit-write" : hook === "stop" ? "stop" : "session-start-startup";
 
-  return value;
-}
+      const tool = { tool_input: { file_path: path.join(temp.repo, "src/a.ts"), content: "x\n" } };
 
-function listTree(dir: string): string[] {
-  return readdirSync(dir, { recursive: true, encoding: "utf8" }).toSorted();
-}
-
-describe("agent-hooks CLI", () => {
-  let temp: TempRepo;
-
-  beforeEach(() => {
-    scrubGitEnv();
-    temp = createTempRepo("agent-hooks-cli-", {
-      ".gitignore": "node_modules/\n",
-      [CONFIG_RELATIVE_PATH]: CONFIG,
-      "src/old.ts": "ok\n",
-      "capture/sample.md": "# Sample\n\nhello\n",
-    });
-    fakeTool(temp.repo, "checker", BAD_CHECKER);
-    fakeTool(temp.repo, "docs-checker", "exit 0");
-  });
-
-  afterEach(() => {
-    removeTempRepo(temp);
-  });
-
-  const options = (stdin?: string): CliOptions =>
-    stdin === undefined
-      ? { cwd: temp.repo, stateDir: temp.stateDir }
-      : { cwd: temp.repo, stateDir: temp.stateDir, stdin };
-
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- the harness feeds the CLI fixtures and hand-built payloads of every hook's shape; the CLI under test is their parser.
-  function hook(name: string, payload: unknown, harness = "claude"): Promise<CliResult> {
-    return cli([name, "--harness", harness], options(JSON.stringify(payload)));
-  }
-
-  test.each(FIXTURES)("%s/%s exits 0 with empty or JSON stdout", async (harness, fixture) => {
-    const result = await hook(hookOf(fixture), fixtureIn(harness, fixture, temp.repo), harness);
-
-    expect(result.code).toBe(0);
-
-    if (result.stdout.trim() !== "") {
-      expect(parsedObject(result.stdout)).toBeObject();
-    }
-  });
-
-  test("session-start writes the state file", async () => {
-    const result = await hook(
-      "session-start",
-      fixtureIn("claude", "session-start-startup", temp.repo),
-    );
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toBe("");
-    expect(existsSync(statePath("s1", temp.repo))).toBe(true);
-  });
-
-  test.each(["pre-bash", "user-prompt-expansion", "user-prompt-submit", "session-end"])(
-    "%s is no subcommand: exits 2 with the usage",
-    async (name) => {
-      const result = await hook(name, { session_id: "s1", cwd: temp.repo });
-
-      expect(result).toMatchObject({ code: 2, stdout: "" });
-      expect(result.stderr).toContain("usage:");
+      expect(await cli([hook], payload(name, tool))).toEqual({ code: 0, stdout: "", stderr: "" });
     },
   );
 
-  test("stop blocks on a file added after the photo", async () => {
-    await hook("session-start", fixtureIn("claude", "session-start-startup", temp.repo));
-    writeRepoFile(temp.repo, "src/new.ts", "BAD\n");
-
-    const result = await hook("stop", fixtureIn("claude", "stop", temp.repo));
-
-    expect(result.code).toBe(0);
-
-    const output = parsedObject(result.stdout);
-
-    expect(output["decision"]).toBe("block");
-    expect(String(output["reason"])).toContain("src/new.ts");
-  });
-
-  test("an unknown harness exits 0 with a stderr line and no output", async () => {
-    const result = await hook("stop", fixtureIn("claude", "stop", temp.repo), "nope");
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("unknown harness");
-  });
-
-  test("no arguments exits 2 with the usage", async () => {
-    const result = await cli([], options());
-
-    expect(result.code).toBe(2);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("usage:");
-  });
-
-  test("an empty stdin exits 0 without output", async () => {
-    const result = await cli(["stop"], options(""));
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toBe("");
-  });
-
-  test("verify exits 1 on a failing block lane and prints one line per lane", async () => {
-    writeRepoFile(temp.repo, "src/old.ts", "BAD\n");
-
-    const result = await cli(["verify"], options());
-
-    expect(result.code).toBe(1);
-    expect(result.stdout).toContain("scope: src/old.ts");
-    expect(result.stdout).toMatch(/^lint: fail/mu);
-    expect(result.stdout).toMatch(/^docs: skipped$/mu);
-  });
-
-  test("verify exits 0 when every lane passes", async () => {
-    writeRepoFile(temp.repo, "src/old.ts", "fine\n");
-    writeRepoFile(temp.repo, "README.md", "# readme\n");
-
-    const result = await cli(["verify"], options());
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/^lint: ok/mu);
-    expect(result.stdout).toMatch(/^docs: ok/mu);
-  });
-
-  test("verify --all checks the files dirty before the photo", async () => {
-    writeRepoFile(temp.repo, "src/old.ts", "BAD\n");
-    await hook("session-start", fixtureIn("claude", "session-start-startup", temp.repo));
-    writeRepoFile(temp.repo, "src/new.ts", "fine\n");
-
-    const session = await cli(["verify"], options());
-
-    expect(session.code).toBe(0);
-    expect(session.stdout).toContain("scope: src/new.ts\n");
-
-    const all = await cli(["verify", "--all"], options());
-
-    expect(all.code).toBe(1);
-    expect(all.stdout).toContain("scope: src/new.ts src/old.ts\n");
-  });
-
-  test("verify <file> restricts the scope to that file", async () => {
-    writeRepoFile(temp.repo, "src/old.ts", "BAD\n");
-    writeRepoFile(temp.repo, "src/new.ts", "fine\n");
-
-    const result = await cli(["verify", "src/new.ts"], options());
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain("scope: src/new.ts\n");
-    expect(result.stdout).toMatch(/^lint: ok/mu);
-  });
-
-  test("verify <file> from a subdirectory takes the file from that directory", async () => {
-    writeRepoFile(temp.repo, "src/new.ts", "BAD\n");
-
-    const result = await cli(["verify", "new.ts"], {
-      cwd: path.join(temp.repo, "src"),
-      stateDir: temp.stateDir,
-    });
-
-    expect(result.code).toBe(1);
-    expect(result.stdout).toContain("scope: src/new.ts\n");
-    expect(result.stdout).toMatch(/^lint: fail/mu);
-  });
-
-  test("verify refuses a file outside the root and runs nothing", async () => {
-    const result = await cli(["verify", "../elsewhere.ts"], options());
-
-    expect(result.code).toBe(1);
-    expect(result.stdout).toContain(`agent-hooks: ../elsewhere.ts is outside ${temp.repo}`);
-    expect(result.stdout).not.toContain("lint:");
-  });
-
-  test("verify takes a file whose name starts with two dots as a file of the root", async () => {
-    writeRepoFile(temp.repo, "..config.ts", "BAD\n");
-
-    const result = await cli(["verify", "..config.ts"], options());
-
-    expect(result.stdout).toContain("scope: ..config.ts\n");
-    expect(result.stdout).toMatch(/^lint: fail/mu);
-  });
-
-  test("verify refuses a named file that is neither on disk nor a deletion git knows", async () => {
-    const result = await cli(["verify", "src/typo.ts"], options());
-
-    expect(result.code).toBe(1);
-    expect(result.stdout).toContain("agent-hooks: no such file: src/typo.ts");
-    expect(result.stdout).not.toContain("scope:");
-  });
-
-  test("verify keeps a tracked file deleted in the tree in its scope", async () => {
-    rmSync(path.join(temp.repo, "src/old.ts"));
-
-    const result = await cli(["verify", "src/old.ts"], options());
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain("scope: src/old.ts\n");
-  });
-
-  test("doctor exits 0 when every tool resolves", async () => {
-    const result = await cli(["doctor"], options());
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain(`root: ${temp.repo}\n`);
-    expect(result.stdout).toContain(
-      `ok      lane lint: ${path.join(temp.repo, "node_modules", ".bin", "checker")}`,
-    );
-    expect(result.stdout).toContain(
-      `ok      lane docs: ${path.join(temp.repo, "node_modules", ".bin", "docs-checker")}`,
-    );
-    expect(result.stdout).toMatch(/^photo: /mu);
-  });
-
-  test("doctor checks a bun run script in the package named by --cwd", async () => {
-    writeRepoFile(temp.repo, "apps/web/package.json", '{ "scripts": { "test:unit": "true" } }\n');
+  test("a Stop that blocks prints its decision on stdout", async () => {
+    fakeTool(temp.repo, "lint", 'grep -Hn bad "$@" && exit 1; exit 0');
     writeConfig(
       temp.repo,
-      JSON.stringify({
-        stop: {
-          lanes: {
-            present: { on: "**/*", takes: "project", run: "bun run --cwd apps/web test:unit" },
-            absent: { on: "**/*", takes: "project", run: "bun run --cwd apps/web nope" },
-          },
-        },
-      }),
+      '{ "lanes": { "lint": { "on": "**/*.ts", "takes": "files", "run": "lint {files}" } } }',
     );
+    writeRepoFile(temp.repo, "src/a.ts", "bad\n");
 
-    const result = await cli(["doctor"], options());
+    const ran = await cli(["stop"], payload("stop"));
 
-    expect(result.code).toBe(1);
-    expect(result.stdout).toMatch(/^ok {6}lane present: /mu);
-    expect(result.stdout).toContain(
-      `MISSING lane absent: no "nope" script in ${path.join(temp.repo, "apps", "web", "package.json")}`,
+    expect(ran.code).toBe(0);
+    expect(JSON.parse(ran.stdout)).toEqual({
+      decision: "block",
+      reason:
+        "Stop validation failed:\n\n### lint\nsrc/a.ts:1:bad\n\nFix the errors above before stopping.",
+    });
+  });
+
+  test("a payload that is no JSON object with a session_id is reported on stderr, exit 0", async () => {
+    expect(await cli(["stop"], "not json")).toEqual({
+      code: 0,
+      stdout: "",
+      stderr: "agent-hooks: the payload on stdin is no JSON object with a session_id\n",
+    });
+  });
+
+  test.each([[["post-edit"]], [["init"]], [["unknown"]], [[]]])(
+    "%p is no command: usage, and an exit a harness does not read as a block",
+    async (args: readonly string[]) => {
+      const ran = await cli(args);
+
+      expect(ran.code).toBe(1);
+      expect(ran.stderr).toStartWith("usage:\n  agent-hooks <session-start|pre-edit|stop>");
+    },
+  );
+
+  test.each([
+    [["stop", "--harness", "codex"], "--harness"],
+    [["init", "--print"], "--print"],
+  ])(
+    "%p is no option: usage, and an exit a harness does not read as a block",
+    async (args: readonly string[], option: string) => {
+      const ran = await cli(args, payload("stop"));
+
+      expect(ran.code).toBe(1);
+      expect(ran.stderr).toContain(`agent-hooks: Unknown option '${option}'`);
+      expect(ran.stderr).toContain("usage:\n");
+    },
+  );
+});
+
+describe("agent-hooks verify", () => {
+  beforeEach(() => {
+    fakeTool(temp.repo, "lint", 'echo "linted $@"; grep -Hn bad "$@" && exit 1; exit 0');
+    writeConfig(
+      temp.repo,
+      '{ "lanes": { "lint": { "on": "**/*.ts", "takes": "files", "run": "lint {files}" } } }',
     );
   });
 
-  test("doctor --config reports a lane whose tool is missing", async () => {
-    const result = await cli(["doctor", "--config", MISSING_TOOL_EXAMPLE], options());
+  test("runs the lanes on the files the last session changed", async () => {
+    writeRepoFile(temp.repo, "src/before.ts", "bad\n");
+    await cli(["session-start"], payload("session-start-startup"));
+    writeRepoFile(temp.repo, "src/new.ts", "fine\n");
 
-    expect(result.code).toBe(1);
-    expect(result.stdout).toContain("MISSING lane nope: no-such-tool-for-doctor");
+    expect(await cli(["verify"])).toEqual({
+      code: 0,
+      stdout: expect.stringMatching(/^scope: src\/new\.ts\nlint: ok \(\d+ ms\)\n$/u),
+      stderr: "",
+    });
   });
 
-  test("doctor says once that a root outside git is checked by nothing", async () => {
-    const outside = mkdtempSync(path.join(tmpdir(), "agent-hooks-cli-outside-git-"));
+  test("--all takes the whole dirty tree, and a failing lane exits 1", async () => {
+    writeRepoFile(temp.repo, "src/before.ts", "bad\n");
+    await cli(["session-start"], payload("session-start-startup"));
 
-    try {
-      writeConfig(outside, CONFIG);
-      fakeTool(outside, "checker", BAD_CHECKER);
-      fakeTool(outside, "docs-checker", "exit 0");
+    const ran = await cli(["verify", "--all"]);
 
-      const result = await cli(["doctor"], { cwd: outside, stateDir: temp.stateDir });
+    expect(ran.code).toBe(1);
+    expect(ran.stdout).toStartWith(
+      "scope: .claude/agent-hooks.jsonc node_modules/.bin/lint src/before.ts\nlint: fail",
+    );
+    expect(ran.stdout).toContain("  src/before.ts:1:bad");
+  });
 
-      expect(result.code).toBe(1);
-      expect(result.stdout).toContain(`MISSING checkout: ${outside} is outside git`);
-      expect(result.stdout).not.toContain("git status failed");
-    } finally {
-      rmSync(outside, { recursive: true, force: true });
-    }
+  test("named files run as named, from the caller's directory", async () => {
+    expect((await cli(["verify", "clean.ts"], "", path.join(temp.repo, "src"))).stdout).toMatch(
+      /^scope: src\/clean\.ts\nlint: ok \(\d+ ms\)\n$/u,
+    );
+  });
+
+  test("a named file outside the checkout or on no disk fails", async () => {
+    const ran = await cli(["verify", "../outside.ts", "src/typo.ts"]);
+
+    expect(ran.code).toBe(1);
+    expect(ran.stdout).toBe(
+      `agent-hooks: ${path.join(temp.dir, "outside.ts")} is outside ${temp.repo}\nagent-hooks: no such file: ${path.join(temp.repo, "src/typo.ts")}\n`,
+    );
+  });
+
+  test("a checkout without the config fails", async () => {
+    const ran = await cli(["verify"], "", temp.dir);
+
+    expect(ran.code).toBe(1);
+    expect(ran.stderr).toBe(
+      `agent-hooks: no .claude/agent-hooks.jsonc at the top of the checkout of ${temp.dir}\n`,
+    );
   });
 });
 
-describe("agent-hooks init --print", () => {
-  let dir: string;
-  const stateDir = (): string => path.join(dir, "state");
+describe("agent-hooks doctor", () => {
+  test("reads --config and exits 1 on a fixer that fails", async () => {
+    fakeTool(temp.repo, "fmt", 'echo "cannot format" >&2; exit 4');
+    const elsewhere = path.join(temp.dir, "v2.jsonc");
+    await Bun.write(
+      elsewhere,
+      '{ "fixers": { "fmt": { "on": "**/*.ts", "file": "fmt {file}" } } }',
+    );
 
-  beforeEach(() => {
-    scrubGitEnv();
-    dir = mkdtempSync(path.join(tmpdir(), "agent-hooks-init-"));
-  });
+    const ran = await cli(["doctor", "--config", elsewhere]);
 
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  async function init(cwd: string): Promise<string> {
-    const before = listTree(cwd);
-    const result = await cli(["init", "--print"], { cwd, stateDir: stateDir() });
-
-    expect(result.code).toBe(0);
-    expect(listTree(cwd)).toEqual(before);
-
-    return result.stdout;
-  }
-
-  test("proposes the ts preset for a package.json", async () => {
-    const project = path.join(dir, "project");
-    mkdirSync(project);
-    writeFileSync(path.join(project, "package.json"), "{}\n");
-
-    expect(await init(project)).toContain('"presets": ["ts"]');
-  });
-
-  test("proposes the rust preset for a Cargo.toml in a subdirectory", async () => {
-    const project = path.join(dir, "project");
-    mkdirSync(path.join(project, "crates", "tool"), { recursive: true });
-    writeFileSync(path.join(project, "crates", "tool", "Cargo.toml"), "[package]\n");
-
-    expect(await init(project)).toContain('"presets": ["rust"]');
-  });
-
-  test("spells out the edition of a root Cargo.toml for rustfmt", async () => {
-    const project = path.join(dir, "project");
-    mkdirSync(project, { recursive: true });
-    writeFileSync(path.join(project, "Cargo.toml"), '[workspace.package]\nedition = "2024"\n');
-
-    const output = await init(project);
-
-    expect(output).toContain('"presets": ["rust"]');
-    expect(output).toContain('"rustfmt": { "stdin": "rustfmt --edition 2024" }');
-  });
-
-  test("proposes both presets for both files", async () => {
-    const project = path.join(dir, "project");
-    mkdirSync(path.join(project, "crates", "tool"), { recursive: true });
-    writeFileSync(path.join(project, "package.json"), "{}\n");
-    writeFileSync(path.join(project, "crates", "tool", "Cargo.toml"), "[package]\n");
-
-    expect(await init(project)).toContain('"presets": ["ts","rust"]');
+    expect(ran.code).toBe(1);
+    expect(ran.stdout).toContain(
+      "FAIL    fixer fmt fails on src/clean.ts: cannot format (exit 4)\n",
+    );
   });
 });

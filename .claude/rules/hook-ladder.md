@@ -40,14 +40,15 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   the private `.private/` nested in the project or one a symlink in it points
   to, is not rewritten.
 - The Stop and each subagent's SubagentStop are the agent-hooks kit's
-  (`agent-hooks/`, wired by its plugin; the machine's global hooks wire the
-  Stop only): `.claude/agent-hooks.jsonc` gives it one `project` lane,
+  (`agent-hooks/`, whose `hooks/hooks.json` alone wires its SessionStart,
+  pre-edit, Stop and SubagentStop hooks; no settings file declares them):
+  `.claude/agent-hooks.jsonc` gives it one `project` lane,
   `scripts/gates/run-gates.ts`, run when the scope is not empty. The main session's
   scope is the files changed since SessionStart's photo of the tree; a
   subagent's, those changed since its first Edit or Write, on its own state
   keyed `<session>.<agent_id>`; any writer, `.claude/worktrees/` excluded.
-  Each root the session or the subagent photographed is checked, wherever its
-  `cwd` went. The kit blocks while the agent makes progress on the failing
+  Each checkout the session or the subagent photographed is checked, wherever
+  its `cwd` went. The kit blocks while the agent makes progress on the failing
   set, at most 3 times in a row, skips plan mode, skips the main session's
   Stop while a subagent, workflow or teammate runs, and caches a green run by
   HEAD and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).

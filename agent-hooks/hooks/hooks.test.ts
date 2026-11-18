@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { DEADLINES_MS } from "../core/runtime/hook.ts";
+import { OUTPUT_GRACE_MS } from "../core/util/exec.ts";
 import { isRecord, recordField, stringField } from "../core/util/json.ts";
+import { DEADLINES_MS, PROBE_TIMEOUT_MS, SCRATCH_STALE_MS } from "../hook.ts";
 
 const DEADLINES: ReadonlyMap<string, number> = new Map([
   ["session-start", DEADLINES_MS["session-start"]],
@@ -29,6 +30,12 @@ const commands = Object.entries(
         : [[event, subcommand, hook["timeout"]] as const];
     }),
 );
+
+describe("doctor's probe and SessionStart's cleanup", () => {
+  test("a probe's scratch copy, its killed fixer's output grace included, dies before SessionStart may remove it", () => {
+    expect(PROBE_TIMEOUT_MS + OUTPUT_GRACE_MS).toBeLessThan(SCRATCH_STALE_MS);
+  });
+});
 
 describe("hooks/hooks.json", () => {
   test("wires every subcommand of the kit's Claude Code hooks", () => {

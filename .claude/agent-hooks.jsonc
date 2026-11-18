@@ -1,9 +1,7 @@
 // The Stop and each subagent's SubagentStop run the repo's gates, scoped as in pre-push. No fixer: formatting
 // stays with the PostToolUse hook `.claude/hooks/format-on-edit.ts`.
 {
-  "stop": {
-    "lanes": {
-      "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/gates/run-gates.ts", "timeout": 180 },
-    },
+  "lanes": {
+    "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/gates/run-gates.ts", "timeout": 180 },
   },
 }

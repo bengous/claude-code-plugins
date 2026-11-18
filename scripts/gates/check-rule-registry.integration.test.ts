@@ -383,7 +383,16 @@ describe("controlsOf", () => {
     );
     write(
       ".claude/agent-hooks.jsonc",
-      '// scripts/kit-comment.ts\n{ "run": "bun ./scripts/kit.ts" }\n',
+      [
+        "// scripts/kit-comment.ts",
+        "{",
+        '  "fixers": {',
+        '    "a": { "on": "**", "file": "bun ./scripts/kit-file.ts {file}" },',
+        '    "b": { "on": "**", "stdin": "bun ./scripts/kit-stdin.ts" },',
+        "  },",
+        '  "lanes": { "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/kit.ts" } },',
+        "}",
+      ].join("\n"),
     );
     write(
       "lefthook.yml",
@@ -436,6 +445,8 @@ describe("controlsOf", () => {
     for (const path of [
       ".claude/hooks/run.ts",
       "scripts/kit.ts",
+      "scripts/kit-file.ts",
+      "scripts/kit-stdin.ts",
       "scripts/job.ts",
       "scripts/grouped.ts",
       "scripts/command.ts",

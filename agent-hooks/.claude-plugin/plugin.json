@@ -1,7 +1,7 @@
 {
   "name": "agent-hooks",
   "version": "2.2.0",
-  "description": "Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end",
+  "description": "Quality hooks for Claude Code that a repository opts into with one config file at the top of its git checkout: fixers run on the text before each write, silent when one fails, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/agent-hooks",
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "MIT",
-  "keywords": ["hooks", "stop-hook", "lint", "format", "session-scope", "codex"]
+  "keywords": ["hooks", "stop-hook", "lint", "format", "session-scope"]
 }

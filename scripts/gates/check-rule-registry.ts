@@ -540,6 +540,8 @@ async function hookPaths(repoRoot: string): Promise<Set<string>> {
   return wiredPaths([
     ...leavesAt(settings.hooks ?? null, "command"),
     ...leavesAt(kit, "run"),
+    ...leavesAt(kit, "file"),
+    ...leavesAt(kit, "stdin"),
     ...plugins,
     ...lefthook.commands,
     ...lefthook.scripts,

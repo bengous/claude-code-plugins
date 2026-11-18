@@ -1,16 +1,27 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { CONFIG_RELATIVE_PATH } from "./core/config/config.ts";
+import { runHook } from "./agent-hooks.ts";
+import { CONFIG_RELATIVE_PATH } from "./config.ts";
+import { run } from "./core/util/exec.ts";
 import { isRecord } from "./core/util/json.ts";
+import type { HookKind, HookOptions } from "./hook.ts";
+import { parseInput } from "./hook.ts";
 
 export type TempRepo = {
   readonly dir: string;
   readonly repo: string;
   readonly stateDir: string;
-  readonly bin: string;
 };
 
 const TEST_GIT_IDENTITY = {
@@ -20,7 +31,7 @@ const TEST_GIT_IDENTITY = {
   GIT_COMMITTER_EMAIL: "test@example.com",
 } as const;
 
-const FIXTURES_DIR = path.join(import.meta.dir, "__fixtures__");
+const FIXTURES_DIR = path.join(import.meta.dir, "__fixtures__", "claude");
 
 /** Removes the GIT_* variables a git hook exports, so a temp repo never reaches the checkout. */
 export function scrubGitEnv(): void {
@@ -47,34 +58,31 @@ export function git(cwd: string, ...args: string[]): string {
 }
 
 /**
- * A git repository under a temporary directory with one commit of `files`, a state dir for AGENT_HOOKS_STATE_DIR
- * and a `bin` dir for fake tools. The repo holds no `.claude/agent-hooks.jsonc` until `writeConfig`.
+ * A git repository under a temporary directory with one commit of `files`, and a state dir set as
+ * AGENT_HOOKS_STATE_DIR. The repo holds no `.claude/agent-hooks.jsonc` until `writeConfig`.
  */
-export function createTempRepo(
-  prefix: string,
-  files: Readonly<Record<string, string>> = {},
-): TempRepo {
-  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+export function createTempRepo(files: Readonly<Record<string, string>> = {}): TempRepo {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "agent-hooks-")));
   const repo = path.join(dir, "repo");
   const stateDir = path.join(dir, "state");
-  const bin = path.join(dir, "bin");
   mkdirSync(repo);
-  mkdirSync(bin);
+  git(repo, "init", "-q");
+  commitFiles(repo, files);
+  process.env["AGENT_HOOKS_STATE_DIR"] = stateDir;
 
+  return { dir, repo, stateDir };
+}
+
+/** Writes `files` and commits them, so they are the tree's clean baseline. */
+export function commitFiles(repo: string, files: Readonly<Record<string, string>>): void {
   for (const [name, content] of Object.entries(files)) {
     writeRepoFile(repo, name, content);
   }
 
-  git(repo, "init", "-q");
-
   if (Object.keys(files).length > 0) {
     git(repo, "add", ".");
-    git(repo, "commit", "-qm", "initial");
+    git(repo, "commit", "-qm", "files");
   }
-
-  process.env["AGENT_HOOKS_STATE_DIR"] = stateDir;
-
-  return { dir, repo, stateDir, bin };
 }
 
 export function removeTempRepo(temp: TempRepo): void {
@@ -109,42 +117,47 @@ export function fakeTool(repo: string, name: string, body: string): string {
   return file;
 }
 
-export function readFixture(harness: "claude" | "codex", name: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(
-    readFileSync(path.join(FIXTURES_DIR, harness, `${name}.json`), "utf8"),
-  );
+/** A hook payload or a hook's output line, JSON of Claude Code's open shape. */
+export type Json = Record<string, unknown>;
 
-  if (!isRecord(parsed)) {
-    throw new Error(`fixture ${harness}/${name} is not an object`);
-  }
-
-  return parsed;
-}
-
-/** The fixture with its session and paths moved into the temp repo. */
-export function fixtureIn(
-  harness: "claude" | "codex",
-  name: string,
-  repo: string,
-  sessionId = "s1",
-): Record<string, unknown> {
-  const text = JSON.stringify(readFixture(harness, name))
+/** A Claude Code payload recorded from a live session, its session and its paths moved into `repo`. */
+export function fixtureIn(name: string, repo: string, fields: Readonly<Json> = {}) {
+  const text = readFileSync(path.join(FIXTURES_DIR, `${name}.json`), "utf8")
     .replaceAll("/fixture/user/Work/repo", repo)
     .replaceAll("/fixture/user", path.dirname(repo));
 
   const parsed: unknown = JSON.parse(text);
 
   if (!isRecord(parsed)) {
-    throw new Error(`fixture ${harness}/${name} is not an object`);
+    throw new Error(`fixture ${name} is not an object`);
   }
 
-  parsed["session_id"] = sessionId;
-
-  return parsed;
+  return { ...parsed, session_id: "s1", ...fields };
 }
 
-export function fixtureNames(harness: "claude" | "codex"): string[] {
-  return [...new Bun.Glob("*.json").scanSync(path.join(FIXTURES_DIR, harness))]
-    .map((file) => file.slice(0, -".json".length))
-    .toSorted();
+/** Runs a hook in this process and parses its output line, null when it printed nothing. */
+export async function hookOutput(
+  hook: HookKind,
+  payload: Json,
+  options: Partial<HookOptions> = {},
+): Promise<Json | null> {
+  const input = parseInput(payload);
+
+  if (input === null) {
+    throw new Error("the payload has no session_id");
+  }
+
+  const output = await runHook(hook, input, { runner: run, now: Date.now(), ...options });
+
+  if (output === null) {
+    return null;
+  }
+
+  const parsed: unknown = JSON.parse(output);
+
+  if (!isRecord(parsed)) {
+    throw new Error(`hook ${hook} printed no object: ${output}`);
+  }
+
+  return parsed;
 }

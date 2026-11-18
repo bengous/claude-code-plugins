@@ -192,9 +192,9 @@ export const REGISTRY: Registry = {
       quote: "The tools run from the checkout of the project's repository",
       held: ["test .claude/hooks/format-on-edit.integration.test.ts"],
     },
-    "4029847c": {
+    "9fc8b124": {
       quote: "The Stop and each subagent's SubagentStop are the",
-      held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/hooks/stop.integration.test.ts"],
+      held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
     },
     "7fe9d962": {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",

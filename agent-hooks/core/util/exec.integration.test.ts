@@ -25,7 +25,7 @@ let temp: TempRepo;
 
 beforeEach(() => {
   scrubGitEnv();
-  temp = createTempRepo("agent-hooks-exec-");
+  temp = createTempRepo();
 });
 
 afterEach(() => {

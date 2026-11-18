@@ -3,82 +3,95 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import { initConfig, runDoctor } from "./cli/doctor.ts";
-import { formatNoise, measureNoise } from "./cli/noise.ts";
-import { runVerify } from "./cli/verify.ts";
-import { loadConfig } from "./core/config/config.ts";
-import { ConfigError } from "./core/config/reader.ts";
-import type { HookKind, HookRun } from "./core/runtime/hook.ts";
-import { isHarness, isHookKind, runHook } from "./core/runtime/hook.ts";
-import { readPayload } from "./core/runtime/payload.ts";
-import { findRoot, realPathOf } from "./core/session/scope.ts";
-import { runPostEdit, runPreEdit } from "./hooks/pre-edit.ts";
-import { runSessionStart } from "./hooks/session-start.ts";
-import { runStop } from "./hooks/stop.ts";
+import { placeOf, realPathOf } from "./checkout.ts";
+import { ConfigError } from "./config.ts";
+import { run } from "./core/util/exec.ts";
+import { runDoctor } from "./doctor.ts";
+import type { Handler, HookKind, HookOptions, Input } from "./hook.ts";
+import { encode, isHookKind, parseInput, readPayload } from "./hook.ts";
+import { messageOf } from "./lib/platform/pure.ts";
+import { formatNoise, measureNoise } from "./noise.ts";
+import { runPreEdit } from "./pre-edit.ts";
+import { runSessionStart } from "./session-start.ts";
+import { runStop } from "./stop.ts";
+import { runVerify } from "./verify.ts";
 
 const USAGE = [
   "usage:",
-  "  agent-hooks <session-start|pre-edit|post-edit|stop> [--harness claude|codex]   (payload on stdin)",
+  "  agent-hooks <session-start|pre-edit|stop>   (payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
-  "  agent-hooks init --print",
   "  agent-hooks noise [--days N]",
 ].join("\n");
 
 const DEFAULT_NOISE_DAYS = 7;
 
-function hookRun(hook: HookKind): HookRun {
-  switch (hook) {
-    case "session-start": {
-      return { hook, handler: runSessionStart };
-    }
+/** Never 2: a harness reads that exit from a hook as a block, and a wiring that names an unknown command must not block. */
+const USAGE_ERROR = 1;
 
-    case "pre-edit": {
-      return { hook, handler: runPreEdit };
-    }
+const HANDLERS: Readonly<Record<HookKind, Handler>> = {
+  "session-start": runSessionStart,
+  "pre-edit": runPreEdit,
+  stop: runStop,
+};
 
-    case "post-edit": {
-      return { hook, handler: runPostEdit };
-    }
+/**
+ * One hook: its handler run on the payload, its verdict encoded. Returns the line to print, or null for none. Never
+ * throws: a hook's own failure goes to stderr and lets Claude Code carry on.
+ */
+export async function runHook(
+  hook: HookKind,
+  input: Input,
+  options: HookOptions,
+): Promise<string | null> {
+  try {
+    const verdict = await HANDLERS[hook](input, options);
 
-    case "stop": {
-      return { hook, handler: runStop };
-    }
+    return verdict === null ? null : encode(verdict);
+  } catch (error) {
+    console.error(`agent-hooks: ${hook}: ${messageOf(error)}`);
 
-    default: {
-      const unreachable: never = hook;
-      throw new Error(`unhandled hook: ${String(unreachable)}`);
-    }
+    return null;
   }
 }
 
-async function main(argv: readonly string[]): Promise<number> {
-  const { values, positionals } = parseArgs({
+function parsedArgs(argv: readonly string[]) {
+  return parseArgs({
     args: [...argv],
     options: {
-      harness: { type: "string", default: "claude" },
       all: { type: "boolean", default: false },
-      print: { type: "boolean", default: false },
       config: { type: "string" },
       days: { type: "string" },
     },
     allowPositionals: true,
   });
+}
+
+async function main(argv: readonly string[]): Promise<number> {
+  let parsed: ReturnType<typeof parsedArgs>;
+
+  try {
+    parsed = parsedArgs(argv);
+  } catch (error) {
+    console.error(`agent-hooks: ${messageOf(error)}\n${USAGE}`);
+
+    return USAGE_ERROR;
+  }
+
+  const { values, positionals } = parsed;
 
   const [command = "", ...rest] = positionals;
 
   if (isHookKind(command)) {
-    if (!isHarness(values.harness)) {
-      console.error(`agent-hooks: unknown harness "${values.harness}"`);
+    const input = parseInput(await readPayload());
+
+    if (input === null) {
+      console.error("agent-hooks: the payload on stdin is no JSON object with a session_id");
 
       return 0;
     }
 
-    const output = await runHook({
-      ...hookRun(command),
-      harness: values.harness,
-      payload: await readPayload(),
-    });
+    const output = await runHook(command, input, { runner: run, now: Date.now() });
 
     if (output !== null) {
       await Bun.write(Bun.stdout, `${output}\n`);
@@ -87,79 +100,54 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  const cwd = realPathOf(process.cwd());
+
   switch (command) {
     case "verify": {
-      return verify(values.all, rest);
+      return verify(cwd, values.all, rest);
     }
 
     case "doctor": {
-      const cwd = realPathOf(process.cwd());
-
-      return values.config === undefined
-        ? runDoctor({ cwd })
-        : runDoctor({ cwd, configFile: values.config });
-    }
-
-    case "init": {
-      return init(values.print);
+      return runDoctor(values.config === undefined ? { cwd } : { cwd, configFile: values.config });
     }
 
     case "noise": {
-      return await noise(values.days);
+      return noise(values.days);
     }
 
     default: {
       console.error(USAGE);
 
-      return 2;
+      return USAGE_ERROR;
     }
   }
 }
 
-async function verify(all: boolean, files: readonly string[]): Promise<number> {
-  const cwd = realPathOf(process.cwd());
-  const root = findRoot(cwd);
+async function verify(cwd: string, all: boolean, files: readonly string[]): Promise<number> {
+  const place = placeOf(cwd);
 
-  if (root === null) {
-    console.error(`agent-hooks: no .claude/agent-hooks.jsonc above ${cwd}`);
+  if (place === null) {
+    console.error(`agent-hooks: no .claude/agent-hooks.jsonc at the top of the checkout of ${cwd}`);
 
     return 1;
   }
 
   try {
-    const report = await runVerify({
-      root,
-      cwd,
-      config: loadConfig(root),
-      all,
-      files,
-    });
-
-    return report.exitCode;
+    return await runVerify({ place, cwd, all, files });
   } catch (error) {
-    console.error(error instanceof ConfigError ? error.message : `agent-hooks: ${String(error)}`);
+    console.error(
+      error instanceof ConfigError ? error.message : `agent-hooks: ${messageOf(error)}`,
+    );
 
     return 1;
   }
-}
-
-function init(print: boolean): number {
-  if (!print) {
-    console.error("agent-hooks init prints only: pass --print and write the file yourself");
-
-    return 2;
-  }
-
-  process.stdout.write(initConfig(process.cwd()));
-
-  return 0;
 }
 
 async function noise(days: string | undefined): Promise<number> {
   if (days !== undefined && !/^[1-9]\d*$/u.test(days)) {
     console.error(`agent-hooks: --days expects a positive whole number, not "${days}"`);
 
-    return 2;
+    return USAGE_ERROR;
   }
 
   const configDir = process.env["CLAUDE_CONFIG_DIR"];
@@ -181,5 +169,7 @@ async function noise(days: string | undefined): Promise<number> {
   return 0;
 }
 
-// A spawn still running past the deadline must not keep the process alive past the harness timeout.
-process.exit(await main(process.argv.slice(2)));
+if (import.meta.main) {
+  // A spawn still running past the deadline must not keep the process alive past Claude Code's timeout.
+  process.exit(await main(process.argv.slice(2)));
+}
