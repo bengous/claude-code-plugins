@@ -262,7 +262,8 @@ type RootRun = RunHookOptions & { readonly hook: RootHookKind };
 type PreBashRun = RunHookOptions & { readonly hook: "pre-bash" };
 
 /**
- * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat. A crash lets the command through with a note.
+ * pre-bash, under the whole deadline: a command whose payload has no session_id is still judged, with no beat. A
+ * crash lets the command through with a note.
  */
 async function runPreBashHook(options: PreBashRun, now: number): Promise<PreBashAnswer | null> {
   const { payload } = options;

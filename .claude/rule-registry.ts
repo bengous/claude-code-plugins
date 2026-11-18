@@ -105,10 +105,8 @@ export const REGISTRY: Registry = {
     },
     "31a42b84": {
       quote: "A commit message says what the code does and why, the reason",
-      held: [
-        "hook agent-hooks/agent-hooks.ts",
-        "test agent-hooks/hooks/pre-bash.integration.test.ts",
-      ],
+      prose:
+        "a model judges each message, through the prompt hook of `.claude/__settings.jsonc`; a control here names a script, and a prompt hook has none",
     },
     dbf56d05: {
       quote: "`archive/` - retired plugins, not in the marketplace.",
