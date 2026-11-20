@@ -47,6 +47,11 @@ worktrees were removed, and every archived branch with its restore command,
 `git branch <name> refs/archive/<name>`. Name the kept branches only when the
 user asks, or when one looks like work the user is waiting on.
 
+The sweep tidies more than it frees: most disk space sits in named worktrees,
+which it leaves. When the summary ends with a count of clean worktrees on work
+the base already holds, say so and name `/git-sweep` as the way to remove them.
+It runs on the current repository only; for several, run it once in each.
+
 Leave what the script kept as it is: do not delete, unlock or prune by hand.
 An unproven branch that is not an agent's, a worktree outside
 `.claude/worktrees/agent-*`, a backup branch and every remote branch are the
@@ -58,6 +63,7 @@ interactive `/git-sweep`'s to judge, with the user.
 |------|---------|
 | Branch proven in the base (ancestry, no merge delta, merged PR) | deleted |
 | Clean agent worktree on a proven branch, its ignored paths all regenerated (`node_modules/`, a plugin's `tsconfig.json`…) or symbolic links | removed, branch deleted, link targets left |
+| Detached worktree, an agent's included | kept, listed under its path with its state (`clean, HEAD in <base>`, its changes, or a HEAD the base lacks) |
 | Agent worktree whose directory is gone | registration dropped |
 | Unproven agent branch, PR closed unmerged and last commit both 14+ days old | archived, then deleted with its clean worktree |
 | Unproven agent branch, no PR, last commit 30+ days old | archived, then deleted with its clean worktree |

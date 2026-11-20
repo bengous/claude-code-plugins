@@ -175,7 +175,7 @@ export type StaleWorktree = { path: string; branch: string | null };
 export type KeptWorktree = {
   path: string;
   branch: string | null;
-  reason: "locked" | "prunable" | "unborn" | "unreadable";
+  reason: "locked" | "prunable" | "unborn" | "unreadable" | "detached";
   detail: string | null;
 };
 
@@ -191,7 +191,8 @@ export type Triage =
   | { kind: "kept"; worktree: KeptWorktree; hold: BranchHold | null }
   | { kind: "held"; hold: BranchHold }
   | { kind: "skipped" }
-  | { kind: "inspect"; path: string; branch: string };
+  | { kind: "inspect"; path: string; branch: string }
+  | { kind: "inspect-detached"; path: string };
 
 export type TriageContext = {
   // null in a bare repository, which has no work tree of its own.
@@ -211,8 +212,12 @@ function lockDetail(reason: string | null, present: boolean): string | null {
 
 function triageActive(path: string, head: WorktreeHead, context: TriageContext): Triage {
   switch (head.kind) {
+    // No branch to hold or delete: only the worktree itself is in question,
+    // and never the one the sweep runs from.
     case "detached":
-      return { kind: "skipped" };
+      return path === context.currentWorktree
+        ? { kind: "skipped" }
+        : { kind: "inspect-detached", path };
     case "unreadable":
       return {
         kind: "kept",

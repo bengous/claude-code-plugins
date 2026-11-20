@@ -210,6 +210,13 @@ kept_worktrees | Worktree | Branch | Reason |   (only if non-empty)
                    leaves the directory: look inside first.
   unborn:{detail}  its branch has no commit: deleted under it, or an orphan
                    not committed yet. Look before removing it by hand.
+  detached:{detail}  on no branch. "clean, HEAD in {base}": nothing at HEAD
+                   is lost by `git worktree remove <path>`, but its HEAD
+                   reflog goes with it, and a rebase or a bisect in progress
+                   looks the same: `git -C <path> status` and
+                   `git -C <path> reflog` first. Any other detail: commits or
+                   changes on no ref; `git -C <path> switch -c <name>` names
+                   the commits.
 
 kept_remote    | Remote branch | Reason |   (only if non-empty)
   Display only — it is not carried into the hand-off.

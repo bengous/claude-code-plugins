@@ -331,6 +331,51 @@ describe("auto-sweep", () => {
     expect(readFileSync(join(target, "only-copy.md"), "utf8")).toBe("the plan");
   });
 
+  test("names every detached worktree with its state, and removes none", async () => {
+    const repo = await makeRepo("detached");
+    const done = agentPath(repo, "d1");
+    await git(repo, "worktree", "add", "--detach", done, "dev");
+    const ahead = agentPath(repo, "d2");
+    await git(repo, "worktree", "add", "--detach", ahead, "dev");
+    await commitDaysAgo(ahead, "only-here.txt", 1);
+    const tip = await git(ahead, "rev-parse", "HEAD");
+
+    const { exitCode, stdout } = await sweep(repo);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).not.toContain("Removed");
+    expect(stdout).toContain(".claude/worktrees/agent-d1: detached worktree: clean, HEAD in dev");
+    expect(stdout).toContain(
+      `.claude/worktrees/agent-d2: detached worktree: HEAD ${tip.slice(0, 8)} is not in dev`,
+    );
+    expect(existsSync(done)).toBe(true);
+    expect(existsSync(ahead)).toBe(true);
+  });
+
+  test("counts the proven worktrees it leaves to the interactive sweep, and names the folders that are no worktree", async () => {
+    const repo = await makeRepo("outside");
+
+    const named = await addWorktree(
+      repo,
+      join(repo, ".claude", "worktrees", "feature"),
+      "feature/landed",
+    );
+
+    await addWorktree(repo, join(makeTmpDir("elsewhere"), "wt"), "feature/elsewhere");
+
+    mkdirSync(join(repo, ".claude", "worktrees", "leftover"));
+
+    const { exitCode, stdout } = await sweep(repo);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain(
+      "Folders under .claude/worktrees that are no worktree (1):\n  .claude/worktrees/leftover",
+    );
+    expect(stdout).toContain("2 clean worktree(s) on work dev already holds stay");
+    expect(existsSync(named)).toBe(true);
+    expect(await branchExists(repo, "feature/landed")).toBe(true);
+  });
+
   test("drops a stale agent registration with its branch, keeps a stale non-agent one", async () => {
     const repo = await makeRepo("stale");
     const agent = await addWorktree(repo, agentPath(repo, "a6"), "feature/agent-gone");
@@ -414,6 +459,9 @@ describe("auto-sweep", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain("worktree-agent-old -> refs/archive/worktree-agent-old");
     expect(stdout).toContain("feature/abandoned -> refs/archive/feature/abandoned");
+    expect(stdout).toContain(
+      "Removed agent worktrees (1):\n  .claude/worktrees/agent-a5 on feature/abandoned (branch archived)",
+    );
     expect(stdout).toContain("refs/archive/ holds 2 ref(s)");
     expect(stdout).toContain("worktree-agent-young: unproven");
     expect(stdout).toContain("archived after 30 days");

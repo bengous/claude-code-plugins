@@ -216,15 +216,12 @@ type WorktreeScan = {
 };
 
 type WorktreeVerdict =
-  | Exclude<Triage, { kind: "inspect" }>
+  | Exclude<Triage, { kind: "inspect" | "inspect-detached" }>
   | { kind: "candidate"; candidate: Candidate };
 
-async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
-  const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
-    kind: "held",
-    hold: { name: branch, reason, detail },
-  });
+type WorkingTree = "unreadable" | "dirty" | RemovableWorktree["ignored"];
 
+async function readWorkingTree(path: string): Promise<WorkingTree> {
   // --ignored so the scan also sees what `git worktree remove` would delete
   // without a word: ignored files are untracked, so neither the porcelain
   // status nor git's own refusal counts them as work worth protecting.
@@ -239,35 +236,76 @@ async function inspectWorktree(path: string, branch: string): Promise<WorktreeVe
     "--untracked-files=normal",
   );
 
-  if (status.exitCode !== 0) return held("worktree", `${path} (status unreadable)`);
+  if (status.exitCode !== 0) return "unreadable";
 
   const lines = status.stdout.split("\n").filter(Boolean);
 
-  if (lines.some((line) => !line.startsWith("!!"))) return held("dirty-worktree", path);
+  if (lines.some((line) => !line.startsWith("!!"))) return "dirty";
 
   const ignoredPaths = lines.map((line) => line.slice(3));
   const files = ignoredPaths.filter((p) => !p.endsWith("/"));
   const dirs = ignoredPaths.filter((p) => p.endsWith("/"));
 
   return {
-    kind: "candidate",
-    candidate: {
-      path,
-      branch,
-      ignored: {
-        files: files.slice(0, IGNORED_LIST_CAP),
-        dirs: dirs.slice(0, IGNORED_LIST_CAP),
-        truncated: files.length > IGNORED_LIST_CAP || dirs.length > IGNORED_LIST_CAP,
-      },
-    },
+    files: files.slice(0, IGNORED_LIST_CAP),
+    dirs: dirs.slice(0, IGNORED_LIST_CAP),
+    truncated: files.length > IGNORED_LIST_CAP || dirs.length > IGNORED_LIST_CAP,
   };
+}
+
+async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
+  const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
+    kind: "held",
+    hold: { name: branch, reason, detail },
+  });
+
+  const tree = await readWorkingTree(path);
+
+  if (tree === "unreadable") return held("worktree", `${path} (status unreadable)`);
+
+  if (tree === "dirty") return held("dirty-worktree", path);
+
+  return { kind: "candidate", candidate: { path, branch, ignored: tree } };
+}
+
+// Reported, never proposed for removal. A clean tree with its HEAD in the base
+// proves nothing about a detached worktree: commits made there and since left
+// behind are held by its own HEAD reflog alone, which the removal deletes, and
+// a rebase or a bisect in progress shows a clean status too.
+async function inspectDetached(path: string, base: string): Promise<WorktreeVerdict> {
+  const kept = (detail: string): WorktreeVerdict => ({
+    kind: "kept",
+    worktree: { path, branch: null, reason: "detached", detail },
+    hold: null,
+  });
+
+  const tree = await readWorkingTree(path);
+
+  if (tree === "unreadable") return kept("status unreadable");
+
+  if (tree === "dirty") return kept("uncommitted or untracked changes");
+  const head = await git("-C", path, "rev-parse", "--verify", "HEAD");
+
+  if (head.exitCode !== 0) return kept("HEAD cannot be resolved");
+  const contained = await git("merge-base", "--is-ancestor", head.stdout, localRef(base));
+
+  return kept(
+    contained.exitCode === 0
+      ? `clean, HEAD in ${base}`
+      : `HEAD ${head.stdout.slice(0, 8)} is not in ${base}`,
+  );
 }
 
 // A branch is only reported as retained when its worktree survives the sweep —
 // otherwise it must flow into normal branch classification so the branch and
 // its worktree are cleaned in the same pass.
-async function scanWorktrees(list: WorktreeList, context: TriageContext): Promise<WorktreeScan> {
+async function scanWorktrees(
+  list: WorktreeList,
+  context: TriageContext,
+  base: string,
+): Promise<WorktreeScan> {
   const scan: WorktreeScan = { stale: [], kept: [], retained: new Map(), candidates: new Map() };
+
   const mainHold = holdMainBranch(list.main);
 
   if (mainHold !== null) scan.retained.set(mainHold.name, mainHold);
@@ -275,8 +313,11 @@ async function scanWorktrees(list: WorktreeList, context: TriageContext): Promis
   for (const worktree of list.linked) {
     const triage = triageWorktree(worktree, context);
 
-    const verdict =
-      triage.kind === "inspect" ? await inspectWorktree(triage.path, triage.branch) : triage;
+    let verdict: WorktreeVerdict;
+
+    if (triage.kind === "inspect") verdict = await inspectWorktree(triage.path, triage.branch);
+    else if (triage.kind === "inspect-detached") verdict = await inspectDetached(triage.path, base);
+    else verdict = triage;
 
     switch (verdict.kind) {
       case "stale":
@@ -652,11 +693,11 @@ export async function audit(
     return { ok: false, error: worktreeList.error, step: "scan-worktrees" };
   }
 
-  const worktrees = await scanWorktrees(worktreeList, {
-    currentWorktree,
-    protectedBranches,
-    directoryExists: existsSync,
-  });
+  const worktrees = await scanWorktrees(
+    worktreeList,
+    { currentWorktree, protectedBranches, directoryExists: existsSync },
+    base,
+  );
 
   advance("scan-local");
   const local = await scanLocal({ ...scanInput, currentBranch, worktrees, config });

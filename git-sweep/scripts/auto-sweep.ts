@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import { execute } from "./git-clean-apply.ts";
@@ -82,6 +82,10 @@ type Plan = {
   deletions: BranchDeletion[];
   archivals: Archival[];
   kept: KeptLine[];
+  // Clean worktrees on work the base already holds that this sweep leaves to
+  // the interactive one: named, or outside .claude/worktrees.
+  outside: number;
+  unregistered: string[];
 };
 
 export function isAgentWorktree(path: string, mainPath: string): boolean {
@@ -167,7 +171,7 @@ export function runningAgentBranches(
   return running;
 }
 
-type ProvenPlan = Pick<Plan, "worktrees" | "staleWorktrees" | "deletions"> & {
+type ProvenPlan = Pick<Plan, "worktrees" | "staleWorktrees" | "deletions" | "outside"> & {
   blocked: KeptLine[];
 };
 
@@ -177,11 +181,20 @@ async function planProven(
   running: ReadonlyMap<string, string>,
 ): Promise<ProvenPlan> {
   const { categories } = audited;
-  const plan: ProvenPlan = { worktrees: [], staleWorktrees: [], deletions: [], blocked: [] };
+
+  const plan: ProvenPlan = {
+    worktrees: [],
+    staleWorktrees: [],
+    deletions: [],
+    blocked: [],
+    outside: 0,
+  };
+
   const holds = new Map(running);
 
   for (const { path, branch, proof } of categories.removable_worktrees) {
     if (!isAgentWorktree(path, mainWorktree)) {
+      plan.outside += 1;
       holds.set(branch, notSwept(path, mainWorktree));
       continue;
     }
@@ -398,6 +411,32 @@ const ARCHIVABLE: ReadonlySet<string> = new Set(["unproven", "too-old", "worktre
 
 type Candidate = { name: string; worktree: Archival["worktree"] };
 
+// A worktree the audit kept for its own state and that stands on no branch
+// appears on no branch's line.
+const branchless = (audited: AuditSuccess): KeptLine[] =>
+  audited.kept_worktrees
+    .filter(({ branch }) => branch === null)
+    .map(({ path, reason, detail }) => ({
+      name: path,
+      reason: detail === null ? `${reason} worktree` : `${reason} worktree: ${detail}`,
+    }));
+
+// A directory there that git does not list is a removed worktree's remains,
+// or a folder someone made by hand: nothing here can judge it. git lists a
+// worktree by its real path, which a symbolic link on the way changes.
+function unregisteredFolders(list: WorktreeList): string[] {
+  const directory = `${list.main.path}${WORKTREES_DIR}`;
+  const registered = new Set(list.linked.map(({ path }) => path));
+
+  if (!existsSync(directory)) return [];
+
+  return readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(directory, entry.name))
+    .filter((path) => !registered.has(realpathSync(path)))
+    .toSorted();
+}
+
 async function planSweep(audited: AuditSuccess, now: Date): Promise<Plan> {
   const list = parseWorktreeList(await gitRead("worktree", "list", "--porcelain"));
 
@@ -467,7 +506,8 @@ async function planSweep(audited: AuditSuccess, now: Date): Promise<Plan> {
     mainWorktree: list.main.path,
     ...proven,
     archivals,
-    kept: [...kept, ...blocked],
+    kept: [...kept, ...blocked, ...branchless(audited)],
+    unregistered: unregisteredFolders(list),
   };
 }
 
@@ -584,12 +624,29 @@ function render(plan: Plan, outcome: Outcome | null, archiveCount: number): stri
     ),
   );
 
+  // The worktree goes before its branch: a deletion that then fails leaves the
+  // branch, whose archive ref apply dropped again.
+  const archivedWorktrees: WorktreeRemoval[] = plan.archivals.flatMap(({ name, worktree }) =>
+    worktree === null
+      ? []
+      : [
+          {
+            path: worktree.path,
+            branch: name,
+            why: ran(opKey("branch-delete", name))
+              ? "branch archived"
+              : "its branch kept, see Failed",
+          },
+        ],
+  );
+
   section(
     verb("Removed agent worktrees", "Would remove agent worktrees"),
-    [...plan.worktrees, ...plan.staleWorktrees].flatMap(({ path, branch, why }) =>
-      ran(opKey("worktree-remove", path))
-        ? [`${path}${branch === null ? "" : ` on ${branch}`} (${why})`]
-        : [],
+    [...plan.worktrees, ...plan.staleWorktrees, ...archivedWorktrees].flatMap(
+      ({ path, branch, why }) =>
+        ran(opKey("worktree-remove", path))
+          ? [`${path}${branch === null ? "" : ` on ${branch}`} (${why})`]
+          : [],
     ),
   );
 
@@ -612,10 +669,18 @@ function render(plan: Plan, outcome: Outcome | null, archiveCount: number): stri
     plan.kept.map(({ name, reason }) => `${name}: ${reason}`),
   );
 
+  section("Folders under .claude/worktrees that are no worktree", plan.unregistered);
+
   section(
     "Failed",
     (outcome?.failures ?? []).map(({ target, error }) => `${target}: ${error}`),
   );
+
+  if (plan.outside > 0) {
+    lines.push(
+      `${plan.outside} clean worktree(s) on work ${plan.base} already holds stay, named or outside .claude/worktrees: /git-sweep removes them with you`,
+    );
+  }
 
   if (archiveCount > 0) {
     lines.push(`${ARCHIVE_REFS} holds ${archiveCount} ref(s): git for-each-ref ${ARCHIVE_REFS}`);

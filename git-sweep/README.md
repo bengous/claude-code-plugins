@@ -45,10 +45,13 @@ What it keeps, each with its reason in the summary:
 
 - the base, the protected branches (main, master, trunk, dev, develop, `sweep.protect`) and the current branch;
 - a worktree with uncommitted or untracked changes, a locked one, and one holding any other ignored path that is not a symbolic link, named in the summary: removal would destroy it for good, and a `plans/` directory there may be the only copy of a plan;
-- a named worktree, `.claude/worktrees/<name>` without the `agent-` prefix (EnterWorktree's): a live session may stand in one. Like any worktree outside `.claude/worktrees/agent-*`, it stays with its branch, listed as not swept;
+- a named worktree, `.claude/worktrees/<name>` without the `agent-` prefix (EnterWorktree's): a live session may stand in one. Like any worktree outside `.claude/worktrees/agent-*`, it stays with its branch, listed as not swept; the summary ends with how many of them are clean and stand on work the base already holds, which `/git-sweep` removes with the user;
+- every detached worktree, listed under its path with its state: `clean, HEAD in <base>`, its changes, or the HEAD the base does not hold. None is removed, an agent's included: commits made there and since left behind are held by the worktree's own HEAD reflog alone, which the removal deletes, and a rebase or a bisect in progress shows a clean status too;
 - the branch Claude Code named after a locked agent worktree (`worktree-agent-<id>`), while that agent runs;
 - a backup branch not contained by ancestry, an unproven branch that is not an agent's, and an agent branch with an open or merged pull request, or whose pull requests `gh` cannot read;
 - every remote branch and tracking ref: `/git-sweep` handles those, with the user.
+
+The summary lists every worktree it removes under one heading, the worktree of an archived branch included, and names each directory under `.claude/worktrees/` that git does not list as a worktree: a removed worktree's remains or a folder made by hand, which it never touches.
 
 Exit 0 when every operation went through, 1 when the audit or an operation failed, 2 on a bad argument.
 

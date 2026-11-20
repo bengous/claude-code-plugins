@@ -900,6 +900,87 @@ describe("git-clean-audit", () => {
     expect(keptNames(result)).not.toContain("feature/wt-stale");
   });
 
+  describe("detached worktrees", () => {
+    test("a clean one whose HEAD is in the base is kept, and said to be so", async () => {
+      const repo = await makeRepo("detached-in-base");
+      const wtDir = makeTmpDir("detached-in-base-dir");
+      await git(repo, "worktree", "add", "--detach", wtDir);
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({
+        branch: null,
+        reason: "detached",
+        detail: "clean, HEAD in main",
+      });
+    });
+
+    test("one in the middle of a rebase, clean and at the base's tip, is never removable", async () => {
+      const repo = await makeRepo("detached-rebase");
+      const wtDir = makeTmpDir("detached-rebase-dir");
+      await git(repo, "worktree", "add", "-b", "feature/rebasing", wtDir);
+      await addCommit(wtDir, "work.txt", "work under rebase");
+      await addCommit(repo, "base.txt", "the base moved");
+
+      const proc = Bun.spawn(["git", "rebase", "-i", "main"], {
+        cwd: wtDir,
+        stdout: "ignore",
+        stderr: "ignore",
+        env: { ...process.env, ...GIT_ISOLATION, GIT_SEQUENCE_EDITOR: "sed -i 1ibreak" },
+      });
+
+      expect(await proc.exited).toBe(0);
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({ reason: "detached" });
+    });
+
+    test("one whose HEAD holds a commit the base lacks is kept, and named", async () => {
+      const repo = await makeRepo("detached-ahead");
+      const wtDir = makeTmpDir("detached-ahead-dir");
+      await git(repo, "worktree", "add", "--detach", wtDir);
+      await addCommit(wtDir, "only-here.txt", "a commit on no branch");
+      const head = await git(wtDir, "rev-parse", "HEAD");
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({
+        branch: null,
+        reason: "detached",
+        detail: `HEAD ${head.slice(0, 8)} is not in main`,
+      });
+    });
+
+    test("one with an untracked file is kept", async () => {
+      const repo = await makeRepo("detached-dirty");
+      const wtDir = makeTmpDir("detached-dirty-dir");
+      await git(repo, "worktree", "add", "--detach", wtDir);
+      writeFileSync(join(wtDir, "note.txt"), "not committed");
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({
+        reason: "detached",
+        detail: "uncommitted or untracked changes",
+      });
+    });
+
+    test("the one the audit runs from is never a candidate", async () => {
+      const repo = await makeRepo("detached-current");
+      const wtDir = makeTmpDir("detached-current-dir");
+      await git(repo, "worktree", "add", "--detach", wtDir);
+
+      const { result } = await runAudit(wtDir);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 0 });
+    });
+  });
+
   describe("worktrees the audit leaves alone", () => {
     test("reports a locked detached worktree with its lock reason", async () => {
       const repo = await makeRepo("locked-detached");

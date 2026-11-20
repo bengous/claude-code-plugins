@@ -160,7 +160,7 @@ describe("triageWorktree", () => {
     });
   });
 
-  test("keeps a live worktree whose branch has no commit, and skips a detached one", () => {
+  test("keeps a live worktree whose branch has no commit, and sends a detached one to inspection", () => {
     expect(
       triageWorktree(worktree({ kind: "unborn", branch: "gone" }, active), context(true)),
     ).toEqual({
@@ -174,6 +174,10 @@ describe("triageWorktree", () => {
       hold: null,
     });
     expect(triageWorktree(worktree({ kind: "detached" }, active), context(true))).toEqual({
+      kind: "inspect-detached",
+      path: "/wt",
+    });
+    expect(triageWorktree(worktree({ kind: "detached" }, active, "/repo"), context(true))).toEqual({
       kind: "skipped",
     });
     expect(triageWorktree(worktree({ kind: "unreadable" }, active), context(true))).toEqual({
