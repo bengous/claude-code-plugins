@@ -7,6 +7,7 @@ const ABOVE_PROMPT = {
   component: "AbovePrompt",
   props: {
     hasSurvey: false,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 10,
     bodyColumns: 120,
@@ -16,16 +17,16 @@ const ABOVE_PROMPT = {
 } as const;
 
 /**
- * What the band holds beneath vellum's: the engine's own, nothing, so no text and no link; or,
- * with `otherMod`, the line a mod after vellum draws there.
+ * What vellum's row of the band holds beneath vellum's line: the engine's own, nothing, so no text
+ * and no link; or, with `beneath`, the line a hook beneath draws there.
  */
-export function engineBand(on: On, otherMod?: string): void {
+export function engineBand(on: On, beneath?: string): void {
   on("ui.render", { component: "AbovePrompt" }, ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
 
     return Box({
       key: "engine",
-      children: otherMod === undefined ? [] : [Text({ children: otherMod })],
+      children: beneath === undefined ? [] : [Text({ children: beneath })],
     });
   });
 }

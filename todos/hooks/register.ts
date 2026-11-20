@@ -671,7 +671,7 @@ export const register: Register = (on, options) => {
       ],
     });
 
-    // The band is shared: what the mods after this one draw stays below the list.
+    // The engine asks each plugin for its own row: what a hook beneath draws in this row stays below the list.
     return Box({ flexDirection: "column", children: [band, await next(e)] });
   });
 };

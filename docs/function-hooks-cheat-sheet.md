@@ -59,7 +59,7 @@ One fold for every event: on the way down each link may refine e (append is last
 | spelling | `$` is always written `$.noun.verb(…)` literally; `on("event")` literally. the loader inventories both and refuses anything it cannot see. |
 | identity | ids on e are pinned (tool, tool_use_id, agentId, origin, provider, trigger, keys); the rest is yours to rewrite. |
 | failure | a throw or a 10 s overrun skips the hook with one dim line, unless it declared `.catch`, which runs on a grace budget with the same next and answers instead. a wrong-shaped return is always skipped. |
-| recursion | a hook never sees the dispatches it raised (its $ calls, its next, its spawned agent); its sibling hooks and everyone else do. |
+| recursion | a hook never sees the dispatches it raised (its $ calls, its next); its sibling hooks and everyone else do, but for a person's hooks under an organization's mod: they hear neither its call nor what it raises while it runs, so it cannot call a tool or command a person's mod registered. the events of an agent it spawned with `$.agent.spawn` reach every hook, its own included; a skill or command its `$` call ran as a fork stays out of that one hook. |
 | trust | plugins are trusted code with the process's reach. orgs govern by admission: a hook on `plugin.register` sees each plugin's static uses and may refuse it. |
 | classic | every settings hook is wrapped 1:1 as `classic.<Event>` with its exact JSON in and out; the configured shell hooks are core for that seam. |
 | orgs | managed machine or Team / Enterprise plan: sec-default sits outermost, so a person's plugins cannot touch classic hooks, prompt sections, settings reads or an org-provided tool's description. an org that sets prependPlugins owns that tier: it lists `sec-default@builtin` there, or not. |
@@ -79,7 +79,7 @@ One fold for every event: on the way down each link may refine e (append is last
 | | `.register` | add /yourcommand |
 | `$.prompt` | `.submit` | queue a prompt as this plugin |
 | | `.fill` · `suggest` | write the prompt box · propose dim text into it |
-| `$.agent` | `.spawn` | start a subagent, resolves when it settles |
+| `$.agent` | `.spawn` | start a subagent in the background, resolves once it started; its answer is its `turn.complete` |
 | | `.list` | subagents: id, name, parentId, status |
 | `$.turn` | `.abort` | cancel the running turn |
 | `$.session` | `.id` · `cwd` · `repo` · `model` | reads: identity, where, which model |
@@ -133,7 +133,7 @@ A sub-event row stands for `<parent>.<sub>` (for example `tool.describe`, `sessi
 | ↳ `receive` | no | an inbound delivery before it enters context → `{ text } \| { consumed }` |
 | ↳ `compact` | yes | `{ trigger, instructions?, messages } → { messages } \| { skip }` |
 | ↳ `attach` | no | and detach: a surface (desktop, phone) joined or left, `{ surface, clientId }` |
-| `agent.spawn` | yes | `{ prompt, model, provider, parentAgentId?, … } → { text }` |
+| `agent.spawn` | yes | `{ prompt, model, provider, parentAgentId?, … } → { model, agentId? }` or `{ deny }` |
 | ↳ `offer` | no | which agent types the model is offered |
 | `command.run` | yes | `/name args → { text }` |
 | ↳ `describe` | no | a command's listing · e.provider |

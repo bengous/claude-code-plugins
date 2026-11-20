@@ -175,11 +175,12 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches
   nobody. A half spawns through `Host.spawnAgent` and keeps nothing of the id: `agent-review` reads its
   run off the server at the answer, so an answer after a reload finds it. A subagent vellum
-  spawned steps past every other hook of vellum's, its tool calls included, so its final text
-  is the one way it speaks back ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)
-  § Tools, commands and modes). A half stops an agent through `Host.callTool` and `TaskStop`,
-  which asks no permission and steps past vellum's own hooks too; a stop counts once the result
-  is no error or `$.agent.list()` no longer runs the agent.
+  spawned reaches vellum's hooks as any agent does ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)
+  § Tools, commands and modes): the lock hears its tool calls and passes on the plan reviewer's,
+  all reads, and the hooks that follow the main loop's turns return on its `agentId`. A half
+  stops an agent through `Host.callTool` and `TaskStop`, which asks no permission and which the
+  lock passes on as any other tool; a stop counts once the result is no error or
+  `$.agent.list()` no longer runs the agent.
 - Every transition is an engine event or an answer from the server, never a reflex of the
   model. What is under review lives on the server's disk; the module keeps no copy of it.
 - Parse at the boundary, once: `tool_input`, `$.store` values and the server's JSON arrive as
@@ -229,8 +230,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   the prompt does not say it again.
 - The mode's one place in the terminal is the band above the prompt: the `ui.render` hook on
   `AbovePrompt` draws `vellum │ <segments> │ <pill> │ Review page ↗` while the mode holds a
-  session, what the mods after it draw kept beneath that line in a `Box` that takes no size or
-  position (the band is shared: a tree without `next(e)` replaces theirs), and passes to
+  session, what a hook beneath draws in vellum's row kept beneath that line in a `Box` that takes
+  no size or position (the engine asks each plugin for its own row, and stacks the rows with
+  `AbovePromptList`: another mod's row is never in `next(e)`), and passes to
   `next(e)` while `idle` or while a survey holds the band (`hasSurvey`). `$.ui.status` is written for a failure alone, the two of `lost`, and entering
   `live` clears it. No `SessionMode` label: the band is the one place.
 - Where the plan stands is the server's, and so is what the band says of it: a `stage` line

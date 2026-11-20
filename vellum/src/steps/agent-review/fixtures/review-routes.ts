@@ -1,7 +1,14 @@
-import type { AgentInfo, AgentSpawnArgs, AgentSpawnResult, On, ToolCallResult } from "claude-code";
+import type {
+  AgentInfo,
+  AgentSpawnArgs,
+  AgentSpawnResult,
+  AgentStatus,
+  On,
+  ToolCallResult,
+} from "claude-code";
 
 import type { Route } from "../../../runtime/hooks/fixtures/index.ts";
-import { reply } from "../../../runtime/hooks/fixtures/index.ts";
+import { CWD, reply } from "../../../runtime/hooks/fixtures/index.ts";
 import type { ReviewState, Run } from "../contract.ts";
 
 export const MODEL = "claude-opus-5-5";
@@ -91,6 +98,24 @@ export type Agents = {
   /** What `$.agent.list()` answers now. */
   listed: AgentInfo[];
 };
+
+/** The run's agent as `$.agent.list()` gives it: the module reads its id and its status alone. */
+export function listedAgent(status: Extract<AgentStatus, AgentInfo["taskStatus"]>): AgentInfo {
+  return {
+    id: AGENT_ID,
+    description: "d",
+    type: "t",
+    status,
+    kind: "local_agent",
+    taskStatus: status,
+    label: "d",
+    startTime: 0,
+    cwd: CWD,
+    tokenCount: 0,
+    tokenSamples: [],
+    hasRow: true,
+  };
+}
 
 /**
  * The engine's subagents beneath the module. The kit starts none: nothing answers beneath
