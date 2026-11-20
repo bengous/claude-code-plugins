@@ -1,5 +1,6 @@
-/* oxlint-disable anti-slop/no-shape-in-symbol-names, anti-slop/no-runtime-typeof -- libavoid's own API names its obstacle class ShapeRef and its pins ShapeConnectionPin, names that are the library's, not ours; and isAvoid IS the boundary parser of the module the WebAssembly loader hands back untyped. */
+/* oxlint-disable anti-slop/no-shape-in-symbol-names -- libavoid's own API names its obstacle class ShapeRef, a name that is the library's, not ours. */
 import { AvoidLib } from "libavoid-js";
+import type { Avoid, ConnEndLike, ConnRef, ShapeRef } from "libavoid-js";
 
 import type { Pins } from "../model/atlas.ts";
 import type { Point, Rect } from "./geometry.ts";
@@ -9,104 +10,21 @@ import type { Point, Rect } from "./geometry.ts";
 // fetches libavoid.wasm next to the page, which serve.ts answers with the
 // dist/libavoid.wasm of the installed libavoid-js package.
 // Traps:
-//   - the embind enums are objects: pass RouterFlag.OrthogonalRouting.value,
-//     not the enum, or the constructor throws "Cannot convert undefined";
-//   - ConnDirFlags is not exported: DIR below holds libavoid's values;
 //   - pins, several per side, follow the Config's `pins`: "shared" pins with
 //     nudgeSharedPathsWithCommonEndPoint off let arrows into the same box end
 //     at the same pin and run as one trunk; "exclusive" pins give each arrow
 //     its own end, with that option on;
 //   - router.delete() frees the WebAssembly memory of the whole routing.
-//
-// The part of libavoid this plan calls. The package's own types leave the
-// router flags untyped (an `any` index signature), so this subset is the
-// contract.
-type EnumValue = { readonly value: number };
-
-type AvoidPoint = { readonly x: number; readonly y: number };
-
-type Route = { size: () => number; at: (i: number) => AvoidPoint };
-
-type Router = {
-  setRoutingParameter: (parameter: EnumValue, value: number) => void;
-  setRoutingOption: (option: EnumValue, value: boolean) => void;
-  processTransaction: () => void;
-  delete: () => void;
-};
-
-type Obstacle = { readonly kind?: "obstacle" };
-
-type Pin = { setExclusive: (exclusive: boolean) => void };
-
-type End = { readonly kind?: "end" };
-
-type Connector = { displayRoute: () => Route };
-
-type AvoidApi = {
-  readonly Router: new (flags: number) => Router;
-  readonly RouterFlag: { readonly OrthogonalRouting: EnumValue };
-  readonly RoutingParameter: {
-    readonly shapeBufferDistance: EnumValue;
-    readonly idealNudgingDistance: EnumValue;
-    readonly segmentPenalty: EnumValue;
-  };
-  readonly RoutingOption: {
-    readonly nudgeOrthogonalSegmentsConnectedToShapes: EnumValue;
-    readonly nudgeSharedPathsWithCommonEndPoint: EnumValue;
-    readonly performUnifyingNudgingPreprocessingStep: EnumValue;
-  };
-  readonly Point: new (x: number, y: number) => AvoidPoint;
-  readonly Rectangle: new (topLeft: AvoidPoint, bottomRight: AvoidPoint) => AvoidPoint;
-  readonly ShapeRef: new (router: Router, polygon: AvoidPoint) => Obstacle;
-  readonly ShapeConnectionPin: new (
-    obstacle: Obstacle,
-    classId: number,
-    x: number,
-    y: number,
-    proportional: boolean,
-    insideOffset: number,
-    directions: number,
-  ) => Pin;
-  readonly ConnEnd: new (obstacle: Obstacle, classId: number) => End;
-  readonly ConnRef: new (router: Router, from: End, to: End) => Connector;
-};
-
-const DIR = { up: 1, down: 2, left: 4, right: 8 };
-
 const PIN_CLASS = 1;
 
 const PIN_STEPS = [0.2, 0.35, 0.5, 0.65, 0.8];
 
-const MEMBERS = [
-  "Router",
-  "RouterFlag",
-  "RoutingParameter",
-  "RoutingOption",
-  "Point",
-  "Rectangle",
-  "ShapeRef",
-  "ShapeConnectionPin",
-  "ConnEnd",
-  "ConnRef",
-] as const;
+let loaded: Avoid | null = null;
 
-// The embind module carries every member AvoidApi lists once load() is done.
-function isAvoid(lib: unknown): lib is AvoidApi {
-  return typeof lib === "object" && lib !== null && MEMBERS.every((m) => m in lib);
-}
-
-let loaded: AvoidApi | null = null;
-
-async function load(): Promise<AvoidApi> {
+async function load(): Promise<Avoid> {
   if (loaded === null) {
     await AvoidLib.load("libavoid.wasm");
-    const lib: unknown = AvoidLib.getInstance();
-
-    if (!isAvoid(lib)) {
-      throw new Error(`libavoid-js: the module lacks one of ${MEMBERS.join(", ")}`);
-    }
-
-    loaded = lib;
+    loaded = AvoidLib.getInstance();
   }
 
   return loaded;
@@ -114,32 +32,25 @@ async function load(): Promise<AvoidApi> {
 
 export type Link = { readonly from: string; readonly to: string };
 
-function obstacle(A: AvoidApi, router: Router, r: Rect): Obstacle {
-  return new A.ShapeRef(
-    router,
-    new A.Rectangle(new A.Point(r.x, r.y), new A.Point(r.x + r.w, r.y + r.h)),
-  );
-}
+function addPins(A: Avoid, shape: ShapeRef, mode: Pins): void {
+  const { ConnDirUp, ConnDirDown, ConnDirLeft, ConnDirRight } = A.ConnDirFlag;
 
-function addPins(A: AvoidApi, o: Obstacle, mode: Pins): void {
   for (const t of PIN_STEPS) {
-    for (const [x, y, dir] of [
-      [t, 0, DIR.up],
-      [t, 1, DIR.down],
-      [0, t, DIR.left],
-      [1, t, DIR.right],
+    for (const [x, y, directions] of [
+      [t, 0, ConnDirUp],
+      [t, 1, ConnDirDown],
+      [0, t, ConnDirLeft],
+      [1, t, ConnDirRight],
     ] as const) {
-      new A.ShapeConnectionPin(o, PIN_CLASS, x, y, true, 0, dir).setExclusive(mode === "exclusive");
+      shape
+        .addPin({ classId: PIN_CLASS, x, y, proportional: true, insideOffset: 0, directions })
+        .setExclusive(mode === "exclusive");
     }
   }
 }
 
-function polyline(route: Route): Point[] {
-  return Array.from({ length: route.size() }, (_, i): Point => {
-    const p = route.at(i);
-
-    return [p.x, p.y];
-  });
+function polyline(connector: ConnRef): Point[] {
+  return connector.displayRoute().map((p): Point => [p.x, p.y]);
 }
 
 // One orthogonal route per link, between the boxes it names, around every
@@ -151,7 +62,7 @@ export async function routeLinks(
   pins: Pins,
 ): Promise<Point[][]> {
   const A = await load();
-  const router = new A.Router(A.RouterFlag.OrthogonalRouting.value);
+  const router = new A.Router(A.RouterFlag.OrthogonalRouting);
 
   try {
     router.setRoutingParameter(A.RoutingParameter.shapeBufferDistance, 14);
@@ -163,32 +74,32 @@ export async function routeLinks(
       pins === "exclusive",
     );
     router.setRoutingOption(A.RoutingOption.performUnifyingNudgingPreprocessingStep, true);
-    const obstacles = new Map<string, Obstacle>();
+    const shapes = new Map<string, ShapeRef>();
 
     for (const [id, r] of boxes) {
-      const o = obstacle(A, router, r);
-      addPins(A, o, pins);
-      obstacles.set(id, o);
+      const shape = router.addShape({ x: r.x, y: r.y, width: r.w, height: r.h });
+      addPins(A, shape, pins);
+      shapes.set(id, shape);
     }
 
     for (const r of extra) {
-      obstacle(A, router, r);
+      router.addShape({ x: r.x, y: r.y, width: r.w, height: r.h });
     }
 
-    const endOf = (id: string): End => {
-      const o = obstacles.get(id);
+    const endOf = (id: string): ConnEndLike => {
+      const shape = shapes.get(id);
 
-      if (o === undefined) {
+      if (shape === undefined) {
         throw new Error(`libavoid: no box ${id}`);
       }
 
-      return new A.ConnEnd(o, PIN_CLASS);
+      return { shape, pin: PIN_CLASS };
     };
 
-    const connectors = links.map((l) => new A.ConnRef(router, endOf(l.from), endOf(l.to)));
+    const connectors = links.map((l) => router.addConnector(endOf(l.from), endOf(l.to)));
     router.processTransaction();
 
-    return connectors.map((c) => polyline(c.displayRoute()));
+    return connectors.map((c) => polyline(c));
   } finally {
     router.delete();
   }
