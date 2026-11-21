@@ -24,7 +24,7 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       BASE: ${{ github.event.pull_request.base.ref }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
       - name: Read what the pull request changes
@@ -49,7 +49,7 @@ jobs:
             echo "outside=$(grep -cv '^\.github/' <<<"$files" || true)"
             echo "self=$(grep -cx '\.github/workflows/review\.yml' <<<"$files" || true)"
           } >> "$GITHUB_OUTPUT"
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@v1.0.286
         id: review
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
