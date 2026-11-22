@@ -7,7 +7,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_P
 
 # Install the factory
 
-The factory runs with no human in the loop: the owner labels his own issue `ready`, `dispatch.yml` fires a claude.ai routine, a cloud session implements the issue and opens a pull request with auto-merge on, and the merge queue lands it once `test`, `review` and `owner-gate` pass and every thread is resolved. This skill puts the files in place and reports the rest; the owner decides each change outside the working tree.
+The factory runs with no human in the loop: the owner labels his own issue `ready`, `dispatch.yml` fires a claude.ai routine, a cloud session implements the issue and opens a pull request with auto-merge on, and auto-merge lands it once `test`, `review` and `owner-gate` pass and every thread is resolved, through the merge queue where the repository has one. This skill puts the files in place and reports the rest; the owner decides each change outside the working tree.
 
 Run it from a checkout of `<REPO>`. The factory's pull requests target the repository's default branch, and `check.ts` reads that branch's ruleset: a repository whose working trunk is not its default branch (a `dev` beside a `main` release branch) is not supported by this version.
 
@@ -89,6 +89,8 @@ One line per item, `ok` or `missing` with the `gh` command that fixes it; exit 1
     ]
   }
   ```
+
+  Leave the `merge_queue` rule out where GitHub offers no merge queue: it offers one in a public repository of an organization, and in a private one under GitHub Enterprise Cloud. `check.ts` reports a default branch without one and does not count it missing: a pull request then merges as soon as its checks pass, and the lead wakes one that conflicts and has a red default branch repaired.
 
 - **Auto-merge**: the cloud session enables it on its pull request; the fix allows it on the repository.
 - **`CLAUDE_CODE_OAUTH_TOKEN`**: the review workflow's token. The owner generates it with `claude setup-token` and pastes it into `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <REPO>`, in his terminal.

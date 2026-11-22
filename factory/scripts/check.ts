@@ -120,7 +120,13 @@ export function evaluate(facts: Facts): Item[] {
       fix: ruleset,
     })),
     { name: `${branch} requires resolved review threads`, ok: rules.threadsResolved, fix: ruleset },
-    { name: `${branch} has a merge queue`, ok: rules.mergeQueue, fix: ruleset },
+    {
+      name: rules.mergeQueue
+        ? `${branch} has a merge queue`
+        : `${branch} has no merge queue: a pull request merges once its checks pass, and the lead handles a conflict and a red ${branch}`,
+      ok: true,
+      fix: ruleset,
+    },
     {
       name:
         facts.allowAutoMerge === null

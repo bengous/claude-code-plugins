@@ -40,7 +40,19 @@ describe("evaluate", () => {
     expect(items.filter((item) => !item.ok)).toEqual([]);
   });
 
-  test("a bare repository misses every item, each with its fix", () => {
+  test("a repository without a merge queue is all ok, and its line says who lands safely", () => {
+    const rules = parseRuleLines(
+      "ruleset 7\nthreads\ncheck test\ncheck review\ncheck owner-gate\n",
+    );
+
+    const items = evaluate({ ...COMPLETE, rules });
+
+    expect(items.filter((item) => !item.ok)).toEqual([]);
+    expect(format(items)).toContain("ok       main has no merge queue: a pull request merges");
+    expect(format(evaluate(COMPLETE))).toContain("ok       main has a merge queue\n");
+  });
+
+  test("a bare repository misses every item but the queue, each with its fix", () => {
     const bare: Facts = {
       ...COMPLETE,
       allowAutoMerge: false,
@@ -59,7 +71,7 @@ describe("evaluate", () => {
         "missing  main requires the check review: gh api -X POST repos/o/r/rulesets --input ruleset.json",
         "missing  main requires the check owner-gate: gh api -X POST repos/o/r/rulesets --input ruleset.json",
         "missing  main requires resolved review threads: gh api -X POST repos/o/r/rulesets --input ruleset.json",
-        "missing  main has a merge queue: gh api -X POST repos/o/r/rulesets --input ruleset.json",
+        "ok       main has no merge queue: a pull request merges once its checks pass, and the lead handles a conflict and a red main",
         "missing  auto-merge allowed: gh repo edit o/r --enable-auto-merge",
         "missing  secret CLAUDE_CODE_OAUTH_TOKEN: gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo o/r",
         "missing  secret ROUTINE_FIRE_TOKEN: gh secret set ROUTINE_FIRE_TOKEN --repo o/r",
@@ -77,7 +89,6 @@ describe("evaluate", () => {
       "main requires the check review",
       "main requires the check owner-gate",
       "main requires resolved review threads",
-      "main has a merge queue",
     ]);
     expect(new Set(missing.map(({ fix }) => fix))).toEqual(
       new Set(["gh api -X PUT repos/o/r/rulesets/9 --input ruleset.json"]),

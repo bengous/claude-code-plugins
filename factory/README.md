@@ -7,9 +7,11 @@ A native software factory for a GitHub repository: cloud Claude sessions take th
 1. The owner labels his own issue `ready`.
 2. `dispatch.yml` fires a claude.ai routine through its API trigger.
 3. The routine's cloud session replaces `ready` with `in-progress`, implements the issue per `CLAUDE.md`, opens a pull request and enables auto-merge.
-4. The merge queue squashes it once the required checks `test`, `review` and `owner-gate` pass and every review thread is resolved.
+4. Auto-merge squashes it once the required checks `test`, `review` and `owner-gate` pass and every review thread is resolved, through the merge queue where the repository has one.
 
 A session stopped by something outside its issue comments on the issue and labels it `blocked`. A pull request that touches a path of `CODEOWNERS` waits until the owner labels it `owner-ok`; a new push removes the label.
+
+GitHub offers the merge queue in a public repository of an organization, and in a private one under GitHub Enterprise Cloud. Without it a pull request merges as soon as its checks pass: one that conflicts with the default branch waits for the lead to wake its session, and two that pass apart can break the default branch together, which the lead has repaired through a `main is red` issue.
 
 The factory's pull requests target the repository's default branch, and `check.ts` reads that branch's ruleset. A repository whose working trunk is not its default branch is not supported by this version.
 
@@ -43,7 +45,7 @@ A template changes only after the same change has run in the trial, and is then 
 |--------|--------------|
 | `scripts/install.ts repo --owner --routine --branch [--target] [--force]` | Renders `templates/repo/` into a working tree. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical`, `overwrote` or `refused` per file. No GitHub call, no commit. |
 | `scripts/install.ts prompt --owner --repo --branch --dir [--force]` | Renders the routine's `prompt.md` into a directory. |
-| `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the default branch's ruleset (required checks, resolved threads, merge queue), the auto-merge setting and the secret names; one line per item, `ok` or `missing` with its fix, a secret the token cannot list marked `not visible`. Exit 1 while one is missing. Never reads a secret's value. |
+| `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the default branch's ruleset (required checks, resolved threads, merge queue), the auto-merge setting and the secret names; one line per item, `ok` or `missing` with its fix, a secret the token cannot list marked `not visible`. Exit 1 while one is missing; a default branch without a merge queue is reported and is not missing. Never reads a secret's value. |
 
 Each subject of `install.ts` takes exactly the parameter flags its templates name and refuses any other, and an empty path.
 
