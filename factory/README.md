@@ -35,6 +35,8 @@ The factory's pull requests target the repository's default branch, and `check.t
 - `templates/routine/prompt.md` is the routine's prompt.
 - `templates/claude-md-sections.md` holds the `CLAUDE.md` sections the session and the review follow.
 
+A template changes only after the same change has run in the trial, and is then copied from it by hand. A package rule in `renovate.json` turns Renovate off under `templates/`, so an action or dependency update reaches the templates through the trial alone.
+
 ## Scripts
 
 | Script | What it does |

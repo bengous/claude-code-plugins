@@ -372,6 +372,7 @@ interface PackageRule {
   matchFileNames?: string[];
   matchUpdateTypes?: string[];
   automerge?: boolean;
+  enabled?: boolean;
   addLabels?: string[];
 }
 
@@ -396,7 +397,9 @@ describe("renovate.json", () => {
   });
 
   test("keeps automerge off exactly for the package files on the e2e paths or the risky ones", () => {
-    const fileRules = config.packageRules.filter((rule) => rule.matchFileNames !== undefined);
+    const fileRules = config.packageRules.filter(
+      (rule) => rule.matchFileNames !== undefined && rule.enabled !== false,
+    );
 
     const globs = fileRules
       .flatMap((rule) => rule.matchFileNames ?? [])

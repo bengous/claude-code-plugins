@@ -22,6 +22,11 @@
       "description": "The package files under a risky path of .claude/review.jsonc land only with a human review verdict; scripts/headless/renovate-agent.integration.test.ts holds this list to that file.",
       "matchFileNames": [".github/workflows/**"],
       "automerge": false
+    },
+    {
+      "description": "factory/templates/ holds the trial repository's files as they ran there: an update is played in the trial first, then copied by hand.",
+      "matchFileNames": ["factory/templates/**"],
+      "enabled": false
     }
   ]
 }
