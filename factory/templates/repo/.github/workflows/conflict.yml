@@ -17,6 +17,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       BRANCH: {{BRANCH}}
+      OWNER: {{OWNER}}
     steps:
       # The pushed commit with its whole history: git needs the common ancestor to compute a merge. A pull
       # request's commits are fetched as data and merged in memory; none of its code runs.
@@ -56,12 +57,19 @@ jobs:
                 if [ "$sha" = "$head" ]; then on_head=1; fi
               fi
             done <<<"$commits"
+            # A force-push drops the commits that carried the status, so the count cannot hold: one since the
+            # owner last removed needs-human stops the pull request too.
+            events=$(gh api --paginate "repos/$REPO/issues/$pr/events?per_page=100" \
+              --jq '.[] | select(.event == "head_ref_force_pushed" or (.event == "unlabeled" and .label.name == "needs-human")) | "\(.event) \(.actor.login) \(.created_at)"')
+            restarted=$(awk -v owner="$OWNER" '$1 == "unlabeled" && $2 == owner {print $3}' <<<"$events" | tail -n1)
+            forced=$(awk -v since="$restarted" '$1 == "head_ref_force_pushed" && $3 > since' <<<"$events" | wc -l)
             if [ "$on_head" -eq 1 ]; then
               echo "#$pr: conflicts, and its head already carries the status"
-            elif [ "$marked" -ge 2 ]; then
-              # Two commits already carried the status and it conflicts again: the factory stops here.
+            elif [ "$marked" -ge 2 ] || [ "$forced" -gt 0 ]; then
+              # Two commits already carried the status and it conflicts again, or a force-push hid how many
+              # did: the factory stops here.
               gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=needs-human" --silent
-              echo "#$pr: conflicts a third time, labelled needs-human"
+              echo "#$pr: conflicts, with $marked status(es) and $forced force-push(es) counted: labelled needs-human"
             else
               gh api -X POST "repos/$REPO/statuses/$head" -f state=failure -f context=conflict \
                 -f description="Conflicts with $BRANCH: merge $BRANCH into this branch and resolve." --silent

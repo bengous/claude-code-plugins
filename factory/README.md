@@ -28,7 +28,7 @@ sequenceDiagram
 
 1. The owner labels his own issue `ready`; `dispatch.yml` fires a claude.ai routine through its API trigger.
 2. The routine's cloud session, the Worker, replaces `ready` with `in-progress`, implements the issue per `CLAUDE.md`, runs the repository's `verify` skill, and opens a pull request with auto-merge on. A hook keeps it from ending its turn on a working tree it has not verified.
-3. `review.yml` reviews each push and fails while it has a finding. At the third commit on which `review` or `test` failed, it labels the pull request and its issue `needs-human`, and the Worker stops until the owner comments what to do and removes the label.
+3. `review.yml` reviews each push and fails while it has a finding. At the third commit on which `review` or `test` failed, or at a force-push, which drops the commits the count reads, it labels the pull request and its issue `needs-human`, and the Worker stops until the owner comments what to do and removes the label.
 4. `owner-gate.yml` gives the head commit a tier. A floor decides first: a path of `CODEOWNERS`, a path or a line cap of `tier.json`. Past it, Claude Haiku reads the diff alone and answers whether a revert undoes the change and a check catches a mistake in it. `tier:low` lands once `test`, `review` and `owner-gate` are green; `tier:human` waits for the owner's `human-approved` label, which any push removes.
 5. Auto-merge squashes the pull request, through the merge queue where the repository has one.
 
@@ -36,7 +36,7 @@ Two cases have no event of their own on a pull request, and each has a workflow:
 
 | Case | Workflow | What it does |
 |------|----------|--------------|
-| A pull request conflicts with the default branch | `conflict.yml`, on each push to it | Sets a failed `conflict` status on the head commit, which auto-fix delivers to the session. A third conflict labels the pull request `needs-human` |
+| A pull request conflicts with the default branch | `conflict.yml`, on each push to it | Sets a failed `conflict` status on the head commit, which auto-fix delivers to the session. A third conflict, or a conflict after a force-push, labels the pull request `needs-human` |
 | The default branch's CI turns red | `trunk-red.yml`, when the CI workflow completes | Opens a `trunk-red` issue and fires the routine on it. After two repairs that leave it red, the issue is `needs-human` and no Worker starts |
 
 A session stopped by something outside its issue comments on the issue and labels it `blocked`; the owner labels it `ready` again once the way is clear.

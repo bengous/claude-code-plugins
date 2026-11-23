@@ -142,7 +142,17 @@ jobs:
           fi
           rounds=$((rounds + this))
           echo "Failed rounds since the owner last removed needs-human: $rounds." >> "$GITHUB_STEP_SUMMARY"
-          if [ "$rounds" -ge 3 ]; then
+          # A force-push drops the earlier commits from the pull request, and the failed rounds counted on them:
+          # the count cannot hold, so a force-push since the owner's last restart stops the pull request too.
+          forced=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+            --jq ".[] | select(.event == \"head_ref_force_pushed\" and .created_at > \"$since\") | .created_at" | wc -l)
+          stop=""
+          if [ "$forced" -gt 0 ]; then
+            stop="The branch was force-pushed, which drops the commits the failed rounds are counted on."
+          elif [ "$rounds" -ge 3 ]; then
+            stop="Third failed round: \`review\` or \`test\` failed on $rounds commits of this pull request."
+          fi
+          if [ -n "$stop" ]; then
             labels=$(gh api "repos/$REPO/issues/$PR/labels" --paginate --jq '.[].name')
             if ! grep -qx needs-human <<<"$labels"; then
               gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=needs-human" --silent
@@ -151,9 +161,9 @@ jobs:
                 gh api -X POST "repos/$REPO/issues/$issue/labels" -f "labels[]=needs-human" --silent
               done
               gh api -X POST "repos/$REPO/issues/$PR/comments" --silent \
-                -f body="Third failed round: \`review\` or \`test\` failed on $rounds commits of this pull request. The factory stops here and labels it \`needs-human\`. @$OWNER: comment what to do, then remove the label. The count starts again from there."
+                -f body="$stop The factory stops here and labels it \`needs-human\`. @$OWNER: comment what to do, then remove the label. The count starts again from there."
             fi
-            echo "::error::Third failed round: needs-human. $OWNER comments what to do and removes the label."
+            echo "::error::needs-human: the factory stopped this pull request. $OWNER comments what to do and removes the label."
             exit 1
           fi
           if [ "$findings" -gt 0 ]; then

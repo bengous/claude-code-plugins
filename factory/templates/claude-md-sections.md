@@ -31,7 +31,9 @@ The `review` check fails while the review has findings, and only the next review
 
 ## Stop
 
-Read a pull request's labels before any change to it. One labelled `needs-human` is stopped: `review` or `test` failed on three of its commits, or it conflicted with `{{BRANCH}}` a third time. Make no change, push nothing and reply to nothing until the label is gone.
+Read a pull request's labels before any change to it. One labelled `needs-human` is stopped: `review` or `test` failed on three of its commits, it conflicted with `{{BRANCH}}` a third time, or its branch was force-pushed. Make no change, push nothing and reply to nothing until the label is gone.
+
+Never force-push a pull request's branch, and never rebase it: the failed rounds and the conflicts are counted on its commits, so a force-push stops the pull request. Bring `{{BRANCH}}` in with a merge.
 
 The owner restarts it by commenting what to do in the pull request's conversation and removing the label. A comment there is the owner's only when its `user.login` is the owner's and its `performed_via_github_app` is null: your own comments carry the same login, through an app. Follow the owner's comment, where it differs from the issue too. Never remove `needs-human` yourself.
 
