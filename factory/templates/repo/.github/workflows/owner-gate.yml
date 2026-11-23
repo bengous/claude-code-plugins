@@ -66,8 +66,10 @@ jobs:
           SUPERSEDED: ${{ steps.judge.outputs.superseded || steps.tier.outputs.superseded }}
         run: |
           set -euo pipefail
-          if [ "$SUPERSEDED" = true ]; then
-            # The labels show the tier of the head commit, which this run did not judge.
+          # The labels show the tier of the head commit. A push can land while the classifier answers, so the
+          # head is read again here: a run the pull request moved past touches no label.
+          current=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          if [ "$SUPERSEDED" = true ] || [ "$current" != "$HEAD" ]; then
             echo "::error::The pull request moved past this commit: the run of its new head judges it."
             exit 1
           fi
