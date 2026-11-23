@@ -579,7 +579,7 @@
     },
     {
       "name": "factory",
-      "description": "A native software factory for a GitHub repository: the owner labels an issue ready, a claude.ai routine's cloud session ships the pull request, and a reviewer, an owner gate and the merge queue land it with no human in the loop; an install skill that writes the workflows and reports the GitHub setup still missing, and a lead skill that dispatches issues, wakes stuck sessions and sends blocked issues back",
+      "description": "A native software factory for a GitHub repository: the owner labels an issue ready, a claude.ai routine's cloud session ships the pull request, and a blocking review, a tier per change and an owner gate land it with no human in the loop, calling the owner only for a change a revert cannot undo, a sensitive path or three failed rounds; its install skill writes the workflows, the tier rules and the verify hook, and reports the GitHub setup still missing",
       "version": "0.1.0",
       "author": {
         "name": "Augustin BENGOLEA",

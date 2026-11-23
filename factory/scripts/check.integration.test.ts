@@ -27,10 +27,11 @@ describe("the gh queries on the trial's answers", () => {
     });
   });
 
-  test("REPOSITORY_JQ reads the default branch and the auto-merge setting", async () => {
+  test("REPOSITORY_JQ reads the default branch, the auto-merge setting and whether it is private", async () => {
     expect(parseRepositoryLines(await jq(REPOSITORY_JQ, "trial-repository.json"))).toEqual({
       defaultBranch: "main",
       allowAutoMerge: true,
+      isPrivate: false,
     });
   });
 });
