@@ -109,9 +109,20 @@ jobs:
           findings=$(jq -er .findings <<<"$VERDICT")
           echo "Review: $findings finding(s)." >> "$GITHUB_STEP_SUMMARY"
           # A failed round is a commit of the pull request on which review or test failed. The count starts again
-          # when the owner removes needs-human; a removal made through an app does not count.
-          since=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
-            --jq ".[] | select(.event == \"unlabeled\" and .label.name == \"needs-human\" and .performed_via_github_app == null and .actor.login == \"$OWNER\") | .created_at" | tail -n1)
+          # when the owner restarts a stopped pull request: he comments what to do and removes needs-human.
+          # GitHub records the app behind a comment and behind a label added, not behind a label removed, so the
+          # author's session can remove the label under the owner's login. The removal counts only with a
+          # comment the owner wrote himself since the stop.
+          events=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+            --jq '.[] | select(.label.name == "needs-human") | "\(.event) \(.actor.login) \(.created_at)"')
+          stopped=$(awk '$1 == "labeled" {print $3}' <<<"$events" | tail -n1)
+          removed=$(awk -v owner="$OWNER" '$1 == "unlabeled" && $2 == owner {print $3}' <<<"$events" | tail -n1)
+          since=""
+          if [ -n "$removed" ] && [[ "$removed" > "$stopped" ]]; then
+            said=$(gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
+              --jq ".[] | select(.user.login == \"$OWNER\" and .performed_via_github_app == null and .created_at > \"$stopped\") | .created_at" | tail -n1)
+            if [ -n "$said" ]; then since=$removed; fi
+          fi
           commits=$(gh api --paginate "repos/$REPO/pulls/$PR/commits?per_page=100" --jq '.[].sha')
           # This commit counts when the review has a finding, or when its test already failed. Every earlier
           # one counts whatever this one gives: a test that fails after its review ended is counted by the next push.
