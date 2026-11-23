@@ -7,7 +7,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_P
 
 # Install the factory
 
-The factory runs with no human in the loop. The owner labels his own issue `ready`; `dispatch.yml` fires a claude.ai routine; a cloud session implements the issue, runs the repository's `verify` skill and opens a pull request with auto-merge on. The `owner-gate` check gives the change a tier: `low` lands once `test` and `review` are green, `human` waits for the owner's `human-approved` label. The review stops a pull request at its third failed round, `conflict.yml` tells a session its pull request conflicts, and `trunk-red.yml` has a red default branch repaired.
+The factory runs with no human in the loop. The owner labels his own issue `ready`; `dispatch.yml` fires a claude.ai routine; a cloud session implements the issue, runs the repository's `verify` skill and opens a pull request with auto-merge on. The `owner-gate` check gives the change a tier: `low` lands once `test` and `review` are green, `human` waits for the owner's `human-approved` label. The review stops a pull request at its third failed round or at a force-push, `conflict.yml` tells a session its pull request conflicts, and `trunk-red.yml` has a red default branch repaired.
 
 Run it from a checkout of `<REPO>`. The factory's pull requests target the repository's default branch: a repository whose working trunk is not its default branch is not supported.
 

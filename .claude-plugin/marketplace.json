@@ -579,7 +579,7 @@
     },
     {
       "name": "factory",
-      "description": "A native software factory for a GitHub repository: the owner labels an issue ready, a claude.ai routine's cloud session ships the pull request, and a blocking review, a tier per change and an owner gate land it with no human in the loop, calling the owner only for a change a revert cannot undo, a sensitive path or three failed rounds; its install skill writes the workflows, the tier rules and the verify hook, and reports the GitHub setup still missing",
+      "description": "A native software factory for a GitHub repository: the owner labels an issue ready, a claude.ai routine's cloud session ships the pull request, and a blocking review, a tier per change and an owner gate land it with no human in the loop, calling the owner only for a change a revert cannot undo, a sensitive path or a bound it reached (three failed rounds, a third conflict, a force-push, a trunk still red after two repairs); its install skill writes the workflows, the tier rules and the verify hook, and reports the GitHub setup still missing",
       "version": "0.1.0",
       "author": {
         "name": "Augustin BENGOLEA",

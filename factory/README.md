@@ -1,6 +1,6 @@
 # Factory
 
-A native software factory for a GitHub repository: cloud Claude sessions take the owner's issues and ship pull requests that land with no human in the loop. It calls the owner in three cases only: a change a revert cannot undo, a sensitive path, or three fix rounds without success.
+A native software factory for a GitHub repository: cloud Claude sessions take the owner's issues and ship pull requests that land with no human in the loop. It calls the owner only for a change a revert cannot undo, a sensitive path, or a bound it reached: three failed rounds, a third conflict, a force-push, or a trunk still red after two repairs.
 
 ## The loop
 
@@ -121,7 +121,7 @@ Each subject of `install.ts` takes exactly the parameter flags its templates nam
 - `bun`
 - `gh`, signed in as the owner
 - The Claude GitHub App on the repository, a claude.ai routine with an API trigger, and the secrets `CLAUDE_CODE_OAUTH_TOKEN` and `ROUTINE_FIRE_TOKEN`
-- A CI workflow with a job named `test` that runs on `pull_request`, on `push` to the default branch, and on `merge_group` where the repository has a merge queue
+- A CI workflow with a job that reports the check `test` (its id `test` with no `name:`, or its `name:` `test`; no matrix), with no `paths` filter, that runs on `pull_request`, on `push` to the default branch, and on `merge_group` where the repository has a merge queue
 - The owner's routine convention, which the install skill follows: each routine is versioned in `~/dotfiles/cloud/routines/<name>/` (`routine.json`, `prompt.md`), and `bun run routines:check` in `~/dotfiles` exits 0
 
 ## License

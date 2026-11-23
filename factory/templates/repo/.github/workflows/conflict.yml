@@ -67,9 +67,12 @@ jobs:
               echo "#$pr: conflicts, and its head already carries the status"
             elif [ "$marked" -ge 2 ] || [ "$forced" -gt 0 ]; then
               # Two commits already carried the status and it conflicts again, or a force-push hid how many
-              # did: the factory stops here.
-              gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=needs-human" --silent
-              echo "#$pr: conflicts, with $marked status(es) and $forced force-push(es) counted: labelled needs-human"
+              # did: the factory stops here. A label already on is left alone, so the time of the stop holds.
+              labels=$(gh api "repos/$REPO/issues/$pr/labels" --paginate --jq '.[].name')
+              if ! grep -qx needs-human <<<"$labels"; then
+                gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=needs-human" --silent
+              fi
+              echo "#$pr: conflicts, with $marked status(es) and $forced force-push(es) counted: needs-human"
             else
               gh api -X POST "repos/$REPO/statuses/$head" -f state=failure -f context=conflict \
                 -f description="Conflicts with $BRANCH: merge $BRANCH into this branch and resolve." --silent
