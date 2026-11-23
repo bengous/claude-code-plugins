@@ -39,7 +39,7 @@ Writing into this repository's working tree needs no ask: `install.ts` refuses t
    ```
 
 3. Create the routine from that prompt with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`): `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, the cloud environment the owner names, and `clear_mcp_connections` true: a routine created with no connector named gets every connector of the owner's account, mail and drive included, and the Worker needs none.
-4. Only once the routine exists, version it: write `~/dotfiles/cloud/routines/<repo name>-worker/prompt.md` by running the same `install.ts prompt` command again with `--dir ~/dotfiles/cloud/routines/<repo name>-worker`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id. Then `bun run routines:check` in `~/dotfiles` must exit 0.
+4. Only once the routine exists, version it: write `~/dotfiles/cloud/routines/<repo name>-worker/prompt.md` by running the same `install.ts prompt` command again with `--dir ~/dotfiles/cloud/routines/<repo name>-worker`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id. Add the folder's name to the list `scripts/routines/routine.test.ts` expects there. Then `bun run routines:check` in `~/dotfiles` must exit 0.
 
 The routine has no trigger yet, and only the owner can add one: on the routine's page on claude.ai, *Edit*, the *Trigger* row, **+**, *API*, *Generate token*. The token is shown once. Ask him to do it, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
 
