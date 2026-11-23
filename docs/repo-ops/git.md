@@ -23,6 +23,21 @@
 - Force pushes never happen on `dev` or on `main`, and no session force-pushes a branch whose pull request is open. Two writers do: Renovate, which rewrites its own branches and which `review.yml` leaves out of its count, and the types pipeline when its live branch conflicts with `dev`, a force-push that stops its pull request.
 - What the factory lacks on GitHub, a label, a secret, a rule of the ruleset: `bun ./factory/scripts/check.ts --repo bengous/claude-code-plugins` prints it, one line per item with its fix.
 
+### A pull request that waits
+
+Each workflow runs on the events of its `on:` block alone: `test` (`ci.yml`) on `opened`, `synchronize` and `reopened` of a pull request against `dev` or `main`; `review` (`review.yml`) on those and `ready_for_review`; `owner-gate` (`owner-gate.yml`, from the default branch) on those and `labeled`, `unlabeled`. A push runs all three; a label added or removed runs `owner-gate` alone; a change of base runs none.
+
+| The pull request shows | Why | What moves it |
+|---|---|---|
+| A required check absent, the others green, the merge state `BLOCKED` | No event of that check's `on:` block has run it on the head: the pull request opened before the workflow, or its trigger, was on the default branch. The ruleset waits on a check nothing reports. | An event that runs it: a push for any of the three; for `owner-gate`, a label added or removed, which runs no other check. |
+| `review` green with `Not reviewed: this pull request changes the review workflow.` | It changes `review.yml`: the review action skips itself when that file differs from `dev`'s. And every file it touches is under a path of `.github/CODEOWNERS`. | Nothing in the review: the CODEOWNERS path makes it `tier:human`, and it waits for the owner's `human-approved` (the *Tier* bullet). |
+| `review` red with `... the review cannot run on it. Split it.` | It changes `review.yml` and a file outside the paths of `.github/CODEOWNERS`. | Split it: the files outside those paths go to a pull request of their own, and a push of this one with the rest runs `review` again. |
+| `review` red with `A draft is not reviewed. Mark it ready: the review then reads it.` | The pull request is a draft. | Mark it ready: `ready_for_review` runs `review` and `owner-gate`. |
+| `review` and `owner-gate` red with `This pull request's base is not dev`, and no `test` when the base is neither `dev` nor `main` | The factory judges pull requests against `dev` alone. | Change the base to `dev`, then push: the change of base runs no check. A stack's layers follow the *stack* bullet. |
+| `owner-gate` red on `Tier human` | The tier. | The *Tier* bullet. |
+| The label `needs-human` | The factory stopped it. | The *Review* bullet. |
+| A failed `conflict` status | It conflicts with `dev`. | The *Conflict* bullet. |
+
 ## Release
 
 The human's step: `bun ./scripts/release.ts --dry-run`, read its plan, then `bun ./scripts/release.ts --plan <digest>` with the digest it printed. It bumps each plugin changed since `main` in one commit on `dev`'s head, pushes it to `release/<target>`, opens a pull request against `dev` whose body names the plan's digest and that commit, and prints its URL. Add the label `human-approved` to it yourself: it is your approval of that head, and the script never adds it. The script waits up to an hour until GitHub calls the pull request mergeable (your label on, the required checks green), checks `dev`'s head against the plan, then squash-merges the commit it pushed itself, and no other head (`gh pr merge --squash --match-head-commit`). GitHub's squash commit, titled `chore(release): <plugin>@x.y.z, ...` with the pull request's number, sets every bumped version and carries every tag. Then it waits for CI on that commit, fast-forwards `main` and tags. Every stop names what to do, with `main` unmoved:
