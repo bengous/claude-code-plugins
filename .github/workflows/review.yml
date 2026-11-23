@@ -23,15 +23,48 @@ jobs:
       verdict: ${{ steps.review.outputs.structured_output }}
       outside: ${{ steps.change.outputs.outside }}
       self: ${{ steps.change.outputs.self }}
+      started: ${{ steps.start.outputs.started }}
+      who: ${{ steps.start.outputs.who }}
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
       BASE: ${{ github.event.pull_request.base.ref }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+      OWNER: bengous
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+      # The review spends the owner's token, so a move of his starts it: a pull request opened under his
+      # login, by his own session or the one his ready label started on an issue, or any other once he
+      # labels it ready, with no app behind the label. A dependency update of Renovate is not read unless
+      # he asks: a review that runs no code adds little to a manifest and a lockfile, which test and the
+      # tier judge.
+      - name: Whose move started this pull request
+        id: start
+        run: |
+          set -euo pipefail
+          who=other
+          if [ "$AUTHOR" = "$OWNER" ]; then
+            who=owner
+          elif [ "$AUTHOR" = "renovate[bot]" ]; then
+            # Anyone with write access can push to a branch Renovate opened. Renovate commits through
+            # GitHub's API, which signs for it: a commit of anyone else makes the pull request someone else's.
+            foreign=$(gh api --paginate "repos/$REPO/pulls/$PR/commits?per_page=100" \
+              --jq '.[] | select((.author.login == "renovate[bot]" and .committer.login == "web-flow" and .commit.verification.verified == true) | not) | .sha' | wc -l)
+            if [ "$foreign" -eq 0 ]; then who=renovate; fi
+          fi
+          ready=false
+          last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+            --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "ready") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
+          if [ "$last" = "labeled true $OWNER" ]; then ready=true; fi
+          started=false
+          if [ "$who" = owner ] || [ "$ready" = true ]; then started=true; fi
+          {
+            echo "who=$who"
+            echo "started=$started"
+          } >> "$GITHUB_OUTPUT"
       - name: Read what the pull request changes
         id: change
         run: |
@@ -63,6 +96,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         id: review
+        if: steps.start.outputs.started == 'true'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The action refuses a pull request a bot opened unless the bot is named here.
@@ -100,6 +134,8 @@ jobs:
       VERDICT: ${{ needs.read.outputs.verdict }}
       OUTSIDE: ${{ needs.read.outputs.outside }}
       SELF: ${{ needs.read.outputs.self }}
+      STARTED: ${{ needs.read.outputs.started }}
+      WHO: ${{ needs.read.outputs.who }}
     steps:
       - name: Hold a draft, which no round reads
         if: github.event.pull_request.draft == true
@@ -128,6 +164,16 @@ jobs:
       - name: Fail while the review has findings, and stop at the third failed round
         run: |
           set -euo pipefail
+          # No move of the owner started it, so no round read it: the owner gate holds it for the owner,
+          # whatever its change.
+          if [ "$STARTED" = false ]; then
+            if [ "$WHO" = renovate ]; then
+              echo "::notice::Not reviewed: a dependency update of Renovate, which test and the tier judge. $OWNER labels it ready to have it reviewed."
+            else
+              echo "::notice::Not reviewed: no move of $OWNER started this pull request. He labels it ready to have it reviewed."
+            fi
+            exit 0
+          fi
           # claude-code-action skips itself when this file differs from dev. Only a pull request that stays
           # inside the paths of CODEOWNERS goes through unreviewed: the owner gate holds it for the owner.
           if [ -z "$VERDICT" ] && [ "${SELF:-0}" -gt 0 ]; then
