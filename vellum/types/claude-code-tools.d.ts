@@ -120,7 +120,7 @@ declare module 'claude-code' {
       pin?: boolean
       /** reply: id of the comment thread to reply into. resolve: the thread to mark resolved. comments: read just this one thread (the size cap can still elide a very long thread). Thread ids come from action "comments" and from comment notifications. */
       thread_id?: string
-      /** reply only: the reply text. Plain text, at most 4096 bytes of UTF-8. */
+      /** reply only: the reply text, at most 4096 bytes of UTF-8. Use few Markdown marks: the claude.ai comment card renders light Markdown, some other views show marks as typed, and links, tables and HTML always show as typed. */
       text?: string
       /** comments only: continue a listing that ended with a "more threads not listed" line — pass the cursor value that line names to render the threads it could not fit. */
       cursor?: string
@@ -149,7 +149,7 @@ declare module 'claude-code' {
       url?: string
       /** reply: id of the comment thread to reply into. resolve: the thread to mark resolved. read: read just this one thread (the size cap can still elide a very long thread). Thread ids come from action "read" and from comment notifications. */
       thread_id?: string
-      /** reply only: the reply text. Plain text, at most 4096 bytes of UTF-8. */
+      /** reply only: the reply text, at most 4096 bytes of UTF-8. Use few Markdown marks: the claude.ai comment card renders light Markdown, some other views show marks as typed, and links, tables and HTML always show as typed. */
       text?: string
       /** read only: continue a listing that ended with a "more threads not listed" line — pass the cursor value that line names to render the threads it could not fit. */
       cursor?: string
@@ -250,9 +250,9 @@ declare module 'claude-code' {
       cron: string
       /** The prompt to enqueue at each fire time. */
       prompt: string
-      /** true (default) = fire on every cron match until deleted or auto-expired after 7 days. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month. */
+      /** true (default) = fire on every cron match until deleted or auto-expired after 30 days. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month. */
       recurring?: boolean
-      /** true = persist to .claude/scheduled_tasks.json and survive restarts. false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions. */
+      /** true = persist to .claude/scheduled_tasks.json and survive restarts (the result says Session-only if the job could not be saved). false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions. */
       durable?: boolean
     }
     CronDelete: {
@@ -987,6 +987,11 @@ declare module 'claude-code' {
       prompt: string
       worktreePath?: string
       worktreeBranch?: string
+      /** @internal Where a mod isolated the agent in its parent's own folder and its work was kept: the labels it is found under. No worktreePath comes with it */
+      inPlace?: {
+        vcs: string
+        branch?: string
+      }
       /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
       canContinueAgent?: boolean
       /** @internal The subagent's TaskCreate and TaskUpdate calls that succeeded, in order: each call's tool, its input as the model wrote it, and its result text. The subagent writes the session's task list, and no other row of the main transcript shows these calls. A missing member does not mean that no call ran. A host may read it, so a later build only adds keys to a call: see "For another program that reads a sub-agent's task calls" in docs/task-list-across-compaction.md */
@@ -1092,6 +1097,7 @@ declare module 'claude-code' {
       instructions_chars?: number
       instructions_clipped?: boolean
       instructions_unavailable?: string
+      viewer_note?: string
       init_references?: {
         docs: {
           path: string
@@ -1257,6 +1263,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
       }[]
       query?: string
       more?: boolean
@@ -1269,6 +1276,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
         release?: string
         files: string[]
         files_omitted?: number
@@ -1277,6 +1285,7 @@ declare module 'claude-code' {
         instructions_chars?: number
         instructions_clipped?: boolean
         instructions_unavailable?: string
+        viewer_note?: string
         capabilities: string[]
         creatable?: boolean
       }
@@ -1325,6 +1334,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         match_of?: number
         ask_first?: boolean
@@ -1333,6 +1343,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }[]
         types_more?: boolean
         dashboard_type?: {
@@ -1340,18 +1351,21 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         motion_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         whiteboard_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         types_unavailable?: boolean
         types_ruled?: boolean
@@ -1973,6 +1987,7 @@ declare module 'claude-code' {
       instructions_chars?: number
       instructions_clipped?: boolean
       instructions_unavailable?: string
+      viewer_note?: string
       init_references?: {
         docs: {
           path: string
@@ -2138,6 +2153,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
       }[]
       query?: string
       more?: boolean
@@ -2150,6 +2166,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
         release?: string
         files: string[]
         files_omitted?: number
@@ -2158,6 +2175,7 @@ declare module 'claude-code' {
         instructions_chars?: number
         instructions_clipped?: boolean
         instructions_unavailable?: string
+        viewer_note?: string
         capabilities: string[]
         creatable?: boolean
       }
@@ -2206,6 +2224,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         match_of?: number
         ask_first?: boolean
@@ -2214,6 +2233,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }[]
         types_more?: boolean
         dashboard_type?: {
@@ -2221,18 +2241,21 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         motion_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         whiteboard_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         types_unavailable?: boolean
         types_ruled?: boolean
@@ -2854,6 +2877,7 @@ declare module 'claude-code' {
       instructions_chars?: number
       instructions_clipped?: boolean
       instructions_unavailable?: string
+      viewer_note?: string
       init_references?: {
         docs: {
           path: string
@@ -3019,6 +3043,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
       }[]
       query?: string
       more?: boolean
@@ -3031,6 +3056,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
         release?: string
         files: string[]
         files_omitted?: number
@@ -3039,6 +3065,7 @@ declare module 'claude-code' {
         instructions_chars?: number
         instructions_clipped?: boolean
         instructions_unavailable?: string
+        viewer_note?: string
         capabilities: string[]
         creatable?: boolean
       }
@@ -3087,6 +3114,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         match_of?: number
         ask_first?: boolean
@@ -3095,6 +3123,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }[]
         types_more?: boolean
         dashboard_type?: {
@@ -3102,18 +3131,21 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         motion_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         whiteboard_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         types_unavailable?: boolean
         types_ruled?: boolean
@@ -3735,6 +3767,7 @@ declare module 'claude-code' {
       instructions_chars?: number
       instructions_clipped?: boolean
       instructions_unavailable?: string
+      viewer_note?: string
       init_references?: {
         docs: {
           path: string
@@ -3900,6 +3933,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
       }[]
       query?: string
       more?: boolean
@@ -3912,6 +3946,7 @@ declare module 'claude-code' {
         type_url: string
         description?: string
         tier?: string
+        third_party?: boolean
         release?: string
         files: string[]
         files_omitted?: number
@@ -3920,6 +3955,7 @@ declare module 'claude-code' {
         instructions_chars?: number
         instructions_clipped?: boolean
         instructions_unavailable?: string
+        viewer_note?: string
         capabilities: string[]
         creatable?: boolean
       }
@@ -3968,6 +4004,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         match_of?: number
         ask_first?: boolean
@@ -3976,6 +4013,7 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }[]
         types_more?: boolean
         dashboard_type?: {
@@ -3983,18 +4021,21 @@ declare module 'claude-code' {
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         motion_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         whiteboard_type?: {
           title: string
           type_url: string
           description?: string
           tier?: string
+          third_party?: boolean
         }
         types_unavailable?: boolean
         types_ruled?: boolean
@@ -4735,6 +4776,8 @@ declare module 'claude-code' {
       durable?: boolean
       /** Epoch ms of the job's next run, the scheduler's per-job offset included */
       nextFireAt?: number
+      /** Age at which a recurring job ends; 0 = never */
+      maxAgeMs?: number
       /** Other session-only one-shot tasks that have yet to fire */
       otherOneShots?: {
         id: string
@@ -4911,6 +4954,8 @@ declare module 'claude-code' {
       /** @internal originalCwd was gone (or a network path the session will not touch), so restoredCwd is a fallback directory. */
       originalCwdMissing?: boolean
       message: string
+      /** @internal What the mod that removed the worktree said of getting the work back. */
+      releaseNote?: string
       /** @internal Told to the model and shown to the person where the sandbox stays on only through this move, or where commands are refused after it. */
       sandboxNote?: string
     }
