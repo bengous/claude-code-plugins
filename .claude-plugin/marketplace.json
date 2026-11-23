@@ -456,7 +456,7 @@
     {
       "name": "agent-hooks",
       "description": "Quality hooks for Claude Code that a repository opts into with one config file at the top of its git checkout: fixers run on the text before each write, silent when one fails, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
