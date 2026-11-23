@@ -31,6 +31,16 @@ jobs:
           if grep -qx human-approved <<<"$labels"; then
             gh api -X DELETE "repos/$REPO/issues/$PR/labels/human-approved" --silent
           fi
+      # A change of base reruns nothing: this check stays red on the head until a push runs it against {{BRANCH}}.
+      - name: Judge pull requests against {{BRANCH}} only
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$BASE" != "{{BRANCH}}" ]; then
+            echo "::error::This pull request's base is not {{BRANCH}}: the factory judges pull requests against {{BRANCH}} only."
+            exit 1
+          fi
       # The tier rules alone, from {{BRANCH}}: the pull request's code is never checked out, and no file of
       # the repository's root configures the bun that runs tier.ts.
       - uses: actions/checkout@v6

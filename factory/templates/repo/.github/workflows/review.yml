@@ -10,10 +10,10 @@ concurrency:
 jobs:
   read:
     name: review (read)
-    # A draft is reviewed once, when it becomes ready.
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    # A draft is reviewed once, when it becomes ready. A pull request against another base is not reviewed.
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.base.ref == '{{BRANCH}}'
     runs-on: ubuntu-latest
-    # Read access alone: this job hands the pull request's text to a model.
+    # Read access, and an OIDC token for claude-code-action: this job hands the pull request's text to a model.
     permissions:
       contents: read
       pull-requests: read
@@ -92,6 +92,24 @@ jobs:
       OUTSIDE: ${{ needs.read.outputs.outside }}
       SELF: ${{ needs.read.outputs.self }}
     steps:
+      # A change of base reruns nothing: this check stays red on the head until a push runs it against {{BRANCH}}.
+      - name: Judge pull requests against {{BRANCH}} only
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$BASE" != "{{BRANCH}}" ]; then
+            echo "::error::This pull request's base is not {{BRANCH}}: the factory judges pull requests against {{BRANCH}} only."
+            exit 1
+          fi
+      - name: Hold a pull request the factory stopped
+        run: |
+          set -euo pipefail
+          labels=$(gh api "repos/$REPO/issues/$PR/labels" --paginate --jq '.[].name')
+          if grep -qx needs-human <<<"$labels"; then
+            echo "::error::needs-human: the factory stopped this pull request. $OWNER comments what to do and removes the label."
+            exit 1
+          fi
       # The author's session can resolve a review thread it declines, so the thread rule alone does not hold a finding.
       - name: Fail while the review has findings, and stop at the third failed round
         run: |

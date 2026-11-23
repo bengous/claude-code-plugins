@@ -45,4 +45,6 @@ A failed `conflict` status means the pull request conflicts with `{{BRANCH}}`. M
 
 The `owner-gate` check gives every pull request a tier from its change. `tier:low` merges once `test` and `review` are green. `tier:human` waits for the owner's `human-approved` label; a change that touches a path of `CODEOWNERS` is always `human`.
 
+A pull request against another base than `{{BRANCH}}` stays red on `owner-gate` and `review`; after its base is changed to `{{BRANCH}}`, a push runs them again.
+
 A red `owner-gate` is the owner's to clear: push nothing for it, and never add `human-approved` yourself. A push removes that label, so push to an approved pull request only to fix a red check.
