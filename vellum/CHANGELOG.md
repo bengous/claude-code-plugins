@@ -2,6 +2,15 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.18.4 - 2026-11-23
+
+### Changed
+
+- The plan reviewer now puts issues that don't block the plan under Advisory. Before, it was told to flag only serious issues, so it left out smaller problems it had found.
+- The runtime dependencies are updated: zustand to v5.1.0 and mermaid to v12.3.0.
+
+Internal changes besides: the agent rules, `AGENTS.md` and `CONTEXT.md` now state the design without dates, commit ids or dated measurements. The test dependencies are updated: @playwright/test to v1.65.1 and axe-core to v4.14.1.
+
 ## 0.18.3 - 2026-11-02
 
 ### Fixed
