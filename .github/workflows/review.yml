@@ -24,6 +24,7 @@ jobs:
       outside: ${{ steps.change.outputs.outside }}
       self: ${{ steps.change.outputs.self }}
       started: ${{ steps.start.outputs.started }}
+      who: ${{ steps.start.outputs.who }}
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -36,21 +37,34 @@ jobs:
         with:
           fetch-depth: 1
       # The review spends the owner's token, so a move of his starts it: a pull request opened under his
-      # login, by his own session or the one his ready label started on an issue, one Renovate opened from
-      # the configuration he wrote, or any other once he labels it ready, with no app behind the label.
+      # login, by his own session or the one his ready label started on an issue, or any other once he
+      # labels it ready, with no app behind the label. A dependency update of Renovate is not read unless
+      # he asks: a review that runs no code adds little to a manifest and a lockfile, which test and the
+      # tier judge.
       - name: Whose move started this pull request
         id: start
         run: |
           set -euo pipefail
-          started=false
-          if [ "$AUTHOR" = "$OWNER" ] || [ "$AUTHOR" = "renovate[bot]" ]; then
-            started=true
-          else
-            last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
-              --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "ready") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
-            if [ "$last" = "labeled true $OWNER" ]; then started=true; fi
+          who=other
+          if [ "$AUTHOR" = "$OWNER" ]; then
+            who=owner
+          elif [ "$AUTHOR" = "renovate[bot]" ]; then
+            # Anyone with write access can push to a branch Renovate opened. Renovate commits through
+            # GitHub's API, which signs for it: a commit of anyone else makes the pull request someone else's.
+            foreign=$(gh api --paginate "repos/$REPO/pulls/$PR/commits?per_page=100" \
+              --jq '.[] | select((.author.login == "renovate[bot]" and .committer.login == "web-flow" and .commit.verification.verified == true) | not) | .sha' | wc -l)
+            if [ "$foreign" -eq 0 ]; then who=renovate; fi
           fi
-          echo "started=$started" >> "$GITHUB_OUTPUT"
+          ready=false
+          last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+            --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "ready") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
+          if [ "$last" = "labeled true $OWNER" ]; then ready=true; fi
+          started=false
+          if [ "$who" = owner ] || [ "$ready" = true ]; then started=true; fi
+          {
+            echo "who=$who"
+            echo "started=$started"
+          } >> "$GITHUB_OUTPUT"
       - name: Read what the pull request changes
         id: change
         run: |
@@ -121,6 +135,7 @@ jobs:
       OUTSIDE: ${{ needs.read.outputs.outside }}
       SELF: ${{ needs.read.outputs.self }}
       STARTED: ${{ needs.read.outputs.started }}
+      WHO: ${{ needs.read.outputs.who }}
     steps:
       - name: Hold a draft, which no round reads
         if: github.event.pull_request.draft == true
@@ -152,7 +167,11 @@ jobs:
           # No move of the owner started it, so no round read it: the owner gate holds it for the owner,
           # whatever its change.
           if [ "$STARTED" = false ]; then
-            echo "::notice::Not reviewed: no move of $OWNER started this pull request. He labels it ready to have it reviewed."
+            if [ "$WHO" = renovate ]; then
+              echo "::notice::Not reviewed: a dependency update of Renovate, which test and the tier judge. $OWNER labels it ready to have it reviewed."
+            else
+              echo "::notice::Not reviewed: no move of $OWNER started this pull request. He labels it ready to have it reviewed."
+            fi
             exit 0
           fi
           # claude-code-action skips itself when this file differs from dev. Only a pull request that stays
