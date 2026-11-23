@@ -259,6 +259,8 @@ describe("what the required files say", () => {
     expect(missing(older)).toEqual([
       ".github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved",
       ".github/workflows/review.yml names the label needs-human",
+      ".github/workflows/owner-gate.yml judges a pull request against the default branch only",
+      ".github/workflows/review.yml judges a pull request against the default branch only",
       ".github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md, and path prefixes from the root alone",
       ".claude/skills/verify/SKILL.md carries no disable-model-invocation: true",
       "CLAUDE.md names the labels needs-human and human-approved",

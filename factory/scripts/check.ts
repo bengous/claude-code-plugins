@@ -88,6 +88,12 @@ export const CONTENT_RULES: readonly ContentRule[] = [
     holds: (text) => text.includes("needs-human"),
     fix: TEMPLATE_FIX,
   },
+  ...[".github/workflows/owner-gate.yml", ".github/workflows/review.yml"].map((path) => ({
+    path,
+    says: "judges a pull request against the default branch only",
+    holds: (text: string) => text.includes("github.event.pull_request.base.ref"),
+    fix: TEMPLATE_FIX,
+  })),
   {
     path: ".github/CODEOWNERS",
     says: `lists ${OWNED_PATHS.join(", ")}, and path prefixes from the root alone`,
