@@ -96,15 +96,15 @@ jobs:
         continue-on-error: true
         run: bun .github/factory/tier.ts gate --repo "$REPO" --pr "$PR" --head "$HEAD"
       # A fork's pull request never reaches the classifier: anyone can open one, and each would spend the
-      # owner's token on a stranger's text. Nor does one no move of the owner started. Either gets no tier,
-      # which the last step reads as human.
+      # owner's token on a stranger's text. Nor does one the owner did not open, whose tier the last step
+      # sets to human whatever a classifier would say. Either gets no tier, which that step reads as human.
       - name: Install Claude Code
-        if: steps.tier.outputs.ask == 'true' && steps.start.outputs.started == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.tier.outputs.ask == 'true' && steps.start.outputs.by == 'author' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         run: npm install -g @anthropic-ai/claude-code
       - name: Ask the classifier, once per commit and diff
         id: judge
-        if: steps.tier.outputs.ask == 'true' && steps.start.outputs.started == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.tier.outputs.ask == 'true' && steps.start.outputs.by == 'author' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -115,6 +115,7 @@ jobs:
           REASON: ${{ steps.judge.outputs.reason || steps.tier.outputs.reason }}
           SUPERSEDED: ${{ steps.judge.outputs.superseded || steps.tier.outputs.superseded }}
           STARTED: ${{ steps.start.outputs.started }}
+          BY: ${{ steps.start.outputs.by }}
         run: |
           set -euo pipefail
           # The labels show the tier of the head commit. A push can land while the classifier answers, so the
@@ -131,6 +132,13 @@ jobs:
           if [ "$STARTED" != true ]; then
             TIER=human
             REASON="no move of $OWNER started this pull request, which no review read"
+          fi
+          # His ready label buys someone else's pull request a review to decide on, and no merge: the review
+          # it runs again reports after this check, and until then the head still carries the green
+          # `Not reviewed`, which a low tier would let auto-merge through unread.
+          if [ "$BY" != author ]; then
+            TIER=human
+            REASON="${REASON:-$OWNER did not open this pull request: his ready label has it reviewed, and he approves it}"
           fi
           if [ "$TIER" = low ]; then
             tier=low
