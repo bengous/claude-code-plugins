@@ -26,7 +26,7 @@ Writing into this repository's working tree needs no ask: `install.ts` refuses t
 - `REPO`: `$ARGUMENTS` when given, else `gh repo view --json nameWithOwner --jq .nameWithOwner`. It must be the repository of the current checkout.
 - `OWNER`: the login of the human who labels issues `ready` and pull requests `human-approved`. Propose `gh api user --jq .login` and have the owner confirm it: the workflows trust that login alone.
 - `BRANCH`: the default branch, the base of every pull request: `gh repo view <REPO> --json defaultBranchRef --jq .defaultBranchRef.name`.
-- `CI`: the name of the repository's CI workflow, its `name:` line, which `trunk-red.yml` listens to. `gh workflow list --repo <REPO>` lists the names; ask the owner which one tests the code. The ruleset requires a check named `test`: that workflow needs a job named `test` that runs on `pull_request`, on `push` to `<BRANCH>`, and on `merge_group` where the repository has a merge queue. Say so now if it has none; step 6 reports it.
+- `CI`: the name of the repository's CI workflow, its `name:` line, which `trunk-red.yml` listens to. `gh workflow list --repo <REPO>` lists the names; ask the owner which one tests the code. The ruleset requires a check named `test`: that workflow needs a job that reports it, its `name:` `test` or its id `test` with no `name:`, and no matrix, which reports `test (…)`. It runs on `pull_request`, on `push` to `<BRANCH>`, and on `merge_group` where the repository has a merge queue, with no `paths` or `paths-ignore` filter: a filtered change never gets the check. Say so now if it has none; step 6 reports it.
 - `ROUTINE_ID`: the `trig_…` id of the routine, known once step 2 created it.
 
 ## 2. Routine
@@ -38,8 +38,8 @@ Writing into this repository's working tree needs no ask: `install.ts` refuses t
    "${CLAUDE_PLUGIN_ROOT}/scripts/install.ts" prompt --owner <OWNER> --repo <REPO> --branch <BRANCH> --dir <scratch dir>
    ```
 
-3. Create the routine from that prompt with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`): `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, the cloud environment the owner names.
-4. Only once the routine exists, version it: write `~/dotfiles/cloud/routines/<repo name>-worker/prompt.md`, with the same `install.ts prompt` command and that `--dir`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id. Then `bun run routines:check` in `~/dotfiles` must exit 0.
+3. Create the routine from that prompt with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`): `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, the cloud environment the owner names, and `clear_mcp_connections` true: a routine created with no connector named gets every connector of the owner's account, mail and drive included, and the Worker needs none.
+4. Only once the routine exists, version it: write `~/dotfiles/cloud/routines/<repo name>-worker/prompt.md` by running the same `install.ts prompt` command again with `--dir ~/dotfiles/cloud/routines/<repo name>-worker`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id. Then `bun run routines:check` in `~/dotfiles` must exit 0.
 
 The routine has no trigger yet, and only the owner can add one: on the routine's page on claude.ai, *Edit*, the *Trigger* row, **+**, *API*, *Generate token*. The token is shown once. Ask him to do it, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
 
@@ -96,8 +96,8 @@ Commit the files on a branch and have them reach `<BRANCH>`. On a first install,
 One line per item, `ok` or `missing` with what fixes it; exit 1 while one is missing. A secret marked `not visible` means this token cannot list secrets: ask the owner whether it is set. For each missing item, tell the owner what it does and ask before running its fix:
 
 - **Labels**: the fix creates the label. `ready`, `in-progress`, `blocked`, `needs-human`, `trunk-red`, `tier:low`, `tier:human` and `human-approved` are the factory's states.
-- **Files**, and the hooks of `.claude/settings.json`: steps 3 to 5, then land them.
-- **CI workflow**: the workflow `trunk-red.yml` names must exist and hold a job named `test` that runs on pull requests and on pushes to `<BRANCH>`.
+- **Files**, and the hooks of `.claude/settings.json`: steps 3 to 5, then land them. A file that exists but says the wrong thing is an older or adapted version: `owner-gate.yml` must run `tier.ts` and read `human-approved`, `review.yml` name `needs-human`, `CODEOWNERS` list `/.github/`, `/.claude/` and `/CLAUDE.md`, the verify skill carry no `disable-model-invocation: true`, and `CLAUDE.md` name `needs-human` and `human-approved`.
+- **CI workflow**: the workflow `trunk-red.yml` names must exist and hold a job that reports the check `test`, on pull requests and on pushes to `<BRANCH>`, with no paths filter.
 - **Ruleset**: the checks, resolved threads and merge queue live in one ruleset on the default branch. The fix reads a `ruleset.json` you write outside the repository. With `PUT`, a ruleset exists: `PUT` replaces all its rules, so read it first with `gh api repos/<REPO>/rulesets/<id>`, keep its rules and add the missing ones. The proven body:
 
   ```json
@@ -119,7 +119,11 @@ One line per item, `ok` or `missing` with what fixes it; exit 1 while one is mis
 
   Leave the `merge_queue` rule out where GitHub offers no merge queue: it offers one in a public repository of an organization, and in a private one under GitHub Enterprise Cloud. `check.ts` reports a default branch without one and does not count it missing.
 
+  A bypass actor on a ruleset of `<BRANCH>` merges past the checks: the fix empties `bypass_actors`. `check.ts` reports them `not visible` when this token may not read them: ask the owner to look in the ruleset's settings.
+
 - **Auto-merge**: the cloud session enables it on its pull request; the fix allows it on the repository.
+- **Squash merge**: the ruleset allows only squash merges, so the repository must allow them.
+- **GitHub Actions**: it must be enabled and allow every action, or the three the workflows use: `actions/checkout`, `oven-sh/setup-bun` and `anthropics/claude-code-action`. With selected actions only, `check.ts` prints the line `ok`: have the owner check that those three are allowed.
 - **`CLAUDE_CODE_OAUTH_TOKEN`**: the token of the review and of the tier classifier. The owner generates it with `claude setup-token` and pastes it into `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <REPO>`, in his terminal.
 - **`ROUTINE_FIRE_TOKEN`**: step 2.
 
