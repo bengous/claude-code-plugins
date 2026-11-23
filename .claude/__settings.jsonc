@@ -137,6 +137,29 @@
             "statusMessage": "Formatting..."
           }
         ]
+      },
+      {
+        // The factory's verify hook, which acts in a cloud session alone: it
+        // records the working tree each time the verify skill runs.
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" record"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        // Sends a cloud session back to the verify skill while its working
+        // tree differs from the one verify last saw.
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" stop"
+          }
+        ]
       }
     ]
   },

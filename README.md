@@ -8,11 +8,13 @@ A curated marketplace of Claude Code plugins for development workflow automation
 
 ```bash
 # Add this marketplace to Claude Code
-/plugin marketplace add bengous/claude-code-plugins
+/plugin marketplace add bengous/claude-code-plugins#main
 
 # Install a plugin
 /plugin install <plugin-name>@bengous-plugins
 ```
+
+`#main` is the release branch. Without it the marketplace follows `dev`, the repository's default branch, where plugins change between two releases.
 
 ## Available Plugins
 

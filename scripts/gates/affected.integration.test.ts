@@ -11,6 +11,7 @@ import {
   integrationWorkers,
   kitsOf,
   type PathClass,
+  reachesE2e,
   readArgs,
   scopeOf,
   testRuns,
@@ -170,12 +171,12 @@ describe("what the scope runs", () => {
     expect(kitsOf({ kind: "all", reason: "" }, ["vellum", "todos"])).toEqual(["vellum", "todos"]);
   });
 
-  test("for GitHub Actions: whether all runs, the units and the kits, one output a line", () => {
-    expect(githubOutput({ kind: "units", units: ["todos"] }, ["todos"])).toBe(
-      'all=false\nunits=["todos"]\nkits=["todos"]\n',
+  test("for GitHub Actions: whether all runs, the units, the kits and whether e2e runs, one output a line", () => {
+    expect(githubOutput({ kind: "units", units: ["todos"] }, ["todos"], false)).toBe(
+      'all=false\nunits=["todos"]\nkits=["todos"]\ne2e=false\n',
     );
-    expect(githubOutput({ kind: "all", reason: "" }, ["vellum", "todos"])).toBe(
-      'all=true\nunits=[]\nkits=["vellum","todos"]\n',
+    expect(githubOutput({ kind: "all", reason: "" }, ["vellum", "todos"], true)).toBe(
+      'all=true\nunits=[]\nkits=["vellum","todos"]\ne2e=true\n',
     );
   });
 });
@@ -308,6 +309,73 @@ describe("currentScope", () => {
       reason: "a workflow_dispatch run checks everything",
     });
   });
+
+  /** The checkout of a pull request's run, the merge of `feature` into `dev`'s tip, and that run's environment. */
+  function pullRequestRun() {
+    git("switch", "-q", "--detach", "dev");
+    git("merge", "-q", "--no-ff", "-m", "Merge feature", "feature");
+
+    return { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request" };
+  }
+
+  function pushRun(before: string) {
+    const event = join(root, ".git", "event.json");
+    writeFileSync(event, JSON.stringify({ before }));
+
+    return { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event };
+  }
+
+  describe("reachesE2e", () => {
+    test("a pull request that changes a file of vellum reaches the browser suite", async () => {
+      write("vellum/serve.ts", "changed\n");
+      commit("Change vellum");
+
+      expect(await reachesE2e(root, pullRequestRun())).toBe(true);
+    });
+
+    test("a pull request that changes another plugin alone does not", async () => {
+      write("todos/scan.ts", "changed\n");
+      commit("Change todos");
+
+      expect(await reachesE2e(root, pullRequestRun())).toBe(false);
+    });
+
+    test("a pull request is not charged with what the base gained since", async () => {
+      write("todos/scan.ts", "changed\n");
+      commit("Change todos");
+      git("switch", "-q", "dev");
+      write("vellum/serve.ts", "landed on dev since\n");
+      commit("Land on dev");
+
+      expect(await reachesE2e(root, pullRequestRun())).toBe(false);
+    });
+
+    test("a pull request whose base does not read runs the suite", async () => {
+      write("todos/scan.ts", "changed\n");
+      commit("Change todos");
+
+      // A branch's own head, not the merge of a pull request's run: it has no first parent to measure from.
+      git("switch", "-q", "--detach", "dev");
+
+      expect(
+        await reachesE2e(root, { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request" }),
+      ).toBe(true);
+    });
+
+    test("a push runs the suite whatever it pushed: its check speaks for the whole tree", async () => {
+      const before = git("rev-parse", "HEAD");
+      write("todos/scan.ts", "changed\n");
+      commit("Change todos");
+
+      expect(await reachesE2e(root, pushRun(before))).toBe(true);
+    });
+
+    test("a run with no change to measure, as a dispatch, runs the suite", async () => {
+      const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch" };
+
+      expect(await reachesE2e(root, env)).toBe(true);
+    });
+  });
 });
 
 describe("baseOf", () => {
@@ -362,7 +430,7 @@ test("github-output appends its lines to $GITHUB_OUTPUT, the kits read off the c
 
   expect(result.exitCode).toBe(0);
   expect(readFileSync(output, "utf8")).toBe(
-    'earlier=1\nall=true\nunits=[]\nkits=["vellum","todos","secret-pane","pinpoint","atlas","griller"]\n',
+    'earlier=1\nall=true\nunits=[]\nkits=["vellum","todos","secret-pane","pinpoint","atlas","griller"]\ne2e=true\n',
   );
   rmSync(dir, { recursive: true, force: true });
 });

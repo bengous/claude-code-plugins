@@ -7,7 +7,7 @@ A value that reaches the conversation is in the transcript for good: sent to the
 ## Install
 
 ```
-/plugin marketplace add bengous/claude-code-plugins
+/plugin marketplace add bengous/claude-code-plugins#main
 /plugin install secret-pane@bengous-plugins
 ```
 

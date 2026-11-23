@@ -1,0 +1,10 @@
+# Paths whose changes get the deep review. One path prefix per line, as in CODEOWNERS.
+/.github/
+/.claude/
+/scripts/gates/
+/scripts/ci/
+/scripts/headless/
+/scripts/release.ts
+/scripts/releasing/
+/tools/platform/
+/factory/

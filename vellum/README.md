@@ -5,7 +5,7 @@ Write a plan the way its reviewer reads it, then review it in the browser. The s
 ## Install
 
 ```bash
-/plugin marketplace add bengous/claude-code-plugins
+/plugin marketplace add bengous/claude-code-plugins#main
 /plugin install vellum@bengous-plugins
 ```
 

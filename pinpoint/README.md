@@ -12,7 +12,7 @@ Point at your running app and talk to Claude. The session's address serves your 
 ## Install
 
 ```
-/plugin marketplace add bengous/claude-code-plugins
+/plugin marketplace add bengous/claude-code-plugins#main
 /plugin install pinpoint@bengous-plugins
 ```
 

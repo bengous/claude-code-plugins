@@ -1,0 +1,26 @@
+{
+  "lineCap": 400,
+  "humanPaths": [
+    "**/CLAUDE.md",
+    "**/CLAUDE.local.md",
+    "**/.claude/**",
+    "**/AGENTS.md",
+    ".claude-plugin/marketplace.json",
+    "*/.claude-plugin/plugin.json",
+    "factory/templates/**",
+    "scripts/release.ts",
+    "scripts/releasing/**",
+    "scripts/gates/**",
+    "scripts/ci/**",
+    "lefthook.yml",
+    ".lefthook/**",
+    "oxlint.config.ts",
+    ".oxfmtrc.json",
+    "tools/oxlint/**",
+    "tsconfig.json",
+    "bunfig.toml",
+    "stryker.config.ts",
+    "mise.toml",
+    "renovate.json"
+  ]
+}
