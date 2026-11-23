@@ -31,6 +31,14 @@ jobs:
       - name: Open the repair issue of a red {{BRANCH}} and fire the routine on it
         run: |
           set -euo pipefail
+          fire() {
+            curl -sS --fail-with-body -X POST "$FIRE_URL" \
+              -H "Authorization: Bearer $FIRE_TOKEN" \
+              -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+              -H "anthropic-version: 2023-06-01" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\": \"Work on issue #$1.\"}" | jq -r .claude_code_session_url
+          }
           # The newest completed run decides, not the run that started this job: a pending job that a later one
           # replaces is cancelled, so an event can be lost, and the state of {{BRANCH}} cannot.
           newest=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=$BRANCH&event=push&status=completed&per_page=1" \
@@ -40,9 +48,17 @@ jobs:
             echo "$BRANCH is not red: the newest $CI run concluded $conclusion."
             exit 0
           fi
-          open=$(gh api "repos/$REPO/issues?state=open&labels=trunk-red&per_page=100" --jq '[.[] | select(.pull_request == null)] | length')
-          if [ "$open" -gt 0 ]; then
-            echo "A trunk-red issue is already open."
+          open=$(gh api "repos/$REPO/issues?state=open&labels=trunk-red&per_page=100" \
+            --jq '[.[] | select(.pull_request == null)][0] | if . == null then "" else "\(.number) \([.labels[].name] | index("ready") != null)" end')
+          if [ -n "$open" ]; then
+            read -r issue unclaimed <<<"$open"
+            # A fire that failed leaves the issue labelled ready with no Worker, and dispatch.yml fires only for
+            # the owner's issues: re-running this job fires the routine on it again.
+            if [ "$unclaimed" = true ] && [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
+              fire "$issue"
+            else
+              echo "A trunk-red issue is already open: #$issue."
+            fi
             exit 0
           fi
           # Two repair issues closed since the last green run, and still red: no third Worker.
@@ -71,9 +87,4 @@ jobs:
             echo "::error::$BRANCH is still red after $repairs repairs: #$issue is labelled needs-human, and no Worker starts."
             exit 0
           fi
-          curl -sS --fail-with-body -X POST "$FIRE_URL" \
-            -H "Authorization: Bearer $FIRE_TOKEN" \
-            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
-            -H "anthropic-version: 2023-06-01" \
-            -H "Content-Type: application/json" \
-            -d "{\"text\": \"Work on issue #$issue.\"}" | jq -r .claude_code_session_url
+          fire "$issue"

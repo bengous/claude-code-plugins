@@ -25,7 +25,7 @@ Open a pull request against `{{BRANCH}}` that closes the issue, ready for review
 
 Auto-fix wakes you on what happens to the pull request. Read its labels before any change.
 
-- The label `needs-human`: three rounds failed and the factory stopped. Make no change, push nothing and reply to nothing until the label is gone. The owner restarts it with a comment that says what to do: a comment is the owner's when its `user.login` is `{{OWNER}}` and its `performed_via_github_app` is null. Follow that one.
+- The label `needs-human`: three rounds failed, or the pull request conflicted a third time, and the factory stopped. Make no change, push nothing and reply to nothing until the label is gone. The owner restarts it with a comment that says what to do: a comment is the owner's when its `user.login` is `{{OWNER}}` and its `performed_via_github_app` is null. Follow that one.
 - A red `test`, or a finding of the review: fix it, run `verify` again, push.
 - A failed `conflict` status: the pull request conflicts with `{{BRANCH}}`. Merge `{{BRANCH}}` into your branch, resolve so that both changes hold, run the tests, push.
 - A red `owner-gate`: the change waits for the owner's `human-approved` label. Push nothing for it, and never add that label.

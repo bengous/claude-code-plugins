@@ -31,7 +31,7 @@ The `review` check fails while the review has findings, and only the next review
 
 ## Stop
 
-Read a pull request's labels before any change to it. One labelled `needs-human` is stopped: `review` or `test` failed on three of its commits. Make no change, push nothing and reply to nothing until the label is gone.
+Read a pull request's labels before any change to it. One labelled `needs-human` is stopped: `review` or `test` failed on three of its commits, or it conflicted with `{{BRANCH}}` a third time. Make no change, push nothing and reply to nothing until the label is gone.
 
 The owner restarts it by commenting what to do and removing the label. A comment is the owner's only when its `user.login` is the owner's and its `performed_via_github_app` is null: your own comments carry the same login, through an app. Follow the owner's comment, where it differs from the issue too.
 
