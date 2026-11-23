@@ -1,4 +1,4 @@
 {
   "lineCap": 400,
-  "humanPaths": []
+  "humanPaths": ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/.claude/**"]
 }

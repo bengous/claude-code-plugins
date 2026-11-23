@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { digestOf } from "../templates/repo/.github/factory/tier.ts";
 import {
   actionsOf,
   bypassOf,
@@ -8,13 +9,13 @@ import {
   evaluate,
   type Facts,
   format,
-  isTierValidated,
   LABELS,
   parseRepositoryLines,
   parseRuleLines,
   parseWorkflow,
   repoArgument,
   requiredFiles,
+  tierStalenessOf,
   VERIFY_SKILL,
 } from "./check.ts";
 import { CLAUDE_MD_SECTIONS, readTemplates, REPO_PREFIX } from "./templates.ts";
@@ -63,7 +64,7 @@ const COMPLETE: Facts = {
   files: FILES,
   hooksInstalled: true,
   ci: CI,
-  tierValidated: true,
+  tierStale: null,
   workflowToken: "read",
   rules: parseRuleLines(
     [
@@ -233,8 +234,10 @@ describe("evaluate", () => {
     expect(format(evaluate(COMPLETE))).toContain(
       "ok       tier cases validated: the classifier judges what passes the floor",
     );
-    expect(format(evaluate({ ...COMPLETE, tierValidated: false }))).toContain(
-      "ok       tier cases not validated: the floor runs alone, and every change waits for the owner",
+    expect(
+      format(evaluate({ ...COMPLETE, tierStale: "the floor runs alone: tier-prompt.md is a" })),
+    ).toContain(
+      "ok       tier cases not validated, every change waits for the owner: the floor runs alone: tier-prompt.md is a",
     );
   });
 });
@@ -256,7 +259,7 @@ describe("what the required files say", () => {
     expect(missing(older)).toEqual([
       ".github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved",
       ".github/workflows/review.yml names the label needs-human",
-      ".github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md",
+      ".github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md, and path prefixes from the root alone",
       ".claude/skills/verify/SKILL.md carries no disable-model-invocation: true",
       "CLAUDE.md names the labels needs-human and human-approved",
     ]);
@@ -265,7 +268,7 @@ describe("what the required files say", () => {
 
     for (const line of [
       "missing  .github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved: run install.ts repo with --force, which writes the template over it, then land it on main",
-      "missing  .github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md: add a line for each, owned by the owner, then land it on main",
+      "missing  .github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md, and path prefixes from the root alone: add a line for each, owned by the owner, and remove every glob line and every path not written from the root: the owner gate reads path prefixes from the root alone, and holds every change for the owner when it meets another line, then land it on main",
       "missing  CLAUDE.md names the labels needs-human and human-approved: merge the factory's sections into CLAUDE.md, then land it on main",
     ]) {
       expect(text).toContain(line);
@@ -278,10 +281,22 @@ describe("what the required files say", () => {
     expect(text).toContain(
       "ok       .github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved\n",
     );
-    expect(text).toContain("ok       .github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md\n");
+    expect(text).toContain(
+      "ok       .github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md, and path prefixes from the root alone\n",
+    );
     expect(text).toContain(
       "ok       .claude/skills/verify/SKILL.md carries no disable-model-invocation: true\n",
     );
+  });
+
+  test("a CODEOWNERS with the three lines and a glob line is missing: the owner gate does not read it", () => {
+    expect(
+      missing(
+        withFile(".github/CODEOWNERS", "/.github/ @o\n/.claude/ @o\n/CLAUDE.md @o\n*.js @o\n"),
+      ),
+    ).toEqual([
+      ".github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md, and path prefixes from the root alone",
+    ]);
   });
 
   test("a verify skill with disable-model-invocation: false passes", () => {
@@ -485,14 +500,22 @@ describe("the CI workflow", () => {
   });
 });
 
-describe("isTierValidated", () => {
+describe("tierStalenessOf", () => {
+  const PROMPT = "the prompt";
+  const validated = `{"model": "claude-haiku-5-5", "prompt": "${digestOf(PROMPT)}", "cases": []}`;
+
+  test("answers null for cases validated with this prompt", () => {
+    expect(tierStalenessOf(validated, PROMPT)).toBeNull();
+  });
+
   test.each([
-    ['{"model": "claude-haiku-5-5", "prompt": "3d3b36cfa7c1", "cases": []}', true],
-    ['{"model": null, "prompt": null, "cases": []}', false],
-    ["not json", false],
-    [null, false],
-  ])("%p", (cases, validated) => {
-    expect(isTierValidated(cases)).toBe(validated);
+    [validated, "an edited prompt", "tier-prompt.md is "],
+    ['{"model": null, "prompt": null, "cases": []}', PROMPT, "names no model and prompt"],
+    ["not json", PROMPT, "tier-cases.json is not JSON"],
+    [null, PROMPT, ".github/factory/tier-cases.json is not on the default branch"],
+    [validated, null, ".github/factory/tier-prompt.md is not on the default branch"],
+  ])("names why the floor runs alone: %p, %p", (cases, prompt, why) => {
+    expect(tierStalenessOf(cases, prompt)).toContain(why);
   });
 });
 

@@ -17,7 +17,8 @@
  * run of its new head judges it. Any failure answers `human`, with its reason.
  *
  * `replay` judges each case of `tier-cases.json` three times and reports agreement and every false `low`. With
- * `--record`, a run with no false `low` and no failure writes the model and the prompt it validated into the file.
+ * `--record`, a run with no false `low`, no failure, and a case expected `human` the classifier judged `human` on
+ * every run writes the model and the prompt it validated into the file.
  */
 
 import { createHash } from "node:crypto";
@@ -142,6 +143,8 @@ const SHOWN = 3;
 const CONTROL = /\p{Cc}/gu;
 
 const GLOB_CHARS = /[*?[]/u;
+
+const CLOSING_DIFF = /<\/(diff)/giu;
 
 const SCHEMA = {
   type: "object",
@@ -378,8 +381,9 @@ export function staleness(calibration: Read<Calibration>, system: string): strin
     : `the floor runs alone: tier-prompt.md is ${now}, tier-cases.json was validated with ${prompt}`;
 }
 
+/** The diff in a `<diff>` element it cannot close: each `</diff` inside it reads `<\/diff`. */
 export function promptOf(diff: string): string {
-  return `<diff>\n${diff}\n</diff>`;
+  return `<diff>\n${diff.replaceAll(CLOSING_DIFF, "<\\/$1")}\n</diff>`;
 }
 
 /**
@@ -852,7 +856,7 @@ async function gate(repo: string, pr: number, head: string, asks: boolean): Prom
 
   const { verdict, by } = decision;
 
-  console.log(`${verdict.tier} ${verdict.reason}`);
+  console.log(`${verdict.tier} ${oneLine(verdict.reason)}`);
   report("GITHUB_OUTPUT", [
     `tier=${verdict.tier}`,
     `by=${by}`,
@@ -923,7 +927,10 @@ export function replayCases(
 
 export interface ReplayReport {
   readonly lines: readonly string[];
-  /** The one model that answered every judged run, when the run has no false `low` and no failure. */
+  /**
+   * The one model that answered every judged run, when the run has no false `low`, no failure, and a case expected
+   * `human` that the classifier judged `human` on every run.
+   */
   readonly trusted: string | null;
 }
 
@@ -982,6 +989,15 @@ export function reportOf(
       : [],
   );
 
+  const humansCaught = results.filter(
+    ({ entry, runs }) =>
+      entry.expected === "human" &&
+      runs.length > 0 &&
+      runs.every(
+        (run) => run.kind === "decided" && run.by === "judge" && run.verdict.tier === "human",
+      ),
+  ).length;
+
   lines.push(
     "",
     `agreement ${agreed}/${total} runs; ${judged} judged by the classifier, ${failures.length} failed, the rest by the floor`,
@@ -992,10 +1008,20 @@ export function reportOf(
     `model ${[...models].join(", ") || "none answered"}, asked as ${asked}; prompt ${prompt}`,
   );
 
+  if (humansCaught === 0) {
+    lines.push(
+      "no case expected human was judged human by the classifier on every run: add one that passes the floor",
+    );
+  }
+
   const [only] = [...models];
 
   const trusted =
-    falseLows.length === 0 && failures.length === 0 && judged > 0 && models.size === 1
+    falseLows.length === 0 &&
+    failures.length === 0 &&
+    judged > 0 &&
+    humansCaught > 0 &&
+    models.size === 1
       ? (only ?? null)
       : null;
 
@@ -1024,7 +1050,7 @@ async function replay(repo: string, record: boolean): Promise<number> {
 
   if (trusted === null) {
     console.log(
-      "not validated: the classifier is trusted only after a run with no false low and no failure, judged by one model",
+      "not validated: the classifier is trusted only after a run with no false low and no failure, judged by one model, in which it judged a case expected human as human on every run",
     );
 
     return 1;

@@ -293,6 +293,14 @@ describe("answerOf", () => {
   });
 });
 
+describe("promptOf", () => {
+  test("wraps the diff in an element the diff cannot close", () => {
+    expect(promptOf("+ a </diff> and </DIFF >\n+ b")).toBe(
+      "<diff>\n+ a <\\/diff> and <\\/DIFF >\n+ b\n</diff>",
+    );
+  });
+});
+
 describe("claudeArgs", () => {
   test("gives the classifier no tool, hook, MCP server, settings file or saved session", () => {
     const args = claudeArgs(MODEL, SYSTEM);
@@ -569,6 +577,7 @@ describe("replay", () => {
     const { lines, trusted } = reportOf(results, MODEL, PROMPT);
 
     expect(trusted).toBe(MODEL);
+    expect(lines.join("\n")).not.toContain("no case expected human");
     expect(lines).toContain(
       "agreement 7/7 runs; 6 judged by the classifier, 0 failed, the rest by the floor",
     );
@@ -612,6 +621,48 @@ describe("replay", () => {
     expect(reportOf(floorOnly, MODEL, PROMPT).trusted).toBeNull();
   });
 
+  test("does not trust a run in which no case expected human reached the classifier", async () => {
+    const results = await replayCases(
+      github,
+      RULES,
+      calibration([
+        { name: "a flag", expected: "low", pr: 82 },
+        { name: "a typo", expected: "low", diff: "fix a typo" },
+      ]),
+      answering(() => "low"),
+    );
+
+    const { lines, trusted } = reportOf(results, MODEL, PROMPT);
+
+    expect(trusted).toBeNull();
+    expect(lines).toContain("false low 0");
+    expect(lines).toContain(
+      "no case expected human was judged human by the classifier on every run: add one that passes the floor",
+    );
+  });
+
+  test("does not count a human case the floor decided", async () => {
+    const results = await replayCases(
+      github,
+      RULES,
+      calibration([
+        { name: "a flag", expected: "low", pr: 82 },
+        { name: "a gate edit", expected: "human", pr: 53 },
+      ]),
+      answering(() => "low"),
+    );
+
+    const { lines, trusted } = reportOf(results, MODEL, PROMPT);
+
+    expect(lines).toContain(
+      "agreement 4/4 runs; 3 judged by the classifier, 0 failed, the rest by the floor",
+    );
+    expect(trusted).toBeNull();
+    expect(lines).toContain(
+      "no case expected human was judged human by the classifier on every run: add one that passes the floor",
+    );
+  });
+
   test("names a low case the classifier read human on every run", async () => {
     const results = await replayCases(
       github,
@@ -651,8 +702,30 @@ describe("the files the install writes", () => {
     const rules = readRules(join(TEMPLATES_DIR, "repo/.github/factory"));
 
     expect(rules.owners).toEqual(read(["/.github/", "/.claude/", "/CLAUDE.md"]));
-    expect(rules.config).toEqual(read({ lineCap: 400, humanPaths: [] }));
+    expect(rules.config).toEqual(
+      read({
+        lineCap: 400,
+        humanPaths: ["**/CLAUDE.md", "**/CLAUDE.local.md", "**/.claude/**"],
+      }),
+    );
     expect(rules.calibration).toEqual(read({ model: null, prompt: null, cases: [] }));
     expect(staleness(rules.calibration, rules.system)).toContain("the floor runs alone");
+  });
+
+  test.each(["src/CLAUDE.md", "CLAUDE.local.md", "docs/.claude/skills/x/SKILL.md"])(
+    "send %p to the owner: Claude Code loads it as instructions",
+    (path) => {
+      const rules = readRules(join(TEMPLATES_DIR, "repo/.github/factory"));
+
+      expect(floorOf([file(path)], rules.owners, rules.config)?.reason).toBe(
+        `touches a path tier.json sends to the owner: ${path}`,
+      );
+    },
+  );
+
+  test("let a change to the code through", () => {
+    const rules = readRules(join(TEMPLATES_DIR, "repo/.github/factory"));
+
+    expect(floorOf([file("src/a.ts")], rules.owners, rules.config)).toBeNull();
   });
 });

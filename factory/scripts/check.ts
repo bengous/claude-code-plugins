@@ -6,6 +6,11 @@ import { parseArgs } from "node:util";
 
 import { run } from "../lib/platform/process.ts";
 import { messageOf, shellQuote } from "../lib/platform/pure.ts";
+import {
+  parseCalibration,
+  parseOwners,
+  staleness,
+} from "../templates/repo/.github/factory/tier.ts";
 import { isRepo } from "./render.ts";
 import { mergeHooks } from "./settings.ts";
 import { readTemplates, REPO_PREFIX, SETTINGS_HOOKS } from "./templates.ts";
@@ -43,6 +48,8 @@ export const SETTINGS = ".claude/settings.json";
 export const TRUNK_RED = ".github/workflows/trunk-red.yml";
 
 export const TIER_CASES = ".github/factory/tier-cases.json";
+
+export const TIER_PROMPT = ".github/factory/tier-prompt.md";
 
 /** Every file the factory needs on the default branch: its templates, and the three the install writes per repository. */
 export function requiredFiles(): readonly string[] {
@@ -83,12 +90,13 @@ export const CONTENT_RULES: readonly ContentRule[] = [
   },
   {
     path: ".github/CODEOWNERS",
-    says: `lists ${OWNED_PATHS.join(", ")}`,
+    says: `lists ${OWNED_PATHS.join(", ")}, and path prefixes from the root alone`,
     holds: (text) =>
+      parseOwners(text).kind === "read" &&
       OWNED_PATHS.every((owned) =>
         lines(text).some((line) => line.trim().split(/\s+/u)[0] === owned),
       ),
-    fix: "add a line for each, owned by the owner",
+    fix: "add a line for each, owned by the owner, and remove every glob line and every path not written from the root: the owner gate reads path prefixes from the root alone, and holds every change for the owner when it meets another line",
   },
   {
     path: VERIFY_SKILL,
@@ -142,8 +150,8 @@ export type Facts = {
   readonly files: ReadonlyMap<string, string>;
   readonly hooksInstalled: boolean;
   readonly ci: Ci;
-  /** Whether `tier-cases.json` names the model and the prompt it was validated with. */
-  readonly tierValidated: boolean;
+  /** Why the owner gate runs the floor alone, as `tier.ts` decides it; `null` when the classifier judges. */
+  readonly tierStale: string | null;
   /** What a workflow's token may do by default: `read`, `write`, or `null` when this token cannot see it. */
   readonly workflowToken: string | null;
   readonly rules: BranchRules;
@@ -349,20 +357,13 @@ function checksOf(id: string, job: unknown): string[] {
   return typeof name === "string" ? [name] : [];
 }
 
-export function isTierValidated(cases: string | null): boolean {
-  if (cases === null) return false;
-
-  try {
-    const parsed: unknown = JSON.parse(cases);
-
-    return (
-      isRecord(parsed) &&
-      typeof parsed["model"] === "string" &&
-      typeof parsed["prompt"] === "string"
-    );
-  } catch {
-    return false;
+/** What the owner gate's `staleness` answers for these files; `null` when the classifier judges. */
+export function tierStalenessOf(cases: string | null, prompt: string | null): string | null {
+  if (cases === null || prompt === null) {
+    return `the floor runs alone: ${cases === null ? TIER_CASES : TIER_PROMPT} is not on the default branch`;
   }
+
+  return staleness(parseCalibration(cases), prompt);
 }
 
 function ciItems(facts: Facts): Item[] {
@@ -553,9 +554,10 @@ export function evaluate(facts: Facts): Item[] {
         ]
       : []),
     {
-      name: facts.tierValidated
-        ? "tier cases validated: the classifier judges what passes the floor"
-        : "tier cases not validated: the floor runs alone, and every change waits for the owner",
+      name:
+        facts.tierStale === null
+          ? "tier cases validated: the classifier judges what passes the floor"
+          : `tier cases not validated, every change waits for the owner: ${facts.tierStale}`,
       ok: true,
       fix: "",
     },
@@ -677,7 +679,7 @@ async function readFacts(repo: string): Promise<Facts> {
     files,
     hooksInstalled: settings !== null && mergeHooks(settings, fragment).kind === "identical",
     ci: await ciOf(repo, branch, files.get(TRUNK_RED) ?? null),
-    tierValidated: isTierValidated(files.get(TIER_CASES) ?? null),
+    tierStale: tierStalenessOf(files.get(TIER_CASES) ?? null, files.get(TIER_PROMPT) ?? null),
     workflowToken: token.kind === "ok" ? token.stdout.trim() : null,
     rules,
     bypass: bypassOf(bypass),
