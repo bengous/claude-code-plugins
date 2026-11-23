@@ -7,9 +7,10 @@ on:
 jobs:
   conflict:
     runs-on: ubuntu-latest
+    # A label on a pull request needs pull-requests: write; issues: write alone is refused there.
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: write
       statuses: write
     env:
