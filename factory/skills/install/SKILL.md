@@ -87,7 +87,7 @@ Then the cases, right away, with the owner. Tell him what skipping this step cos
 
 ## 6. Land, then the GitHub side
 
-Commit the files on a branch and have them reach `<BRANCH>`. On a first install, do it before the ruleset requires the checks: `owner-gate.yml` runs as it is on `<BRANCH>`, so a pull request opened before it lands waits for a check that never reports. On a repository that already runs an older factory, the pull request is held by the gate that is on `<BRANCH>`: the owner approves it with the label that gate reads, and deletes that label once the new gate, which reads `human-approved`, has landed.
+Commit the files on a branch and have them reach `<BRANCH>`. On a first install, do it before the ruleset requires the checks: `owner-gate.yml` runs as it is on `<BRANCH>`, so a pull request opened before it lands waits for a check that never reports. On a repository that already runs an older factory, the pull request is held by the gate that is on `<BRANCH>`: the owner approves it with the label that gate reads, and deletes that label once the new gate, which reads `human-approved`, has landed. There, land `.github/workflows/review.yml` in a pull request of its own, after the others: the review cannot run on a pull request that changes it, and lets one through unreviewed only when every file it touches is a path of the `CODEOWNERS` on `<BRANCH>`, which lists `.github/` once the first pull request has landed.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/check.ts" --repo <REPO>
