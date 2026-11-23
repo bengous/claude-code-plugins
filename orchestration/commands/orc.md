@@ -12,7 +12,7 @@ argument-hint: <complex-task>
 - **Git worktree stacks**: Uses `git-wt --stack` for isolated parallel development
 - **Single checkpoint**: Approve once before execution
 
-> **Dependency**: Requires `git-worktree` plugin installed (`/plugin install git-worktree@bengous-plugins` then `/git-worktree:worktree-setup`).
+> **Dependency**: Requires `git-wt` on the `PATH`, the standalone script of the archived `git-worktree` plugin, copied from a clone of `bengous/claude-code-plugins` with `mkdir -p ~/.local/bin` then `install -m 755 archive/git-worktree/scripts/git-wt ~/.local/bin/git-wt`.
 </principles>
 
 ---

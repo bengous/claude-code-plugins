@@ -169,29 +169,6 @@
       "source": "./claude-settings-manager"
     },
     {
-      "name": "git-worktree",
-      "description": "Git worktree helper with stack support for multi-agent orchestration",
-      "version": "1.2.3",
-      "author": {
-        "name": "Augustin BENGOLEA",
-        "email": "bengous@protonmail.com"
-      },
-      "homepage": "https://github.com/bengous/claude-code-plugins",
-      "license": "MIT",
-      "keywords": [
-        "git",
-        "worktree",
-        "organization",
-        "convention",
-        "hooks",
-        "enforcement",
-        "orchestration",
-        "multi-agent",
-        "stack"
-      ],
-      "source": "./git-worktree"
-    },
-    {
       "name": "agents-bridge",
       "description": "Bridge to the OpenAI Codex CLI for cross-model collaboration",
       "version": "1.12.5",

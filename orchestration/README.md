@@ -89,23 +89,18 @@ After installation, use the `/orc` command to orchestrate complex features:
 - Git with worktree support
 - `gh` CLI for GitHub operations
 - `jq` for JSON parsing
-- **git-worktree plugin** (provides `git-wt` helper with stack support)
+- `git-wt` helper with stack support, from the archived `git-worktree` plugin
 
-### Installing git-worktree Plugin
+### Installing git-wt
 
-The orchestration plugin depends on the `git-worktree` plugin for managing worktree stacks. Install it first:
+`git-wt` is a standalone script of the archived `git-worktree` plugin, which the marketplace
+does not publish: [`archive/git-worktree/scripts/git-wt`](../archive/git-worktree/scripts/git-wt).
+From a clone of the repository, copy it to a directory on your `PATH`:
 
 ```bash
-# If using the same marketplace
-/plugin install git-worktree@bengous-plugins
-
-# Then run setup to install git-wt helper
-/git-worktree:worktree-setup
+mkdir -p ~/.local/bin
+install -m 755 archive/git-worktree/scripts/git-wt ~/.local/bin/git-wt
 ```
-
-This installs:
-- `git-wt` helper with `--stack` support for creating worktree stacks
-- Enforcement hook to ensure consistent worktree locations
 
 ### Why git-wt --stack?
 

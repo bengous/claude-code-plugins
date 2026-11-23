@@ -93,7 +93,6 @@ export function pluginNamesIn(root: PluginDir): PluginName[] {
     });
 }
 
-/** The path `tp` materializes a ref at, the convention `git-wt` already follows. */
 export function worktreePathFor(main: PluginDir, ref: string): string {
   return join(`${main}.wt`, ref);
 }
