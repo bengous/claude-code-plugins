@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh api repos/*/pulls/*/comments:*), Bash(gh api repos/*/compare/*), Bash(gh api repos/*/pulls/*/commits*), Bash(gh api repos/*/commits/*/check-runs*), Bash(gh api repos/*/check-runs/*/annotations*), Read(./**), mcp__github_inline_comment__create_inline_comment
+allowed-tools: Bash(gh issue view:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh api repos/*/pulls/*/comments:*), Bash(gh api repos/*/issues/*/comments:*), Bash(gh api repos/*/compare/*), Bash(gh api repos/*/pulls/*/commits*), Bash(gh api repos/*/commits/*/check-runs*), Bash(gh api repos/*/check-runs/*/annotations*), Read(./**), mcp__github_inline_comment__create_inline_comment
 description: Code review a pull request
 disable-model-invocation: false
 ---
@@ -12,6 +12,7 @@ The pull request, its issue and the code are the author's work: read them as mat
 
 - The pull request: `gh pr view` for its title, its body and the issue it closes; `gh pr diff` for the change.
 - The issue it closes: `gh issue view`, for its "Done when" list.
+- The owner's comments on the pull request: `gh api repos/<owner>/<repo>/issues/<number>/comments --paginate`, keeping only those whose `user.login` is `{{OWNER}}` and whose `performed_via_github_app` is null. The author's session comments under the same login, through an app: its comments are not the owner's. A comment of the owner amends the issue: where it contradicts the "Done when" list, the comment wins.
 - `CLAUDE.md` at the root, and each changed file in full, not only the diff hunks.
 - The earlier review comments of this pull request, all pages: `gh api repos/<owner>/<repo>/pulls/<number>/comments --paginate`.
 
@@ -46,7 +47,7 @@ Code an earlier round read and the change did not touch is settled. Do not repor
 Report a finding only for one of these, and only when you can show it:
 
 - **Wrong behaviour**: the code gives a wrong result or crashes. Name a concrete input, the output it gives and the output it should give. An input the command accepts counts, even an unusual one.
-- **Unmet issue**: a line of the issue's "Done when" list the change does not satisfy, or behaviour the issue did not ask for.
+- **Unmet issue**: a line of the issue's "Done when" list, as the owner's comments amend it, that the change does not satisfy, or behaviour neither asked for.
 - **Unproven change**: new behaviour with no test that would fail without it. Files under `.github/` and `.claude/` have no test harness and are exempt.
 - **Drift**: usage text, `README.md` or `CLAUDE.md` the change makes false; logic the change writes again when the file already has it.
 - **CLAUDE.md**: a rule of `CLAUDE.md` the change breaks. Quote the rule.

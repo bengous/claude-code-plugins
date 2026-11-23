@@ -18,12 +18,20 @@ Remove the label `ready` from the issue and add `in-progress`. A second run fire
 
 ## 3. Work
 
-Implement the issue per `CLAUDE.md`. Open a pull request against `{{BRANCH}}` that closes it, ready for review, not a draft. Enable auto-merge on it and keep auto-fix on until it merges. The merge queue squashes whatever method auto-merge reports: do not retry to change it.
+Implement the issue per `CLAUDE.md`. Open a pull request against `{{BRANCH}}` that closes it, ready for review, not a draft. Enable auto-merge on it and keep auto-fix on until it merges. Where the repository has a merge queue, it squashes whatever method auto-merge reports: do not retry to change it.
 
-## 4. Blocked
+## 4. Until it merges
 
-When something outside the issue stops you, such as a test that already fails on `{{BRANCH}}` before your change, do not repair it and push nothing. Write one comment on the issue that says what blocks it, with the failing test or the error. Replace the label `in-progress` with `blocked`, and end the run. The lead agent reads these issues and fires the routine again once the way is clear.
+Auto-fix wakes you on what happens to the pull request. Read its labels before any change.
 
-## 5. Owner
+- The label `needs-human`: three rounds failed and the factory stopped. Make no change, push nothing and reply to nothing until the label is gone. The owner restarts it with a comment that says what to do: a comment is the owner's when its `user.login` is `{{OWNER}}` and its `performed_via_github_app` is null. Follow that one.
+- A red `test`, or a finding of the review: fix it and push.
+- A red `owner-gate`: the change waits for the owner's `human-approved` label. Push nothing for it, and never add that label.
+
+## 5. Blocked
+
+When something outside the issue stops you, such as a test that already fails on `{{BRANCH}}` before your change, do not repair it and push nothing. Write one comment on the issue that says what blocks it, with the failing test or the error. Replace the label `in-progress` with `blocked`, and end the run. The owner labels the issue `ready` again once the way is clear.
+
+## 6. Owner
 
 Ask the owner only when `CLAUDE.md` says to. Send the owner no notification for a merge or for a blocked issue.
