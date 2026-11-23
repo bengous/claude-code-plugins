@@ -36,7 +36,6 @@ import { styleText } from "node:util";
 
 import { writeAtomicSync } from "../tools/platform/fs.ts";
 import { messageOf } from "../tools/platform/pure.ts";
-import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./landing/ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import { run as command } from "./lib/run.ts";
 import {
@@ -55,6 +54,7 @@ import {
   unbumped,
   versionAt,
 } from "./releasing/check-plugin-bumps.ts";
+import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./releasing/ci-wait.ts";
 import {
   type JudgeEvent,
   JUDGE_MODEL,

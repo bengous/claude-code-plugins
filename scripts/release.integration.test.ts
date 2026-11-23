@@ -14,7 +14,6 @@ import { dirname, join } from "node:path";
 
 import { parse, stringify } from "yaml";
 
-import type { Gh, WaitLimits } from "./landing/ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import {
   type Context,
@@ -39,6 +38,7 @@ import {
   type MarketplaceName,
   type SourceDir,
 } from "./releasing/check-plugin-bumps.ts";
+import type { Gh, WaitLimits } from "./releasing/ci-wait.ts";
 import {
   loadPlan,
   localDate,

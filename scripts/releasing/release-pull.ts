@@ -9,7 +9,7 @@
  */
 
 import { isRecord, stringField } from "../../agent-hooks/core/util/json.ts";
-import { type Clock, type Gh, SYSTEM_CLOCK, type WaitLimits } from "../landing/ci-wait.ts";
+import { type Clock, type Gh, SYSTEM_CLOCK, type WaitLimits } from "./ci-wait.ts";
 
 const OWNER_GATE = "owner-gate";
 

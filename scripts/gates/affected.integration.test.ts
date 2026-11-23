@@ -114,7 +114,7 @@ describe("what the scope runs", () => {
     ignored: ["archive/**"],
     unit: ["scripts/affected.test.ts", ".claude/hooks/guard.test.ts", "todos/hooks/scan.spec.ts"],
     integration: [
-      "scripts/land.integration.test.ts",
+      "scripts/release.integration.test.ts",
       ".claude/hooks/auto-sweep.integration.test.ts",
       "vellum/src/standalone.integration.spec.ts",
     ],
@@ -130,7 +130,7 @@ describe("what the scope runs", () => {
       [...UNIT_RUN, "./scripts/", "./.claude/hooks/", "./todos/"],
       [
         ...INTEGRATION_RUN,
-        "./scripts/land.integration.test.ts",
+        "./scripts/release.integration.test.ts",
         "./.claude/hooks/auto-sweep.integration.test.ts",
       ],
     ]);
@@ -147,12 +147,12 @@ describe("what the scope runs", () => {
       [...UNIT_RUN, "./scripts/"],
       [
         ...INTEGRATION_RUN,
-        "./scripts/land.integration.test.ts",
+        "./scripts/release.integration.test.ts",
         "./vellum/src/standalone.integration.spec.ts",
       ],
     ]);
     expect(testRuns({ kind: "units", units: [] }, { ...suites, unit: [] })).toEqual([
-      [...INTEGRATION_RUN, "./scripts/land.integration.test.ts"],
+      [...INTEGRATION_RUN, "./scripts/release.integration.test.ts"],
     ]);
   });
 

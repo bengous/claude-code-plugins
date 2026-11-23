@@ -132,7 +132,7 @@ const SOURCES = {
   "vellum/src/platform/fs.ts": RAW_WRITE,
   "scripts/named.test.ts": RAW_WRITE,
   "vellum/src/a.spec.ts": RAW_WRITE,
-  "scripts/land.fixture.ts": RAW_WRITE,
+  "scripts/headless/flock.fixture.ts": RAW_WRITE,
   "agent-hooks/test-support.ts": RAW_WRITE,
   "vellum/e2e/harness.ts": RAW_WRITE,
 } as const;
@@ -263,7 +263,7 @@ describe("no-raw-write", () => {
     for (const name of [
       "scripts/named.test.ts",
       "vellum/src/a.spec.ts",
-      "scripts/land.fixture.ts",
+      "scripts/headless/flock.fixture.ts",
       "agent-hooks/test-support.ts",
       "vellum/e2e/harness.ts",
     ] as const) {

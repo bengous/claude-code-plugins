@@ -68,12 +68,7 @@ if [[ -f $stub/agent-sleep ]]; then sleep "$(cat "$stub/agent-sleep")"; fi
 if [[ -f $stub/agent-commits-types ]]; then
   git -c core.hooksPath=/dev/null commit -qm "chore(vellum): types from Claude Code $version"
 fi
-if [[ -f $stub/agent-e2e ]]; then
-  mkdir -p vellum/src
-  echo "export {};" >vellum/src/page.ts
-  git add -A
-  git commit -qm "feat(vellum): a page"
-fi
+if [[ -f $stub/agent-rebases ]]; then git -c core.hooksPath=/dev/null rebase -q origin/dev; fi
 if [[ -f $stub/agent-dirty ]]; then echo stray >stray.txt; fi
 if [[ -f $stub/agent-switches ]]; then git switch -qc elsewhere; fi
 body="$(grep -oP 'pull request body to \`\\K[^\`]+' "$stub/agent-prompt")"
@@ -87,6 +82,7 @@ echo "$*" >>"$stub/gh-calls"
 case "$1 $2" in
   "pr list") if [[ -f $stub/gh-open ]]; then cat "$stub/gh-open"; else echo "[]"; fi ;;
   "pr create") echo "https://github.com/o/r/pull/7" ;;
+  "pr merge") if [[ -f $stub/gh-merge-fails ]]; then echo "auto-merge is not allowed for this repository" >&2; exit 1; fi ;;
 esac
 `;
 

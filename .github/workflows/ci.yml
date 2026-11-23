@@ -3,12 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, dev]
-  # `main` is included so a ref update that bypasses the PR path still gets
-  # validated server-side. Without it, anything landing on main directly runs
-  # no checks at all. `renovate/**` because Renovate's branch automerge has no pull request: it
-  # fast-forwards `dev` only once it reads green check runs on the branch's own head.
+  # A push to `dev` is a pull request's squash commit, tested here on the trunk it joined;
+  # `trunk-red.yml` reads that run. `main` is included so the commit a release moves it to
+  # carries a `test` of its own event.
   push:
-    branches: [dev, main, "renovate/**"]
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
@@ -274,8 +273,8 @@ jobs:
           if-no-files-found: ignore
 
   # Mutation testing on what the change alters in the modules `stryker.config.ts` lists or their
-  # tests (`scripts/ci/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an
-  # inline commit is tested and a survivor turns the push run red, a dispatch's since `origin/dev`.
+  # tests (`scripts/ci/mutation.ts`): a pull request's, a push's to `dev` since its `before`, where a
+  # survivor turns the push run red, a dispatch's since `origin/dev`.
   # A push to `main` releases a `dev` head already tested. A
   # push whose commit has a green `mutation` check from its pull request skips the passes. With
   # nothing to mutate it passes before installing anything.
@@ -312,8 +311,8 @@ jobs:
 
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
-  # `scripts/gates/e2e-windows.integration.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
-  # reads a running `e2e (<window>)` by that name. `check-lint-config.ts` reads `validate` alone.
+  # `scripts/gates/e2e-windows.integration.test.ts` holds the list equal to the config's.
+  # `check-lint-config.ts` reads `validate` alone.
   e2e-window:
     name: e2e (${{ matrix.window }})
     needs: scope
@@ -363,8 +362,7 @@ jobs:
           if-no-files-found: ignore
 
   # The browser suite on Windows, at one window: the server, the harness and the page on the
-  # platform `e2e-window` never runs. Named `e2e (…)` so `check-e2e-green.ts` counts it among the
-  # windows still running. No `--with-deps`: the Windows runner lacks no system library.
+  # platform `e2e-window` never runs. No `--with-deps`: the Windows runner lacks no system library.
   e2e-win32:
     name: e2e (win32, light-1440)
     needs: scope
@@ -404,9 +402,9 @@ jobs:
           path: flaky-reports/*.json
           if-no-files-found: ignore
 
-  # The one check the pre-push gate reads, `scripts/gates/check-e2e-green.ts`: green when every window
-  # is, Windows' included. It runs when the windows do, so a change that reaches none leaves it `skipped`,
-  # which the gate reads as no run; `always()` lets a red or cancelled window turn it red.
+  # The browser suite's one verdict, which `test` reads: green when every window is, Windows' included.
+  # It runs when the windows do, so a change that reaches none leaves it `skipped`; `always()` lets a
+  # red or cancelled window turn it red.
   e2e:
     needs: [scope, e2e-window, e2e-win32]
     if: always() && needs.scope.outputs.e2e == 'true'
@@ -429,7 +427,7 @@ jobs:
   # Bookkeeping, never a verdict: every step continues on error, the checkout and the setup too, since
   # the job runs on every event; on the steps rather than the job, since a job's `continue-on-error`
   # still leaves its own check red, which `gh pr checks` and the pull request show. No concurrency group: GitHub cancels a pending job a
-  # third one replaces, and a cancelled check refuses a landing; two jobs racing can at worst open
+  # third one replaces, and a cancelled check shows red on its pull request; two jobs racing can at worst open
   # one test's issue twice.
   flaky:
     needs: [validate, win32, e2e-window, e2e-win32]

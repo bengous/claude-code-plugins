@@ -2,13 +2,11 @@
  * Whether CI is done and green on one commit, read from its `ci.yml` workflow runs of one event,
  * and a wait on that verdict for a script that must not move on before it.
  *
- * A commit carries several runs of one event: a pull request's head gets one when it is opened or
- * pushed and one more per label added (`types: labeled`), a commit gets one per push to `dev` and
- * to `main`. The verdict reads every such run, each as the REST listing gives it, at its latest
- * attempt, and judges on the run's `status` and `conclusion` alone: never on the check runs
- * `gh pr checks` shows, whose skipped jobs stayed `in_progress` for minutes after their run had
- * concluded on #361. Whether a commit may reach `dev` past the e2e gate is `refusalFor` in
- * `check-e2e-green.ts`, the pre-push hook's own predicate.
+ * A commit can carry several runs of one event: one per push to `dev` and to `main`, and one more
+ * per re-run asked by hand. The verdict reads every such run, each as the REST listing gives it, at
+ * its latest attempt, and judges on the run's `status` and `conclusion` alone: never on the check
+ * runs `gh pr checks` shows, whose skipped jobs stayed `in_progress` for minutes after their run had
+ * concluded on #361.
  */
 
 const WORKFLOW = "ci.yml";
@@ -43,7 +41,7 @@ export const REGISTRATION_MS = 60_000;
 
 export type Gh = (args: readonly string[]) => Promise<string>;
 
-export type CiEvent = "push" | "pull_request" | "workflow_dispatch";
+export type CiEvent = "push" | "pull_request";
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
@@ -52,11 +50,6 @@ export type RunConclusion = (typeof RUN_CONCLUSIONS)[number];
 export interface CiQuery {
   readonly sha: string;
   readonly event: CiEvent;
-  /**
-   * The runs seen before the caller started another: until a run besides them shows, the commit
-   * counts as having none. A re-run keeps its run's id, so it never shows as another.
-   */
-  readonly known?: readonly number[];
 }
 
 export interface CiRun {
@@ -66,11 +59,8 @@ export interface CiRun {
   readonly url: string;
 }
 
-/**
- * A red run decides before the others end, and stays red until it is re-run: a new run beside it,
- * a label added again, does not clear it.
- */
-export type CiVerdict =
+/** A red run decides before the others end, and stays red until it is re-run: a new run beside it does not clear it. */
+type CiVerdict =
   | { readonly kind: "green"; readonly runs: readonly CiRun[] }
   | { readonly kind: "red"; readonly red: readonly CiRun[] }
   | { readonly kind: "running"; readonly running: readonly CiRun[] }
@@ -84,7 +74,6 @@ export type Decision = CiOutcome | { readonly kind: "wait" };
 
 export interface Observed {
   readonly runs: readonly CiRun[];
-  readonly known?: readonly number[];
   readonly elapsedMs: number;
 }
 
@@ -102,8 +91,8 @@ const WAIT: Decision = { kind: "wait" };
 
 export const SYSTEM_CLOCK: Clock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
 
-function verdictOf(runs: readonly CiRun[], known: readonly number[]): CiVerdict {
-  if (runs.every((run) => known.includes(run.id))) return { kind: "none" };
+function verdictOf(runs: readonly CiRun[]): CiVerdict {
+  if (runs.length === 0) return { kind: "none" };
 
   const red = runs.filter((run) => run.status === "completed" && run.conclusion !== "success");
 
@@ -116,8 +105,8 @@ function verdictOf(runs: readonly CiRun[], known: readonly number[]): CiVerdict 
   return { kind: "green", runs };
 }
 
-export function decide({ runs, known = [], elapsedMs }: Observed, timeoutMs: number): Decision {
-  const verdict = verdictOf(runs, known);
+export function decide({ runs, elapsedMs }: Observed, timeoutMs: number): Decision {
+  const verdict = verdictOf(runs);
 
   switch (verdict.kind) {
     case "green":
@@ -175,10 +164,6 @@ async function runsOf(gh: Gh, { sha, event }: CiQuery): Promise<readonly CiRun[]
     .map((line) => runOf(line));
 }
 
-export async function ciVerdict(gh: Gh, query: CiQuery): Promise<CiVerdict> {
-  return verdictOf(await runsOf(gh, query), query.known ?? []);
-}
-
 export async function waitFor(
   gh: Gh,
   query: CiQuery,
@@ -186,13 +171,12 @@ export async function waitFor(
   clock: Clock = SYSTEM_CLOCK,
 ): Promise<CiOutcome> {
   const start = clock.now();
-  const known = query.known ?? [];
 
   const read = async () => {
     const runs = await runsOf(gh, query);
     const elapsedMs = clock.now() - start;
 
-    return { decision: decide({ runs, known, elapsedMs }, timeoutMs), elapsedMs };
+    return { decision: decide({ runs, elapsedMs }, timeoutMs), elapsedMs };
   };
 
   let { decision, elapsedMs } = await read();
@@ -203,33 +187,6 @@ export async function waitFor(
   }
 
   return decision;
-}
-
-/**
- * Starts a `ci.yml` run on `branch`'s head by `workflow_dispatch`, every job included, `e2e` among them: the id of
- * the run GitHub answers with (`return_run_details`).
- */
-export async function dispatchRun(gh: Gh, branch: string): Promise<number> {
-  const out = await gh([
-    "api",
-    "-X",
-    "POST",
-    `repos/{owner}/{repo}/actions/workflows/${WORKFLOW}/dispatches`,
-    "-f",
-    `ref=${branch}`,
-    "-F",
-    "return_run_details=true",
-    "--jq",
-    ".workflow_run_id",
-  ]);
-
-  const id = out.trim();
-
-  if (!RUN_ID.test(id)) {
-    throw new Error(`the dispatch of ${WORKFLOW} on ${branch} answered no run id: ${id}`);
-  }
-
-  return Number(id);
 }
 
 /** `gh` run from `cwd`, whose checkout gives the `{owner}/{repo}` of `gh api`. */

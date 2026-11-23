@@ -179,8 +179,7 @@ describe("the lead issue", () => {
     lineCount,
   ).leads;
 
-  const body =
-    valid === undefined ? "" : leadBody(valid, CLAIM, "bengous/claude-code-plugins", ["bun test"]);
+  const body = valid === undefined ? "" : leadBody(valid, CLAIM, "bengous/claude-code-plugins");
 
   test("the model's words render all they hold: one line each, no link definition, the hints fenced", () => {
     const rendered = body.replace(/```text\n[\s\S]*?\n```/u, "");
@@ -216,7 +215,6 @@ describe("the lead issue", () => {
     expect(body).toContain(`pmndrs/zustand#${ZERO_WIDTH_SPACE}3563`);
     expect(body).toContain("`https://github.com/pmndrs/zustand/pull/3563`");
     expect(body).toContain(`- Upstream changes: ${CLAIM.compare}`);
-    expect(body).toContain("- [ ] `bun test` passes");
   });
 
   test("the title names the package and a summary cut at 70 characters, made safe", () => {

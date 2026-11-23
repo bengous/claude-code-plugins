@@ -234,8 +234,8 @@ describe("testFileOf", () => {
       "scripts/releasing/changelog.test.ts",
     );
     expect(
-      testFileOf("scripts/land.ts", (path) => path === "scripts/land.integration.test.ts"),
-    ).toBe("scripts/land.integration.test.ts");
+      testFileOf("scripts/release.ts", (path) => path === "scripts/release.integration.test.ts"),
+    ).toBe("scripts/release.integration.test.ts");
   });
 
   test("refuses a module that is not TypeScript", () => {

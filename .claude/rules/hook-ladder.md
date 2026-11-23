@@ -8,7 +8,6 @@ paths:
   - "scripts/gates/run-gates.ts"
   - "scripts/gates/check-lint-config.ts"
   - "scripts/releasing/check-plugin-bumps.ts"
-  - "scripts/gates/check-e2e-green.ts"
 ---
 
 # Hook ladder
@@ -61,14 +60,12 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   when the change reaches its directory (`kitsOf` in `scripts/gates/affected.ts`),
   every module's with `--all`; parity still demands them all.
   The exception is a check of what a push moves: the release guard,
-  `scripts/releasing/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
-  e2e gate, `scripts/gates/check-e2e-green.ts`, on a push to `dev`, are each one
+  `scripts/releasing/check-plugin-bumps.ts --pre-push`, on a push to `main`, is one
   line of `.lefthook/pre-push/gates-and-tests.sh`, fed git's pushed-ref
-  lines. As an entry the release guard would run at every Stop and on every
-  push, red from each plugin change to its release-time bump; the e2e gate
-  needs the network and an `e2e` run that already happened.
+  lines. As an entry it would run at every Stop and on every
+  push, red from each plugin change to its release-time bump.
   `checkCommandParity` reads only the pre-commit `run` lines and CI's
-  `validate` steps, so those lines need nothing there.
+  `validate` steps, so that line needs nothing there.
 - Tests stay out of Stop: the suites of both tiers take far longer than
   the gates, which run in seconds without a kit (`docs/repo-ops/checks.md`,
   Test tiers).
@@ -118,4 +115,4 @@ Known ceilings:
 - pre-push's gates and tests run on the working tree, not the pushed commits;
   their scope is HEAD's commits since the merge-base (`--committed`), so an
   untracked or uncommitted file widens none. Only the release guard, on a push
-  to `main`, and the e2e gate, on a push to `dev`, read the pushed commits.
+  to `main`, reads the pushed commits.

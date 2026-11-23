@@ -152,7 +152,7 @@ describe("isEligible", () => {
 
   test.each([
     "agent-hooks/skills/agent-hooks/SKILL.md",
-    "github-flow/agents/issue-worker.md",
+    "vellum/agents/plan-reviewer.md",
     "git/commands/commit.md",
     ".claude/rules/hook-ladder.md",
     "scripts/headless/claude-code-types.prompt.md",
