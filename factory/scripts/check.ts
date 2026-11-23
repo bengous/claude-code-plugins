@@ -13,10 +13,12 @@ import { readTemplates, REPO_PREFIX, SETTINGS_HOOKS } from "./templates.ts";
 const USAGE = `Usage: check.ts --repo <owner/name>
 
   Reads, through gh, what the factory needs of a repository and prints one line per item:
-  ok, or missing with what fixes it. The labels, the files on the default branch and the
-  hooks of its .claude/settings.json, the CI workflow trunk-red.yml names, the default
-  branch's ruleset, the auto-merge setting and the secret names. Writes nothing; reads
-  secret names only, and reports each secret not visible when the token cannot list them.
+  ok, or missing with what fixes it. The labels, the files on the default branch, what the
+  gate, the review, CODEOWNERS, the verify skill and CLAUDE.md say, the hooks of its
+  .claude/settings.json, the CI workflow trunk-red.yml names, the default branch's rulesets
+  and their bypass actors, the auto-merge and squash merge settings, whether GitHub Actions
+  runs the workflows' actions, and the secret names. Writes nothing; reads secret names
+  only, and reports an item not visible when the token cannot read it.
   Exit 0 when every item is ok, 1 when one is missing, 2 on an error.`;
 
 export const LABELS: readonly { readonly name: string; readonly description: string }[] = [
@@ -54,6 +56,54 @@ export function requiredFiles(): readonly string[] {
   ];
 }
 
+type ContentRule = {
+  readonly path: string;
+  readonly says: string;
+  readonly holds: (text: string) => boolean;
+  readonly fix: string;
+};
+
+const OWNED_PATHS: readonly string[] = ["/.github/", "/.claude/", "/CLAUDE.md"];
+
+const TEMPLATE_FIX = "run install.ts repo with --force, which writes the template over it";
+
+/** What a required file must say, beyond being on the default branch: a kept older version passes its existence. */
+export const CONTENT_RULES: readonly ContentRule[] = [
+  {
+    path: ".github/workflows/owner-gate.yml",
+    says: "runs .github/factory/tier.ts and reads the label human-approved",
+    holds: (text) => text.includes(".github/factory/tier.ts") && text.includes("human-approved"),
+    fix: TEMPLATE_FIX,
+  },
+  {
+    path: ".github/workflows/review.yml",
+    says: "names the label needs-human",
+    holds: (text) => text.includes("needs-human"),
+    fix: TEMPLATE_FIX,
+  },
+  {
+    path: ".github/CODEOWNERS",
+    says: `lists ${OWNED_PATHS.join(", ")}`,
+    holds: (text) =>
+      OWNED_PATHS.every((owned) =>
+        lines(text).some((line) => line.trim().split(/\s+/u)[0] === owned),
+      ),
+    fix: "add a line for each, owned by the owner",
+  },
+  {
+    path: VERIFY_SKILL,
+    says: "carries no disable-model-invocation: true",
+    holds: (text) => !/^disable-model-invocation:\s*true\s*$/mu.test(text),
+    fix: "remove disable-model-invocation from its front matter: the session runs the skill by itself",
+  },
+  {
+    path: "CLAUDE.md",
+    says: "names the labels needs-human and human-approved",
+    holds: (text) => text.includes("needs-human") && text.includes("human-approved"),
+    fix: "merge the factory's sections into CLAUDE.md",
+  },
+];
+
 /** What the rules of every ruleset that targets the default branch require, merged. */
 export type BranchRules = {
   readonly checks: ReadonlySet<string>;
@@ -61,17 +111,19 @@ export type BranchRules = {
   readonly mergeQueue: boolean;
   /** A repository ruleset among them, which a fix updates in place; `null` for none. */
   readonly rulesetId: string | null;
+  /** Every ruleset among them, the organization's included. */
+  readonly rulesetIds: ReadonlySet<string>;
 };
 
-/** What a workflow file says of when it runs and which jobs it has. */
 export interface Workflow {
   readonly events: ReadonlySet<string>;
   /** The branches its `push` trigger names; `null` when it names none, which is every branch. */
   readonly pushBranches: readonly string[] | null;
-  readonly jobs: ReadonlySet<string>;
+  readonly checks: ReadonlySet<string>;
+  /** The events among `pull_request` and `push` whose trigger has a `paths` or `paths-ignore` filter. */
+  readonly pathFiltered: readonly string[];
 }
 
-/** The CI workflow `trunk-red.yml` listens to. */
 export type Ci =
   | { readonly kind: "unnamed" }
   | { readonly kind: "absent"; readonly name: string }
@@ -83,10 +135,11 @@ export type Facts = {
   readonly isPrivate: boolean;
   /** `null` when the token may not see the setting. */
   readonly allowAutoMerge: boolean | null;
+  /** `null` when the token may not see the setting. */
+  readonly allowSquashMerge: boolean | null;
   readonly labels: ReadonlySet<string>;
-  /** The required files the default branch holds. */
-  readonly files: ReadonlySet<string>;
-  /** Whether the default branch's `.claude/settings.json` runs both verify hooks. */
+  /** Each required file the default branch holds, with its text. */
+  readonly files: ReadonlyMap<string, string>;
   readonly hooksInstalled: boolean;
   readonly ci: Ci;
   /** Whether `tier-cases.json` names the model and the prompt it was validated with. */
@@ -94,6 +147,8 @@ export type Facts = {
   /** What a workflow's token may do by default: `read`, `write`, or `null` when this token cannot see it. */
   readonly workflowToken: string | null;
   readonly rules: BranchRules;
+  readonly bypass: Bypass;
+  readonly actions: Actions;
   readonly secrets: Secrets;
 };
 
@@ -102,23 +157,46 @@ export type Secrets =
   | { readonly kind: "listed"; readonly names: ReadonlySet<string> }
   | { readonly kind: "hidden"; readonly reason: string };
 
+/** The rulesets of the default branch that have a bypass actor, or why the token could not read them. */
+export type Bypass =
+  | { readonly kind: "read"; readonly rulesets: readonly string[] }
+  | { readonly kind: "hidden"; readonly reason: string };
+
+/** Whether GitHub Actions runs, and which actions it allows: `all`, `selected` or `local_only`. */
+export type Actions =
+  | { readonly kind: "read"; readonly enabled: boolean; readonly allowed: string }
+  | { readonly kind: "hidden"; readonly reason: string };
+
 export type Item = { readonly name: string; readonly ok: boolean; readonly fix: string };
 
-/** One tagged line per fact the rules endpoint holds: `check <context>`, `threads`, `queue`, `ruleset <id>`. */
+/** One tagged line per fact the rules endpoint holds: `check <context>`, `threads`, `queue`, `ruleset <id>`, `applies <id>`. */
 export const RULES_JQ = [
   '.[] | (if .type == "required_status_checks" then "check \\(.parameters.required_status_checks[].context)"',
   'elif .type == "pull_request" and .parameters.required_review_thread_resolution == true then "threads"',
   'elif .type == "merge_queue" then "queue" else empty end),',
-  '(if .ruleset_source_type == "Repository" then "ruleset \\(.ruleset_id)" else empty end)',
+  '(if .ruleset_source_type == "Repository" then "ruleset \\(.ruleset_id)" else empty end),',
+  '"applies \\(.ruleset_id)"',
 ].join(" ");
 
-export const REPOSITORY_JQ =
-  '.default_branch, (if has("allow_auto_merge") then .allow_auto_merge else "unknown" end), .private';
+export const REPOSITORY_JQ = [
+  '.default_branch, (if has("allow_auto_merge") then .allow_auto_merge else "unknown" end), .private,',
+  '(if has("allow_squash_merge") then .allow_squash_merge else "unknown" end)',
+].join(" ");
+
+/** GitHub returns a ruleset's `bypass_actors` only to a token that may edit the ruleset. */
+export const BYPASS_JQ =
+  'if has("bypass_actors") then (.bypass_actors | length) else "unknown" end';
+
+export const ACTIONS_JQ = '"\\(.enabled) \\(.allowed_actions // "none")"';
+
+export const ALLOWED_ACTIONS =
+  "actions/checkout, oven-sh/setup-bun and anthropics/claude-code-action";
 
 const lines = (text: string): string[] => text.split("\n").filter((line) => line !== "");
 
 export function parseRuleLines(text: string): BranchRules {
   const checks = new Set<string>();
+  const rulesetIds = new Set<string>();
   let threadsResolved = false;
   let mergeQueue = false;
   let rulesetId: string | null = null;
@@ -131,21 +209,26 @@ export function parseRuleLines(text: string): BranchRules {
     else if (tag === "threads") threadsResolved = true;
     else if (tag === "queue") mergeQueue = true;
     else if (tag === "ruleset") rulesetId ??= value;
+    else if (tag === "applies") rulesetIds.add(value);
     else throw new Error(`the rules query printed a line it should not: ${line}`);
   }
 
-  return { checks, threadsResolved, mergeQueue, rulesetId };
+  return { checks, threadsResolved, mergeQueue, rulesetId, rulesetIds };
 }
+
+const flag = (value: string): boolean | null =>
+  value === "true" ? true : value === "false" ? false : null;
 
 export function parseRepositoryLines(
   text: string,
-): Pick<Facts, "defaultBranch" | "allowAutoMerge" | "isPrivate"> {
-  const [defaultBranch, auto, visibility, ...extra] = lines(text);
+): Pick<Facts, "defaultBranch" | "allowAutoMerge" | "isPrivate" | "allowSquashMerge"> {
+  const [defaultBranch, auto, visibility, squash, ...extra] = lines(text);
 
   if (
     defaultBranch === undefined ||
     auto === undefined ||
     (visibility !== "true" && visibility !== "false") ||
+    squash === undefined ||
     extra.length > 0
   ) {
     throw new Error(`the repository query printed ${JSON.stringify(text)}`);
@@ -153,9 +236,53 @@ export function parseRepositoryLines(
 
   return {
     defaultBranch,
-    allowAutoMerge: auto === "true" ? true : auto === "false" ? false : null,
+    allowAutoMerge: flag(auto),
     isPrivate: visibility === "true",
+    allowSquashMerge: flag(squash),
   };
+}
+
+export type GhAnswer =
+  | { readonly kind: "ok"; readonly stdout: string }
+  | { readonly kind: "failed"; readonly reason: string };
+
+export function bypassOf(
+  answers: readonly { readonly id: string; readonly answer: GhAnswer }[],
+): Bypass {
+  const withActors: string[] = [];
+
+  for (const { id, answer } of answers) {
+    if (answer.kind === "failed") return { kind: "hidden", reason: answer.reason };
+
+    const count = answer.stdout.trim();
+
+    if (count === "unknown") {
+      return {
+        kind: "hidden",
+        reason: `this token may not read the bypass actors of ruleset ${id}`,
+      };
+    }
+
+    if (!/^\d+$/u.test(count)) {
+      throw new Error(`the ruleset ${id} query printed ${JSON.stringify(answer.stdout)}`);
+    }
+
+    if (count !== "0") withActors.push(id);
+  }
+
+  return { kind: "read", rulesets: withActors };
+}
+
+export function actionsOf(answer: GhAnswer): Actions {
+  if (answer.kind === "failed") return { kind: "hidden", reason: answer.reason };
+
+  const [enabled, allowed, ...extra] = answer.stdout.trim().split(" ");
+
+  if ((enabled !== "true" && enabled !== "false") || allowed === undefined || extra.length > 0) {
+    throw new Error(`the actions permissions query printed ${JSON.stringify(answer.stdout)}`);
+  }
+
+  return { kind: "read", enabled: enabled === "true", allowed };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -198,15 +325,30 @@ export function parseWorkflow(text: string): Workflow | null {
     pushBranches: Array.isArray(branches)
       ? branches.filter((branch): branch is string => typeof branch === "string")
       : null,
-    jobs: new Set(
-      Object.entries(parsed["jobs"]).flatMap(([id, job]) =>
-        isRecord(job) && typeof job["name"] === "string" ? [id, job["name"]] : [id],
-      ),
-    ),
+    checks: new Set(Object.entries(parsed["jobs"]).flatMap(([id, job]) => checksOf(id, job))),
+    pathFiltered: ["pull_request", "push"].filter((event) => {
+      const trigger = isRecord(on) ? on[event] : null;
+
+      return isRecord(trigger) && ("paths" in trigger || "paths-ignore" in trigger);
+    }),
   };
 }
 
-/** Whether `tier-cases.json` names the model and the prompt a replay validated. */
+function checksOf(id: string, job: unknown): string[] {
+  if (!isRecord(job)) return [id];
+
+  const strategy = job["strategy"];
+
+  // A matrix job reports one check per combination, `<name> (<values>)`, never its bare name.
+  if (isRecord(strategy) && "matrix" in strategy) return [];
+
+  const name = job["name"];
+
+  if (name === undefined) return [id];
+
+  return typeof name === "string" ? [name] : [];
+}
+
 export function isTierValidated(cases: string | null): boolean {
   if (cases === null) return false;
 
@@ -247,11 +389,20 @@ function ciItems(facts: Facts): Item[] {
     ];
   }
 
-  const { events, pushBranches, jobs } = ci.workflow;
+  const { events, pushBranches, checks, pathFiltered } = ci.workflow;
   const fix = `add it to the workflow "${ci.name}": the ruleset requires its test check, and trunk-red.yml reads its runs on ${branch}`;
 
   return [
-    { name: `the CI workflow "${ci.name}" has a job named test`, ok: jobs.has("test"), fix },
+    {
+      name: `the CI workflow "${ci.name}" has a job that reports the check test`,
+      ok: checks.has("test"),
+      fix: `give a job of the workflow "${ci.name}" the id test and no name, or the name test, and no matrix: the ruleset requires a check named test`,
+    },
+    {
+      name: `the CI workflow "${ci.name}" has no paths filter on pull_request or push`,
+      ok: pathFiltered.length === 0,
+      fix: `remove paths and paths-ignore from on.${pathFiltered.join(" and on.")}: the required check test never reports on a change they filter out`,
+    },
     {
       name: `the CI workflow "${ci.name}" runs on pull_request`,
       ok: events.has("pull_request"),
@@ -272,6 +423,41 @@ function ciItems(facts: Facts): Item[] {
         ]
       : []),
   ];
+}
+
+function bypassItem({ repo, defaultBranch, bypass, rules }: Facts): Item {
+  const name = `${defaultBranch}'s rulesets have no bypass actor`;
+  const ids = bypass.kind === "read" ? bypass.rulesets : [...rules.rulesetIds];
+  const puts = ids.map((id) => `gh api -X PUT repos/${repo}/rulesets/${id} --input ruleset.json`);
+  const fix = `write "bypass_actors": [] in ruleset.json, then ${puts.join(" and ")}`;
+
+  return bypass.kind === "hidden"
+    ? { name: `${name} (not visible: ${bypass.reason})`, ok: false, fix }
+    : { name, ok: bypass.rulesets.length === 0, fix };
+}
+
+function actionsItem({ repo, actions }: Facts): Item {
+  const fix = `gh api -X PUT repos/${repo}/actions/permissions -F enabled=true -f allowed_actions=all, or allow ${ALLOWED_ACTIONS}`;
+
+  if (actions.kind === "hidden") {
+    return {
+      name: `GitHub Actions runs the workflows' actions (not visible: ${actions.reason})`,
+      ok: false,
+      fix,
+    };
+  }
+
+  if (!actions.enabled) return { name: "GitHub Actions enabled", ok: false, fix };
+
+  if (actions.allowed === "all") return { name: "GitHub Actions runs every action", ok: true, fix };
+
+  return actions.allowed === "selected"
+    ? {
+        name: `GitHub Actions runs selected actions only: the owner checks that it allows ${ALLOWED_ACTIONS}`,
+        ok: true,
+        fix,
+      }
+    : { name: `GitHub Actions runs ${ALLOWED_ACTIONS}`, ok: false, fix };
 }
 
 /** Every item the factory needs, in a fixed order, each judged from the facts read. */
@@ -305,6 +491,13 @@ export function evaluate(facts: Facts): Item[] {
       ok: facts.files.has(path),
       fix: `${fileFix(path)}, then land it on ${branch}`,
     })),
+    ...CONTENT_RULES.flatMap(({ path, says, holds, fix }) => {
+      const text = facts.files.get(path);
+
+      return text === undefined
+        ? []
+        : [{ name: `${path} ${says}`, ok: holds(text), fix: `${fix}, then land it on ${branch}` }];
+    }),
     {
       name: `${SETTINGS} runs the two verify hooks`,
       ok: facts.hooksInstalled,
@@ -317,6 +510,7 @@ export function evaluate(facts: Facts): Item[] {
       fix: ruleset,
     })),
     { name: `${branch} requires resolved review threads`, ok: rules.threadsResolved, fix: ruleset },
+    bypassItem(facts),
     {
       name: rules.mergeQueue
         ? `${branch} has a merge queue`
@@ -332,6 +526,15 @@ export function evaluate(facts: Facts): Item[] {
       ok: facts.allowAutoMerge === true,
       fix: `gh repo edit ${repo} --enable-auto-merge`,
     },
+    {
+      name:
+        facts.allowSquashMerge === null
+          ? "squash merge allowed (not visible to this token)"
+          : "squash merge allowed",
+      ok: facts.allowSquashMerge === true,
+      fix: `gh repo edit ${repo} --enable-squash-merge`,
+    },
+    actionsItem(facts),
     ...SECRETS.map((secret) => ({
       name:
         facts.secrets.kind === "hidden"
@@ -365,10 +568,6 @@ export function format(items: readonly Item[]): string {
     .join("\n");
 }
 
-type GhAnswer =
-  | { readonly kind: "ok"; readonly stdout: string }
-  | { readonly kind: "failed"; readonly reason: string };
-
 async function ghAnswer(args: readonly string[]): Promise<GhAnswer> {
   const result = await run(["gh", ...args]);
 
@@ -391,7 +590,7 @@ async function gh(args: readonly string[]): Promise<string> {
   return answer.stdout;
 }
 
-/** A file of the branch as text; `null` when the branch has no such file. */
+/** `null` when the branch has no such file. */
 async function fileOf(repo: string, branch: string, path: string): Promise<string | null> {
   const answer = await ghAnswer([
     "api",
@@ -437,7 +636,7 @@ async function readFacts(repo: string): Promise<Facts> {
   const branch = repository.defaultBranch;
   const required = requiredFiles();
 
-  const [labels, rules, secrets, token, texts] = await Promise.all([
+  const [labels, ruleLines, secrets, token, actions, texts] = await Promise.all([
     gh(["api", `repos/${repo}/labels`, "--paginate", "--jq", ".[].name"]),
     gh(["api", `repos/${repo}/rules/branches/${branch}`, "--paginate", "--jq", RULES_JQ]),
     ghAnswer(["secret", "list", "--repo", repo, "--json", "name", "--jq", ".[].name"]),
@@ -447,23 +646,42 @@ async function readFacts(repo: string): Promise<Facts> {
       "--jq",
       ".default_workflow_permissions",
     ]),
+    ghAnswer(["api", `repos/${repo}/actions/permissions`, "--jq", ACTIONS_JQ]),
     Promise.all(required.map((path) => fileOf(repo, branch, path))),
   ]);
 
-  const held = new Map(required.flatMap((path, index) => [[path, texts[index] ?? null] as const]));
-  const settings = held.get(SETTINGS) ?? null;
+  const rules = parseRuleLines(ruleLines);
+
+  const bypass = await Promise.all(
+    [...rules.rulesetIds].map(async (id) => ({
+      id,
+      answer: await ghAnswer(["api", `repos/${repo}/rulesets/${id}`, "--jq", BYPASS_JQ]),
+    })),
+  );
+
+  const files = new Map(
+    required.flatMap((path, index) => {
+      const text = texts[index] ?? null;
+
+      return text === null ? [] : [[path, text] as const];
+    }),
+  );
+
+  const settings = files.get(SETTINGS) ?? null;
   const fragment = readTemplates().find(({ path }) => path === SETTINGS_HOOKS)?.content ?? "{}";
 
   return {
     repo,
     ...repository,
     labels: new Set(lines(labels)),
-    files: new Set(required.filter((path) => (held.get(path) ?? null) !== null)),
+    files,
     hooksInstalled: settings !== null && mergeHooks(settings, fragment).kind === "identical",
-    ci: await ciOf(repo, branch, held.get(TRUNK_RED) ?? null),
-    tierValidated: isTierValidated(held.get(TIER_CASES) ?? null),
+    ci: await ciOf(repo, branch, files.get(TRUNK_RED) ?? null),
+    tierValidated: isTierValidated(files.get(TIER_CASES) ?? null),
     workflowToken: token.kind === "ok" ? token.stdout.trim() : null,
-    rules: parseRuleLines(rules),
+    rules,
+    bypass: bypassOf(bypass),
+    actions: actionsOf(actions),
     secrets:
       secrets.kind === "ok"
         ? { kind: "listed", names: new Set(lines(secrets.stdout)) }

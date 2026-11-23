@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  actionsOf,
+  bypassOf,
   type Ci,
   ciNameOf,
   evaluate,
@@ -13,7 +15,9 @@ import {
   parseWorkflow,
   repoArgument,
   requiredFiles,
+  VERIFY_SKILL,
 } from "./check.ts";
+import { CLAUDE_MD_SECTIONS, readTemplates, REPO_PREFIX } from "./templates.ts";
 
 const CI_WORKFLOW = `name: CI
 on:
@@ -32,17 +36,31 @@ const CI: Ci = {
   workflow: parseWorkflow(CI_WORKFLOW) ?? {
     events: new Set(),
     pushBranches: null,
-    jobs: new Set(),
+    checks: new Set(),
+    pathFiltered: [],
   },
 };
+
+const TEMPLATES = new Map(readTemplates().map(({ path, content }) => [path, content]));
+
+const textOf = (path: string): string => {
+  if (path === VERIFY_SKILL) return "---\nname: verify\ndescription: Verify a change.\n---\n";
+
+  if (path === "CLAUDE.md") return TEMPLATES.get(CLAUDE_MD_SECTIONS) ?? "";
+
+  return TEMPLATES.get(`${REPO_PREFIX}${path}`) ?? "{}";
+};
+
+const FILES = new Map(requiredFiles().map((path) => [path, textOf(path)]));
 
 const COMPLETE: Facts = {
   repo: "o/r",
   defaultBranch: "main",
   isPrivate: false,
   allowAutoMerge: true,
+  allowSquashMerge: true,
   labels: new Set([...LABELS.map(({ name }) => name), "bug"]),
-  files: new Set(requiredFiles()),
+  files: FILES,
   hooksInstalled: true,
   ci: CI,
   tierValidated: true,
@@ -50,18 +68,29 @@ const COMPLETE: Facts = {
   rules: parseRuleLines(
     [
       "ruleset 7",
+      "applies 7",
       "threads",
       "ruleset 7",
+      "applies 7",
       "check test",
       "check review",
       "check owner-gate",
       "ruleset 7",
+      "applies 7",
       "queue",
       "ruleset 7",
+      "applies 7",
     ].join("\n"),
   ),
+  bypass: { kind: "read", rulesets: [] },
+  actions: { kind: "read", enabled: true, allowed: "all" },
   secrets: { kind: "listed", names: new Set(["CLAUDE_CODE_OAUTH_TOKEN", "ROUTINE_FIRE_TOKEN"]) },
 };
+
+const withFile = (path: string, text: string): Facts => ({
+  ...COMPLETE,
+  files: new Map([...FILES, [path, text]]),
+});
 
 const NO_RULES = parseRuleLines("");
 
@@ -92,9 +121,9 @@ describe("evaluate", () => {
   });
 
   test("names each file the default branch lacks, the tier script and the verify skill included", () => {
-    const files = new Set(
-      requiredFiles().filter(
-        (path) => !path.includes("tier") && !path.includes("verify") && path !== "CLAUDE.md",
+    const files = new Map(
+      [...FILES].filter(
+        ([path]) => !path.includes("tier") && !path.includes("verify") && path !== "CLAUDE.md",
       ),
     );
 
@@ -210,6 +239,160 @@ describe("evaluate", () => {
   });
 });
 
+describe("what the required files say", () => {
+  test("an older gate, review, CODEOWNERS, verify skill or CLAUDE.md is each missing with its fix", () => {
+    const older: Facts = {
+      ...COMPLETE,
+      files: new Map([
+        ...FILES,
+        [".github/workflows/owner-gate.yml", "jobs:\n  gate:\n    run: echo approved\n"],
+        [".github/workflows/review.yml", "jobs:\n  review: {}\n"],
+        [".github/CODEOWNERS", "/.github/workflows/ @o\n/.claude/ @o\n# /CLAUDE.md @o\n"],
+        [VERIFY_SKILL, "---\nname: verify\ndisable-model-invocation: true\n---\n"],
+        ["CLAUDE.md", "# Rules\n\nStop on needs-human.\n"],
+      ]),
+    };
+
+    expect(missing(older)).toEqual([
+      ".github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved",
+      ".github/workflows/review.yml names the label needs-human",
+      ".github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md",
+      ".claude/skills/verify/SKILL.md carries no disable-model-invocation: true",
+      "CLAUDE.md names the labels needs-human and human-approved",
+    ]);
+
+    const text = format(evaluate(older));
+
+    for (const line of [
+      "missing  .github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved: run install.ts repo with --force, which writes the template over it, then land it on main",
+      "missing  .github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md: add a line for each, owned by the owner, then land it on main",
+      "missing  CLAUDE.md names the labels needs-human and human-approved: merge the factory's sections into CLAUDE.md, then land it on main",
+    ]) {
+      expect(text).toContain(line);
+    }
+  });
+
+  test("the templates and the CLAUDE.md sections pass, each with its own ok line", () => {
+    const text = format(evaluate(COMPLETE));
+
+    expect(text).toContain(
+      "ok       .github/workflows/owner-gate.yml runs .github/factory/tier.ts and reads the label human-approved\n",
+    );
+    expect(text).toContain("ok       .github/CODEOWNERS lists /.github/, /.claude/, /CLAUDE.md\n");
+    expect(text).toContain(
+      "ok       .claude/skills/verify/SKILL.md carries no disable-model-invocation: true\n",
+    );
+  });
+
+  test("a verify skill with disable-model-invocation: false passes", () => {
+    expect(
+      missing(withFile(VERIFY_SKILL, "---\nname: verify\ndisable-model-invocation: false\n---\n")),
+    ).toEqual([]);
+  });
+});
+
+describe("the repository's settings", () => {
+  test("squash merge disallowed, or not visible, is missing", () => {
+    expect(format(evaluate({ ...COMPLETE, allowSquashMerge: false }))).toContain(
+      "missing  squash merge allowed: gh repo edit o/r --enable-squash-merge",
+    );
+    expect(missing({ ...COMPLETE, allowSquashMerge: null })).toEqual([
+      "squash merge allowed (not visible to this token)",
+    ]);
+  });
+
+  test("a ruleset with a bypass actor is missing, and names each ruleset to update", () => {
+    expect(
+      format(evaluate({ ...COMPLETE, bypass: { kind: "read", rulesets: ["7", "9"] } })),
+    ).toContain(
+      'missing  main\'s rulesets have no bypass actor: write "bypass_actors": [] in ruleset.json, then gh api -X PUT repos/o/r/rulesets/7 --input ruleset.json and gh api -X PUT repos/o/r/rulesets/9 --input ruleset.json',
+    );
+  });
+
+  test("bypass actors the token cannot read are not visible, and missing", () => {
+    expect(
+      missing({
+        ...COMPLETE,
+        bypass: { kind: "hidden", reason: "HTTP 403: Must have admin rights" },
+      }),
+    ).toEqual([
+      "main's rulesets have no bypass actor (not visible: HTTP 403: Must have admin rights)",
+    ]);
+  });
+
+  test.each([
+    [{ kind: "read", enabled: true, allowed: "all" }, "ok       GitHub Actions runs every action"],
+    [
+      { kind: "read", enabled: true, allowed: "selected" },
+      "ok       GitHub Actions runs selected actions only: the owner checks that it allows actions/checkout, oven-sh/setup-bun and anthropics/claude-code-action",
+    ],
+    [
+      { kind: "read", enabled: true, allowed: "local_only" },
+      "missing  GitHub Actions runs actions/checkout, oven-sh/setup-bun and anthropics/claude-code-action: gh api -X PUT repos/o/r/actions/permissions -F enabled=true -f allowed_actions=all, or allow actions/checkout, oven-sh/setup-bun and anthropics/claude-code-action",
+    ],
+    [
+      { kind: "read", enabled: false, allowed: "none" },
+      "missing  GitHub Actions enabled: gh api -X PUT repos/o/r/actions/permissions",
+    ],
+    [
+      { kind: "hidden", reason: "HTTP 403: Resource not accessible" },
+      "missing  GitHub Actions runs the workflows' actions (not visible: HTTP 403: Resource not accessible)",
+    ],
+  ] as const)("actions %p", (actions, line) => {
+    expect(format(evaluate({ ...COMPLETE, actions }))).toContain(line);
+  });
+});
+
+describe("bypassOf", () => {
+  test("names the rulesets that have a bypass actor", () => {
+    expect(
+      bypassOf([
+        { id: "7", answer: { kind: "ok", stdout: "0\n" } },
+        { id: "9", answer: { kind: "ok", stdout: "2\n" } },
+      ]),
+    ).toEqual({ kind: "read", rulesets: ["9"] });
+    expect(bypassOf([])).toEqual({ kind: "read", rulesets: [] });
+  });
+
+  test("a ruleset the token cannot read, or whose actors it may not see, hides them", () => {
+    expect(
+      bypassOf([{ id: "7", answer: { kind: "failed", reason: "HTTP 404: Not Found" } }]),
+    ).toEqual({
+      kind: "hidden",
+      reason: "HTTP 404: Not Found",
+    });
+    expect(bypassOf([{ id: "7", answer: { kind: "ok", stdout: "unknown\n" } }])).toEqual({
+      kind: "hidden",
+      reason: "this token may not read the bypass actors of ruleset 7",
+    });
+  });
+
+  test("refuses an answer that is not a count", () => {
+    expect(() => bypassOf([{ id: "7", answer: { kind: "ok", stdout: "[]\n" } }])).toThrow(
+      "the ruleset 7 query printed",
+    );
+  });
+});
+
+describe("actionsOf", () => {
+  test.each([
+    ["true all\n", { kind: "read", enabled: true, allowed: "all" }],
+    ["false none\n", { kind: "read", enabled: false, allowed: "none" }],
+  ] as const)("%p", (stdout, actions) => {
+    expect(actionsOf({ kind: "ok", stdout })).toEqual(actions);
+  });
+
+  test("a failed read hides the setting; an unknown answer is refused", () => {
+    expect(actionsOf({ kind: "failed", reason: "HTTP 403" })).toEqual({
+      kind: "hidden",
+      reason: "HTTP 403",
+    });
+    expect(() => actionsOf({ kind: "ok", stdout: "yes\n" })).toThrow(
+      "the actions permissions query printed",
+    );
+  });
+});
+
 function withWorkflow(text: string): Facts {
   const workflow = parseWorkflow(text);
 
@@ -223,7 +406,7 @@ describe("the CI workflow", () => {
     expect(
       missing(withWorkflow("on:\n  push:\n    branches: [release]\njobs:\n  build: {}\n")),
     ).toEqual([
-      'the CI workflow "CI" has a job named test',
+      'the CI workflow "CI" has a job that reports the check test',
       'the CI workflow "CI" runs on pull_request',
       'the CI workflow "CI" runs on push to main',
       'the CI workflow "CI" runs on merge_group',
@@ -234,6 +417,36 @@ describe("the CI workflow", () => {
     expect(
       missing(
         withWorkflow("on: [push, pull_request, merge_group]\njobs:\n  unit:\n    name: test\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test.each([
+    ["a job test whose name reports another check", "  test:\n    name: Unit tests\n"],
+    ["a matrix job test", "  test:\n    strategy:\n      matrix:\n        node: [20, 22]\n"],
+    [
+      "a matrix job named test",
+      "  unit:\n    name: test\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n",
+    ],
+  ])("%s does not report the check test", (_, jobs) => {
+    expect(missing(withWorkflow(`on: [push, pull_request, merge_group]\njobs:\n${jobs}`))).toEqual([
+      'the CI workflow "CI" has a job that reports the check test',
+    ]);
+  });
+
+  test("a paths filter on pull_request or push is missing: the required check never reports for a filtered change", () => {
+    const facts = withWorkflow(
+      "on:\n  pull_request:\n    paths: [src/**]\n  push:\n    paths-ignore: [docs/**]\n  merge_group:\n    paths: [src/**]\njobs:\n  test: {}\n",
+    );
+
+    expect(format(evaluate(facts))).toContain(
+      'missing  the CI workflow "CI" has no paths filter on pull_request or push: remove paths and paths-ignore from on.pull_request and on.push: the required check test never reports on a change they filter out',
+    );
+    expect(
+      missing(
+        withWorkflow(
+          "on:\n  pull_request:\n    branches: [main]\n  push:\n  merge_group:\njobs:\n  test: {}\n",
+        ),
       ),
     ).toEqual([]);
   });
@@ -285,11 +498,14 @@ describe("isTierValidated", () => {
 
 describe("parseRuleLines", () => {
   test("keeps the first repository ruleset and every check", () => {
-    expect(parseRuleLines("ruleset 3\ncheck a b\nruleset 4\nqueue\n")).toEqual({
+    expect(
+      parseRuleLines("ruleset 3\napplies 3\ncheck a b\napplies 3\nruleset 4\nqueue\napplies 5\n"),
+    ).toEqual({
       checks: new Set(["a b"]),
       threadsResolved: false,
       mergeQueue: true,
       rulesetId: "3",
+      rulesetIds: new Set(["3", "5"]),
     });
   });
 
@@ -300,20 +516,23 @@ describe("parseRuleLines", () => {
 
 describe("parseRepositoryLines", () => {
   test.each([
-    ["main\ntrue\nfalse\n", true, false],
-    ["main\nfalse\ntrue\n", false, true],
-    ["main\nunknown\nfalse\n", null, false],
-    ["main\nnull\ntrue\n", null, true],
-  ])("%p", (text, allowAutoMerge, isPrivate) => {
+    ["main\ntrue\nfalse\ntrue\n", true, false, true],
+    ["main\nfalse\ntrue\nfalse\n", false, true, false],
+    ["main\nunknown\nfalse\nunknown\n", null, false, null],
+    ["main\nnull\ntrue\nnull\n", null, true, null],
+  ])("%p", (text, allowAutoMerge, isPrivate, allowSquashMerge) => {
     expect(parseRepositoryLines(text)).toEqual({
       defaultBranch: "main",
       allowAutoMerge,
       isPrivate,
+      allowSquashMerge,
     });
   });
 
   test("refuses an answer missing a line", () => {
-    expect(() => parseRepositoryLines("main\ntrue\n")).toThrow("the repository query printed");
+    expect(() => parseRepositoryLines("main\ntrue\nfalse\n")).toThrow(
+      "the repository query printed",
+    );
   });
 });
 
