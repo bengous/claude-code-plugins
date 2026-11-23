@@ -106,8 +106,35 @@ describe("isEligible", () => {
     ).toBe(false);
   });
 
+  test.each([
+    "chore(release): vellum@0.2.0 (#41)",
+    "chore(release): vellum@0.2.0, agent-hooks@3.0.1 (#41)",
+    "chore(release): agent-hooks@3.0.1",
+  ])("the squash commit of a release, %s, is not", (subject) => {
+    expect(
+      isEligible(
+        commitOf(
+          "a",
+          subject,
+          ["vellum/.claude-plugin/plugin.json", 1],
+          ["agent-hooks/.claude-plugin/plugin.json", 1],
+        ),
+      ),
+    ).toBe(false);
+  });
+
   test("another chore is", () => {
     expect(isEligible(commitOf("a", "chore(settings): sorted", ["settings.ts", 5]))).toBe(true);
+
+    for (const subject of [
+      "chore(release): the notes script",
+      "chore(release): node 22.11.0 in CI",
+      "chore(release): bump 1.2.3",
+      "chore(release): vellum@0.2.0 and docs",
+    ]) {
+      expect(isEligible(commitOf("a", subject, ["notes.ts", 5]))).toBe(true);
+    }
+
     expect(
       isEligible(commitOf("a", "chore(deps): update yaml to 2.9.1", ["package.json", 1])),
     ).toBe(true);

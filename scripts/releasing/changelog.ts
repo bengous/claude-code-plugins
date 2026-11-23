@@ -205,7 +205,9 @@ function countOf(text: string, what: string): number {
  * Each version `head`'s history set in `<source>/.claude-plugin/plugin.json`,
  * oldest first, found by the manifest's `version`, never by a commit's subject:
  * a version folded into a squashed feature commit counts as any other. A
- * version that is not `x.y.z` is refused, naming the commit.
+ * version set again after a revert is listed again, so the last entry of a
+ * version is the commit that holds it. A version that is not `x.y.z` is
+ * refused, naming the commit.
  */
 export function versionCommits(
   repo: PluginDir,

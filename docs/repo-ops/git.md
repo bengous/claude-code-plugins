@@ -50,7 +50,16 @@
 
 ## Release
 
-The human's step: `bun ./scripts/release.ts --dry-run`, read its plan, then `bun ./scripts/release.ts --plan <digest>` with the digest it printed. It bumps each plugin changed since `main`, pushes the bumps to `dev`, waits for CI, fast-forwards `main` and tags. A failure names what to fix and leaves `main` unmoved. The pre-push hook refuses a push to `main` that leaves a changed plugin unbumped.
+The human's step: `bun ./scripts/release.ts --dry-run`, read its plan, then `bun ./scripts/release.ts --plan <digest>` with the digest it printed. It bumps each plugin changed since `main` in one commit on `dev`'s head, pushes it to `release/<target>`, opens a pull request against `dev` whose body names the plan's digest and that commit, and prints its URL. Add the label `human-approved` to it yourself: it is your approval of that head, and the script never adds it. The script waits up to an hour until GitHub calls the pull request mergeable (your label on, the required checks green), checks `dev`'s head against the plan, then squash-merges the commit it pushed itself, and no other head (`gh pr merge --squash --match-head-commit`). GitHub's squash commit, titled `chore(release): <plugin>@x.y.z, ...` with the pull request's number, sets every bumped version and carries every tag. Then it waits for CI on that commit, fast-forwards `main` and tags. Every stop names what to do, with `main` unmoved:
+
+- The timeout: once the label is on and the required checks are green, the same `--plan <digest>` run again finds its pull request and resumes the wait.
+- A red check, judged by its latest run: a `review` red on its own found something, and running it again gives the same verdict; read its comments. A red job that is flaky, the reviewer's own `review (read)` among them: re-run it (`gh run rerun <run-id> --failed`), then run the same `--plan <digest>` again. A fix, for a review finding or a real failure, lands on `dev` on its own pull request, never on the release branch: the script refuses a head it did not push. Then close the release pull request and run the dry-run again.
+- A conflict with `dev`, a head the script did not push, or `dev` gaining a commit the plan does not cover (under a plugin it bumps, a plugin that now needs a bump, a new tag) or `main` moving: nothing is merged. Close the pull request (`gh pr close <n> --delete-branch --comment <why>`) and run the dry-run again.
+- A merge call that fails, or whose result does not read back: the bumps may already be on `dev`. The same `--plan <digest>` finds the pull request merged and carries on from its commit, or resumes the wait if it did not merge.
+- The release branch holding a commit that is the head of no closed pull request (another run of the plan may be opening its own): nothing is pushed. Run the same `--plan <digest>` again once that pull request is open, or delete the branch (`git push origin --delete release/<target>`) when nothing uses it.
+- `dev` gaining such a commit between that check and the merge: the release commit is on `dev` and `main` unmoved. Revert it on `dev` through a pull request, then run the dry-run again: the revert resets the versions, so the next plan judges everything.
+
+The pre-push hook refuses a push to `main` that leaves a changed plugin unbumped.
 
 ## Sampled review
 
