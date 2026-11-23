@@ -99,7 +99,13 @@ line says otherwise.
   clock stops while one of its `$` calls is in flight: a loop of 25 s
   `$.http.fetch` long-polls held a `tool.call` for 30 minutes. A promise
   awaited with no `$` call in flight overruns the budget; raced against a
-  request in flight, it holds. Each `$.http.fetch` is cut at 30 s
+  request in flight, it holds. On `tool.call`, `tool.check`, `tool.judge`,
+  `tool.run` and `classic.PreToolUse` the `$` calls themselves hold the hook
+  for 20 minutes in all, then fail it (`HookBudget` in the types, not
+  measured): `next(e)`, `$.ui.ask`, `$.tool.call`, `$.agent.call`,
+  `$.agent.spawn` and `$.mcp.call` do not count, and a `tool.call` or
+  `tool.run` hook on a tool its own plugin registered has no such bound. A
+  wait for a person past that belongs in a tool of the plugin's own. Each `$.http.fetch` is cut at 30 s
   (`aborted: no complete answer within 30000ms`), which the types do not
   declare.
 
