@@ -79,6 +79,7 @@ describe("flagErrors", () => {
 
 describe("main", () => {
   const REPO_FLAGS = ["--owner", "octo", "--routine", "trig_01Ab", "--branch", "main"];
+
   let root = "";
   let out: string[] = [];
   let err: string[] = [];
@@ -173,5 +174,57 @@ describe("main", () => {
       run("repo", "--owner", "octo", "--routine", "trig_1", "--branch", "a..b", "--target", root),
     ).toBe(2);
     expect(err.join("\n")).toContain('install: --branch is not a git branch name: "a..b"');
+  });
+
+  test("writes every piece of the factory, the tier script and the verify hook included", () => {
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+
+    for (const path of [
+      ".github/factory/tier.ts",
+      ".github/factory/tier.json",
+      ".github/factory/tier-prompt.md",
+      ".github/factory/tier-cases.json",
+      ".github/workflows/owner-gate.yml",
+      ".github/workflows/review.yml",
+      ".github/workflows/dispatch.yml",
+      ".github/CODEOWNERS",
+      ".github/deep-review-paths",
+      ".claude/commands/pr-review.md",
+      ".claude/hooks/require-verify.sh",
+    ]) {
+      expect(out.join("\n")).toContain(`wrote      ${path}`);
+    }
+  });
+
+  test("merges its hooks into an existing settings file and keeps what is there", () => {
+    const settings = join(root, ".claude/settings.json");
+
+    writeAtomicSync(settings, JSON.stringify({ permissions: { allow: ["Bash(bun test:*)"] } }), {
+      mkdir: true,
+    });
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+    expect(out.join("\n")).toContain("merged     .claude/settings.json");
+
+    const merged = readFileSync(settings, "utf8");
+
+    expect(merged).toContain('"Bash(bun test:*)"');
+    expect(merged).toContain('require-verify.sh\\" stop');
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+    expect(out.join("\n")).toContain("identical  .claude/settings.json");
+    expect(readFileSync(settings, "utf8")).toBe(merged);
+  });
+
+  test("refuses a settings file it cannot read, with or without --force, and leaves it", () => {
+    const settings = join(root, ".claude/settings.json");
+
+    writeAtomicSync(settings, "{ not json", { mkdir: true });
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root, "--force")).toBe(1);
+    expect(out.join("\n")).toContain(
+      "refused    .claude/settings.json: .claude/settings.json is not JSON",
+    );
+    expect(readFileSync(settings, "utf8")).toBe("{ not json");
   });
 });

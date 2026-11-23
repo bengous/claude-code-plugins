@@ -7,21 +7,26 @@ import { parseArgs } from "node:util";
 import { writeAtomicSync } from "../lib/platform/fs.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 import { namedParams, type ParamName, render, type TemplateFile } from "./render.ts";
-import { readTemplates, REPO_PREFIX, ROUTINE_PROMPT } from "./templates.ts";
+import { mergeHooks } from "./settings.ts";
+import { readTemplates, REPO_PREFIX, ROUTINE_PROMPT, SETTINGS_HOOKS } from "./templates.ts";
 
 const USAGE = `Usage: install.ts repo --owner <login> --routine <trig_id> --branch <default branch>
                        [--target <dir>] [--force]
        install.ts prompt --owner <login> --repo <owner/name> --branch <default branch>
                          --dir <routine dir> [--force]
 
-  repo    writes the factory's workflows, CODEOWNERS, deep-review-paths and review
-          command into the working tree of --target, this directory by default.
+  repo    writes the factory's workflows, tier files, CODEOWNERS, deep-review-paths,
+          review command and verify hook into the working tree of --target, this
+          directory by default, and merges the hook's two entries into its
+          .claude/settings.json, keeping what the file holds.
   prompt  writes the routine's prompt.md into --dir, created when missing.
 
   Each takes exactly the flags shown. Each file prints wrote, identical, overwrote
   or refused: a file whose content differs is refused unless --force overwrites it.
-  Touches no GitHub state, commits nothing. Exit 0 when nothing was refused, 1 when
-  a file was refused or a write failed, 2 on a bad argument.`;
+  .claude/settings.json prints merged or identical, or refused when it does not read,
+  which --force does not override. Touches no GitHub state, commits nothing. Exit 0
+  when nothing was refused, 1 when a file was refused or a write failed, 2 on a bad
+  argument.`;
 
 export type Subject =
   | { readonly kind: "repo"; readonly target: string }
@@ -79,6 +84,27 @@ export function report(decisions: readonly Decision[]): string {
         : `${outcome.padEnd(10)} ${placement.shown}`,
     )
     .join("\n");
+}
+
+const SETTINGS = ".claude/settings.json";
+
+/** What to do with the target's settings file: its line of the report, and the text to write, if any. */
+export interface SettingsStep {
+  readonly line: string;
+  readonly write: string | null;
+  readonly refused: boolean;
+}
+
+export function settingsStep(current: string | null, fragment: string): SettingsStep {
+  const merge = mergeHooks(current, fragment);
+
+  if (merge.kind === "refused") {
+    return { line: `refused    ${SETTINGS}: ${merge.why}`, write: null, refused: true };
+  }
+
+  return merge.kind === "merged"
+    ? { line: `merged     ${SETTINGS}`, write: merge.text, refused: false }
+    : { line: `identical  ${SETTINGS}`, write: null, refused: false };
 }
 
 function currentContent(dest: string): string | null {
@@ -228,9 +254,19 @@ export function main(argv: readonly string[]): number {
   }
 
   let decisions: Decision[];
+  let settings: SettingsStep | null = null;
+  const settingsFile = subject.kind === "repo" ? join(subject.target, SETTINGS) : null;
 
   try {
     decisions = decide(placements(rendered.files, subject), currentContent, values.force);
+
+    if (settingsFile !== null) {
+      const fragment = readTemplates().find(({ path }) => path === SETTINGS_HOOKS);
+
+      if (fragment === undefined) throw new Error(`the template ${SETTINGS_HOOKS} is missing`);
+
+      settings = settingsStep(currentContent(settingsFile), fragment.content);
+    }
   } catch (error) {
     console.error(`install: ${messageOf(error)}`);
 
@@ -243,9 +279,15 @@ export function main(argv: readonly string[]): number {
     }
   }
 
-  console.log(report(decisions));
+  if (settingsFile !== null && settings !== null && settings.write !== null) {
+    writeAtomicSync(settingsFile, settings.write, { mkdir: true });
+  }
 
-  return decisions.some(({ outcome }) => outcome === "refused") ? 1 : 0;
+  console.log([report(decisions), ...(settings === null ? [] : [settings.line])].join("\n"));
+
+  return decisions.some(({ outcome }) => outcome === "refused") || settings?.refused === true
+    ? 1
+    : 0;
 }
 
 if (import.meta.main) {

@@ -18,14 +18,16 @@ Remove the label `ready` from the issue and add `in-progress`. A second run fire
 
 ## 3. Work
 
-Implement the issue per `CLAUDE.md`. Open a pull request against `{{BRANCH}}` that closes it, ready for review, not a draft. Enable auto-merge on it and keep auto-fix on until it merges. Where the repository has a merge queue, it squashes whatever method auto-merge reports: do not retry to change it.
+Implement the issue per `CLAUDE.md`. Then run the repository's `verify` skill on your change, before the pull request and again after any later edit.
+
+Open a pull request against `{{BRANCH}}` that closes the issue, ready for review, not a draft. Under **Checks**, its body states the command `verify` ran and its result; for a change with nothing to verify, `none` and why. Enable auto-merge on it and keep auto-fix on until it merges. Where the repository has a merge queue, it squashes whatever method auto-merge reports: do not retry to change it.
 
 ## 4. Until it merges
 
 Auto-fix wakes you on what happens to the pull request. Read its labels before any change.
 
 - The label `needs-human`: three rounds failed and the factory stopped. Make no change, push nothing and reply to nothing until the label is gone. The owner restarts it with a comment that says what to do: a comment is the owner's when its `user.login` is `{{OWNER}}` and its `performed_via_github_app` is null. Follow that one.
-- A red `test`, or a finding of the review: fix it and push.
+- A red `test`, or a finding of the review: fix it, run `verify` again, push.
 - A red `owner-gate`: the change waits for the owner's `human-approved` label. Push nothing for it, and never add that label.
 
 ## 5. Blocked

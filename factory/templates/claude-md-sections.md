@@ -2,6 +2,7 @@
 
 - One issue, one branch from `{{BRANCH}}`, one pull request.
 - `bun test` passes before every push.
+- Run the `verify` skill on your change before you open the pull request, and again after any later edit. A hook sends you back when the working tree changed since `verify` last ran.
 - Decide small choices yourself and record them in the PR body. Ask the owner only for a choice that is hard to undo or changes what the tool measures.
 
 ## Code
@@ -18,7 +19,7 @@ The owner reads it after the agents. Keep it short.
 1. `Closes #N.`
 2. At most two lines: the problem, then what the change does.
 3. One view of the change: a `diff` block of the logic, a file tree, a table, or the CLI output before and after.
-4. **Checks**: the command you ran and its result, with numbers.
+4. **Checks**: the command `verify` ran and its result, with numbers. For a change with nothing to verify, `none` and why.
 
 No question to the reviewer, no summary, no history.
 

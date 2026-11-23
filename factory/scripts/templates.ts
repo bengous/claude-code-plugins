@@ -12,6 +12,9 @@ export const ROUTINE_PROMPT = "routine/prompt.md";
 
 export const CLAUDE_MD_SECTIONS = "claude-md-sections.md";
 
+/** The hook entries the install merges into the target repository's `.claude/settings.json`. */
+export const SETTINGS_HOOKS = "settings-hooks.json";
+
 /** Every file under `root`, dot directories included, its path relative to `root` with `/`. */
 export function readTemplates(root: string = TEMPLATES_DIR): TemplateFile[] {
   return readdirSync(root, { recursive: true, withFileTypes: true })
