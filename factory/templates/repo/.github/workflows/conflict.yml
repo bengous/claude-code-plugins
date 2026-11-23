@@ -26,7 +26,8 @@ jobs:
       - name: Set a failed conflict status on each pull request of the factory that conflicts
         run: |
           set -euo pipefail
-          for pr in $(gh api --paginate "repos/$REPO/pulls?state=open&base=$BRANCH&per_page=100" --jq '.[].number'); do
+          prs=$(gh api --paginate "repos/$REPO/pulls?state=open&base=$BRANCH&per_page=100" --jq '.[].number')
+          for pr in $prs; do
             # A pull request of the factory is one whose commits carry a Claude-Session trailer.
             commits=$(gh api --paginate "repos/$REPO/pulls/$pr/commits?per_page=100" --jq '.[] | "\(.sha) \(.commit.message | test("(^|\n)Claude-Session: "))"')
             if ! grep -q ' true$' <<<"$commits"; then

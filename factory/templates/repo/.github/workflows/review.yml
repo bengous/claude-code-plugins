@@ -146,7 +146,8 @@ jobs:
             labels=$(gh api "repos/$REPO/issues/$PR/labels" --paginate --jq '.[].name')
             if ! grep -qx needs-human <<<"$labels"; then
               gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=needs-human" --silent
-              for issue in $(gh pr view "$PR" --repo "$REPO" --json closingIssuesReferences --jq '.closingIssuesReferences[].number'); do
+              issues=$(gh pr view "$PR" --repo "$REPO" --json closingIssuesReferences --jq '.closingIssuesReferences[].number')
+              for issue in $issues; do
                 gh api -X POST "repos/$REPO/issues/$issue/labels" -f "labels[]=needs-human" --silent
               done
               gh api -X POST "repos/$REPO/issues/$PR/comments" --silent \

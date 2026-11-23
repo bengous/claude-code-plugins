@@ -61,11 +61,13 @@ jobs:
             fi
             exit 0
           fi
-          # Two repair issues closed since the last green run, and still red: no third Worker.
+          # Two repair issues closed since the last green run was created, and still red: no third Worker. The
+          # creation, not the last update, which a re-run of an old green run moves forward. An issue the owner
+          # closed as not planned repaired nothing.
           green=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=$BRANCH&event=push&status=success&per_page=1" \
-            --jq '.workflow_runs[0].updated_at // ""')
+            --jq '.workflow_runs[0].created_at // ""')
           repairs=$(gh api --paginate "repos/$REPO/issues?state=closed&labels=trunk-red&per_page=100" \
-            --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .closed_at > \"$green\") | .number" | wc -l)
+            --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .state_reason != \"not_planned\" and .closed_at > \"$green\") | .number" | wc -l)
           label=ready
           if [ "$repairs" -ge 2 ]; then label=needs-human; fi
           # The first line of the failed steps' log that names an error. A log line is data: one line, as code.
