@@ -109,7 +109,7 @@ describe("main", () => {
 
     expect(run(...repo)).toBe(0);
     expect(out.join("\n")).toContain("wrote      .github/CODEOWNERS");
-    expect(readFileSync(owners, "utf8")).toContain("/.github/CODEOWNERS @octo");
+    expect(readFileSync(owners, "utf8")).toContain("/.github/ @octo");
 
     expect(run(...repo)).toBe(0);
     expect(out.join("\n")).toContain("identical  .github/CODEOWNERS");

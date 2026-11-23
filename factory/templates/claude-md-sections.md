@@ -28,6 +28,8 @@ Fix a comment that names a real bug. Decline a style preference in one line in i
 
 The `review` check fails while the review has findings, and only the next review clears it: push a fix. If you think a finding is wrong, reply in its thread with your reason, leave the thread open and stop.
 
-## Owner paths
+## Owner gate
 
-`CODEOWNERS` lists the files that need the owner's approval. A PR that touches them waits for the owner.
+The `owner-gate` check gives every pull request a tier from its change. `tier:low` merges once `test` and `review` are green. `tier:human` waits for the owner's `human-approved` label; a change that touches a path of `CODEOWNERS` is always `human`.
+
+A red `owner-gate` is the owner's to clear: push nothing for it, and never add `human-approved` yourself. A push removes that label, so push to an approved pull request only to fix a red check.
