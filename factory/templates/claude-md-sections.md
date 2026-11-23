@@ -35,6 +35,10 @@ Read a pull request's labels before any change to it. One labelled `needs-human`
 
 The owner restarts it by commenting what to do and removing the label. A comment is the owner's only when its `user.login` is the owner's and its `performed_via_github_app` is null: your own comments carry the same login, through an app. Follow the owner's comment, where it differs from the issue too.
 
+## Conflict
+
+A failed `conflict` status means the pull request conflicts with `{{BRANCH}}`. Merge `{{BRANCH}}` into the branch, resolve so that both changes hold, run the tests, push.
+
 ## Owner gate
 
 The `owner-gate` check gives every pull request a tier from its change. `tier:low` merges once `test` and `review` are green. `tier:human` waits for the owner's `human-approved` label; a change that touches a path of `CODEOWNERS` is always `human`.

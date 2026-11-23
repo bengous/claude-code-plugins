@@ -11,7 +11,7 @@ import { mergeHooks } from "./settings.ts";
 import { readTemplates, REPO_PREFIX, ROUTINE_PROMPT, SETTINGS_HOOKS } from "./templates.ts";
 
 const USAGE = `Usage: install.ts repo --owner <login> --routine <trig_id> --branch <default branch>
-                       [--target <dir>] [--force]
+                       --ci <CI workflow name> [--target <dir>] [--force]
        install.ts prompt --owner <login> --repo <owner/name> --branch <default branch>
                          --dir <routine dir> [--force]
 
@@ -124,6 +124,7 @@ const OPTIONS = {
   repo: { type: "string" },
   routine: { type: "string" },
   branch: { type: "string" },
+  ci: { type: "string" },
   target: { type: "string" },
   dir: { type: "string" },
   force: { type: "boolean", default: false },
@@ -132,13 +133,14 @@ const OPTIONS = {
 
 type Parsed = ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>;
 
-type ParamFlag = "owner" | "repo" | "routine" | "branch";
+type ParamFlag = "owner" | "repo" | "routine" | "branch" | "ci";
 
 const FLAGS: readonly (readonly [ParamName, ParamFlag])[] = [
   ["OWNER", "owner"],
   ["REPO", "repo"],
   ["ROUTINE_ID", "routine"],
   ["BRANCH", "branch"],
+  ["CI", "ci"],
 ];
 
 /** Each parameter flag the subject's templates need and lacks, or is given though they never name it. */
@@ -239,6 +241,7 @@ export function main(argv: readonly string[]): number {
     REPO: values.repo,
     ROUTINE_ID: values.routine,
     BRANCH: values.branch,
+    CI: values.ci,
   });
 
   const errors = [

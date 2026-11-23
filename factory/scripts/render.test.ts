@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isBranch, isLogin, isRepo, isRoutineId, render } from "./render.ts";
+import { isBranch, isLogin, isRepo, isRoutineId, isWorkflowName, render } from "./render.ts";
 import { readTemplates } from "./templates.ts";
 
 const PARAMS = {
@@ -8,6 +8,7 @@ const PARAMS = {
   REPO: "octo-org/widgets",
   ROUTINE_ID: "trig_01AbC",
   BRANCH: "trunk",
+  CI: "Build & test",
 };
 
 describe("render", () => {
@@ -69,6 +70,13 @@ describe("render", () => {
     const prompt = result.files.find((file) => file.path === "routine/prompt.md");
 
     expect(prompt?.content).toContain("Open a pull request against `trunk`");
+
+    const trunkRed = result.files.find(
+      (file) => file.path === "repo/.github/workflows/trunk-red.yml",
+    );
+
+    expect(trunkRed?.content).toContain('workflows: ["Build & test"]');
+    expect(trunkRed?.content).toContain("branches: [trunk]");
   });
 });
 
@@ -100,6 +108,20 @@ describe("parameter shapes", () => {
     },
   );
 
+  test.each(["CI", "Build & test", "ci.yml", "Tests (unit, e2e): main"])(
+    "workflow name %p",
+    (value) => {
+      expect(isWorkflowName(value)).toBe(true);
+    },
+  );
+
+  test.each(["", " CI", "CI ", 'a"b', "a\\b", "a\nb", "${{ x }}", "x".repeat(101)])(
+    "not a workflow name %p",
+    (value) => {
+      expect(isWorkflowName(value)).toBe(false);
+    },
+  );
+
   test.each(["main", "dev", "release/1.2", "feature/x-y_z", "v1.0"])("branch %p", (value) => {
     expect(isBranch(value)).toBe(true);
   });
@@ -127,6 +149,12 @@ describe("parameter shapes", () => {
     "a.",
     "a.lock",
     "a/b.lock/c",
+    "a,b",
+    "a$b",
+    'a"b',
+    "a`b`",
+    "a'b",
+    "a#b",
   ])("not a branch %p", (value) => {
     expect(isBranch(value)).toBe(false);
   });

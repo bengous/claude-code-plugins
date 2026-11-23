@@ -78,7 +78,16 @@ describe("flagErrors", () => {
 });
 
 describe("main", () => {
-  const REPO_FLAGS = ["--owner", "octo", "--routine", "trig_01Ab", "--branch", "main"];
+  const REPO_FLAGS = [
+    "--owner",
+    "octo",
+    "--routine",
+    "trig_01Ab",
+    "--branch",
+    "main",
+    "--ci",
+    "CI",
+  ];
 
   let root = "";
   let out: string[] = [];
@@ -169,14 +178,15 @@ describe("main", () => {
     expect(out).toEqual([]);
   });
 
-  test("refuses a branch git would refuse", () => {
+  test("refuses a branch git would refuse, and a repo install that names no CI workflow", () => {
     expect(
       run("repo", "--owner", "octo", "--routine", "trig_1", "--branch", "a..b", "--target", root),
     ).toBe(2);
     expect(err.join("\n")).toContain('install: --branch is not a git branch name: "a..b"');
+    expect(err.join("\n")).toContain("install: --ci is missing");
   });
 
-  test("writes every piece of the factory, the tier script and the verify hook included", () => {
+  test("writes every piece of the factory, the tier script and the two new workflows included", () => {
     expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
 
     for (const path of [
@@ -187,6 +197,8 @@ describe("main", () => {
       ".github/workflows/owner-gate.yml",
       ".github/workflows/review.yml",
       ".github/workflows/dispatch.yml",
+      ".github/workflows/conflict.yml",
+      ".github/workflows/trunk-red.yml",
       ".github/CODEOWNERS",
       ".github/deep-review-paths",
       ".claude/commands/pr-review.md",
@@ -194,6 +206,10 @@ describe("main", () => {
     ]) {
       expect(out.join("\n")).toContain(`wrote      ${path}`);
     }
+
+    expect(readFileSync(join(root, ".github/workflows/trunk-red.yml"), "utf8")).toContain(
+      'workflows: ["CI"]',
+    );
   });
 
   test("merges its hooks into an existing settings file and keeps what is there", () => {

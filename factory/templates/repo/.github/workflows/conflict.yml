@@ -1,0 +1,65 @@
+name: Conflict
+# GitHub emits no event when a push to {{BRANCH}} makes a pull request conflict, so its session never hears of it.
+# This workflow turns the conflict into a failed commit status, which auto-fix delivers like any red check.
+on:
+  push:
+    branches: [{{BRANCH}}]
+jobs:
+  conflict:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: {{BRANCH}}
+    steps:
+      - name: Set a failed conflict status on each pull request of the factory that conflicts
+        run: |
+          set -euo pipefail
+          for pr in $(gh api --paginate "repos/$REPO/pulls?state=open&base=$BRANCH&per_page=100" --jq '.[].number'); do
+            # A pull request of the factory is one whose commits carry a Claude-Session trailer.
+            commits=$(gh api --paginate "repos/$REPO/pulls/$pr/commits?per_page=100" --jq '.[] | "\(.sha) \(.commit.message | test("(^|\n)Claude-Session: "))"')
+            if ! grep -q ' true$' <<<"$commits"; then
+              continue
+            fi
+            # GitHub computes whether a pull request merges cleanly after the push, not with it.
+            mergeable=null
+            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              mergeable=$(gh api "repos/$REPO/pulls/$pr" --jq .mergeable)
+              if [ "$mergeable" != null ]; then break; fi
+              sleep 5
+            done
+            if [ "$mergeable" = null ]; then
+              echo "::warning::#$pr: GitHub has not said within a minute whether it merges cleanly. The next push to $BRANCH reads it again."
+              continue
+            fi
+            if [ "$mergeable" != false ]; then
+              echo "#$pr: merges cleanly"
+              continue
+            fi
+            head=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)
+            marked=0
+            on_head=0
+            while read -r sha _; do
+              failed=$(gh api "repos/$REPO/commits/$sha/statuses?per_page=100" --jq '[.[] | select(.context == "conflict" and .state == "failure")] | length')
+              if [ "$failed" -gt 0 ]; then
+                marked=$((marked + 1))
+                if [ "$sha" = "$head" ]; then on_head=1; fi
+              fi
+            done <<<"$commits"
+            if [ "$on_head" -eq 1 ]; then
+              echo "#$pr: conflicts, and its head already carries the status"
+            elif [ "$marked" -ge 2 ]; then
+              # Two commits already carried the status and it conflicts again: the factory stops here.
+              gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=needs-human" --silent
+              echo "#$pr: conflicts a third time, labelled needs-human"
+            else
+              gh api -X POST "repos/$REPO/statuses/$head" -f state=failure -f context=conflict \
+                -f description="Conflicts with $BRANCH: merge $BRANCH into this branch and resolve." --silent
+              echo "#$pr: conflicts, status set on $head"
+            fi
+          done
