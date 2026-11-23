@@ -71,17 +71,16 @@ under the [loader rules](hook-runtime.md#module-loader).
   `chore/claude-code-types` while its pull request is open, carries the
   installed types or newer. Otherwise it probes the signing key without a
   passphrase prompt, then, in `<main worktree>.wt/claude-code-types`, it
-  rebases the live branch onto `origin/dev` or starts it again from there,
+  merges `origin/dev` into the live branch or starts it again from there,
   installs the dependencies, regenerates and commits the types, and hands the
   worktree to a headless Claude (`scripts/headless/claude-code-types.prompt.md`) that
   judges the update's impact on each hooks module and commits what it calls
-  for; the run then pushes the branch and opens or updates its pull request,
-  which lands as any reviewed branch does,
-  `bun ./scripts/land.ts chore/claude-code-types` from a checkout holding it
-  ([Git](../repo-ops/git.md)), anywhere but `<main worktree>.wt/claude-code-types`,
-  which the next run would recreate under the landing: land.ts refuses it there.
-  Remove that checkout once landed: the run refuses to start while another
-  checkout holds the branch. A version settles once the run publishes, finds
+  for; the run then pushes the branch and opens its pull request with
+  auto-merge on, or updates the open one, which lands as any pull request
+  does ([Git](../repo-ops/git.md)). A live branch that conflicts with
+  `origin/dev` starts again from it and is force-pushed, which the factory's
+  review reads as a stop: the pull request then waits for the owner. The run
+  refuses to start while another checkout holds the branch. A version settles once the run publishes, finds
   nothing to do, is stopped (`kill <pid>`, which stops its agent with it), or
   fails from the agent on; such an end names the log, the kept worktree and
   the command that reruns it, and the run refuses to recreate a worktree that

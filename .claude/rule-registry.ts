@@ -30,7 +30,7 @@ export const REGISTRY: Registry = {
         "test scripts/release.integration.test.ts",
       ],
     },
-    "5b608160": {
+    "5ed239e7": {
       quote: "A behaviour change to a plugin is done once the `field-test`",
       prose: "whether a change alters behaviour is a judgement; no check knows a field test ran",
     },

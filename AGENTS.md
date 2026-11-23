@@ -16,7 +16,7 @@ New plugin: add its `marketplace.json` entry and its `README.md` table row by ha
 
 Agents never bump a version or write a `CHANGELOG.md` section: `scripts/release.ts` does both at release time.
 
-A behaviour change to a plugin is done once the `field-test` skill has played it in a live session, red on the base and green on the change; a label, text or doc change needs none. A cloud session cannot play one: its pull request names the behaviour under **Checks** as not played in a session, and the field test is played on the owner's machine before he approves it.
+A behaviour change to a plugin is done once the `field-test` skill has played it in a live session, red on the base and green on the change; a label, text or doc change needs none. A cloud session cannot play one: its pull request names the behaviour under **Checks** as not played in a session, and the field test is played on the owner's machine: before he approves a `tier:human` pull request, before the release for one that merged as `tier:low`.
 
 For plugin tests, permissions and the catalog lifecycle, start at [Plugin testing](docs/plugin-testing.md) and open only the page for the task. The vellum and atlas plugins carry their own `AGENTS.md`; vellum's `.claude/rules/` have `paths:` relative to `vellum/`.
 
