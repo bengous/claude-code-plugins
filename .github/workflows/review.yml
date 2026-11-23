@@ -23,15 +23,34 @@ jobs:
       verdict: ${{ steps.review.outputs.structured_output }}
       outside: ${{ steps.change.outputs.outside }}
       self: ${{ steps.change.outputs.self }}
+      started: ${{ steps.start.outputs.started }}
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
       BASE: ${{ github.event.pull_request.base.ref }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+      OWNER: bengous
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+      # The review spends the owner's token, so a move of his starts it: a pull request opened under his
+      # login, by his own session or the one his ready label started on an issue, one Renovate opened from
+      # the configuration he wrote, or any other once he labels it ready, with no app behind the label.
+      - name: Whose move started this pull request
+        id: start
+        run: |
+          set -euo pipefail
+          started=false
+          if [ "$AUTHOR" = "$OWNER" ] || [ "$AUTHOR" = "renovate[bot]" ]; then
+            started=true
+          else
+            last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+              --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "ready") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
+            if [ "$last" = "labeled true $OWNER" ]; then started=true; fi
+          fi
+          echo "started=$started" >> "$GITHUB_OUTPUT"
       - name: Read what the pull request changes
         id: change
         run: |
@@ -63,6 +82,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - uses: anthropics/claude-code-action@v1
         id: review
+        if: steps.start.outputs.started == 'true'
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The action refuses a pull request a bot opened unless the bot is named here.
@@ -100,6 +120,7 @@ jobs:
       VERDICT: ${{ needs.read.outputs.verdict }}
       OUTSIDE: ${{ needs.read.outputs.outside }}
       SELF: ${{ needs.read.outputs.self }}
+      STARTED: ${{ needs.read.outputs.started }}
     steps:
       - name: Hold a draft, which no round reads
         if: github.event.pull_request.draft == true
@@ -128,6 +149,12 @@ jobs:
       - name: Fail while the review has findings, and stop at the third failed round
         run: |
           set -euo pipefail
+          # No move of the owner started it, so no round read it: the owner gate holds it for the owner,
+          # whatever its change.
+          if [ "$STARTED" = false ]; then
+            echo "::notice::Not reviewed: no move of $OWNER started this pull request. He labels it ready to have it reviewed."
+            exit 0
+          fi
           # claude-code-action skips itself when this file differs from dev. Only a pull request that stays
           # inside the paths of CODEOWNERS goes through unreviewed: the owner gate holds it for the owner.
           if [ -z "$VERDICT" ] && [ "${SELF:-0}" -gt 0 ]; then

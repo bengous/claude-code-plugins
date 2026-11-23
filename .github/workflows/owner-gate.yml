@@ -14,14 +14,53 @@ jobs:
       pull-requests: write
       issues: write
       checks: write
+      # Re-running the review of a pull request the owner just labeled ready.
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
       HEAD: ${{ github.event.pull_request.head.sha }}
       ACTION: ${{ github.event.action }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
       OWNER: bengous
     steps:
+      # The classifier and the review spend the owner's token, so a move of his starts them: a pull request
+      # opened under his login, one Renovate opened from the configuration he wrote, or any other once he
+      # labels it ready, with no app behind the label. review.yml reads the same three.
+      - name: Whose move started this pull request
+        id: start
+        run: |
+          set -euo pipefail
+          started=false
+          by=""
+          if [ "$AUTHOR" = "$OWNER" ] || [ "$AUTHOR" = "renovate[bot]" ]; then
+            started=true
+            by=author
+          else
+            last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
+              --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "ready") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
+            if [ "$last" = "labeled true $OWNER" ]; then
+              started=true
+              by=label
+            fi
+          fi
+          {
+            echo "started=$started"
+            echo "by=$by"
+          } >> "$GITHUB_OUTPUT"
+      # review.yml runs on no label: the run that left this head unreviewed is run again, and reads the label.
+      - name: Have the review read a pull request the owner just labeled ready
+        if: github.event.action == 'labeled' && github.event.label.name == 'ready' && steps.start.outputs.by == 'label'
+        run: |
+          set -euo pipefail
+          run=$(gh api "repos/$REPO/actions/workflows/review.yml/runs?head_sha=$HEAD&event=pull_request&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')
+          if [ -z "$run" ]; then
+            echo "::warning::No review run on $HEAD to run again: a push starts one."
+            exit 0
+          fi
+          gh api -X POST "repos/$REPO/actions/runs/$run/rerun" --silent
       - name: A push ends the owner's approval
         if: github.event.action == 'synchronize' || github.event.action == 'reopened'
         run: |
@@ -57,14 +96,15 @@ jobs:
         continue-on-error: true
         run: bun .github/factory/tier.ts gate --repo "$REPO" --pr "$PR" --head "$HEAD"
       # A fork's pull request never reaches the classifier: anyone can open one, and each would spend the
-      # owner's token on a stranger's text. It gets no tier, which the last step reads as human.
+      # owner's token on a stranger's text. Nor does one no move of the owner started. Either gets no tier,
+      # which the last step reads as human.
       - name: Install Claude Code
-        if: steps.tier.outputs.ask == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.tier.outputs.ask == 'true' && steps.start.outputs.started == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         run: npm install -g @anthropic-ai/claude-code
       - name: Ask the classifier, once per commit and diff
         id: judge
-        if: steps.tier.outputs.ask == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.tier.outputs.ask == 'true' && steps.start.outputs.started == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -74,6 +114,7 @@ jobs:
           TIER: ${{ steps.judge.outputs.tier || steps.tier.outputs.tier }}
           REASON: ${{ steps.judge.outputs.reason || steps.tier.outputs.reason }}
           SUPERSEDED: ${{ steps.judge.outputs.superseded || steps.tier.outputs.superseded }}
+          STARTED: ${{ steps.start.outputs.started }}
         run: |
           set -euo pipefail
           # The labels show the tier of the head commit. A push can land while the classifier answers, so the
@@ -85,6 +126,12 @@ jobs:
           fi
           tier=human
           stale=tier:low
+          # A pull request no move of the owner started was read by no review: it is the owner's, whatever
+          # tier an earlier head of it was given.
+          if [ "$STARTED" != true ]; then
+            TIER=human
+            REASON="no move of $OWNER started this pull request, which no review read"
+          fi
           if [ "$TIER" = low ]; then
             tier=low
             stale=tier:human
