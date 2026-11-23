@@ -80,6 +80,18 @@
         ]
       },
       {
+        // The factory's workflows take a label written with the owner's token
+        // as the owner's, and a session here writes with it.
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-owner-labels.ts\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         // A model judges each commit message before the commit runs.
         "matcher": "Bash",
         "hooks": [
@@ -142,7 +154,8 @@
   // ask before what git cannot undo, deny secrets and system damage. No rule
   // here guards a push: a ruleset refuses every direct push to dev, and the
   // owner's machine carries a global guard-git-push hook that refuses a push
-  // to main of a public repository.
+  // to main of a public repository. Nor does one guard the labels the owner
+  // alone writes: guard-owner-labels.ts does.
   //
   "permissions": {
     // Reversible and local: run without confirmation

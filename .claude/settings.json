@@ -53,6 +53,16 @@
         "matcher": "Bash",
         "hooks": [
           {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-owner-labels.ts\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
             "type": "prompt",
             "if": "Bash(git commit *)",
             "continueOnBlock": true,

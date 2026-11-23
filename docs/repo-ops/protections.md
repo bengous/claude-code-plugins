@@ -11,6 +11,6 @@ Four rulesets exist and stack. They are not versioned in this repo; if lost, rec
 
 Repository settings the factory needs, which `check.ts` also reads: auto-merge allowed, squash merge allowed. A merged pull request's branch is deleted, and a squash commit takes the pull request's title with an empty body: `check.ts` reads neither.
 
-The workflows take three label moves as the owner's when his login made them with no app behind it: `human-approved` on, `ready` on, `needs-human` off. A session on the owner's machine writes with his token, so nothing on GitHub tells its move from his. `.claude/hooks/guard-owner-labels.ts` denies such a session's command that makes one, read as text: a command that spells the label another way goes through.
+The workflows take three label moves as the owner's: `human-approved` on and `ready` on when his login made them with no app behind it, `needs-human` off on his login alone, since GitHub records no app behind a label removed (`review.yml` asks for a comment of his beside it, `conflict.yml` for nothing more). A session on the owner's machine writes with his token, so nothing on GitHub tells its move from his. `.claude/hooks/guard-owner-labels.ts` denies such a session's command that makes one, or that replaces or clears every label of an issue, read as text: a command that spells the label another way goes through.
 
 There is no classic branch protection; querying `/branches/main/protection` returns 404 by design.
