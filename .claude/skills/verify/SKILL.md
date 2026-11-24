@@ -73,7 +73,7 @@ A cloud session's container fails some tests the code passes on CI and on the ow
 | runs as root, past every file mode | the tests of a file or a folder the process cannot read, write or rename: vellum's `fs.spec.ts`, `queue.spec.ts` and `preview.integration.spec.ts` (`draft`), atlas's `cli.integration.spec.ts` and `inventory.integration.spec.ts`, pinpoint's `a seq that does not read` | a read or a write that succeeds where the test made it fail |
 | has a PID 1 that reaps no orphan | `agents-bridge/scripts/codex-run.integration.test.ts`, `cancel also stops the commands codex started` | the killed child left a zombie, which still answers a signal 0 |
 
-A session that starts with a message from `cloud-tools.sh` runs in an environment that lacks a tool or a package of `.github/factory/setup.sh`: name under **Checks** what the message says is missing.
+A session that starts with a message from `cloud-tools.sh` runs in an environment that did not run `.github/factory/setup.sh` as the clone holds it, or whose tool install failed: quote the message under **Checks**, and name there each test or gate the missing tool kept from running.
 
 ## 5. Report
 
