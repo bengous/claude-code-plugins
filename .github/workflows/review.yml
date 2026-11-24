@@ -33,7 +33,7 @@ jobs:
       AUTHOR: ${{ github.event.pull_request.user.login }}
       OWNER: bengous
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
         with:
           fetch-depth: 1
       # The review spends the owner's token, so a move of his starts it: a pull request opened under his
@@ -94,7 +94,7 @@ jobs:
             echo "outside=$outside"
             echo "self=$(grep -cx '\.github/workflows/review\.yml' <<<"$files" || true)"
           } >> "$GITHUB_OUTPUT"
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@v1.0.289
         id: review
         if: steps.start.outputs.started == 'true'
         with:

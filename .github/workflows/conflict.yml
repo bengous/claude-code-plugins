@@ -21,7 +21,7 @@ jobs:
     steps:
       # The pushed commit with its whole history: git needs the common ancestor to compute a merge. A pull
       # request's commits are fetched as data and merged in memory; none of its code runs.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
         with:
           fetch-depth: 0
       - name: Set a failed conflict status on each pull request of the factory that conflicts
