@@ -219,7 +219,7 @@ export async function viewOf(gh: Gh, pr: PullRequest): Promise<PullView> {
  * Whether `a` started after `b`. A run not started yet is the newest, a re-run just queued; between
  * two of them, or two runs started at the same instant, the one listed later.
  */
-export function startedAfter(a: PullCheck, b: PullCheck): boolean {
+function startedAfter(a: PullCheck, b: PullCheck): boolean {
   if (a.startedAt === null) return true;
 
   if (b.startedAt === null) return false;
