@@ -91,7 +91,7 @@ One fold for every event: on the way down each link may refine e (append is last
 | `$.model` | `.complete` | one completion on the session's client |
 | | `.fork` | tool-less completion over this transcript, cache-shared |
 | | `.classify` | pick one of your labels for a text |
-| `$.ui` | `.log` · `notice` | a transcript line · a line under a dialog |
+| `$.ui` | `.log` · `notice` | a transcript line · a line with a dialog, above it in fullscreen |
 | | `.toast` · `status` | the notification bar · your status-line slot |
 | | `.ask` | the engine's AskUserQuestion dialog |
 | | `.open` · `close` | panes |
