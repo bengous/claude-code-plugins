@@ -186,3 +186,90 @@ describe("cloud-tools.sh", () => {
     expect(existsSync(join(home, ".local/bin/bun"))).toBe(false);
   });
 });
+
+/** The programs `setup.sh` starts beside the four each test stubs. */
+const SETUP_PROGRAMS = ["mktemp", "rm", "tee"] as const;
+
+/** `setup.sh` as the clone holds it. */
+const setupText = (): string => readFileSync(join(REPOSITORY, SETUP), "utf8");
+
+function stub(name: string, body: string): void {
+  writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(join(bin, name), 0o755);
+}
+
+/**
+ * Runs `setup.sh` as claude.ai does, from a copy without the file's final newline, with no network: `apt-get`
+ * answers as the test says, `curl` writes a file that is not the release, and `tar` and `install` do what their
+ * arguments ask, so a script that skipped the checksum would leave a `mise` behind.
+ */
+async function runSetup(env: Record<string, string> = {}) {
+  const copy = join(root, "setup-as-claude-ai-runs-it.sh");
+
+  writeFileSync(copy, setupText().replace(/\n+$/u, ""));
+
+  for (const program of SETUP_PROGRAMS) {
+    const path = Bun.which(program);
+
+    if (path === null) throw new Error(`${program} is not on PATH`);
+
+    symlinkSync(path, join(bin, program));
+  }
+
+  stub("apt-get", 'exit "${STUB_APT_EXIT:-0}"');
+  stub(
+    "curl",
+    'while (($#)); do [[ $1 == --output ]] && out=$2; shift; done\nprintf "not the release" >"$out"',
+  );
+  stub("tar", 'mkdir -p "$4/mise/bin" && : >"$4/mise/bin/mise"');
+  stub("install", ': >"$4"');
+
+  const proc = Bun.spawn([join(bin, "bash"), copy], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { PATH: bin, HOME: home, ...env },
+  });
+
+  const exitCode = await proc.exited;
+
+  return { exitCode, log: readFileSync(join(home, ".cloud-env-setup.log"), "utf8") };
+}
+
+describe("setup.sh", () => {
+  test("records the digest cloud-tools.sh takes of the clone's file, which then has nothing to say", async () => {
+    const { exitCode } = await runSetup();
+
+    expect(exitCode).toBe(0);
+    expect(readFileSync(join(home, ".cloud-env-setup.revision"), "utf8")).toBe(
+      `${revisionOf(setupText())}\n`,
+    );
+
+    writeFileSync(join(project, SETUP), setupText());
+    installMise();
+
+    expect(await runHook()).toEqual({ exitCode: 0, stdout: "" });
+  });
+
+  test("writes the settings a locked install from the clone needs", async () => {
+    await runSetup();
+
+    expect(readFileSync(join(home, ".config/mise/config.toml"), "utf8")).toBe(
+      '[settings]\nyes = true\ntrusted_config_paths = ["/"]\ndisable_tools = ["claude"]\n',
+    );
+  });
+
+  test("installs no mise from a download whose checksum differs, and lets the sessions start", async () => {
+    const { exitCode, log } = await runSetup();
+
+    expect(exitCode).toBe(0);
+    expect(log).toContain("FAILED  mise");
+    expect(existsSync(join(home, ".local/bin/mise"))).toBe(false);
+  });
+
+  test("lets the sessions start when a package does not install", async () => {
+    const { exitCode, log } = await runSetup({ STUB_APT_EXIT: "1" });
+
+    expect(exitCode).toBe(0);
+    expect(log).toContain("FAILED  apt-get install openssh-client");
+  });
+});
