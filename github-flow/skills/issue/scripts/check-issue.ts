@@ -130,7 +130,7 @@ const TASK_ITEM = /^\s*[-*+]\s+\[[ xX]\]/u;
 
 const TABLE_ROW = /^\s*\|/u;
 
-const TABLE_DELIMITER = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$/u;
+const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/u;
 
 interface Stripped {
   prose: string;
@@ -577,9 +577,10 @@ export function checkIssue(text: string, caps: Caps = DEFAULT_CAPS): Finding[] {
 }
 
 const SCRIPT_PATTERNS: readonly { pattern: RegExp; what: string }[] = [
-  { pattern: /<script\b/iu, what: "a <script> element" },
-  { pattern: /<[a-z][^>]*\son[a-z]+\s*=/iu, what: "an on-event attribute" },
-  { pattern: /javascript\s*:/iu, what: "a javascript: URL" },
+  { pattern: /<script\b/giu, what: "a <script> element" },
+  // `[^>]*` crosses newlines: a tag's attributes often sit on lines of their own.
+  { pattern: /<[a-z][^>]*\son[a-z]+\s*=/giu, what: "an on-event attribute" },
+  { pattern: /javascript\s*:/giu, what: "a javascript: URL" },
 ];
 
 interface HtmlRow {
@@ -610,16 +611,22 @@ function htmlRows(html: string): HtmlRow[] {
 export function checkArtifact(text: string): Finding[] {
   const findings: Finding[] = [];
 
-  for (const [index, raw] of text.split("\n").entries()) {
-    const hit = SCRIPT_PATTERNS.find(({ pattern }) => pattern.test(raw));
+  const scripts = new Map<number, string>();
 
-    if (hit !== undefined) {
-      findings.push({
-        check: "script",
-        line: index + 1,
-        message: `${hit.what}: an issue artifact holds no script; use <details>, :checked, SVG or a data URI image.`,
-      });
+  for (const { pattern, what } of SCRIPT_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const line = text.slice(0, match.index).split("\n").length;
+
+      if (!scripts.has(line)) scripts.set(line, what);
     }
+  }
+
+  for (const [line, what] of [...scripts].toSorted(([a], [b]) => a - b)) {
+    findings.push({
+      check: "script",
+      line,
+      message: `${what}: an issue artifact holds no script; use <details>, :checked, SVG or a data URI image.`,
+    });
   }
 
   const rows = htmlRows(text);

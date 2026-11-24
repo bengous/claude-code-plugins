@@ -154,6 +154,13 @@ describe("Done when", () => {
     expect(checks(issue(emptyPanel))).toEqual(["situations@3"]);
   });
 
+  test("a delimiter row of one hyphen per cell opens a table, as GitHub renders it", () => {
+    const short = DONE_WHEN.map((line) => (line === "|---|---|" ? "|-|-|" : line));
+
+    expect(short).toContain("|-|-|");
+    expect(checks(issue(short))).toEqual([]);
+  });
+
   test("a terminal session or a mockup counts as a panel", () => {
     const panel = [
       "**Done when** it answers. Its output is the contract; the index is free.",
@@ -305,6 +312,16 @@ describe("checkArtifact", () => {
     expect(checkArtifact(fixture("refuse/artifact-script.html")).map(({ line }) => line)).toEqual([
       6, 7,
     ]);
+  });
+
+  test("an on-event attribute on a line of its own is refused on its tag's line", () => {
+    const html = [
+      "<button",
+      '  onclick="toggle()">Show</button>',
+      "<table><tr><td>a</td><td>kept: no regression</td></tr></table>",
+    ].join("\n");
+
+    expect(checkArtifact(html).map(({ check, line }) => `${check}@${line}`)).toEqual(["script@1"]);
   });
 
   test("a javascript: URL is a script", () => {
