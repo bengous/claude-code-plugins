@@ -19,7 +19,7 @@ import {
   VERIFY_HOOK,
   VERIFY_SKILL,
 } from "./check.ts";
-import { ENVIRONMENT } from "./environment.ts";
+import { ENVIRONMENT, SETUP_SCRIPT } from "./environment.ts";
 import { CLAUDE_MD_SECTIONS, readTemplates, REPO_PREFIX } from "./templates.ts";
 
 const CI_WORKFLOW = `name: CI
@@ -141,6 +141,21 @@ describe("evaluate", () => {
     ]);
     expect(format(evaluate({ ...COMPLETE, files }))).toContain(
       "missing  .claude/skills/verify/SKILL.md on main: record the verify recipe, step 4 of /factory:install, then land it on main",
+    );
+  });
+
+  test("sends a missing declaration file to install.ts environment, the one subject that writes it", () => {
+    const files = new Map([...FILES].filter(([path]) => !path.startsWith(".github/factory/")));
+    const lines = format(evaluate({ ...COMPLETE, files }));
+
+    expect(lines).toContain(
+      `missing  ${ENVIRONMENT} on main: run install.ts environment, then land it on main`,
+    );
+    expect(lines).toContain(
+      `missing  ${SETUP_SCRIPT} on main: run install.ts environment, then land it on main`,
+    );
+    expect(lines).toContain(
+      "missing  .github/factory/tier.ts on main: run install.ts repo, then land it on main",
     );
   });
 
