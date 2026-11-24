@@ -16,6 +16,10 @@ const HOOK = join(import.meta.dir, "cloud-tools.sh");
 
 const SETUP = ".github/factory/setup.sh";
 
+const TOOLS = ".github/factory";
+
+const REPOSITORY = join(import.meta.dir, "../..");
+
 const SETUP_TEXT = "#!/usr/bin/env bash\necho setup\n";
 
 /** Every program the hook starts but `mise`, so a test chooses whether the session has one. */
@@ -99,6 +103,32 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+function namesIn(path: string, line: RegExp): string[] {
+  const text = readFileSync(join(REPOSITORY, path), "utf8");
+
+  return [...text.matchAll(line)]
+    .flatMap(([, name]) => (name === undefined ? [] : [name]))
+    .toSorted();
+}
+
+/** The tools a mise config of the repository names: its `name = "version"` lines. */
+const declaredTools = (path: string): string[] => namesIn(path, /^([\w-]+) = "/gmu);
+
+/** The tools a mise lockfile of the repository holds: its `[[tools.name]]` tables. */
+const lockedTools = (path: string): string[] => namesIn(path, /^\[\[tools\.([\w-]+)\]\]$/gmu);
+
+describe("the cloud's tools", () => {
+  test("are those of the root mise.toml but Claude Code, which the image ships", () => {
+    expect(declaredTools(`${TOOLS}/mise.toml`)).toEqual(
+      declaredTools("mise.toml").filter((tool) => tool !== "claude"),
+    );
+  });
+
+  test("each have their entry in the lockfile a locked install reads", () => {
+    expect(lockedTools(`${TOOLS}/mise.lock`)).toEqual(declaredTools(`${TOOLS}/mise.toml`));
+  });
+});
+
 describe("cloud-tools.sh", () => {
   test("starts nothing outside a cloud session", async () => {
     installMise();
@@ -114,7 +144,7 @@ describe("cloud-tools.sh", () => {
     const { exitCode, stdout } = await runHook();
 
     expect({ exitCode, stdout }).toEqual({ exitCode: 0, stdout: "" });
-    expect(calls()).toBe(`${project} install\n${project} reshim\n`);
+    expect(calls()).toBe(`${join(project, TOOLS)} install --locked\n${project} reshim\n`);
     expect(existsSync(join(home, ".local/bin/bun"))).toBe(true);
   });
 

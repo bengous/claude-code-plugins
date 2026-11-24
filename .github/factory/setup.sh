@@ -5,8 +5,8 @@
 # the environment's settings, under Setup script. It runs as root before Claude Code starts, with the environment's
 # variables unset, and its filesystem is cached for the sessions that follow.
 #
-# It installs what a session cannot install for itself: system packages, and mise. The tools of mise.toml need the
-# clone: .claude/hooks/cloud-tools.sh installs them when a session starts.
+# It installs what a session cannot install for itself: system packages, and mise. The tools of the mise.toml beside
+# this file need the clone: .claude/hooks/cloud-tools.sh installs them when a session starts.
 #
 # A non-zero exit keeps every session of the environment from starting, so a failure is logged to
 # ~/.cloud-env-setup.log and the script exits 0.
@@ -40,12 +40,11 @@ install_mise() {
     install -m 0755 "${WORKDIR}/mise/bin/mise" "${BIN_DIR}/mise"
 }
 
-# A locked install takes each download from mise.lock: the session's GitHub proxy refuses the API calls that would
-# resolve a version. The image ships Claude Code, which mise.toml pins for the workstation and CI.
+# The image ships Claude Code, which the root mise.toml names for the workstation and CI. No `locked` here: the root
+# mise.toml has no lockfile, and every tool run from the clone would then warn that its `latest` is not locked.
 write_mise_settings() {
   cat >"${MISE_CONFIG}/config.toml" <<'EOF'
 [settings]
-locked = true
 yes = true
 trusted_config_paths = ["/"]
 disable_tools = ["claude"]

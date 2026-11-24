@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# SessionStart, in a cloud session alone: installs the tools mise.lock records, which the environment's setup script
-# cannot do before the clone exists, and says so when the environment did not run .github/factory/setup.sh as the
-# clone holds it. What it prints reaches the session as context. Never blocks the session.
+# SessionStart, in a cloud session alone: installs the tools .github/factory/mise.lock records, which the
+# environment's setup script cannot do before the clone exists, and says so when the environment did not run
+# .github/factory/setup.sh as the clone holds it. What it prints reaches the session as context. Never blocks the session.
 set -uo pipefail
 
 [[ ${CLAUDE_CODE_REMOTE:-} == true ]] || exit 0
@@ -9,6 +9,8 @@ set -uo pipefail
 cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
 
 readonly SETUP=.github/factory/setup.sh
+# The directory of the cloud's mise.toml and of its lockfile: mise reads the config of the directory it runs in.
+readonly TOOLS=.github/factory
 readonly BIN_DIR="${HOME}/.local/bin"
 
 # claude.ai drops the final newline of the copy it runs, so both sides digest the text without it.
@@ -20,12 +22,14 @@ if [[ ${ran} != "${expected}" ]]; then
 fi
 
 if ! command -v mise >/dev/null 2>&1; then
-  echo "mise is not installed in this cloud environment, so the tools of mise.toml were not installed."
+  echo "mise is not installed in this cloud environment, so the tools of ${TOOLS}/mise.toml were not installed."
   exit 0
 fi
 
-if ! output=$(mise install 2>&1); then
-  echo "mise install failed, so a tool of mise.toml may be missing or at the image's version:"
+# A locked install takes each download from the lockfile: the session's GitHub proxy refuses the API calls that would
+# resolve a version.
+if ! output=$(cd "${TOOLS}" && mise install --locked 2>&1); then
+  echo "mise install failed in ${TOOLS}, so a tool may be missing or at the image's version:"
   tail -n 20 <<<"${output}"
   exit 0
 fi
