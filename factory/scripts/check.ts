@@ -111,7 +111,7 @@ export const CONTENT_RULES: readonly ContentRule[] = [
     path: ENVIRONMENT,
     says: "declares the network, the variables and the setup script, with no value on a variable named like a secret",
     holds: (text) => declarationProblems(text).length === 0,
-    fix: `write it as the template holds it: a network, environment_variables and .github/factory/setup.sh as setup_script; a variable whose name holds secret, token, password, credential or key keeps the value ${REDACTED}, its real value stays on claude.ai`,
+    fix: `write it as the template holds it: a network, environment_variables and .github/factory/setup.sh as setup_script; a variable whose name has a word ending in secret, token, password, credential or key keeps the value ${REDACTED}, its real value stays on claude.ai`,
   },
   {
     path: VERIFY_HOOK,

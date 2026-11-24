@@ -50,6 +50,8 @@ describe("declarationProblems", () => {
           db_password: "hunter2",
           SIGNING_KEY: REDACTED,
           LOG_LEVEL: "debug",
+          MAX_OUTPUT_TOKENS: "64000",
+          KEYBOARD: "us",
         },
       }),
     );

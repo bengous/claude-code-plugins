@@ -9,8 +9,11 @@ export const SETUP_SCRIPT = ".github/factory/setup.sh";
 /** What stands for the value of a secret's variable, whose real value stays on claude.ai. */
 export const REDACTED = "<redacted>";
 
-/** A variable's name that says it holds a secret: `API_SECRET`, `NPM_TOKEN`, `DB_PASSWORD`, `api_key`. */
-const SECRET_NAME = /secret|token|password|passwd|credential|key/iu;
+/**
+ * A variable's name that says it holds a secret: `API_SECRET`, `NPM_TOKEN`, `DB_PASSWORD`, `api_key`.
+ * The word ends there: `MAX_OUTPUT_TOKENS` is a count.
+ */
+const SECRET_NAME = /(?:secret|token|password|passwd|credential|key)(?![a-z])/iu;
 
 const KEYS = ["network", "environment_variables", "setup_script"] as const;
 

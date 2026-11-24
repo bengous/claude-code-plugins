@@ -60,7 +60,7 @@ A cloud session starts from a fresh clone and gets nothing of the owner's machin
 | Tools and their versions | `.github/factory/mise.toml` and its `mise.lock`, where the repository has them | at each session start, by `.claude/hooks/cloud-tools.sh` |
 | Instructions, skills, hooks, MCP servers | `CLAUDE.md`, `.claude/`, `.mcp.json` | with the clone |
 
-Each repository has its own environment on claude.ai, which keeps its own copy of the declaration: only the owner changes it there. A session cannot change it, and names what it lacks instead: a session stopped by a host or a package opens a pull request on the declaration, and `cloud-tools.sh` tells a session when the environment ran another setup script than its clone's. A secret's value never enters `environment.json`: `check.ts` refuses any value but `<redacted>` on a variable whose name holds `secret`, `token`, `password`, `credential` or `key`.
+Each repository has its own environment on claude.ai, which keeps its own copy of the declaration: only the owner changes it there. A session cannot change it, and names what it lacks instead: a session stopped by a host or a package opens a pull request on the declaration, and `cloud-tools.sh` tells a session when the environment ran another setup script than its clone's. A secret's value never enters `environment.json`: `check.ts` refuses any value but `<redacted>` on a variable whose name has a word ending in `secret`, `token`, `password`, `credential` or `key`.
 
 ## Labels
 

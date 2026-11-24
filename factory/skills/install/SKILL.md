@@ -44,7 +44,7 @@ A cloud session gets nothing of the owner's machine: no user `CLAUDE.md`, skill,
 It writes `.github/factory/environment.json` and `.github/factory/setup.sh`. Read how the repository builds and tests itself, its CI workflow first, then write with the owner what a session needs there and the cloud image lacks. Add nothing a run of the code does not need.
 
 - `allowed_hosts` in `environment.json`: each host the build, the tests or the documentation the Worker must read are fetched from, beyond GitHub and the package registries, which `allow_package_managers` covers. A domain alone, with no scheme and no path.
-- `environment_variables`: plain values. The file is as public as the repository: a variable whose name holds `secret`, `token`, `password`, `credential` or `key` is written with the value `"<redacted>"`, which `check.ts` holds it to, and its real value goes on the environment alone. A secret under another name stays out of the file.
+- `environment_variables`: plain values. The file is as public as the repository: a variable whose name has a word ending in `secret`, `token`, `password`, `credential` or `key`, as `NPM_TOKEN` has and `MAX_OUTPUT_TOKENS` has not, is written with the value `"<redacted>"`, which `check.ts` holds it to, and its real value goes on the environment alone. A secret under another name stays out of the file.
 - `PACKAGES` in `setup.sh`: the system packages CI installs with apt.
 - Tools, where CI installs some the image lacks or holds others to a version: write `.github/factory/mise.toml`, a `[tools]` table, then lock it:
 
