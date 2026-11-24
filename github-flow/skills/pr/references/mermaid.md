@@ -34,4 +34,4 @@ The parser fails on these, and GitHub then shows an error box instead of the dia
 
 ## Checking the render
 
-Only a browser shows the drawing. On a private repository, only the user's logged-in browser session can open the PR. Each diagram is a frame served from another origin: a full-page screenshot leaves the ones outside the viewport blank. Scroll each into view and screenshot the viewport. Each fix is an edit of the body, a reload and a screenshot; after two rounds, *Left open* names the diagram that still does not read.
+Only a browser shows the drawing. On a private repository, only the user's logged-in browser session can open the PR. Each diagram is a frame served from another origin: a full-page screenshot leaves the ones outside the viewport blank. Scroll each into view and screenshot the viewport. Each fix is an edit of the body, a reload and a screenshot; after two rounds, a diagram that still does not read is replaced by a text view of the same nodes.

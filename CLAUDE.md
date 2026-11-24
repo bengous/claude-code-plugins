@@ -11,7 +11,7 @@ Code reaches `dev` through a pull request alone, merged by GitHub once its check
 - `bun ./scripts/gates/run-gates.ts` and `bun ./scripts/gates/affected.ts test` pass before every push.
 - Run the `verify` skill on your change before you open the pull request, and again after any later edit. A hook sends a cloud session back when the working tree changed since `verify` last ran.
 - The pull request's title becomes the one commit of the change on `dev`: `type(scope): what the code does`, with `!` after the scope for a breaking change, which the release reads.
-- Decide small choices yourself and record them in the PR body. Ask the owner only for a choice that is hard to undo or that changes what a plugin does for its users beyond what the issue asks.
+- Decide small choices yourself. Ask the owner only for a choice that is hard to undo or that changes what a plugin does for its users beyond what the issue asks.
 
 ## Code
 
@@ -23,14 +23,7 @@ Code reaches `dev` through a pull request alone, merged by GitHub once its check
 
 ## Pull request body
 
-The owner reads it after the agents. Keep it short. A session on the owner's machine writes the body the `github-flow:pr` skill gives, which holds these four things among its sections.
-
-1. `Closes #N.`, when the pull request closes an issue.
-2. At most two lines: the problem, then what the change does.
-3. One view of the change: a `diff` block of the logic, a file tree, a table, or an output before and after.
-4. **Checks**: the command `verify` ran and its result, with numbers. For a change with nothing to verify, `none` and why. A behaviour only a live session shows, such as a panel, a band or a toast, is named there as not played in a session.
-
-No question to the reviewer, no summary, no history.
+The `pr` skill of `github-flow` writes it, and its `scripts/check-pr.ts` checks it: `github-flow/skills/pr/`.
 
 ## Review comments
 

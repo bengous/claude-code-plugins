@@ -30,7 +30,7 @@ export const REGISTRY: Registry = {
         "test scripts/release.integration.test.ts",
       ],
     },
-    "5ed239e7": {
+    "1f77abe3": {
       quote: "A behaviour change to a plugin is done once the `field-test`",
       prose: "whether a change alters behaviour is a judgement; no check knows a field test ran",
     },
@@ -98,7 +98,7 @@ export const REGISTRY: Registry = {
       prose:
         "what code can decide is the judgement this rule asks for; the rule registry records it",
     },
-    "6368aa86": {
+    a0c36ff1: {
       quote: "A commit message says what the code does and why, the reason",
       prose:
         "a model judges each message, through the prompt hook of `.claude/__settings.jsonc`; a control here names a script, and a prompt hook has none",

@@ -16,7 +16,7 @@ New plugin: add its `marketplace.json` entry and its `README.md` table row by ha
 
 Agents never bump a version or write a `CHANGELOG.md` section: `scripts/release.ts` does both at release time.
 
-A behaviour change to a plugin is done once the `field-test` skill has played it in a live session, red on the base and green on the change; a label, text or doc change needs none. A cloud session cannot play one: its pull request names the behaviour under **Checks** as not played in a session, and the field test is played on the owner's machine: before he approves a `tier:human` pull request, before the release for one that merged as `tier:low`.
+A behaviour change to a plugin is done once the `field-test` skill has played it in a live session, red on the base and green on the change; a label, text or doc change needs none. A cloud session cannot play one: the field test is played on the owner's machine, before he approves a `tier:human` pull request, before the release for one that merged as `tier:low`.
 
 For plugin tests, permissions and the catalog lifecycle, start at [Plugin testing](docs/plugin-testing.md) and open only the page for the task. The vellum and atlas plugins carry their own `AGENTS.md`; vellum's `.claude/rules/` have `paths:` relative to `vellum/`.
 
@@ -54,7 +54,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 - One writer per worktree.
 - In an agent worktree, a Bash call runs one simple command: no `&&` or `;` chain, pipe, `$(…)`, heredoc, loop or leading `cd`, and plain `git`, not `git -C`. Claude Code's worktree-isolation guard refuses a command it cannot verify stays inside the worktree. Read, Write, Edit and Grep, or a script file run as one command, do the rest.
 - A step that code can decide is done by the script or the hook, not asked of Claude: an instruction can go unfollowed. A skill, a message or an error tells Claude what to do only when no code can decide it.
-- A commit message says what the code does and why, the reason in words; how the change came about and how it was checked go in the pull request.
+- A commit message says what the code does and why, the reason in words; not how the change came about or how it was checked.
 
 ## Non-Obvious Directories
 

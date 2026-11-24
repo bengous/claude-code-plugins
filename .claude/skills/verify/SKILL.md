@@ -63,9 +63,9 @@ Scratch files go in a directory `mktemp -d` prints, never in the repository.
 
 ## 4. What this cannot show
 
-A panel, a band, a toast, a skill's flow in a live session and anything in Claude Desktop need a live session: the `field-test` skill plays them on the owner's machine, with tmux and the desktop app, which a cloud session has not. For a change to one of those, name it under **Checks** as not played in a session.
+A panel, a band, a toast, a skill's flow in a live session and anything in Claude Desktop need a live session: the `field-test` skill plays them on the owner's machine, with tmux and the desktop app, which a cloud session has not. Name a change to one of those in the session's report, so the owner plays it.
 
-A cloud session's container fails some tests the code passes on CI and on the owner's machine. `affected.ts test` stops at its first red run, so where the change reaches them, run the next runs by hand to get their numbers. Under **Checks**, name each of these as not run in the container, by its cause, beside the rest of the run's numbers; the pull request's `test` job runs them.
+A cloud session's container fails some tests the code passes on CI and on the owner's machine. `affected.ts test` stops at its first red run, so where the change reaches them, run the next runs by hand to get their numbers. Name each of these in the session's report as not run in the container, by its cause; the pull request's `test` job runs them.
 
 | The container | Fails | As |
 |---|---|---|
@@ -73,8 +73,8 @@ A cloud session's container fails some tests the code passes on CI and on the ow
 | runs as root, past every file mode | the tests of a file or a folder the process cannot read, write or rename: vellum's `fs.spec.ts`, `queue.spec.ts` and `preview.integration.spec.ts` (`draft`), atlas's `cli.integration.spec.ts` and `inventory.integration.spec.ts`, pinpoint's `a seq that does not read` | a read or a write that succeeds where the test made it fail |
 | has a PID 1 that reaps no orphan | `agents-bridge/scripts/codex-run.integration.test.ts`, `cancel also stops the commands codex started` | the killed child left a zombie, which still answers a signal 0 |
 
-A session that starts with a message from `cloud-tools.sh` runs in an environment that did not run `.github/factory/setup.sh` as the clone holds it, or whose tool install failed: quote the message under **Checks**, and name there each test or gate the missing tool kept from running.
+A session that starts with a message from `cloud-tools.sh` runs in an environment that did not run `.github/factory/setup.sh` as the clone holds it, or whose tool install failed: quote the message in the session's report, and name there each test or gate the missing tool kept from running.
 
 ## 5. Report
 
-Under **Checks** in the pull request body: each command run and its result, with numbers (tests passed, exit codes), and what section 4 left unplayed. For a change with nothing to verify, `none` and why.
+Under **Checks** in the pull request body: each command run and its result, with numbers (tests passed, exit codes); the body names only what ran (`github-flow/skills/pr/`). What section 4 left unplayed goes in the session's report. For a change with nothing to verify, the gates that ran, with their count.
