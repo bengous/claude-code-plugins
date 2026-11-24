@@ -2,7 +2,7 @@
 
 [Repo operations index](../repo-ops.md). Read to set up, run or pause the pipeline, or to sort the leads it files.
 
-Once Renovate lands a dependency update on `dev`, two kinds of Claude Code cloud scheduled tasks read what the new version brings and file **leads**: issues labelled `lead` that name code this repository could simplify, an API or option worth adopting, or a workaround it could drop. The pipeline changes no code and opens no pull request; the human sorts the leads.
+Once Renovate lands a dependency update on `dev`, two kinds of Claude Code cloud scheduled tasks read what the new version brings and file **leads**: issues labelled `lead` that name code this repository could simplify, an API or option worth adopting, or a workaround it could drop. The pipeline changes no code and opens no pull request; the human sorts the leads. It reads Renovate's own commits alone: an update that `renovate-red.yml` handed to a session lands through the session's pull request, under the owner's login, and gets no lead.
 
 ## How a run goes
 
