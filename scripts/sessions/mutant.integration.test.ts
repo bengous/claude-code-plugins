@@ -174,7 +174,18 @@ describe("main", () => {
     expect(readFileSync(copy, "utf8")).toBe("the bytes of a run that was killed");
   });
 
-  test("a file edited while the command ran is left as it is, and its bytes from before are kept", async () => {
+  test("a file edited while the command ran without the mutant gets no mutant, and keeps the edit", async () => {
+    const edits = `${READ} if (!mutant) fs.appendFileSync(file, ' // edited')`;
+
+    expect(await run(edits)).toBe(2);
+    expect(err).toEqual([
+      `mutant: ${file} changed while the command ran without the mutant and is left as it is`,
+    ]);
+    expect(readFileSync(file, "utf8")).toBe(`${ORIGINAL} // edited`);
+    expect(existsSync(copy)).toBe(false);
+  });
+
+  test("a file edited while the command ran on the mutant is left as it is, and its bytes from before are kept", async () => {
     const edits = `${READ} if (mutant) { fs.appendFileSync(file, ' // edited'); process.exit(1); }`;
 
     expect(await run(edits)).toBe(2);

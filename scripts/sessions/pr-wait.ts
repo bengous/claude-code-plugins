@@ -14,6 +14,9 @@
  * Run from a checkout of the pull request's branch, it waits for the verdicts of the commit that
  * checkout is at: right after a push, GitHub may still show the head before it.
  *
+ * For a session on the owner's machine: `gh pr view` and the review threads go through GitHub's
+ * GraphQL API, which is closed to a cloud session. Auto-fix wakes that one on its pull request.
+ *
  * Exit 0 when both are green or the pull request merged, 1 when one is red or it closed, 2 on a bad
  * argument, 3 when the wait ended with no verdict.
  */

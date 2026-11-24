@@ -8,8 +8,9 @@
  *
  * The file's bytes are kept in a copy under the temporary directory for as long as the mutant is in
  * the file. A copy that exists means a mutant is in the file, played now by another run or left by
- * one that was killed: no second mutant is written over it. The file is restored only while it
- * still holds the mutant, so an edit made meanwhile is never written over either.
+ * one that was killed: no second mutant is written over it. The mutant is written only while the
+ * file still holds the bytes read at the start, and the file is restored only while it still holds
+ * the mutant: an edit made during either run of the command stays.
  *
  * Exit 0 when the command failed on the mutant, 1 when it passed, 2 when no mutant was played.
  */
@@ -33,7 +34,7 @@ const USAGE = `usage: mutant.ts <file> --from <text> --to <text> -- <command> [<
   Exit 0 when the command failed on the mutant, 1 when it passed, 2 when no mutant was played
   or it proves nothing: a text the file does not hold once, a command that fails without the
   mutant, did not start, was ended by a signal or ran past 15 minutes, a file that already
-  holds a mutant, or one that changed while the command ran.`;
+  holds a mutant, or one that changed while the command ran, with or without the mutant.`;
 
 /** The command's last lines, enough to tell a failed assertion from a file that no longer parses. */
 const TAIL_LINES = 15;
@@ -160,6 +161,17 @@ export async function play(
     return {
       kind: "refused",
       why: `${file} already holds a mutant, played by another run or left by one that was killed: its bytes from before are in ${copy}`,
+    };
+  }
+
+  // The first run of the command can be long: the bytes read before it are the file's only while
+  // nothing wrote to it since.
+  if (!readFileSync(target).equals(original)) {
+    rmSync(copy, { force: true });
+
+    return {
+      kind: "refused",
+      why: `${file} changed while the command ran without the mutant and is left as it is`,
     };
   }
 

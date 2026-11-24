@@ -29,7 +29,7 @@ bun ./scripts/gates/run-gates.ts                       # CI's `validate` gates f
 bun ./scripts/gates/affected.ts print                  # what the change reaches since origin/dev; `test` runs those suites
 bun ./factory/scripts/check.ts --repo bengous/claude-code-plugins              # what the factory lacks on GitHub, one line per item
 bun .github/factory/tier.ts replay --repo bengous/claude-code-plugins          # the tier cases, judged three times each; `--record` after an edit of `tier-prompt.md`
-bun ./scripts/sessions/pr-wait.ts <n>                  # waits for `test` and `review` on a pull request's head; prints the verdicts, the labels, the open threads
+bun ./scripts/sessions/pr-wait.ts <n>                  # on the owner's machine, since it reads GitHub's GraphQL API, closed to a cloud session: waits for `test` and `review` on a pull request's head; prints the verdicts, the labels, the open threads
 bun ./scripts/sessions/mutant.ts <file> --from <text> --to <text> -- <command>   # runs the command, which has to pass, then on one mutant, and restores the file; exit 0 when it fails on the mutant
 bun run --cwd vellum e2e                               # vellum's browser suite; Chromium once per machine: `bun run --cwd vellum e2e:install`
 ```
