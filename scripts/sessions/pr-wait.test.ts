@@ -26,14 +26,27 @@ function open(checks: readonly PullCheck[]): PullView {
 interface FakeGh {
   readonly gh: Gh;
   readonly views: () => number;
+  readonly calls: readonly (readonly string[])[];
 }
+
+const ELSEWHERE = () => ({ branch: "dev", head: "0000000000000000000000000000000000000000" });
+
+/** A checkout of the fake pull request's branch, one commit past the head GitHub shows. */
+const AHEAD = () => ({ branch: "feature/x", head: "7cb799e45872e99e1dcd3bb10f7cf6c31ecf9713" });
+
+const FAILING_GH: Gh = () => Promise.reject(new Error("gh pr view 580 exited 1: HTTP 502"));
 
 /** A `gh` whose pull request shows one more of `rollups` at each view, and one open thread. */
 function fakeGh(rollups: readonly (readonly unknown[] | null)[]): FakeGh {
   let views = 0;
+  const calls: (readonly string[])[] = [];
 
   const gh: Gh = (args) => {
+    calls.push(args);
+
     if (args[0] === "api") return Promise.resolve("a.ts:5  Unproven change.\n");
+
+    if (args.includes("headRefName")) return Promise.resolve("feature/x\n");
 
     if (args.includes("labels")) return Promise.resolve("tier:human\nneeds-human\n");
 
@@ -53,7 +66,7 @@ function fakeGh(rollups: readonly (readonly unknown[] | null)[]): FakeGh {
     );
   };
 
-  return { gh, views: () => views };
+  return { gh, views: () => views, calls };
 }
 
 function fakeClock(): Clock {
@@ -84,7 +97,7 @@ describe("decide", () => {
   test("both checks decided end the wait, whatever owner-gate says", () => {
     const checks = [check("owner-gate", "red"), check("test", "green"), check("review", "red")];
 
-    expect(decide(open(checks), 0, TIMEOUT_MS)).toEqual({
+    expect(decide(open(checks), null, 0, TIMEOUT_MS)).toEqual({
       kind: "verdict",
       head: HEAD,
       checks: [check("test", "green"), check("review", "red")],
@@ -98,7 +111,7 @@ describe("decide", () => {
       check("review", "green", "2026-01-01T10:09:00Z"),
     ];
 
-    expect(decide(open(checks), 0, TIMEOUT_MS)).toEqual({
+    expect(decide(open(checks), null, 0, TIMEOUT_MS)).toEqual({
       kind: "verdict",
       head: HEAD,
       checks: [check("test", "green"), check("review", "green", "2026-01-01T10:09:00Z")],
@@ -106,10 +119,11 @@ describe("decide", () => {
   });
 
   test("a head with no check yet is waited on, then answered as none", () => {
-    expect(decide(open([]), REGISTRATION_MS - 1, TIMEOUT_MS)).toEqual({ kind: "wait" });
-    expect(decide(open([]), REGISTRATION_MS, TIMEOUT_MS)).toEqual({
+    expect(decide(open([]), null, REGISTRATION_MS - 1, TIMEOUT_MS)).toEqual({ kind: "wait" });
+    expect(decide(open([]), null, REGISTRATION_MS, TIMEOUT_MS)).toEqual({
       kind: "none",
       head: HEAD,
+      checks: [],
       missing: ["test", "review"],
     });
   });
@@ -117,25 +131,43 @@ describe("decide", () => {
   test("a check not created yet is waited on while another check of the head runs", () => {
     const checks = [check("validate (scoped)", "pending"), check("review (read)", "pending")];
 
-    expect(decide(open(checks), REGISTRATION_MS * 5, TIMEOUT_MS)).toEqual({ kind: "wait" });
+    expect(decide(open(checks), null, REGISTRATION_MS * 5, TIMEOUT_MS)).toEqual({ kind: "wait" });
   });
 
   test("a pending check is waited on until the timeout, which names what it waited for", () => {
     const checks = [check("test", "green"), check("review", "pending")];
 
-    expect(decide(open(checks), TIMEOUT_MS - 1, TIMEOUT_MS)).toEqual({ kind: "wait" });
-    expect(decide(open([check("review", "pending")]), TIMEOUT_MS, TIMEOUT_MS)).toEqual({
+    expect(decide(open(checks), null, TIMEOUT_MS - 1, TIMEOUT_MS)).toEqual({ kind: "wait" });
+    expect(decide(open([check("review", "pending")]), null, TIMEOUT_MS, TIMEOUT_MS)).toEqual({
       kind: "timeout",
       head: HEAD,
+      checks: [check("review", "pending")],
       waiting: ["test", "review"],
+    });
+  });
+
+  test("another head than the checkout's is waited on, then named, its verdicts unread", () => {
+    const checks = [check("test", "green"), check("review", "red")];
+    const mine = "7cb799e45872e99e1dcd3bb10f7cf6c31ecf9713";
+
+    expect(decide(open(checks), mine, REGISTRATION_MS - 1, TIMEOUT_MS)).toEqual({ kind: "wait" });
+    expect(decide(open(checks), mine, REGISTRATION_MS, TIMEOUT_MS)).toEqual({
+      kind: "other-head",
+      head: HEAD,
+      expected: mine,
+    });
+    expect(decide(open(checks), HEAD, 0, TIMEOUT_MS)).toEqual({
+      kind: "verdict",
+      head: HEAD,
+      checks,
     });
   });
 
   test("a merged or a closed pull request ends the wait at once", () => {
     expect(
-      decide({ state: "MERGED", mergeCommit: "04719f62aa", headRefOid: HEAD }, 0, TIMEOUT_MS),
+      decide({ state: "MERGED", mergeCommit: "04719f62aa", headRefOid: HEAD }, null, 0, TIMEOUT_MS),
     ).toEqual({ kind: "merged", commit: "04719f62aa" });
-    expect(decide({ state: "CLOSED" }, 0, TIMEOUT_MS)).toEqual({ kind: "closed" });
+    expect(decide({ state: "CLOSED" }, null, 0, TIMEOUT_MS)).toEqual({ kind: "closed" });
   });
 });
 
@@ -152,8 +184,9 @@ describe("exitOf", () => {
       } as const,
       1,
     ],
-    [{ kind: "none", head: HEAD, missing: ["review"] } as const, 3],
-    [{ kind: "timeout", head: HEAD, waiting: ["review"] } as const, 3],
+    [{ kind: "none", head: HEAD, checks: [], missing: ["review"] } as const, 3],
+    [{ kind: "timeout", head: HEAD, checks: [], waiting: ["review"] } as const, 3],
+    [{ kind: "other-head", head: HEAD, expected: "7cb799e4" } as const, 3],
   ])("%p exits %p", (wait, code) => {
     expect(exitOf(wait)).toBe(code);
   });
@@ -180,7 +213,9 @@ describe("report", () => {
   });
 
   test("says what the wait lacked when it ended with no verdict", () => {
-    expect(report(7, { kind: "none", head: HEAD, missing: ["test", "review"] }, [], [])).toBe(
+    const none = { kind: "none", head: HEAD, checks: [], missing: ["test", "review"] } as const;
+
+    expect(report(7, none, [], [])).toBe(
       [
         "#7 head 9dd89b0c",
         "no test and no review on this head, and no check of it runs",
@@ -188,9 +223,30 @@ describe("report", () => {
         "threads  0 open",
       ].join("\n"),
     );
-    expect(
-      report(7, { kind: "timeout", head: HEAD, waiting: ["review"] }, [], []).split("\n")[1],
-    ).toBe("still waiting for review at the timeout");
+  });
+
+  test("a wait that ends with no verdict still prints the check that has one", () => {
+    const timeout = {
+      kind: "timeout",
+      head: HEAD,
+      checks: [check("test", "red"), check("review", "pending")],
+      waiting: ["review"],
+    } as const;
+
+    expect(report(7, timeout, [], []).split("\n").slice(1, 4)).toEqual([
+      "test     red  https://github.com/o/r/runs/test",
+      "review   pending  https://github.com/o/r/runs/review",
+      "still waiting for review at the timeout",
+    ]);
+  });
+
+  test("names the two heads when the checkout is at another commit", () => {
+    const other = { kind: "other-head", head: HEAD, expected: "7cb799e45872e99e" } as const;
+
+    expect(report(7, other, [], []).split("\n").slice(0, 2)).toEqual([
+      "#7 head 9dd89b0c",
+      "this checkout is at 7cb799e4: push it, or pull the branch",
+    ]);
   });
 });
 
@@ -234,7 +290,7 @@ describe("main", () => {
       [run("test", "COMPLETED", "SUCCESS"), run("review", "COMPLETED", "FAILURE")],
     ]);
 
-    expect(await main(["580"], gh, fakeClock())).toBe(1);
+    expect(await main(["580"], gh, fakeClock(), ELSEWHERE)).toBe(1);
     expect(views()).toBe(4);
     expect(out.join("\n")).toBe(
       [
@@ -251,13 +307,64 @@ describe("main", () => {
   test("gives up on a head whose checks never come, without waiting for the timeout", async () => {
     const { gh, views } = fakeGh([null]);
 
-    expect(await main(["580"], gh, fakeClock())).toBe(3);
-    expect(views()).toBe(4);
+    expect(await main(["580"], gh, fakeClock(), ELSEWHERE)).toBe(3);
+    expect(views()).toBe(5);
     expect(out[0]).toContain("no test and no review on this head");
+  });
+
+  test("a head with no check running on one poll alone is not given up on", async () => {
+    const { gh } = fakeGh([
+      [run("validate", "IN_PROGRESS", null)],
+      [run("validate", "IN_PROGRESS", null)],
+      [run("validate", "IN_PROGRESS", null)],
+      [run("validate", "IN_PROGRESS", null)],
+      [run("validate", "COMPLETED", "SUCCESS"), run("review", "COMPLETED", "SUCCESS")],
+      [
+        run("validate", "COMPLETED", "SUCCESS"),
+        run("review", "COMPLETED", "SUCCESS"),
+        run("test", "COMPLETED", "SUCCESS"),
+      ],
+    ]);
+
+    expect(await main(["580"], gh, fakeClock(), ELSEWHERE)).toBe(0);
+  });
+
+  test("from a checkout of the branch, waits for the checkout's commit and no other", async () => {
+    const { gh } = fakeGh([
+      [run("test", "COMPLETED", "SUCCESS"), run("review", "COMPLETED", "FAILURE")],
+    ]);
+
+    expect(await main(["580"], gh, fakeClock(), AHEAD)).toBe(3);
+    expect(out[0]).toContain("this checkout is at 7cb799e4: push it, or pull the branch");
+    expect(await main(["580"], gh, fakeClock(), () => ({ branch: "feature/x", head: HEAD }))).toBe(
+      1,
+    );
+  });
+
+  test("reads every page of the review threads", async () => {
+    const { gh, calls } = fakeGh([
+      [run("test", "COMPLETED", "SUCCESS"), run("review", "COMPLETED", "SUCCESS")],
+    ]);
+
+    expect(await main(["580"], gh, fakeClock(), ELSEWHERE)).toBe(0);
+
+    const threads = calls.find((args) => args[0] === "api") ?? [];
+
+    expect(threads).toContain("--paginate");
+    expect(threads.join(" ")).toContain("reviewThreads(first: 100, after: $endCursor)");
   });
 });
 
-describe("usage", () => {
+describe("no verdict", () => {
+  test("a gh call that fails exits 3 with its error, never the code of a red check", async () => {
+    const err: string[] = [];
+
+    spyOn(console, "error").mockImplementation((line: string) => err.push(line));
+
+    expect(await main(["580"], FAILING_GH, fakeClock(), ELSEWHERE)).toBe(3);
+    expect(err).toEqual(["pr-wait: no verdict: gh pr view 580 exited 1: HTTP 502"]);
+  });
+
   test("a bad argument prints the usage and exits 2", async () => {
     const err: string[] = [];
 
