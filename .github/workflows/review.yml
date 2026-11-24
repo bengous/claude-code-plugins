@@ -33,7 +33,7 @@ jobs:
       AUTHOR: ${{ github.event.pull_request.user.login }}
       OWNER: bengous
     steps:
-      - uses: actions/checkout@v6.1.0
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
       # The review spends the owner's token, so a move of his starts it: a pull request opened under his
