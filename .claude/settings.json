@@ -96,16 +96,9 @@
         "matcher": "Write",
         "hooks": [
           {
-            "type": "prompt",
-            "if": "Write(*.ts)",
-            "continueOnBlock": true,
-            "prompt": "You remind a coding session, at the moment it creates a file, to check whether what the file builds already exists. The hook input below is a Write call: tool_input.file_path, tool_input.content, and tool_response.type.\nAnswer ok:true at once when tool_response.type is not \"create\": the file existed.\nAnswer ok:true when the new file is a test, a spec, a fixture or a test helper, a config file (such as *.config.ts), or a module with no entry point that other code imports.\nAnswer ok:false when the new file is a tool a person, a session or a workflow runs: a script with an entry point (a main function, a shebang, argv parsing, a usage line), such as a wrapper of gh, git or GitHub's API, a wait or a poll on CI, a watcher, a runner, a hook script.\nWhen you answer ok:false, the reason is this text, <path> being the file's path relative to the input's cwd: \"You just created <path>, a new tool. Before you go on, check whether Claude Code (the skills and slash commands listed in your context, `claude --help`), gh, or a script of this repository already does what it does. Say in one line what you found, then go on: this is a reminder, the file stays.\"\n\n$ARGUMENTS"
-          },
-          {
-            "type": "prompt",
-            "if": "Write(*.sh)",
-            "continueOnBlock": true,
-            "prompt": "You remind a coding session, at the moment it creates a file, to check whether what the file builds already exists. The hook input below is a Write call: tool_input.file_path, tool_input.content, and tool_response.type.\nAnswer ok:true at once when tool_response.type is not \"create\": the file existed.\nAnswer ok:true when the new file is a test, a spec, a fixture or a test helper, a config file (such as *.config.ts), or a module with no entry point that other code imports.\nAnswer ok:false when the new file is a tool a person, a session or a workflow runs: a script with an entry point (a main function, a shebang, argv parsing, a usage line), such as a wrapper of gh, git or GitHub's API, a wait or a poll on CI, a watcher, a runner, a hook script.\nWhen you answer ok:false, the reason is this text, <path> being the file's path relative to the input's cwd: \"You just created <path>, a new tool. Before you go on, check whether Claude Code (the skills and slash commands listed in your context, `claude --help`), gh, or a script of this repository already does what it does. Say in one line what you found, then go on: this is a reminder, the file stays.\"\n\n$ARGUMENTS"
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/tool-reminder.ts\"",
+            "timeout": 5
           }
         ]
       },
