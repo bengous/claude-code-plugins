@@ -43,7 +43,7 @@ jobs:
           fi
       # The tier rules alone, from {{BRANCH}}: the pull request's code is never checked out, and no file of
       # the repository's root configures the bun that runs tier.ts.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             .github/factory

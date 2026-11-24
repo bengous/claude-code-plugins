@@ -77,6 +77,19 @@ describe("render", () => {
 
     expect(trunkRed?.content).toContain('workflows: ["Build & test"]');
     expect(trunkRed?.content).toContain("branches: [trunk]");
+    expect(trunkRed?.content).toContain('if [ "$conclusion" = success ]; then');
+
+    const unclaim = result.files.find((file) => file.path === "repo/.github/workflows/unclaim.yml");
+
+    expect(unclaim?.content).toContain("types: [closed]");
+    expect(unclaim?.content).toContain("issues/$ISSUE/labels/in-progress");
+
+    const review = result.files.find((file) => file.path === "repo/.github/workflows/review.yml");
+
+    expect(review?.content).toContain("- name: Write what the round read to the summary");
+    expect(review?.content).toContain('"required":["findings","read","issue","round"]');
+    expect(review?.content).toContain("--settings '{\"disableAllHooks\":true}'");
+    expect(review?.content).toContain("- name: Hold a draft, which no round reads");
   });
 
   test("the routine's gate takes the owner's issue and the CI's two repair issues, nothing wider", () => {

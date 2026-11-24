@@ -1,6 +1,6 @@
 ---
 name: install
-description: "Install the native software factory in the current repository: the dispatch, review, owner-gate, conflict and trunk-red workflows, the tier classifier and its rules, CODEOWNERS, the review command, the verify skill and its hook, the CLAUDE.md sections and the claude.ai routine that turns a `ready` issue into a merged pull request; then report what the GitHub side still lacks. Use when the user asks to install, set up or add the factory to a repository, or to check a repository's factory setup."
+description: "Install the native software factory in the current repository: the dispatch, review, owner-gate, conflict, trunk-red and unclaim workflows, the tier classifier and its rules, CODEOWNERS, the review command, the verify skill and its hook, the CLAUDE.md sections and the claude.ai routine that turns a `ready` issue into a merged pull request; then report what the GitHub side still lacks. Use when the user asks to install, set up or add the factory to a repository, or to check a repository's factory setup."
 argument-hint: "[owner/name]"
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check.ts *), Bash(bun .github/factory/tier.ts replay *), Bash(claude -p *), Bash(mktemp -d), Bash(gh repo view:*), Bash(gh api user:*), Bash(gh pr list:*), Bash(gh pr diff:*), Bash(gh workflow list:*), Bash(bun run --cwd ~/dotfiles routines:check), Read
@@ -8,7 +8,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_P
 
 # Install the factory
 
-The factory runs with no human in the loop. The owner labels his own issue `ready`; `dispatch.yml` fires a claude.ai routine; a cloud session implements the issue, runs the repository's `verify` skill and opens a pull request with auto-merge on. The `owner-gate` check gives the change a tier: `low` lands once `test` and `review` are green, `human` waits for the owner's `human-approved` label. The review stops a pull request at its third failed round or at a force-push, `conflict.yml` tells a session its pull request conflicts, and `trunk-red.yml` has a red default branch repaired.
+The factory runs with no human in the loop. The owner labels his own issue `ready`; `dispatch.yml` fires a claude.ai routine; a cloud session implements the issue, runs the repository's `verify` skill and opens a pull request with auto-merge on. The `owner-gate` check gives the change a tier: `low` lands once `test` and `review` are green, `human` waits for the owner's `human-approved` label. The review stops a pull request at its third failed round or at a force-push, `conflict.yml` tells a session its pull request conflicts, `trunk-red.yml` has a red default branch repaired and closes its repair issue once the branch is green again, and `unclaim.yml` takes `in-progress` off an issue its merged pull request closed.
 
 Run it from a checkout of `<REPO>`. The factory's pull requests target the repository's default branch: a repository whose working trunk is not its default branch is not supported.
 

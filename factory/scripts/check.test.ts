@@ -142,11 +142,12 @@ describe("evaluate", () => {
     );
   });
 
-  test("requires the two new workflows and the settings file among the files", () => {
+  test("requires the factory's workflows and the settings file among the files", () => {
     expect(requiredFiles()).toEqual(
       expect.arrayContaining([
         ".github/workflows/conflict.yml",
         ".github/workflows/trunk-red.yml",
+        ".github/workflows/unclaim.yml",
         ".github/workflows/owner-gate.yml",
         ".claude/settings.json",
       ]),
