@@ -23,6 +23,18 @@ bun install --cwd <plugin> --frozen-lockfile --ignore-scripts
 
 An install the network refuses is a blocker to name, not a step to skip: the suites below need it.
 
+A cloud session clones shallow, and the release tests read the history (`vellum/CHANGELOG.md > has one section for each version its history set`). When this prints `true`:
+
+```bash
+git rev-parse --is-shallow-repository
+```
+
+complete the clone before the suites:
+
+```bash
+git fetch --unshallow origin
+```
+
 ## 2. The suites and the gates the change reaches
 
 ```bash
@@ -52,6 +64,15 @@ Scratch files go in a directory `mktemp -d` prints, never in the repository.
 ## 4. What this cannot show
 
 A panel, a band, a toast, a skill's flow in a live session and anything in Claude Desktop need a live session: the `field-test` skill plays them on the owner's machine, with tmux and the desktop app, which a cloud session has not. For a change to one of those, name it under **Checks** as not played in a session.
+
+A cloud session's container fails some tests the code passes on CI and on the owner's machine. `affected.ts test` stops at its first red run, so where the change reaches them, run the next runs by hand to get their numbers. Under **Checks**, name each of these as not run in the container, by its cause, beside the rest of the run's numbers; the pull request's `test` job runs them.
+
+| The container | Fails | As |
+|---|---|---|
+| has no IPv6 | `scripts/ci/mutation.integration.test.ts` under `a pass leaves the checkout as it found it`, two tests; `pinpoint/server/serve.integration.spec.ts`, the `[::ffff:127.0.0.1]` address | the 60 s budget, at any budget: Stryker's server cannot listen on `::`; 502 for 508 |
+| runs as root, past every file mode | the tests of a file or a folder the process cannot read, write or rename: vellum's `fs.spec.ts`, `queue.spec.ts` and `preview.integration.spec.ts` (`draft`), atlas's `cli.integration.spec.ts` and `inventory.integration.spec.ts`, pinpoint's `a seq that does not read` | a read or a write that succeeds where the test made it fail |
+| has a PID 1 that reaps no orphan | `agents-bridge/scripts/codex-run.integration.test.ts`, `cancel also stops the commands codex started` | the killed child left a zombie, which still answers a signal 0 |
+| has no `ssh-keygen` | `context-management/scripts/agent-docs-drift.integration.test.ts`, `log.showSignature` | `Executable not found in $PATH` |
 
 ## 5. Report
 
