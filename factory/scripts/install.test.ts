@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,6 +113,39 @@ describe("main", () => {
     return main(argv);
   };
 
+  test("environment writes the declaration alone, and repo writes everything but it", () => {
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+    expect(out.join("\n")).not.toContain(".github/factory/environment.json");
+    expect(existsSync(join(root, ".github/factory/setup.sh"))).toBe(false);
+
+    expect(run("environment", "--target", root)).toBe(0);
+    expect(out.join("\n")).toBe(
+      "wrote      .github/factory/environment.json\nwrote      .github/factory/setup.sh",
+    );
+  });
+
+  test("repo --force leaves a declaration the repository adapted as it is", () => {
+    const setup = join(root, ".github/factory/setup.sh");
+
+    expect(run("environment", "--target", root)).toBe(0);
+    writeAtomicSync(setup, "readonly PACKAGES=(jq)\n");
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root, "--force")).toBe(0);
+    expect(out.join("\n")).not.toContain(".github/factory/setup.sh");
+    expect(readFileSync(setup, "utf8")).toBe("readonly PACKAGES=(jq)\n");
+
+    expect(run("environment", "--target", root)).toBe(1);
+    expect(out.join("\n")).toContain("refused    .github/factory/setup.sh");
+  });
+
+  test("environment takes no parameter flag and no --dir", () => {
+    expect(run("environment", "--owner", "octo", "--target", root)).toBe(2);
+    expect(err.join("\n")).toContain("--owner is not used by install.ts environment");
+
+    expect(run("environment", "--dir", root)).toBe(2);
+    expect(err.join("\n")).toContain("--dir belongs to install.ts prompt");
+  });
+
   test("writes, finds identical, refuses a changed file, and overwrites it with --force", () => {
     const repo = ["repo", ...REPO_FLAGS, "--target", root];
     const owners = join(root, ".github/CODEOWNERS");
@@ -203,6 +236,7 @@ describe("main", () => {
       ".github/deep-review-paths",
       ".claude/commands/pr-review.md",
       ".claude/hooks/require-verify.sh",
+      ".claude/hooks/cloud-tools.sh",
     ]) {
       expect(out.join("\n")).toContain(`wrote      ${path}`);
     }

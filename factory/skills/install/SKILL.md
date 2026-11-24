@@ -1,9 +1,9 @@
 ---
 name: install
-description: "Install the native software factory in the current repository: the dispatch, review, owner-gate, conflict, trunk-red and unclaim workflows, the tier classifier and its rules, CODEOWNERS, the review command, the verify skill and its hook, the CLAUDE.md sections and the claude.ai routine that turns a `ready` issue into a merged pull request; then report what the GitHub side still lacks. Use when the user asks to install, set up or add the factory to a repository, or to check a repository's factory setup."
+description: "Install the native software factory in the current repository: the dispatch, review, owner-gate, conflict, trunk-red and unclaim workflows, the tier classifier and its rules, CODEOWNERS, the review command, the verify skill and its hook, the declaration of its cloud environment, the CLAUDE.md sections and the claude.ai routine that turns a `ready` issue into a merged pull request; then report what the GitHub side still lacks. Use when the user asks to install, set up or add the factory to a repository, or to check a repository's factory setup."
 argument-hint: "[owner/name]"
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check.ts *), Bash(bun .github/factory/tier.ts replay *), Bash(claude -p *), Bash(mktemp -d), Bash(gh repo view:*), Bash(gh api user:*), Bash(gh pr list:*), Bash(gh pr diff:*), Bash(gh workflow list:*), Bash(bun run --cwd ~/dotfiles routines:check), Read
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check.ts *), Bash(bun .github/factory/tier.ts replay *), Bash(claude -p *), Bash(mktemp -d), Bash(gh repo view:*), Bash(gh api user:*), Bash(gh pr list:*), Bash(gh pr diff:*), Bash(gh workflow list:*), Bash(mise -C .github/factory lock:*), Bash(bun run --cwd ~/dotfiles routines:check), Read
 ---
 
 # Install the factory
@@ -16,7 +16,7 @@ Run it from a checkout of `<REPO>`. The factory's pull requests target the repos
 
 Ask the owner, in the session, before each of these, and do it only on a yes:
 
-- creating or changing the routine, and writing under `~/dotfiles`;
+- creating or changing the routine, and writing outside this repository, where the owner versions his routines;
 - creating a label, a ruleset, or changing a repository setting;
 - merging anything into `<BRANCH>`: the owner merges the install's pull request himself, or says yes to it;
 - setting a secret. A secret value never passes through you: the owner types it into `gh secret set` in his own terminal.
@@ -31,7 +31,48 @@ Writing into this repository's working tree needs no ask: `install.ts` refuses t
 - `CI`: the name of the repository's CI workflow, its `name:` line, which `trunk-red.yml` listens to. `gh workflow list --repo <REPO>` lists the names; ask the owner which one tests the code. The ruleset requires a check named `test`: that workflow needs a job that reports it, its `name:` `test` or its id `test` with no `name:`, and no matrix, which reports `test (…)`. It runs on `pull_request`, on `push` to `<BRANCH>`, and on `merge_group` where the repository has a merge queue, with no `paths` or `paths-ignore` filter: a filtered change never gets the check. Say so now if it has none; step 6 reports it.
 - `ROUTINE_ID`: the `trig_…` id of the routine, known once step 2 created it.
 
-## 2. Routine
+## 2. Environment, then routine
+
+A cloud session gets nothing of the owner's machine: no user `CLAUDE.md`, skill, plugin or MCP server. What the Worker needs is committed in the repository, and the cloud environment it runs in is the repository's own, declared in `.github/factory/`.
+
+### The declaration
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/install.ts" environment
+```
+
+It writes `.github/factory/environment.json` and `.github/factory/setup.sh`. Read how the repository builds and tests itself, its CI workflow first, then write with the owner what a session needs there and the cloud image lacks. Add nothing a run of the code does not need.
+
+- `allowed_hosts` in `environment.json`: each host the build, the tests or the documentation the Worker must read are fetched from, beyond GitHub and the package registries, which `allow_package_managers` covers. A domain alone, with no scheme and no path.
+- `environment_variables`: plain values. The file is as public as the repository: a variable whose name has a word ending in `secret`, `token`, `password`, `credential` or `key`, as `NPM_TOKEN` has and `MAX_OUTPUT_TOKENS` has not, is written with the value `"<redacted>"`, which `check.ts` holds it to, and its real value goes on the environment alone. A secret under another name stays out of the file.
+- `PACKAGES` in `setup.sh`: the system packages CI installs with apt.
+- Tools, where CI installs some the image lacks or holds others to a version: write `.github/factory/mise.toml`, a `[tools]` table, then lock it:
+
+  ```bash
+  mise -C .github/factory lock --platform linux-x64
+  ```
+
+  A session installs from the `mise.lock` this writes beside it, and fails without it: the GitHub API that resolves a version is closed to a session. Keep both files out of the repository's root when its CI installs with `jdx/mise-action`, which turns to a locked install once it finds a lockfile there. A repository whose tools the image holds needs neither file.
+
+### The environment
+
+Only the owner creates it, on claude.ai/code: the environment selector, *New environment*. Give him each value, and have him confirm once it exists:
+
+- *Name*: `<repo name>`;
+- *Repositories*: none; remove the one the dialog filled in;
+- *Network access*: *Limited*, the hosts of `environment.json` under *Allowed domains*, *Allow package managers* as the file says;
+- *Setup script*: *Choose file*, `.github/factory/setup.sh`;
+- *Environment variables*: those of `environment.json`, a secret with its real value.
+
+The dialog has no control for `allow_mcp_servers`: leave it `true` in the file.
+
+claude.ai keeps its own copy of all of it: a later change to the declaration reaches a session once the owner applied it there, and `.claude/hooks/cloud-tools.sh` tells a session when the environment ran another setup script than its clone's.
+
+The routine needs the environment's `env_…` id: the `schedule` skill prints the account's environments with their ids.
+
+### The routine
+
+A repository that already has its routine keeps it, and its `trig_…` id is `ROUTINE_ID`: render the prompt as item 2 below says, then move the routine into the environment and give it that prompt with the `RemoteTrigger` tool, action `update`, sending its whole `job_config` with the new `environment_id` and the new prompt. Saving a routine from its page on claude.ai adds an outcome branch it did not have. Version it as item 4 says, then go to step 3.
 
 1. Ask the owner to give the Claude GitHub App access to `<REPO>` first, at <https://github.com/apps/claude>, and to confirm it. A routine created before that cannot read the repository, and its cloud session cannot push.
 2. Render the prompt into a scratch directory: `mktemp -d` prints one, then
@@ -40,8 +81,8 @@ Writing into this repository's working tree needs no ask: `install.ts` refuses t
    "${CLAUDE_PLUGIN_ROOT}/scripts/install.ts" prompt --owner <OWNER> --repo <REPO> --branch <BRANCH> --dir <scratch dir>
    ```
 
-3. Create the routine from that prompt with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`): `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, the cloud environment the owner names, and `clear_mcp_connections` true: a routine created with no connector named gets every connector of the owner's account, mail and drive included, and the Worker needs none.
-4. Only once the routine exists, version it: write `~/dotfiles/cloud/routines/<repo name>-worker/prompt.md` by running the same `install.ts prompt` command again with `--dir ~/dotfiles/cloud/routines/<repo name>-worker`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id. Add the folder's name to the list `scripts/routines/routine.test.ts` expects there. Then `bun run --cwd ~/dotfiles routines:check` must exit 0.
+3. Create the routine from that prompt with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`): `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, that environment's id as `environment_id`, and `clear_mcp_connections` true: a routine created with no connector named gets every connector of the owner's account, mail and drive included, and the Worker needs none.
+4. Only once the routine exists, version it where the owner keeps his routines: ask him where, and follow what he has. Nothing of the factory reads that copy; it is how the owner sees a routine drift from what he wrote. One convention, given as an example to adapt: a folder `~/dotfiles/cloud/routines/<repo name>-worker/` holds `prompt.md`, written by running the same `install.ts prompt` command again with that folder as `--dir`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id; the folder's name joins the list `scripts/routines/routine.test.ts` expects there; then `bun run --cwd ~/dotfiles routines:check` exits 0. An owner who versions no routine keeps the prompt's directory and the id in his report.
 
 The routine has no trigger yet, and only the owner can add one: on the routine's page on claude.ai, *Edit*, the *Trigger* row, **+**, *API*, *Generate token*. The token is shown once. Ask him to do it, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
 
@@ -51,7 +92,7 @@ The routine has no trigger yet, and only the owner can add one: on the routine's
 "${CLAUDE_PLUGIN_ROOT}/scripts/install.ts" repo --owner <OWNER> --routine <ROUTINE_ID> --branch <BRANCH> --ci <CI>
 ```
 
-Run it from the repository's root. Each file prints `wrote`, `identical`, `overwrote` or `refused`; `.claude/settings.json` prints `merged` or `identical`, since the three verify hooks are added to what the file already holds, or `refused` when it is not valid JSON: `--force` does not override that one, so fix the file with the owner and run again. Any other `refused` file differs from the template: show the owner the difference and run again with `--force` only on his yes. A file adapted on purpose, the tier files of step 5 among them, stays refused on every later run; that is expected. A refused `.claude/hooks/require-verify.sh` is not one of those: it is an older script, which the merged settings now run with `start` when a session starts, and it does not know that word. Remove it and run the command again, which writes the template's; `--force` would overwrite every other file that differs too.
+Run it from the repository's root. Each file prints `wrote`, `identical`, `overwrote` or `refused`; `.claude/settings.json` prints `merged` or `identical`, since the factory's hooks are added to what the file already holds, or `refused` when it is not valid JSON: `--force` does not override that one, so fix the file with the owner and run again. Any other `refused` file differs from the template: show the owner the difference and run again with `--force` only on his yes. A file adapted on purpose, the tier files of step 5 among them, stays refused on every later run; that is expected. The declaration of step 2 is not among what this command writes: `--force` never reaches it. A refused `.claude/hooks/require-verify.sh` is not one of those: it is an older script, which the merged settings now run with `start` when a session starts, and it does not know that word. Remove it and run the command again, which writes the template's; `--force` would overwrite every other file that differs too.
 
 Then, with the owner:
 
@@ -100,7 +141,7 @@ Commit the files on a new branch, push it and open a pull request against `<BRAN
 One line per item, `ok` or `missing` with what fixes it; exit 1 while one is missing, and exit 2 when a read of GitHub failed: show the owner that error. An item marked `not visible` is one this token cannot read, a secret or a setting: ask the owner whether it is in place. For each missing item, tell the owner what it does and ask before running its fix:
 
 - **Labels**: the fix creates the label. `ready`, `in-progress`, `blocked`, `needs-human`, `trunk-red`, `tier:low`, `tier:human` and `human-approved` are the factory's states.
-- **Files**, and the hooks of `.claude/settings.json`: steps 3 to 5, then land them. A file that exists but says the wrong thing is an older or adapted version: `owner-gate.yml` must run `tier.ts` and read `human-approved`, `review.yml` name `needs-human`, `CODEOWNERS` list `/.github/`, `/.claude/` and `/CLAUDE.md` and hold path prefixes from the root alone, no glob, the verify skill carry no `disable-model-invocation: true`, and `CLAUDE.md` name `needs-human` and `human-approved`.
+- **Files**, and the hooks of `.claude/settings.json`: steps 3 to 5, then land them. A file that exists but says the wrong thing is an older or adapted version: `owner-gate.yml` must run `tier.ts` and read `human-approved`, `review.yml` name `needs-human`, `CODEOWNERS` list `/.github/`, `/.claude/` and `/CLAUDE.md` and hold path prefixes from the root alone, no glob, the verify skill carry no `disable-model-invocation: true`, `CLAUDE.md` name `needs-human` and `human-approved`, and `.github/factory/environment.json` hold a network, its variables and `.github/factory/setup.sh` as its setup script, with `<redacted>` for the value of each variable named like a secret.
 - **CI workflow**: the workflow `trunk-red.yml` names must exist and hold a job that reports the check `test`, on pull requests, on pushes to `<BRANCH>` and, with a merge queue, on `merge_group`, with no paths filter.
 - **Ruleset**: the checks, resolved threads and merge queue live in one ruleset on the default branch. The fix reads a `ruleset.json`: write it in the scratch directory of step 2, and put that path in place of `ruleset.json` in the command `check.ts` prints, so the file never lands in the repository. When the fix is a `PUT`, a ruleset already exists and `PUT` replaces all its rules: read it first with `gh api repos/<REPO>/rulesets/<id>`, keep its rules and add the missing ones. The proven body:
 
@@ -133,10 +174,22 @@ One line per item, `ok` or `missing` with what fixes it; exit 1 while one is mis
 
 On a private repository `check.ts` also prints what a workflow's token may do by default. The factory's workflows declare the permissions they need. A job of the repository's own that calls the API without declaring any, such as a CI step that lists pull requests, fails there: tell the owner which of his workflows declare none.
 
-`check.ts` does not see the Claude GitHub App on the repository, nor the routine: step 2 covers both.
+`check.ts` does not see the Claude GitHub App on the repository, nor the routine, nor the environment on claude.ai: step 2 covers the three.
 
 Run `check.ts` again after the fixes; it exits 0 once everything is in place.
 
+## 7. First run
+
+Have the owner label a small issue of his `ready`, then read its run with the `RemoteTrigger` tool, action `list_runs` then `get_run_log`. A host that does not resolve or a command that is not found names what the declaration lacks: add it to `.github/factory/`, land it, and have the owner apply it to the environment before the next issue.
+
+That log does not show what a hook printed when the session started. To read it, send the run's session one more message, from a terminal:
+
+```bash
+claude -p "Run these two read-only commands and paste their output as it is: cat ~/.cloud-env-setup.log and bash .claude/hooks/cloud-tools.sh" --cloud <session id>
+```
+
+then read the log again. `[cloud-setup] done` with no `FAILED` line, and nothing from `cloud-tools.sh`, mean the environment ran the setup script the clone holds and has the declared tools.
+
 ## Report
 
-What `install.ts` wrote, merged and refused, and what the owner decided; the routine's directory and id; the verify recipe and the tier files shown to the owner; whether the cases are validated or the floor runs alone; each `check.ts` line still `missing` and what it waits for. The factory is ready when `check.ts` exits 0 and the App has access.
+What `install.ts` wrote, merged and refused, and what the owner decided; the routine's directory and id; the environment's name and what its declaration holds; the verify recipe and the tier files shown to the owner; whether the cases are validated or the floor runs alone; each `check.ts` line still `missing` and what it waits for. The factory is ready when `check.ts` exits 0, the App has access and a first run started with no message from `cloud-tools.sh`.

@@ -19,6 +19,7 @@ import {
   VERIFY_HOOK,
   VERIFY_SKILL,
 } from "./check.ts";
+import { ENVIRONMENT, SETUP_SCRIPT } from "./environment.ts";
 import { CLAUDE_MD_SECTIONS, readTemplates, REPO_PREFIX } from "./templates.ts";
 
 const CI_WORKFLOW = `name: CI
@@ -143,6 +144,21 @@ describe("evaluate", () => {
     );
   });
 
+  test("sends a missing declaration file to install.ts environment, the one subject that writes it", () => {
+    const files = new Map([...FILES].filter(([path]) => !path.startsWith(".github/factory/")));
+    const lines = format(evaluate({ ...COMPLETE, files }));
+
+    expect(lines).toContain(
+      `missing  ${ENVIRONMENT} on main: run install.ts environment, then land it on main`,
+    );
+    expect(lines).toContain(
+      `missing  ${SETUP_SCRIPT} on main: run install.ts environment, then land it on main`,
+    );
+    expect(lines).toContain(
+      "missing  .github/factory/tier.ts on main: run install.ts repo, then land it on main",
+    );
+  });
+
   test("requires the factory's workflows and the settings file among the files", () => {
     expect(requiredFiles()).toEqual(
       expect.arrayContaining([
@@ -155,9 +171,9 @@ describe("evaluate", () => {
     );
   });
 
-  test("a settings file without the verify hooks is missing them", () => {
+  test("a settings file without the factory's hooks is missing them", () => {
     expect(missing({ ...COMPLETE, hooksInstalled: false })).toEqual([
-      ".claude/settings.json runs the verify hooks",
+      ".claude/settings.json runs the factory's hooks",
     ]);
   });
 
@@ -277,6 +293,24 @@ describe("what the required files say", () => {
     ]) {
       expect(text).toContain(line);
     }
+  });
+
+  test("an environment.json that holds a secret's value is missing, and its line says what to write", () => {
+    const leaked = withFile(
+      ENVIRONMENT,
+      textOf(ENVIRONMENT).replace(
+        '"environment_variables": {}',
+        '"environment_variables": { "API_SECRET": "sk-live-1234" }',
+      ),
+    );
+
+    expect(missing(leaked)).toEqual([
+      ".github/factory/environment.json declares the network, the variables and the setup script, with no value on a variable named like a secret",
+    ]);
+    expect(format(evaluate(leaked))).toContain(
+      "keeps the value <redacted>, its real value stays on claude.ai, then land it on main",
+    );
+    expect(format(evaluate(leaked))).not.toContain("sk-live-1234");
   });
 
   test("a verify hook from before the session's start record is missing, and its line says to replace it", () => {

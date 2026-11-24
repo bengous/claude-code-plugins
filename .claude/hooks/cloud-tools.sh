@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart, in a cloud session alone: installs the tools .github/factory/mise.lock records, which the
 # environment's setup script cannot do before the clone exists, and says so when the environment did not run
-# .github/factory/setup.sh as the clone holds it. What it prints reaches the session as context. Never blocks the session.
+# .github/factory/setup.sh as the clone holds it. A repository that declares no tools there installs none. What it
+# prints reaches the session as context. Never blocks the session.
 set -uo pipefail
 
 [[ ${CLAUDE_CODE_REMOTE:-} == true ]] || exit 0
@@ -21,6 +22,8 @@ if [[ ${ran} != "${expected}" ]]; then
   echo "This cloud environment did not run ${SETUP} as this clone holds it (ran: ${ran:-none}). A tool or a package the script installs may be missing: the owner loads the file again in the environment's settings on claude.ai."
 fi
 
+[[ -f ${TOOLS}/mise.toml ]] || exit 0
+
 if ! command -v mise >/dev/null 2>&1; then
   echo "mise is not installed in this cloud environment, so the tools of ${TOOLS}/mise.toml were not installed."
   exit 0
@@ -34,9 +37,13 @@ if ! output=$(cd "${TOOLS}" && mise install --locked 2>&1); then
   exit 0
 fi
 
-mise reshim
+# The executables themselves, not mise's shims: a shim takes its version from the mise config of the directory a
+# command runs in, and the repository's root may hold none.
+directories=$(cd "${TOOLS}" && mise bin-paths) || exit 0
 mkdir -p "${BIN_DIR}"
-for shim in "${HOME}/.local/share/mise/shims/"*; do
-  [[ -e ${shim} ]] && ln -sf "${shim}" "${BIN_DIR}/"
-done
+while IFS= read -r directory; do
+  for tool in "${directory}"/*; do
+    [[ -f ${tool} && -x ${tool} ]] && ln -sf "${tool}" "${BIN_DIR}/"
+  done
+done <<<"${directories}"
 exit 0

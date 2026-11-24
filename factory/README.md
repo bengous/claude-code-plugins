@@ -49,6 +49,19 @@ GitHub offers the merge queue in a public repository of an organization, and in 
 
 The factory's pull requests target the repository's default branch. A repository whose working trunk is not its default branch is not supported.
 
+## Cloud environment
+
+A cloud session starts from a fresh clone and gets nothing of the owner's machine: no user `CLAUDE.md`, skill, plugin or MCP server. What the Worker needs is committed in the repository.
+
+| What a session gets | Declared in | Reaches a session |
+|---|---|---|
+| Hosts it may reach, variables | `.github/factory/environment.json` | once the owner applied it to the environment on claude.ai |
+| System packages, mise | `.github/factory/setup.sh` | once the owner loaded the file in the environment's settings |
+| Tools and their versions | `.github/factory/mise.toml` and its `mise.lock`, where the repository has them | at each session start, by `.claude/hooks/cloud-tools.sh` |
+| Instructions, skills, hooks, MCP servers | `CLAUDE.md`, `.claude/`, `.mcp.json` | with the clone |
+
+Each repository has its own environment on claude.ai, which keeps its own copy of the declaration: only the owner changes it there. A session cannot change it, and names what it lacks instead: a session stopped by a host or a package opens a pull request on the declaration, and `cloud-tools.sh` tells a session when the environment ran another setup script than its clone's. A secret's value never enters `environment.json`: `check.ts` refuses any value but `<redacted>` on a variable whose name has a word ending in `secret`, `token`, `password`, `credential` or `key`.
+
 ## Labels
 
 | Label | On | Set by | Meaning |
@@ -66,7 +79,7 @@ The factory's pull requests target the repository's default branch. A repository
 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
-| `install` | `/factory:install [owner/name]` | Creates the routine and versions it in `~/dotfiles/cloud/routines/`, writes the factory's files into the current repository, records its `verify` recipe, writes its tier rules and validates its tier cases with the owner, and reports what the GitHub side still lacks. Asks the owner before every change outside the working tree. |
+| `install` | `/factory:install [owner/name]` | Creates the routine and versions it where the owner keeps his routines, writes the declaration of its cloud environment and the factory's files into the current repository, records its `verify` recipe, writes its tier rules and validates its tier cases with the owner, and reports what the GitHub side still lacks. Asks the owner before every change outside the working tree. |
 
 ## Templates
 
@@ -87,6 +100,8 @@ templates/
 │   │   ├── CODEOWNERS             every file that defines a check: .github/, .claude/, CLAUDE.md
 │   │   ├── deep-review-paths
 │   │   ├── factory/
+│   │   │   ├── environment.json   the cloud environment's network, variables and setup script
+│   │   │   ├── setup.sh           what the environment installs before Claude Code starts
 │   │   │   ├── tier.ts            the floor, the call to the classifier, the replay of the cases
 │   │   │   ├── tier.json          the line cap and the paths that always wait for the owner
 │   │   │   ├── tier-prompt.md     the classifier's question
@@ -94,15 +109,17 @@ templates/
 │   │   └── workflows/             dispatch, review, owner-gate, conflict, trunk-red, unclaim
 │   └── .claude/
 │       ├── commands/pr-review.md
-│       └── hooks/require-verify.sh
-├── settings-hooks.json            the three hook entries merged into .claude/settings.json
+│       └── hooks/
+│           ├── require-verify.sh  sends a session back to verify what it changed
+│           └── cloud-tools.sh     installs a session's tools, and names an environment that is behind
+├── settings-hooks.json            the factory's hook entries, merged into .claude/settings.json
 ├── routine/prompt.md              the routine's prompt
 └── claude-md-sections.md          the CLAUDE.md sections the session and the review follow
 ```
 
 `review.yml` runs the reviewer with the repository's hooks off and its web and run tools denied, holds a draft red until it is marked ready, counts a red `review` as a failed round only when its run read the commit, and writes what each round read, the issue it judged against and whether it was a first round to the run's summary. `pr-review.md` judges a pull request that closes no issue against its own title and body, and exempts from a test only workflows and the text of a skill, a command, a rule or a prompt.
 
-`.claude/skills/verify/SKILL.md`, the repository's own verify recipe, has no template: the install records it. `tier.json`, `tier-prompt.md` and `tier-cases.json` are rewritten for each repository by the install; until a replay validated the cases, the floor runs alone and every change that passes it waits for the owner.
+`.claude/skills/verify/SKILL.md`, the repository's own verify recipe, has no template: the install records it. `environment.json` and `setup.sh` are adapted to each repository by the install, which may add `.github/factory/mise.toml` and its lockfile beside them. `tier.json`, `tier-prompt.md` and `tier-cases.json` are rewritten for each repository by the install; until a replay validated the cases, the floor runs alone and every change that passes it waits for the owner.
 
 A template changes only after the same change has run in a trial repository. A package rule in `renovate.json` turns Renovate off under `templates/`, so an action or dependency update reaches the templates through the trial alone.
 
@@ -110,9 +127,10 @@ A template changes only after the same change has run in a trial repository. A p
 
 | Script | What it does |
 |--------|--------------|
-| `scripts/install.ts repo --owner --routine --branch --ci [--target] [--force]` | Renders `templates/repo/` into a working tree and merges the three verify hooks into its `.claude/settings.json`, keeping what the file holds. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical`, `overwrote` or `refused` per file, `merged`, `identical` or `refused` for the settings. No GitHub call, no commit. |
+| `scripts/install.ts environment [--target] [--force]` | Writes the declaration of the repository's cloud environment, `.github/factory/environment.json` and `.github/factory/setup.sh`, into a working tree: the environment exists before the routine that runs in it. |
+| `scripts/install.ts repo --owner --routine --branch --ci [--target] [--force]` | Renders `templates/repo/` into a working tree, but for the declaration `environment` writes, and merges the factory's hooks into its `.claude/settings.json`, keeping what the file holds. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical`, `overwrote` or `refused` per file, `merged`, `identical` or `refused` for the settings. No GitHub call, no commit. |
 | `scripts/install.ts prompt --owner --repo --branch --dir [--force]` | Renders the routine's `prompt.md` into a directory. |
-| `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the files on the default branch and what the gate, the review, `CODEOWNERS`, the verify skill and `CLAUDE.md` say, the hooks of its `.claude/settings.json`, the CI workflow `trunk-red.yml` names (a job that reports the check `test` on pull requests and on pushes to the default branch, with no paths filter), the ruleset (required checks, resolved threads, merge queue, no bypass actor), the auto-merge and squash merge settings, whether GitHub Actions runs the workflows' actions, and the secret names; one line per item, `ok` or `missing` with its fix, an item the token cannot read marked `not visible`. Exit 1 while one is missing. On a private repository it prints what a workflow's token may do by default. Never reads a secret's value. |
+| `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the files on the default branch and what the gate, the review, `CODEOWNERS`, the verify skill, `CLAUDE.md` and the environment's declaration say, the hooks of its `.claude/settings.json`, the CI workflow `trunk-red.yml` names (a job that reports the check `test` on pull requests and on pushes to the default branch, with no paths filter), the ruleset (required checks, resolved threads, merge queue, no bypass actor), the auto-merge and squash merge settings, whether GitHub Actions runs the workflows' actions, and the secret names; one line per item, `ok` or `missing` with its fix, an item the token cannot read marked `not visible`. Exit 1 while one is missing. On a private repository it prints what a workflow's token may do by default. Never reads a secret's value. |
 
 In the target repository:
 
@@ -129,7 +147,7 @@ Each subject of `install.ts` takes exactly the parameter flags its templates nam
 - `gh`, signed in as the owner
 - The Claude GitHub App on the repository, a claude.ai routine with an API trigger, and the secrets `CLAUDE_CODE_OAUTH_TOKEN` and `ROUTINE_FIRE_TOKEN`
 - A CI workflow with a job that reports the check `test` (its id `test` with no `name:`, or its `name:` `test`; no matrix), with no `paths` filter, that runs on `pull_request`, on `push` to the default branch, and on `merge_group` where the repository has a merge queue
-- The owner's routine convention, which the install skill follows: each routine is versioned in `~/dotfiles/cloud/routines/<name>/` (`routine.json`, `prompt.md`), and `bun run routines:check` in `~/dotfiles` exits 0
+- A place where the owner versions his routines, if he does. The install skill gives one convention as an example to adapt: each routine in `~/dotfiles/cloud/routines/<name>/` (`routine.json`, `prompt.md`), and `bun run routines:check` in `~/dotfiles` exits 0
 
 ## License
 

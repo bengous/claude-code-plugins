@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -25,7 +26,7 @@ const SETUP_TEXT = "#!/usr/bin/env bash\necho setup\n";
 /** Every program the hook starts but `mise`, so a test chooses whether the session has one. */
 const PROGRAMS = ["bash", "sha256sum", "cut", "cat", "tail", "mkdir", "ln"] as const;
 
-/** Records each call with its directory, fails `install` on demand, and leaves one shim at `reshim`. */
+/** Records each call with its directory, fails `install` on demand, and answers `bin-paths` with the directory `installMise` fills. */
 const FAKE_MISE = `printf '%s %s\\n' "$PWD" "$*" >>"$HOME/mise.calls"
 case "$1" in
   install)
@@ -34,9 +35,8 @@ case "$1" in
       exit 1
     fi
     ;;
-  reshim)
-    mkdir -p "$HOME/.local/share/mise/shims"
-    : >"$HOME/.local/share/mise/shims/bun"
+  bin-paths)
+    echo "$HOME/installs/bun/bin"
     ;;
 esac
 `;
@@ -74,8 +74,15 @@ function stub(name: string, body: string): void {
   chmodSync(join(bin, name), 0o755);
 }
 
+/** A `mise` on the PATH, and the directory it names: one tool, and one file that is no program. */
 function installMise(): void {
+  const tools = join(home, "installs/bun/bin");
+
   stub("mise", FAKE_MISE);
+  mkdirSync(tools, { recursive: true });
+  writeFileSync(join(tools, "bun"), "#!/bin/sh\n");
+  chmodSync(join(tools, "bun"), 0o755);
+  writeFileSync(join(tools, "LICENSE"), "");
 }
 
 function calls(): string {
@@ -111,6 +118,7 @@ beforeEach(() => {
   mkdirSync(bin);
   mkdirSync(join(project, ".github/factory"), { recursive: true });
   writeFileSync(join(project, SETUP), SETUP_TEXT);
+  writeFileSync(join(project, TOOLS, "mise.toml"), '[tools]\nbun = "latest"\n');
   writeFileSync(join(home, ".cloud-env-setup.revision"), `${revisionOf(SETUP_TEXT)}\n`);
 
   linkPrograms(PROGRAMS);
@@ -147,6 +155,20 @@ describe("the cloud's tools", () => {
 });
 
 describe("cloud-tools.sh", () => {
+  test("is the hook the factory installs, unchanged: an edit of either file runs one of the two tests", () => {
+    expect(readFileSync(HOOK, "utf8")).toBe(
+      readFileSync(join(REPOSITORY, "factory/templates/repo/.claude/hooks/cloud-tools.sh"), "utf8"),
+    );
+  });
+
+  test("installs nothing in a repository that declares no tools", async () => {
+    installMise();
+    rmSync(join(project, TOOLS, "mise.toml"));
+
+    expect(await runHook()).toEqual({ exitCode: 0, stdout: "" });
+    expect(calls()).toBe("");
+  });
+
   test("starts nothing outside a cloud session", async () => {
     installMise();
 
@@ -155,14 +177,19 @@ describe("cloud-tools.sh", () => {
     expect({ exitCode, stdout, calls: calls() }).toEqual({ exitCode: 0, stdout: "", calls: "" });
   });
 
-  test("installs the project's tools and links their shims, with nothing to say", async () => {
+  test("installs the declared tools, locked, and links their programs, with nothing to say", async () => {
     installMise();
 
     const { exitCode, stdout } = await runHook();
 
     expect({ exitCode, stdout }).toEqual({ exitCode: 0, stdout: "" });
-    expect(calls()).toBe(`${join(project, TOOLS)} install --locked\n${project} reshim\n`);
-    expect(existsSync(join(home, ".local/bin/bun"))).toBe(true);
+    expect(calls()).toBe(
+      `${join(project, TOOLS)} install --locked\n${join(project, TOOLS)} bin-paths\n`,
+    );
+    expect(realpathSync(join(home, ".local/bin/bun"))).toBe(
+      realpathSync(join(home, "installs/bun/bin/bun")),
+    );
+    expect(existsSync(join(home, ".local/bin/LICENSE"))).toBe(false);
   });
 
   test("names the setup script when the environment ran another one", async () => {
@@ -192,7 +219,7 @@ describe("cloud-tools.sh", () => {
     expect(stdout).toContain("mise is not installed in this cloud environment");
   });
 
-  test("hands a failed install to the session and links no shim", async () => {
+  test("hands a failed install to the session and links no tool", async () => {
     installMise();
 
     const { exitCode, stdout } = await runHook({ FAKE_MISE_FAILS: "1" });

@@ -8,6 +8,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" start"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/cloud-tools.sh\"",
+            "timeout": 120
+          }
+        ]
       }
     ],
     "PostToolUse": [

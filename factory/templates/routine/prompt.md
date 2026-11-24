@@ -35,6 +35,8 @@ Auto-fix wakes you on what happens to the pull request. Read its labels before a
 
 When something outside the issue stops you, such as a test that already fails on `{{BRANCH}}` before your change, do not repair it and push nothing. On a `trunk-red` or a `renovate-red` issue that failing test is the issue itself, not something outside it: repair it. Write one comment on the issue that says what blocks it, with the failing test or the error. Replace the label `in-progress` with `blocked`, and end the run. The owner labels the issue `ready` again once the way is clear.
 
+When what stops you is a host this session cannot reach or a system package it lacks, name it in that comment, and open a pull request against `{{BRANCH}}` that adds it to `.github/factory/environment.json` or to `PACKAGES` in `.github/factory/setup.sh`, and changes nothing else, with auto-merge on like any pull request of yours: it waits for the owner's `human-approved`. The owner then applies it to the cloud environment, which a session cannot change.
+
 ## 6. Owner
 
 Ask the owner only when `CLAUDE.md` says to. Send the owner no notification for a merge or for a blocked issue.

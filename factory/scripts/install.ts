@@ -8,18 +8,29 @@ import { writeAtomicSync } from "../lib/platform/fs.ts";
 import { messageOf } from "../lib/platform/pure.ts";
 import { namedParams, type ParamName, render, type TemplateFile } from "./render.ts";
 import { mergeHooks } from "./settings.ts";
-import { readTemplates, REPO_PREFIX, ROUTINE_PROMPT, SETTINGS_HOOKS } from "./templates.ts";
+import {
+  ENVIRONMENT_FILES,
+  readTemplates,
+  REPO_PREFIX,
+  ROUTINE_PROMPT,
+  SETTINGS_HOOKS,
+} from "./templates.ts";
 
-const USAGE = `Usage: install.ts repo --owner <login> --routine <trig_id> --branch <default branch>
+const USAGE = `Usage: install.ts environment [--target <dir>] [--force]
+       install.ts repo --owner <login> --routine <trig_id> --branch <default branch>
                        --ci <CI workflow name> [--target <dir>] [--force]
        install.ts prompt --owner <login> --repo <owner/name> --branch <default branch>
                          --dir <routine dir> [--force]
 
-  repo    writes the factory's workflows, tier files, CODEOWNERS, deep-review-paths,
-          review command and verify hook into the working tree of --target, this
-          directory by default, and merges the hook's three entries into its
-          .claude/settings.json, keeping what the file holds.
-  prompt  writes the routine's prompt.md into --dir, created when missing.
+  environment  writes the declaration of the repository's cloud environment,
+               .github/factory/environment.json and .github/factory/setup.sh, into
+               the working tree of --target, this directory by default.
+  repo         writes the factory's workflows, tier files, CODEOWNERS, deep-review-paths,
+               review command and hooks into the working tree of --target, and merges
+               the factory's hook entries into its .claude/settings.json, keeping what
+               the file holds. It leaves the declaration to environment: --force never
+               reaches it.
+  prompt       writes the routine's prompt.md into --dir, created when missing.
 
   Each takes exactly the flags shown. Each file prints wrote, identical, overwrote
   or refused: a file whose content differs is refused unless --force overwrites it.
@@ -29,6 +40,7 @@ const USAGE = `Usage: install.ts repo --owner <login> --routine <trig_id> --bran
   argument.`;
 
 export type Subject =
+  | { readonly kind: "environment"; readonly target: string }
   | { readonly kind: "repo"; readonly target: string }
   | { readonly kind: "prompt"; readonly dir: string };
 
@@ -39,7 +51,11 @@ export type Outcome = "wrote" | "identical" | "overwrote" | "refused";
 export type Decision = { readonly placement: Placement; readonly outcome: Outcome };
 
 export function belongsTo(path: string, kind: Subject["kind"]): boolean {
-  return kind === "repo" ? path.startsWith(REPO_PREFIX) : path === ROUTINE_PROMPT;
+  if (kind === "prompt") return path === ROUTINE_PROMPT;
+
+  const declares = ENVIRONMENT_FILES.includes(path);
+
+  return kind === "environment" ? declares : path.startsWith(REPO_PREFIX) && !declares;
 }
 
 /** Where each rendered file of the subject goes: `repo/` files under the target, the prompt in its directory. */
@@ -47,7 +63,7 @@ export function placements(files: readonly TemplateFile[], subject: Subject): Pl
   return files.flatMap(({ path, content }): Placement[] => {
     if (!belongsTo(path, subject.kind)) return [];
 
-    if (subject.kind === "repo") {
+    if (subject.kind !== "prompt") {
       const rel = path.slice(REPO_PREFIX.length);
 
       return [{ dest: join(subject.target, rel), shown: rel, content }];
@@ -184,7 +200,7 @@ function subjectOf({ values, positionals }: Parsed): Subject | { readonly error:
     if (values[flag]?.trim() === "") return { error: `--${flag} is empty` };
   }
 
-  if (kind === "repo") {
+  if (kind === "repo" || kind === "environment") {
     if (values.dir !== undefined) return { error: "--dir belongs to install.ts prompt" };
     const target = resolve(values.target ?? process.cwd());
 
@@ -194,7 +210,9 @@ function subjectOf({ values, positionals }: Parsed): Subject | { readonly error:
   }
 
   if (kind === "prompt") {
-    if (values.target !== undefined) return { error: "--target belongs to install.ts repo" };
+    if (values.target !== undefined) {
+      return { error: "--target belongs to install.ts repo and install.ts environment" };
+    }
 
     if (values.dir === undefined) return { error: "install.ts prompt needs --dir" };
     const dir = resolve(values.dir);
@@ -205,7 +223,8 @@ function subjectOf({ values, positionals }: Parsed): Subject | { readonly error:
   }
 
   return {
-    error: kind === undefined ? "name what to install: repo or prompt" : `unknown: ${kind}`,
+    error:
+      kind === undefined ? "name what to install: environment, repo or prompt" : `unknown: ${kind}`,
   };
 }
 
