@@ -27,7 +27,7 @@ export function linkDeclaredDirectories(checkout: string, deadline: Deadline): s
 
     return first === undefined ? null : unignoredNote(checkout, [first, ...rest]);
   } catch (error) {
-    return `agent-hooks: no directory linked into ${checkout}: ${messageOf(error)}`;
+    return `agent-hooks: declared directories not all linked into ${checkout}: ${messageOf(error)}`;
   }
 }
 
@@ -53,17 +53,28 @@ function linkInto(checkout: string, deadline: Deadline): string[] {
   const ignored = ignoredAsLinks(checkout, candidates, deadline);
 
   for (const relative of candidates.filter((candidate) => ignored.has(candidate))) {
-    // Windows creates a junction without privileges, a directory symlink only with them; elsewhere the type is ignored.
-    symlinkSync(path.join(main, relative), path.join(checkout, relative), "junction");
+    linkUnlessPresent(path.join(main, relative), path.join(checkout, relative));
   }
 
   return candidates.filter((candidate) => !ignored.has(candidate));
 }
 
+/** A session starting beside this one in the same worktree may have linked the path first: its link is kept. */
+function linkUnlessPresent(target: string, link: string): void {
+  try {
+    // Windows creates a junction without privileges, a directory symlink only with them; elsewhere the type is ignored.
+    symlinkSync(target, link, "junction");
+  } catch (error) {
+    if (!isErrno(error, "EEXIST")) {
+      throw error;
+    }
+  }
+}
+
 /**
- * The main checkout of the repository `checkout` is a linked worktree of, or null when `checkout` is a main checkout
- * or its repository is bare. A main checkout's `.git` is a directory, which spares it a git process; a submodule's
- * is a file, and git names the submodule itself as its main checkout.
+ * The main checkout of the repository `checkout` is a linked worktree of, or null when `checkout` is a main checkout,
+ * its repository is bare, or its main checkout is gone from disk. A main checkout's `.git` is a directory, which
+ * spares it a git process; a submodule's is a file, and git names the submodule itself as its main checkout.
  */
 function mainCheckoutOf(checkout: string, deadline: Deadline): string | null {
   if (!statSync(path.join(checkout, ".git")).isFile()) {
@@ -78,16 +89,21 @@ function mainCheckoutOf(checkout: string, deadline: Deadline): string | null {
   const first = end === -1 ? records : records.slice(0, end);
   const [line = "", ...attributes] = first;
 
-  if (!line.startsWith(WORKTREE_LINE) || attributes.includes("bare")) {
+  const listed = line.slice(WORKTREE_LINE.length);
+
+  if (!line.startsWith(WORKTREE_LINE) || attributes.includes("bare") || !isDirectory(listed)) {
     return null;
   }
 
-  const main = realpathSync.native(line.slice(WORKTREE_LINE.length));
+  const main = realpathSync.native(listed);
 
   return main === checkout ? null : main;
 }
 
-/** The directories the main checkout's settings declare, relative to its top, each once, in the files' order. */
+/**
+ * The directories the main checkout's settings declare, relative to its top with `/` as git writes paths, each once,
+ * in the files' order.
+ */
 function declaredDirectories(main: string): string[] {
   return [
     ...new Set(SETTINGS_FILES.flatMap((relative) => declaredIn(main, path.join(main, relative)))),
@@ -138,7 +154,7 @@ function declaredIn(main: string, file: string): string[] {
       );
     }
 
-    return relative;
+    return relative.split(path.sep).join("/");
   });
 }
 
@@ -171,5 +187,5 @@ function ignoredAsLinks(
 function unignoredNote(checkout: string, unignored: readonly [string, ...string[]]): string {
   const name = path.basename(unignored[0]);
 
-  return `agent-hooks: not linked into ${checkout}: ${unignored.join(", ")}. To git a link is a file, so a pattern with a trailing slash (${name}/) does not ignore it, and git would list the link as untracked: write the pattern without the slash (${name}).`;
+  return `agent-hooks: not linked into ${checkout}: ${unignored.join(", ")}. git would list the link as untracked: ignore it with a pattern without a trailing slash (${name}), since to git a link is a file and ${name}/ matches only a directory.`;
 }

@@ -250,7 +250,7 @@ describe("session-start in a worktree the desktop app created", () => {
     );
 
     expect(await desktopSessionStart(worktree)).toEqual({
-      systemMessage: `agent-hooks: not linked into ${worktree}: node_modules. To git a link is a file, so a pattern with a trailing slash (node_modules/) does not ignore it, and git would list the link as untracked: write the pattern without the slash (node_modules).`,
+      systemMessage: `agent-hooks: not linked into ${worktree}: node_modules. git would list the link as untracked: ignore it with a pattern without a trailing slash (node_modules), since to git a link is a file and node_modules/ matches only a directory.`,
     });
     expect(existsSync(path.join(worktree, "node_modules"))).toBeFalse();
   });
@@ -261,7 +261,7 @@ describe("session-start in a worktree the desktop app created", () => {
     ]);
 
     expect(await desktopSessionStart(worktree)).toEqual({
-      systemMessage: `agent-hooks: no directory linked into ${worktree}: ${path.join(temp.repo, SETTINGS)}: worktree.symlinkDirectories: "../shared" is not a directory path inside the repository`,
+      systemMessage: `agent-hooks: declared directories not all linked into ${worktree}: ${path.join(temp.repo, SETTINGS)}: worktree.symlinkDirectories: "../shared" is not a directory path inside the repository`,
     });
     expect(existsSync(path.join(worktree, "node_modules"))).toBeFalse();
   });
