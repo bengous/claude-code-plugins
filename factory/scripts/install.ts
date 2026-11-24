@@ -17,7 +17,7 @@ const USAGE = `Usage: install.ts repo --owner <login> --routine <trig_id> --bran
 
   repo    writes the factory's workflows, tier files, CODEOWNERS, deep-review-paths,
           review command and verify hook into the working tree of --target, this
-          directory by default, and merges the hook's two entries into its
+          directory by default, and merges the hook's three entries into its
           .claude/settings.json, keeping what the file holds.
   prompt  writes the routine's prompt.md into --dir, created when missing.
 
