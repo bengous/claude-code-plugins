@@ -13,6 +13,7 @@ interface Step {
 }
 
 interface Job {
+  readonly name?: string;
   readonly env?: Readonly<Record<string, string>>;
   readonly outputs?: Readonly<Record<string, string>>;
   readonly steps?: readonly Step[];
@@ -81,7 +82,7 @@ test("the moves: the owner's login, Renovate's own commits, his ready label with
   expect(shared).toContain('"\\(.event) \\(.performed_via_github_app == null) \\(.actor.login)"');
 });
 
-test("the reviewer runs on the owner's pull request or his ready label, and on nothing else", async () => {
+test("the reviewer runs on the owner's pull request, his ready label or a held update, and on nothing else", async () => {
   const read = await review();
   const steps = read.steps ?? [];
   const reviewer = steps.find((step) => step.uses?.startsWith("anthropics/claude-code-action"));
@@ -170,5 +171,68 @@ test("the owner's ready label on a pull request he did not open runs its review 
 
   expect(rerun?.if).toBe(
     "github.event.action == 'labeled' && github.event.label.name == 'ready' && steps.start.outputs.by == 'label'",
+  );
+});
+
+/** The check the gate writes on a Renovate update it holds for the owner, which the review reads. */
+const HELD = "held for the owner";
+
+/** How both workflows look for that mark on the head: GitHub Actions' own, so no other app can forge it. */
+const HELD_QUERY = [
+  `gh api "repos/$REPO/commits/$HEAD/check-runs?check_name=${encodeURIComponent(HELD)}&per_page=100" \\`,
+  `--jq '[.check_runs[] | select(.app.slug == "github-actions")] | length')`,
+].join("\n");
+
+test("a Renovate update the gate holds is reviewed: the gate writes the mark the review reads", async () => {
+  const [read, judge] = await Promise.all([review(), gate()]);
+  const start = startOf(read);
+  const steps = judge.steps ?? [];
+
+  const mark = steps.find((step) =>
+    step.name?.startsWith("Have the review read a Renovate update"),
+  );
+
+  const script = lines(mark?.run);
+  const held = `if [ "$who" = renovate ]; then\nheld=$(${HELD_QUERY}\nif [ "$held" -gt 0 ]; then started=true; fi\nfi`;
+
+  expect(read.env?.["HEAD"]).toBe("${{ github.event.pull_request.head.sha }}");
+  expect(judge.env?.["HEAD"]).toBe(read.env?.["HEAD"]);
+  expect(start.indexOf(held)).toBeGreaterThan(start.indexOf("started=false"));
+
+  expect(mark?.if).toBe("steps.start.outputs.by == 'renovate'");
+  expect(steps.indexOf(mark!)).toBeLessThan(steps.length - 1);
+  expect(script).toContain(`marks=$(${HELD_QUERY}`);
+  expect(script).toContain(`-f name="${HELD}" -f head_sha="$HEAD"`);
+  expect(script).toContain('gh api "repos/$REPO/actions/workflows/review.yml/runs?head_sha=$HEAD');
+  expect(script).toContain('gh api -X POST "repos/$REPO/actions/runs/$run/rerun"');
+});
+
+test("the gate holds for the owner an update of tier human and any major, and lets the rest through", async () => {
+  const mark = (await gate()).steps?.find((step) =>
+    step.name?.startsWith("Have the review read a Renovate update"),
+  );
+
+  expect(lines(mark?.run)).toContain(
+    'if [ "$TIER" = low ] && ! grep -qx major <<<"$labels"; then\necho "Not held: tier low, and no major."\nexit 0\nfi',
+  );
+});
+
+test("the gate reads the reviewer's step of the review's job by the names review.yml gives them", async () => {
+  const [read, judge] = await Promise.all([review(), gate()]);
+
+  const mark = judge.steps?.find((step) =>
+    step.name?.startsWith("Have the review read a Renovate update"),
+  );
+
+  const reviewer = read.steps?.find((step) =>
+    step.uses?.startsWith("anthropics/claude-code-action"),
+  );
+
+  expect(read.name).toBe("review (read)");
+  // GitHub names a step with no name of its own "Run <uses>", which is how the gate finds it.
+  expect(reviewer).toBeDefined();
+  expect(reviewer?.name).toBeUndefined();
+  expect(lines(mark?.run)).toContain(
+    `select(.name == "${read.name}") | .steps[] | select(.name | startswith("Run anthropics/claude-code-action"))`,
   );
 });
