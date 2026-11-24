@@ -227,8 +227,8 @@ function startedAfter(a: PullCheck, b: PullCheck): boolean {
   return a.startedAt >= b.startedAt;
 }
 
-/** The checks whose latest run is red, `owner-gate` aside, each named once. */
-function redChecks(checks: readonly PullCheck[]): readonly PullCheck[] {
+/** The latest run of each check, each named once. */
+export function latestChecks(checks: readonly PullCheck[]): readonly PullCheck[] {
   const latest = new Map<string, PullCheck>();
 
   for (const check of checks) {
@@ -237,7 +237,12 @@ function redChecks(checks: readonly PullCheck[]): readonly PullCheck[] {
     if (known === undefined || startedAfter(check, known)) latest.set(check.name, check);
   }
 
-  return [...latest.values()].filter(
+  return [...latest.values()];
+}
+
+/** The checks whose latest run is red, `owner-gate` aside. */
+function redChecks(checks: readonly PullCheck[]): readonly PullCheck[] {
+  return latestChecks(checks).filter(
     ({ name, verdict }) => name !== OWNER_GATE && verdict === "red",
   );
 }
