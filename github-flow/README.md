@@ -6,7 +6,7 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
-| `issue` | `/github-flow:issue [--dry-run] [number] <request>` | Writes or rewrites an issue as a prompt for another agent: Problem, Evidence, Hints, Done when, Out of scope. |
+| `issue` | `/github-flow:issue [--dry-run] [number] <request>` | Writes or rewrites an issue as the goal and how to tell it is reached: a problem in two lines, a *Done when* visual of testable situations, *Not this*, the author's leads folded, nothing of the solution. `skills/issue/scripts/check-issue.ts` refuses any other shape before it is published. |
 | `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Settles the branch's open decisions, reviews it, pushes it and opens or updates its PR with a body that shows the change first: a diagram, a tree diff, a table or screenshots; images go up through `gh --attach`. |
 | `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. Manual. |
 | `await-merge` | `/github-flow:await-merge [--dry-run] [--rebase] [pr]` | Watches the checks, merges by squash (`--rebase` for atomic commits, never a merge commit), fast-forwards the local base branch. |
@@ -43,14 +43,36 @@ A visual change carries a Before/After pair: the agent captures both states with
 ### Issue shape
 
 ```markdown
-## Problem      what is observed and what is wanted, no solution
-## Evidence     one fact per bullet, each anchored: path + symbol, or a commit
-## Hints        where to start, traps, boundaries; suggestions, never a plan
-## Done when    observable checkboxes, including the project's validation command
-## Out of scope what not to touch on the way (omitted when empty)
+<title: the state once done, not the action>
+<problem: 1 to 2 lines, what is observed and what it costs, no cause in the code>
+**Done when** <the expected result; one line on what is contract and what is free>
+<the visual: one situation per row or panel, one of them for no regression>
+**Not this** <3 lines at most>
+<details><summary>Author's leads</summary> facts only, never a fix </details>
+<sub>Written by <model></sub>
 ```
 
-The reader is a different agent in a fresh session. The issue proves the problem; the reader plans.
+The reader is a different agent in a fresh session. It looks at the code itself: an issue that names the code to change, or hints at a fix, is followed instead of looked past, so the issue holds the goal and how to tell it is reached, and nothing of the solution. The visual of *Done when* is a set of terminal sessions, a mockup of the states, a timeline, a chart with its target, or a *Today / Expected* table; each situation is a test a cloud session can run. A visual over 40 lines goes to an issue artifact of type `embedded_html`, uploaded with `gh api repos/{owner}/{repo}/issues/<n>/artifacts`, which *Done when* links.
+
+### Issue check
+
+The skill runs `bun skills/issue/scripts/check-issue.ts <body.md>` on its draft before it publishes, and fixes each finding until the check exits 0. The checks are the part of the shape a script can decide:
+
+| Check | Finding |
+|---|---|
+| `heading`, `section` | A heading, a paragraph that opens on a bold label other than **Done when** and **Not this**, or a folded section other than the author's leads. |
+| `order`, `footer` | The parts out of order, or no `<sub>Written by …</sub>` last line. |
+| `problem`, `not-this` | A problem over `problemLines`, *Not this* over `notThisLines`. |
+| `done-when`, `situations` | No **Done when**, or one whose visual lists no situation: no table row, no non-empty fenced block, no issue artifact named. |
+| `contract`, `regression`, `expected` | No line on what is contract and what is free, no situation for no regression, a row with no expected result. |
+| `checkbox` | A task list item. |
+| `visual-size` | A fenced block or a table over `visualLines`: it moves to an issue artifact. |
+| `fix`, `plan` | `Fix:`, `Possible direction`, a suggested or proposed fix, solution or approach, a numbered list. |
+| `question` | A `?` outside code spans, fenced blocks, URLs and HTML comments. |
+| `leads` | The author's leads outside a `<details>`. |
+| `script` | In an `.html` artifact: a `<script>`, an on-event attribute or a `javascript:` URL; an artifact also lists its situations as table rows, one for no regression. |
+
+Findings print as `<file>:<line>: <check>: <message>`; exit 1 on a finding, 2 on a file it cannot read or settings it refuses. `-` reads the body from stdin; a file ending in `.html` is checked as an artifact. A repository tunes the caps in `.github/github-flow.json`, found from the current directory upward to the first directory with `.git`, under `issue`: `problemLines` (2), `notThisLines` (3), `visualLines` (40); the `pr` check reads the same file under `pr`. A missing file or key keeps the defaults; an unknown key or a value that is not a positive integer exits 2. The script imports nothing outside `skills/issue/`, so the skill and its check copy into another repository together.
 
 ### Triage verdicts
 
