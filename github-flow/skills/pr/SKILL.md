@@ -30,7 +30,7 @@ Agents review the PR first. The body is for the reader who opens it afterwards, 
    - The validation commands: the repository's `AGENTS.md` or `CLAUDE.md` names them. Its `GLOSSARY.md` or `CONTEXT.md` when one exists: the words that name the nodes of a view.
    - What ran this session, with its numbers.
 4. **View.** One, the smallest that makes the key point clear, from the table under [Views](#views).
-   - Moved, added or deleted directories: `${CLAUDE_PLUGIN_ROOT}/scripts/tree-diff.ts origin/<base>` prints the tree diff. A directory moved, added or deleted whole is one line, and a directory where more than three files changed, all of them only modified, is a count. Keep the lines the reader needs and comment each one with what it owns now.
+   - Moved, added or deleted directories: `${CLAUDE_PLUGIN_ROOT}/scripts/tree-diff.ts origin/<base>` prints the tree diff. A directory moved, added or deleted whole is one line, and a directory where more than three files changed, all of them only modified, is a count. Keep the lines the reader needs and comment each one with what it owns now. Where the skill runs outside its plugin, with no `scripts/tree-diff.ts` beside it, write that tree by hand from `git diff --name-status origin/<base>...HEAD`, by the same rules.
    - A Mermaid diagram, for a topology only: read `references/mermaid.md` first. GitHub's renderer has traps a terminal never shows.
    - Worked examples of every view: `references/views.md`.
 5. **Proof.** The issue's situations, before → after: a table, one row per situation, the before observed on the base and the after on the branch.
