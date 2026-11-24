@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parse } from "yaml";
@@ -38,18 +40,17 @@ function checkRun(
   return { name, conclusion, completed_at: completed, check_suite: { id: suite } };
 }
 
-/** The step of `review.yml` that counts the failed rounds, read from the workflow itself. */
-async function roundStep(): Promise<string> {
+/** The script of a step of `review.yml`'s verdict job, read from the workflow itself. */
+async function reviewStep(name: string): Promise<string> {
   const workflow: Workflow = parse(
     await Bun.file(join(import.meta.dir, "../../.github/workflows/review.yml")).text(),
   );
 
-  return (
-    workflow.jobs["review"]?.steps?.find((step) =>
-      step.name?.startsWith("Fail while the review has findings"),
-    )?.run ?? ""
-  );
+  return workflow.jobs["review"]?.steps?.find((step) => step.name?.startsWith(name))?.run ?? "";
 }
+
+/** The step of `review.yml` that counts the failed rounds. */
+const roundStep = (): Promise<string> => reviewStep("Fail while the review has findings");
 
 async function roundFilter(): Promise<string> {
   const script = await roundStep();
@@ -181,4 +182,98 @@ test("a round that failed before the owner's restart is not counted again", asyn
       "2026-02-01T00:00:00Z",
     ),
   ).toBe("0");
+});
+
+/** A reviewer's answer: its schema's fields, which a bent answer may fill with any text. */
+interface Verdict {
+  readonly findings: number;
+  readonly read: readonly string[];
+  readonly issue: number | string | null;
+  readonly round: string;
+}
+
+/** What the summary step writes for a reviewer's answer, and whether the sentinel the answer names exists after. */
+async function summaryOf(
+  verdict: (sentinel: string) => Verdict,
+): Promise<{ summary: string; ran: boolean; sentinel: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "review-summary-"));
+
+  try {
+    const sentinel = join(dir, "ran");
+    const summary = join(dir, "summary.md");
+
+    await Bun.write(summary, "");
+
+    const step = Bun.spawn(["bash", "-c", await reviewStep("Write what the round read")], {
+      cwd: dir,
+      env: {
+        PATH: process.env["PATH"] ?? "",
+        VERDICT: JSON.stringify(verdict(sentinel)),
+        GITHUB_STEP_SUMMARY: summary,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [code, complaint] = await Promise.all([step.exited, new Response(step.stderr).text()]);
+
+    expect(complaint).toBe("");
+    expect(code).toBe(0);
+
+    return {
+      summary: await Bun.file(summary).text(),
+      ran: await Bun.file(sentinel).exists(),
+      sentinel,
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("a reviewer's answer reaches the summary as text inside <pre>, and none of it runs", async () => {
+  const { summary, ran, sentinel } = await summaryOf((path) => ({
+    findings: 0,
+    read: [
+      `$(touch ${path})`,
+      `\`touch ${path}\``,
+      `a; touch ${path}`,
+      "</pre><img src=x onerror=alert(1)>",
+      "**bold** [link](https://example.com) # heading",
+      "a & b",
+    ],
+    issue: 561,
+    round: "first",
+  }));
+
+  expect(ran).toBe(false);
+  expect(summary).toBe(
+    [
+      "<pre>",
+      "Round: a first round",
+      "Judged against issue: #561",
+      "Files read: 6",
+      `  $(touch ${sentinel})`,
+      `  \`touch ${sentinel}\``,
+      `  a; touch ${sentinel}`,
+      "  &lt;/pre&gt;&lt;img src=x onerror=alert(1)&gt;",
+      "  **bold** [link](https://example.com) # heading",
+      "  a &amp; b",
+      "</pre>",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("a round field the reviewer bent out of its schema reaches the summary escaped", async () => {
+  const { summary, ran, sentinel } = await summaryOf((path) => ({
+    findings: 0,
+    read: [],
+    issue: `<b>$(touch ${path})</b>`,
+    round: `$(touch ${path})`,
+  }));
+
+  expect(ran).toBe(false);
+  expect(summary).toContain("Round: a round that did not say which\n");
+  expect(summary).toContain(`Judged against issue: #&lt;b&gt;$(touch ${sentinel})&lt;/b&gt;\n`);
+  expect(summary).toContain("Files read: 0\n</pre>\n");
 });
