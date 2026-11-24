@@ -11,7 +11,9 @@ cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
 readonly SETUP=.github/factory/setup.sh
 readonly BIN_DIR="${HOME}/.local/bin"
 
-expected=$(sha256sum <"${SETUP}" | cut -d ' ' -f 1)
+# claude.ai drops the final newline of the copy it runs, so both sides digest the text without it.
+text=$(<"${SETUP}")
+expected=$(printf '%s' "${text}" | sha256sum | cut -d ' ' -f 1)
 ran=$(cat "${HOME}/.cloud-env-setup.revision" 2>/dev/null)
 if [[ ${ran} != "${expected}" ]]; then
   echo "This cloud environment did not run ${SETUP} as this clone holds it (ran: ${ran:-none}). A tool or a package the script installs may be missing: the owner loads the file again in the environment's settings on claude.ai."

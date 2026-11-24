@@ -52,12 +52,14 @@ disable_tools = ["claude"]
 EOF
 }
 
-# What .claude/hooks/cloud-tools.sh compares with the file in the clone.
+# What .claude/hooks/cloud-tools.sh compares with the file in the clone. claude.ai drops the file's final newline, so
+# both sides digest the text without it.
 write_revision() {
   [[ -f ${BASH_SOURCE[0]} ]] || return 1
 
-  local sum
-  sum=$(sha256sum <"${BASH_SOURCE[0]}") || return 1
+  local text sum
+  text=$(<"${BASH_SOURCE[0]}") || return 1
+  sum=$(printf '%s' "${text}" | sha256sum) || return 1
   printf '%s\n' "${sum%% *}" >"${HOME}/.cloud-env-setup.revision"
 }
 

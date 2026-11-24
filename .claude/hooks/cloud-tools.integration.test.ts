@@ -46,8 +46,9 @@ let project = "";
 
 let bin = "";
 
+/** The digest setup.sh records of itself on claude.ai, which runs its copy without the file's final newline. */
 function revisionOf(text: string): string {
-  return new Bun.CryptoHasher("sha256").update(text).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(text.replace(/\n+$/u, "")).digest("hex");
 }
 
 function installMise(): void {
