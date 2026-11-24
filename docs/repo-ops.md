@@ -12,6 +12,7 @@ Choose the procedure for the task. `AGENTS.md` owns the branch model, `CLAUDE.md
 | Diagnose a server rejection or recover a ruleset | [GitHub branch protections](repo-ops/protections.md) |
 | Inspect plugin synchronization after a merge | [Managed catalog](plugin-testing/catalog.md) |
 | Set up, run or pause the leads pipeline; sort the leads it files | [Leads pipeline](repo-ops/leads.md) |
+| Change what a cloud session can reach, or the tools it runs | [Cloud environment](repo-ops/cloud.md) |
 
 Code reaches `dev` through a pull request alone. Read the Git procedure before any push or release.
 `main` remains the human-controlled release channel.

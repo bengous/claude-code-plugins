@@ -58,6 +58,12 @@
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
           },
           {
+            // A cloud session alone: the tools of mise.lock, which its environment cannot install before the clone.
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/cloud-tools.sh\"",
+            "timeout": 120
+          },
+          {
             // A first run clones the private repository .private.env names.
             "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/private-sync.ts\"",
