@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, readlinkSync, utimesSync } from "node:fs";
 import path from "node:path";
 
+import type { HookOptions } from "./hook.ts";
 import { loadState } from "./state.ts";
 import type { Json, TempRepo } from "./test-support.ts";
 import {
@@ -130,11 +131,18 @@ function desktopWorktree(files: Readonly<Record<string, string>>, installed: rea
 }
 
 /** SessionStart as the Code tab runs it: in the main checkout, `CLAUDE_PROJECT_DIR` on it, the session's cwd in the payload. */
-function desktopSessionStart(cwd: string): Promise<Json | null> {
+function desktopSessionStart(
+  cwd: string,
+  options: Partial<HookOptions> = {},
+): Promise<Json | null> {
   process.chdir(temp.repo);
   process.env["CLAUDE_PROJECT_DIR"] = temp.repo;
 
-  return hookOutput("session-start", fixtureIn("session-start-startup", temp.repo, { cwd }));
+  return hookOutput(
+    "session-start",
+    fixtureIn("session-start-startup", temp.repo, { cwd }),
+    options,
+  );
 }
 
 /** Where the link at `relative` under `top` points, or null when no link stands there. */
@@ -271,16 +279,10 @@ describe("session-start in a worktree the desktop app created", () => {
 
   test("a photo that runs out of time still leaves the worktree linked", async () => {
     const worktree = desktopWorktree({ [SETTINGS]: declaring("node_modules") }, ["node_modules"]);
-    process.chdir(temp.repo);
-    process.env["CLAUDE_PROJECT_DIR"] = temp.repo;
 
     // A 1000 ms hook deadline leaves the photo no time once the settle margin is taken: its git calls time out
     // without starting, while the link step keeps its own budget.
-    const output = await hookOutput(
-      "session-start",
-      fixtureIn("session-start-startup", temp.repo, { cwd: worktree }),
-      { deadlineMs: 1000 },
-    );
+    const output = await desktopSessionStart(worktree, { deadlineMs: 1000 });
 
     expect(output).toBeNull();
     expect(linkAt(worktree, "node_modules")).toBe(path.join(temp.repo, "node_modules"));
