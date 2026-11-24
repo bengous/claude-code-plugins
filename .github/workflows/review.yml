@@ -18,6 +18,7 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
+      checks: read
       id-token: write
     outputs:
       verdict: ${{ steps.review.outputs.structured_output }}
@@ -30,6 +31,7 @@ jobs:
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
       BASE: ${{ github.event.pull_request.base.ref }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
       AUTHOR: ${{ github.event.pull_request.user.login }}
       OWNER: bengous
     steps:
@@ -39,8 +41,10 @@ jobs:
       # The review spends the owner's token, so a move of his starts it: a pull request opened under his
       # login, by his own session or the one his ready label started on an issue, or any other once he
       # labels it ready, with no app behind the label. A dependency update of Renovate is not read unless
-      # he asks: a review that runs no code adds little to a manifest and a lockfile, which test and the
-      # tier judge.
+      # he asks, or unless the owner gate holds it for him: a review that runs no code adds little to a
+      # manifest and a lockfile, which test and the tier judge, but he approves a held one by hand. The gate
+      # marks that head with the check `held for the owner`, which GitHub Actions writes, and runs this
+      # review again.
       - name: Whose move started this pull request
         id: start
         run: |
@@ -61,6 +65,11 @@ jobs:
           if [ "$last" = "labeled true $OWNER" ]; then ready=true; fi
           started=false
           if [ "$who" = owner ] || [ "$ready" = true ]; then started=true; fi
+          if [ "$who" = renovate ]; then
+            held=$(gh api "repos/$REPO/commits/$HEAD/check-runs?check_name=held%20for%20the%20owner&per_page=100" \
+              --jq '[.check_runs[] | select(.app.slug == "github-actions")] | length')
+            if [ "$held" -gt 0 ]; then started=true; fi
+          fi
           {
             echo "who=$who"
             echo "started=$started"
