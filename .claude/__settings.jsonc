@@ -146,7 +146,8 @@
     "Stop": [
       {
         // Sends a cloud session back to the verify skill while its working
-        // tree differs from the one verify last saw.
+        // tree differs from the one it started from and from the one verify
+        // last saw.
         "hooks": [
           {
             "type": "command",

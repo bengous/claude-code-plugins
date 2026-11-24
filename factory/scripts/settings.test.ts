@@ -75,6 +75,21 @@ describe("mergeHooks", () => {
     expect(settings.hooks["PostToolUse"]?.[0]?.matcher).toBe("Skill");
   });
 
+  test("settings from before the start record get it, and keep their record and stop entries", () => {
+    const older = JSON.stringify({
+      hooks: {
+        PostToolUse: [{ matcher: "Skill", hooks: [{ type: "command", command: RECORD }] }],
+        Stop: [{ hooks: [{ type: "command", command: STOP }] }],
+      },
+    });
+
+    const settings = merged(older);
+
+    expect(settings.hooks["SessionStart"]?.[0]?.hooks[0]?.command).toBe(START);
+    expect(settings.hooks["PostToolUse"]).toHaveLength(1);
+    expect(settings.hooks["Stop"]).toHaveLength(1);
+  });
+
   test("a second merge changes nothing", () => {
     const first = mergeHooks(null, FRAGMENT);
 
