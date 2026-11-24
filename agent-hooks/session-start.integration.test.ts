@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, readlinkSync, utimesSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import type { HookOptions } from "./hook.ts";
@@ -287,6 +295,34 @@ describe("session-start in a worktree the desktop app created", () => {
     expect(output).toBeNull();
     expect(linkAt(worktree, "node_modules")).toBe(path.join(temp.repo, "node_modules"));
     expect(loadState("s1", worktree).photo).toBeNull();
+  });
+
+  test("a slow photo does not hold the link step back: the links are made first", async () => {
+    const worktree = desktopWorktree({ [SETTINGS]: declaring("node_modules") }, ["node_modules"]);
+    const realGit = Bun.which("git");
+
+    if (realGit === null) {
+      throw new Error("git is not on the PATH");
+    }
+
+    // A git first on the PATH whose `status`, the photo's call, takes longer than the link step's budget.
+    const bin = path.join(temp.dir, "slow-git");
+    mkdirSync(bin);
+    writeFileSync(
+      path.join(bin, "git"),
+      `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = status ] && sleep 1.5; done\nexec "${realGit}" "$@"\n`,
+    );
+    chmodSync(path.join(bin, "git"), 0o755);
+    const pathBefore = process.env["PATH"];
+    process.env["PATH"] = `${bin}${path.delimiter}${pathBefore ?? ""}`;
+
+    try {
+      expect(await desktopSessionStart(worktree)).toBeNull();
+    } finally {
+      process.env["PATH"] = pathBefore;
+    }
+
+    expect(linkAt(worktree, "node_modules")).toBe(path.join(temp.repo, "node_modules"));
   });
 
   test.each([
