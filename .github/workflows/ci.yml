@@ -31,6 +31,15 @@ jobs:
         with:
           fetch-depth: 0 # full history needed for the drift guard
 
+      # A `uses:` the lockfile does not follow, or a locked commit no longer behind its tag, fails here
+      # rather than at the start of the job that runs it.
+      - name: Check the workflows' actions against their lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install github/gh-actions-lock --pin v0.5.1
+          gh actions-lock --verify
+
       # The hooks module's kit needs the engine its types were written by. An exact version,
       # unlike `latest`, is neither left where the action's cache first resolved it nor held
       # back by mise's minimum release age, so a types update is tested on its own engine.

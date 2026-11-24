@@ -17,6 +17,13 @@
       "addLabels": ["major"]
     },
     {
+      "description": "Each update of a workflow's action touches a path of CODEOWNERS and waits for the owner: they come in one pull request a week. A major stays apart, under the rule above.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "GitHub Actions",
+      "schedule": ["before 6am on monday"]
+    },
+    {
       "description": "factory/templates/ holds the trial repository's files as they ran there: an update is played in the trial first, then copied by hand.",
       "matchFileNames": ["factory/templates/**"],
       "enabled": false
