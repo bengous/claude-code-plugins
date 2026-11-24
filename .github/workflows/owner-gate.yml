@@ -89,14 +89,14 @@ jobs:
           fi
       # The tier rules alone, from dev: the pull request's code is never checked out, and no file of
       # the repository's root configures the bun that runs tier.ts.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
         with:
           sparse-checkout: |
             .github/factory
             .github/CODEOWNERS
           sparse-checkout-cone-mode: false
       # A step that fails from here to the verdict leaves no tier, which the last step reads as human.
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
         continue-on-error: true
       - name: Tier of the head commit
         id: tier
