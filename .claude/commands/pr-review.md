@@ -27,7 +27,13 @@ The last round stopped at the newer of these two commits of the pull request:
 - the commit your newest earlier comment was posted on, its `original_commit_id`; your comments are those whose `user.login` is `claude[bot]`;
 - the newest commit whose `review` check succeeded, which a clean round leaves behind: `gh api repos/<owner>/<repo>/pulls/<number>/commits --paginate` lists the commits, and `gh api repos/<owner>/<repo>/commits/<sha>/check-runs` gives the checks of one.
 
-A `review` check can succeed without a round: the workflow lets through, unread, a pull request that changes the review workflow, and says so in a notice, `Not reviewed`. Such a check marks nothing: look for the notice with `gh api repos/<owner>/<repo>/check-runs/<id>/annotations` before you rely on a succeeded check.
+A `review` check can succeed without a round. The workflow lets three pull requests through unread, and says so in a notice that starts `Not reviewed`:
+
+- one that changes the review workflow;
+- one that no move of the owner started: someone else opened it, and the owner has not labeled it `ready`;
+- a dependency update of Renovate the owner has not labeled `ready`.
+
+Such a check marks nothing: look for the notice with `gh api repos/<owner>/<repo>/check-runs/<id>/annotations` before you rely on a succeeded check.
 
 When there is neither commit, or you are not sure where the last round stopped, this is the first round: read everything section 1 lists.
 
