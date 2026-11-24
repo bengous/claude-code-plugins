@@ -70,17 +70,19 @@ file as well: they would run twice.
 
 ## What each hook does
 
-- SessionStart: in a linked worktree, first links each directory the main checkout's
-  `.claude/settings.json` and `.claude/settings.local.json` declare in `worktree.symlinkDirectories`, which
-  Claude Code applies at `--worktree` and `EnterWorktree` but the desktop app's Code tab does not apply
-  to the worktree it creates. A declared directory the main checkout holds becomes a link to it at the
-  same path in the worktree, unless the worktree already holds that path or lacks its parent directory.
-  One git would not ignore as a link (a pattern with a trailing slash ignores only a directory) is not
-  linked, and a note tells the user which pattern to write. A settings file that is not valid JSONC,
-  a `worktree` that is not an object, a `worktree.symlinkDirectories` that is not an array of paths, or a declared path outside the
-  repository stops the linking and is a note too; an absent settings file declares nothing. A session in the main
-  checkout links nothing. Then it photographs the checkout around the cwd (its dirty tree), once per
-  session, and removes the scratch directories a killed pre-edit left.
+- SessionStart: photographs the checkout around the cwd (its dirty tree), once per session, and
+  removes the scratch directories a killed pre-edit left. Then, in a linked worktree, it links each
+  directory the main checkout's `.claude/settings.json` and `.claude/settings.local.json` declare in
+  `worktree.symlinkDirectories`, which Claude Code applies at `--worktree` and `EnterWorktree` but the
+  desktop app's Code tab does not apply to the worktree it creates. The link step has its own share of
+  the hook's deadline, so a photo that fails or runs out of time still lets it run. A declared
+  directory the main checkout holds becomes a link to it at the same path in the worktree, unless the
+  worktree already holds that path or lacks its parent directory. One git would not ignore as a link (a
+  pattern with a trailing slash ignores only a directory) is not linked, and a note tells the user which
+  pattern to write. A settings file that is not valid JSONC, a `worktree` that is not an object, a
+  `worktree.symlinkDirectories` that is not an array of paths, or a declared path outside the
+  repository stops the linking and is a note too; an absent settings file declares nothing. A session
+  in the main checkout links nothing.
 - PreToolUse: photographs the edited file's checkout at the agent's first edit there, then runs the
   `edit` fixers on a copy of the new content in `.agent-hooks-XXXXXX/` beside the file, so a tool finds
   its config and ignore files as for the real file, and hands Claude Code the result as `updatedInput`
