@@ -21,6 +21,7 @@ import type { Outcome } from "./contract.ts";
 import {
   AGENT_ID,
   agents,
+  listedAgent,
   REQUESTED,
   reviewRoutes,
   RUNNING,
@@ -182,9 +183,7 @@ describe("the agent's end", () => {
     const review = reviewRoutes(RUNNING);
     const seen = world(on, review);
     const listed = agents(on);
-    listed.listed = [
-      { id: AGENT_ID, description: "d", type: "vellum:plan-reviewer", status: "killed" },
-    ];
+    listed.listed = [listedAgent("killed")];
     await $.skill.prompt(START_PROMPT);
     seen.children[0]?.write(stage(inReview(3)));
     await seen.clock.settle();
@@ -250,7 +249,7 @@ describe("the agents to stop", () => {
   test("a stop denied keeps the agent listed, logged once, and is tried again at the next stage line", async ($, on) => {
     const review = listing();
     const seen = world(on, review);
-    agents(on).listed = [{ id: AGENT_ID, description: "d", type: "t", status: "running" }];
+    agents(on).listed = [listedAgent("running")];
     const asked = stops(on, () => ({ deny: "not now" }));
     await $.skill.prompt(START_PROMPT);
     seen.children[0]?.write(stage(inReview(3)), stage(inReview(3)));
@@ -279,7 +278,7 @@ describe("the agents to stop", () => {
   test("a stop that errs on an agent the engine no longer runs is confirmed", async ($, on) => {
     const review = listing();
     const seen = world(on, review);
-    agents(on).listed = [{ id: AGENT_ID, description: "d", type: "t", status: "killed" }];
+    agents(on).listed = [listedAgent("killed")];
 
     stops(on, (agentId) => ({
       result: `Error: Task ${agentId} is not running (status: killed)`,
@@ -315,11 +314,11 @@ describe("a run whose agent the engine no longer runs", () => {
     const review = reviewRoutes(RUNNING);
     const seen = world(on, review);
     const listed = agents(on);
-    listed.listed = [{ id: AGENT_ID, description: "d", type: "t", status: "pending" }];
+    listed.listed = [listedAgent("pending")];
     await $.skill.prompt(START_PROMPT);
     seen.children[0]?.write(stage(inReview(3)));
     await seen.clock.settle();
-    listed.listed = [{ id: AGENT_ID, description: "d", type: "t", status: "running" }];
+    listed.listed = [listedAgent("running")];
     await seen.clock.advance(GRACE_MS);
 
     expect(review.posted).toEqual([]);
@@ -345,7 +344,7 @@ describe("a run whose agent the engine no longer runs", () => {
   test("completed, its answer that lands within the grace is the run's end, and the grace fails nothing", async ($, on) => {
     const review = reviewRoutes(RUNNING);
     const seen = world(on, review);
-    agents(on).listed = [{ id: AGENT_ID, description: "d", type: "t", status: "completed" }];
+    agents(on).listed = [listedAgent("completed")];
     on("turn.complete", (_, e) => ({ text: e.answer }));
     await $.skill.prompt(START_PROMPT);
     seen.children[0]?.write(stage(inReview(3)));

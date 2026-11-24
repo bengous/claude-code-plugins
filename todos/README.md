@@ -64,7 +64,7 @@ Each TODO is dated with `git blame`: the time its line was authored. The newest 
 - The `○` before a TODO picks it: click it, or Tab to it and press Enter. **Show Claude** puts the picked TODOs in the prompt box at the cursor, under `Read these TODOs:`, one `- path:line: text` per TODO (the path from the repository's root, absolute when the session started in another directory; a finding with its id and date), and gives the keys back to the prompt, where you write what Claude should do with them before you send. **Clear** drops the picks.
 - **Mine** keeps the TODOs whose git author is your `user.email`, uncommitted lines included. **All** shows every one again.
 - `TODO(#42)` links to issue 42 when `origin` is on GitHub.
-- It keeps what other mods draw in the band below its own list.
+- The list is todos' own row of the band: Claude Code stacks each mod's row beside it.
 
 When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names it: `New FIXME at deploy.sh:4: rotate the deploy key`. A file the scan skips raises none.
 

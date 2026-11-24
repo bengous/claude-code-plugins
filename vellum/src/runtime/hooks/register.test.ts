@@ -976,13 +976,13 @@ describe("the band above the prompt", () => {
     expect([await drawn.text(), await drawn.href()]).toEqual(["", undefined]);
   });
 
-  test("the band keeps what the mods after vellum draw", async ($, on) => {
-    world(on, { otherBand: "drawn by another mod" });
+  test("vellum's row keeps what a hook beneath draws", async ($, on) => {
+    world(on, { bandBeneath: "drawn beneath" });
     await $.skill.prompt(START_PROMPT);
     const drawn = await band($);
 
     expect(await drawn.text()).toContain("vellum │ Review page ↗");
-    expect(await drawn.text()).toContain("drawn by another mod");
+    expect(await drawn.text()).toContain("drawn beneath");
   });
 
   test("a survey holds the band: vellum draws nothing there", async ($, on) => {

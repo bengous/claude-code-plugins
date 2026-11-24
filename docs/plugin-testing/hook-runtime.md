@@ -99,7 +99,13 @@ line says otherwise.
   clock stops while one of its `$` calls is in flight: a loop of 25 s
   `$.http.fetch` long-polls held a `tool.call` for 30 minutes. A promise
   awaited with no `$` call in flight overruns the budget; raced against a
-  request in flight, it holds. Each `$.http.fetch` is cut at 30 s
+  request in flight, it holds. On `tool.call`, `tool.check`, `tool.judge`,
+  `tool.run` and `classic.PreToolUse` the `$` calls themselves hold the hook
+  for 20 minutes in all, then fail it (`HookBudget` in the types, not
+  measured): `next(e)`, `$.ui.ask`, `$.tool.call`, `$.agent.call`,
+  `$.agent.spawn` and `$.mcp.call` do not count, and a `tool.call` or
+  `tool.run` hook on a tool its own plugin registered has no such bound. A
+  wait for a person past that belongs in a tool of the plugin's own. Each `$.http.fetch` is cut at 30 s
   (`aborted: no complete answer within 30000ms`), which the types do not
   declare.
 
@@ -297,22 +303,23 @@ line says otherwise.
   the main loop. Not measured in a live session: that an isolated subagent's
   `pwd` stays in its worktree with the variable set.
 
-- A subagent a plugin spawns with `$.agent.spawn` steps past every hook of
-  that plugin but `turn.complete`: its tool calls reach none of the plugin's
-  `tool.call` or `tool.check` hooks (the debug log reads `tool.call skipped:
-  re-entry`), and a plugin tool it calls falls to the engine's permission
-  path, denied since a background agent cannot ask. Its `turn.complete`
-  reaches the plugin with `agentId` set and its final text in `answer`. The
-  same agent spawned by the model through the Agent tool reaches the plugin's
-  `tool.call`. `$.agent.spawn` from a timer resolved at once with
-  `{ model, agentId }`. Measured in `claude -p` sessions.
+- A subagent a plugin spawns with `$.agent.spawn` reaches that plugin's hooks
+  as any agent does: its `turn.start`, `tool.call` and `tool.check` carry its
+  `agentId`, and its `turn.complete` its final text in `answer` too. The spawn
+  itself raises `tool.call` and `tool.check` of `Agent` in the main loop, and
+  from a timer it resolves with the `agentId`. Once the agent ends, its report
+  reaches the idle main loop as a prompt, `<agent-message …>` with `origin`
+  `{ kind: "peer" }`, and starts a turn. Measured in `claude -p` sessions.
+
+- `$.tool.call` reaches the calling plugin's `tool.call` and `tool.check`
+  hooks, from a hook of another event and from a timer alike; only the hook
+  making the call is skipped. Measured in a `claude -p` session, with `Read`.
 
 - `$.tool.call({ tool: "TaskStop", task_id })` stops an agent the plugin
   spawned, `task_id` being the `agentId` `$.agent.spawn` answered. The tool is
   not deferred: it answered at once with `result.message` `Successfully
-  stopped task: <id> (<description>)` and no `isError`, asked no permission in
-  `default` mode, and stepped past the calling
-  plugin's own `tool.check` (`tool.check skipped: re-entry`). The agent's
+  stopped task: <id> (<description>)` and no `isError`, and asked no permission
+  in `default` mode. The agent's
   `turn.complete` reached the plugin with `reason: "aborted"` and an empty
   `answer` right after the result, and `$.agent.list()` then lists it `killed`.
   A second stop answers `isError: true`, `Task <id> is not running (status:

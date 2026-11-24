@@ -11,7 +11,7 @@ const SHA = "9b6920bb8d4e6b85dc8012b168a827d4219fd016";
 
 const ME = "me@example.com";
 
-const OTHER_MOD = "drawn by another mod";
+const BENEATH = "drawn beneath";
 
 const BUFFER = `${ROOT}/.git/todos/findings`;
 
@@ -44,6 +44,7 @@ const BAND = {
   surface: "terminal",
   props: {
     hasSurvey: false,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 20,
     bodyColumns: 100,
@@ -173,7 +174,7 @@ function stubRepo(
           : run(blamed.get(e.argv.at(-1) ?? "") ?? "");
     }
   });
-  on("ui.render", () => ({ type: "Text", props: {}, children: [OTHER_MOD] }));
+  on("ui.render", () => ({ type: "Text", props: {}, children: [BENEATH] }));
 
   return { clock, toasts, reads, gitCommands };
 }
@@ -232,13 +233,13 @@ test("/todos reports the count and draws the list newest first", async ($, on) =
   expect(shown).toContain("1y");
 });
 
-test("the band keeps what the mods after it draw", async ($, on) => {
+test("the band's row keeps what a hook beneath draws", async ($, on) => {
   stubRepo(on);
   await $.command.run(TODOS);
   const ui = await $.ui.mount(BAND);
 
   expect(await ui.find({ type: "Text", text: "todos" })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: OTHER_MOD })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: BENEATH })).toBeDefined();
 });
 
 test("the desktop app draws the same band", async ($, on) => {
@@ -769,7 +770,7 @@ test("the next prompt hides the band", async ($, on) => {
   const ui = await $.ui.mount(BAND);
 
   expect(await ui.find({ type: "Text", text: "todos" })).toBeUndefined();
-  expect(await ui.find({ type: "Text", text: OTHER_MOD })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: BENEATH })).toBeDefined();
 });
 
 test("Hide hides the band", async ($, on) => {

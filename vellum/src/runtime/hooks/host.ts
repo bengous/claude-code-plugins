@@ -64,18 +64,15 @@ export type Host = {
   submitPrompt: (text: string) => Promise<PromptSubmitResult>;
 
   /**
-   * `$.agent.spawn`: resolves once the subagent started, in the background. A subagent this
-   * module spawns steps past every hook of vellum's but `turn.complete`, which carries its final
-   * text under the `agentId` this answers.
+   * `$.agent.spawn`: resolves once the subagent started, in the background. Its events reach
+   * vellum's hooks as any agent's do, and `turn.complete` carries its final text under the
+   * `agentId` this answers.
    */
   spawnAgent: (args: AgentSpawnArgs) => Promise<AgentSpawnResult>;
 
   listAgents: () => Promise<AgentInfo[]>;
 
-  /**
-   * `$.tool.call(call)`: a tool of the session run by the module. The module's own hooks step past
-   * it, as its spawned agents do.
-   */
+  /** `$.tool.call(call)`: a tool of the session run by the module, through every hook but the caller. */
   callTool: (call: ToolCallArgs) => Promise<ToolCallResult>;
 
   status: (text: string | undefined) => void;
