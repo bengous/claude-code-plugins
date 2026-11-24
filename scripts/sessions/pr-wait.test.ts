@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Clock, Gh } from "../releasing/ci-wait.ts";
 import { REGISTRATION_MS } from "../releasing/ci-wait.ts";
 import type { PullCheck, PullView } from "../releasing/release-pull.ts";
-import { decide, exitOf, main, report, requestOf } from "./pr-wait.ts";
+import { decide, exitOf, main, openThreadOf, report, requestOf } from "./pr-wait.ts";
 
 const TIMEOUT_MS = 30 * 60_000;
 
@@ -21,6 +21,22 @@ function open(checks: readonly PullCheck[]): PullView {
     mergeStateStatus: "BLOCKED",
     checks,
   };
+}
+
+interface ThreadFields {
+  readonly isResolved?: boolean;
+  readonly path?: string;
+  readonly line?: number | null;
+}
+
+/** One review thread as the script's jq prints it. */
+function threadNode({ isResolved = false, path = "a.ts", line = 5 }: ThreadFields): string {
+  return JSON.stringify({
+    isResolved,
+    path,
+    line,
+    comments: { nodes: [{ body: "**Unproven change.**\nNo test fails." }] },
+  });
 }
 
 interface FakeGh {
@@ -44,7 +60,11 @@ function fakeGh(rollups: readonly (readonly unknown[] | null)[]): FakeGh {
   const gh: Gh = (args) => {
     calls.push(args);
 
-    if (args[0] === "api") return Promise.resolve("a.ts:5  Unproven change.\n");
+    if (args[0] === "api") {
+      return Promise.resolve(
+        `${threadNode({ isResolved: true, path: "done.ts" })}\n${threadNode({ path: "a.ts" })}\n`,
+      );
+    }
 
     if (args.includes("headRefName")) return Promise.resolve("feature/x\n");
 
@@ -115,6 +135,39 @@ describe("decide", () => {
       kind: "verdict",
       head: HEAD,
       checks: [check("test", "green"), check("review", "green", "2026-01-01T10:09:00Z")],
+    });
+  });
+
+  test("a check older than one that still runs is the earlier run of a re-run, and is waited on", () => {
+    const earlier = check("review", "green", "2026-01-01T10:00:00Z");
+    const rerun = check("review (read)", "pending", "2026-01-01T10:30:00Z");
+
+    expect(decide(open([check("test", "green"), earlier, rerun]), null, 0, TIMEOUT_MS)).toEqual({
+      kind: "wait",
+    });
+    expect(
+      decide(open([check("test", "green"), earlier, rerun]), null, TIMEOUT_MS, TIMEOUT_MS),
+    ).toEqual({
+      kind: "timeout",
+      head: HEAD,
+      checks: [check("test", "green"), earlier],
+      waiting: ["test", "review"],
+    });
+
+    const before = check("validate", "pending", "2026-01-01T09:00:00Z");
+    const later = check("review", "red", "2026-01-01T10:00:00Z");
+
+    expect(
+      decide(
+        open([check("test", "green", "2026-01-01T10:05:00Z"), later, before]),
+        null,
+        0,
+        TIMEOUT_MS,
+      ),
+    ).toEqual({
+      kind: "verdict",
+      head: HEAD,
+      checks: [check("test", "green", "2026-01-01T10:05:00Z"), later],
     });
   });
 
@@ -250,6 +303,21 @@ describe("report", () => {
   });
 });
 
+describe("openThreadOf", () => {
+  test("prints an open thread as its path, its line and the first line of its first comment", () => {
+    expect(openThreadOf(threadNode({}))).toBe("a.ts:5  **Unproven change.**");
+  });
+
+  test("leaves a resolved thread out, and prints 0 for the line an outdated thread lacks", () => {
+    expect(openThreadOf(threadNode({ isResolved: true }))).toBeNull();
+    expect(openThreadOf(threadNode({ line: null }))).toBe("a.ts:0  **Unproven change.**");
+  });
+
+  test("refuses a line that is no thread", () => {
+    expect(() => openThreadOf('"a.ts"')).toThrow("gh gave a review thread that is no object");
+  });
+});
+
 describe("requestOf", () => {
   test("reads the number and the timeout, thirty minutes by default", () => {
     expect(requestOf(["580"])).toEqual({ number: 580, timeoutMs: 30 * 60_000 });
@@ -299,7 +367,7 @@ describe("main", () => {
         "review   red  https://github.com/o/r/runs/review",
         "labels   tier:human, needs-human",
         "threads  1 open",
-        "  a.ts:5  Unproven change.",
+        "  a.ts:5  **Unproven change.**",
       ].join("\n"),
     );
   });

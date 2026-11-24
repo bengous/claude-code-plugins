@@ -14,6 +14,7 @@
  * argument, 3 when the wait ended with no verdict.
  */
 
+import { isRecord, stringField } from "../../agent-hooks/core/util/json.ts";
 import { gitReadSync } from "../../tools/platform/git.ts";
 import { messageOf } from "../../tools/platform/pure.ts";
 import {
@@ -24,7 +25,13 @@ import {
   SYSTEM_CLOCK,
   type WaitLimits,
 } from "../releasing/ci-wait.ts";
-import { latestChecks, type PullCheck, type PullView, viewOf } from "../releasing/release-pull.ts";
+import {
+  latestChecks,
+  type PullCheck,
+  type PullView,
+  startedAfter,
+  viewOf,
+} from "../releasing/release-pull.ts";
 
 const USAGE = `usage: pr-wait.ts <pull request number> [--timeout <minutes>]
 
@@ -56,10 +63,8 @@ const THREADS = `query($owner: String!, $name: String!, $number: Int!, $endCurso
   }
 }`;
 
-/** One line per open thread: its path, its line, the first line of its first comment. */
-const OPEN_THREADS = `.data.repository.pullRequest.reviewThreads.nodes[]
-  | select(.isResolved | not)
-  | "\\(.path):\\(.line // 0)  \\(.comments.nodes[0].body | split("\\n")[0])"`;
+/** One line of JSON per thread, resolved or not. */
+const THREAD_NODES = ".data.repository.pullRequest.reviewThreads.nodes[] | @json";
 
 /** The watched checks that have a run on the head, each at its latest, pending ones included. */
 type Seen = { readonly head: string; readonly checks: readonly PullCheck[] };
@@ -98,7 +103,15 @@ export function decide(
   const latest = latestChecks(view.checks);
   const checks = latest.filter(({ name }) => WATCHED.includes(name));
   const missing = WATCHED.filter((name) => !checks.some((check) => check.name === name));
-  const pending = checks.flatMap(({ name, verdict }) => (verdict === "pending" ? [name] : []));
+
+  // A run started again leaves its earlier verdict on the head until its own job reports: a
+  // check older than one that still runs is one to wait for.
+  const pending = checks.flatMap((check) =>
+    check.verdict === "pending" ||
+    latest.some((other) => other.verdict === "pending" && startedAfter(other, check))
+      ? [check.name]
+      : [],
+  );
 
   if (missing.length === 0 && pending.length === 0) return { kind: "verdict", head, checks };
 
@@ -185,8 +198,30 @@ async function labelsOf(gh: Gh, number: number): Promise<readonly string[]> {
   );
 }
 
+/**
+ * An open thread as the report prints it: its path, its line, the first line of its first comment.
+ * Null for a resolved thread. An outdated thread has no line: 0 stands for it.
+ */
+export function openThreadOf(node: string): string | null {
+  const thread: unknown = JSON.parse(node);
+
+  if (!isRecord(thread)) throw new Error(`gh gave a review thread that is no object: ${node}`);
+
+  if (thread["isResolved"] === true) return null;
+
+  const comments = thread["comments"];
+
+  const first =
+    isRecord(comments) && Array.isArray(comments["nodes"]) ? comments["nodes"][0] : null;
+
+  const body = isRecord(first) ? (stringField(first, "body") ?? "") : "";
+  const line = Number.isInteger(thread["line"]) ? thread["line"] : 0;
+
+  return `${stringField(thread, "path") ?? ""}:${line}  ${body.split("\n")[0] ?? ""}`;
+}
+
 async function openThreadsOf(gh: Gh, number: number): Promise<readonly string[]> {
-  return linesOf(
+  const nodes = linesOf(
     await gh([
       "api",
       "graphql",
@@ -200,9 +235,15 @@ async function openThreadsOf(gh: Gh, number: number): Promise<readonly string[]>
       "-F",
       `number=${number}`,
       "--jq",
-      OPEN_THREADS,
+      THREAD_NODES,
     ]),
   );
+
+  return nodes.flatMap((node) => {
+    const thread = openThreadOf(node);
+
+    return thread === null ? [] : [thread];
+  });
 }
 
 /** The exit code a wait ends on. */

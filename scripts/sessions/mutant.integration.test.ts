@@ -173,12 +173,50 @@ describe("main", () => {
     },
   );
 
-  test.skipIf(process.platform === "win32")("the file keeps its mode", async () => {
-    chmodSync(file, 0o755);
+  test.skipIf(process.platform === "win32")(
+    "the mutant has the file's mode while the command runs, and the file keeps it",
+    async () => {
+      chmodSync(file, 0o755);
 
-    expect(await run("limit = 3", "limit = 4", HOLDS_THE_LIMIT)).toBe(0);
-    expect(statSync(file).mode & 0o777).toBe(0o755);
-  });
+      const executable =
+        "process.exit((require('node:fs').statSync(process.argv[1]).mode & 0o777) === 0o755 ? 1 : 0)";
+
+      expect(await run("limit = 3", "limit = 4", executable)).toBe(0);
+      expect(statSync(file).mode & 0o777).toBe(0o755);
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "a SIGTERM while the command runs restores the file and its mode, and exits 143",
+    async () => {
+      chmodSync(file, 0o755);
+
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          join(import.meta.dir, "mutant.ts"),
+          file,
+          "--from",
+          "limit = 3",
+          "--to",
+          "limit = 4",
+          "--",
+          process.execPath,
+          "-e",
+          "setTimeout(() => {}, 60_000)",
+        ],
+        { stdout: "ignore", stderr: "ignore" },
+      );
+
+      while (!readFileSync(file, "utf8").includes("limit = 4")) await Bun.sleep(20);
+
+      child.kill("SIGTERM");
+
+      expect(await child.exited).toBe(143);
+      expect(readFileSync(file, "utf8")).toBe(ORIGINAL);
+      expect(statSync(file).mode & 0o777).toBe(0o755);
+    },
+  );
 
   test("a missing file and a bad argv exit 2", async () => {
     expect(
