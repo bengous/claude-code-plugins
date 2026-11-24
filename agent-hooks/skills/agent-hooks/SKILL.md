@@ -70,12 +70,13 @@ file as well: they would run twice.
 
 ## What each hook does
 
-- SessionStart: photographs the checkout around the cwd (its dirty tree), once per session, and
-  removes the scratch directories a killed pre-edit left. Then, in a linked worktree, it links each
-  directory the main checkout's `.claude/settings.json` and `.claude/settings.local.json` declare in
-  `worktree.symlinkDirectories`, which Claude Code applies at `--worktree` and `EnterWorktree` but the
-  desktop app's Code tab does not apply to the worktree it creates. The link step has its own share of
-  the hook's deadline, so a photo that fails or runs out of time still lets it run. A declared
+- SessionStart: in a linked worktree, first links each directory the main checkout's
+  `.claude/settings.json` and `.claude/settings.local.json` declare in `worktree.symlinkDirectories`,
+  which Claude Code applies at `--worktree` and `EnterWorktree` but the desktop app's Code tab does not
+  apply to the worktree it creates. The link step has its own second from the start of the hook, so a
+  slow photo never leaves the worktree unlinked, and it delays the photo by that second at most. Then it
+  photographs the checkout around the cwd (its dirty tree), once per session, and removes the scratch
+  directories a killed pre-edit left. A declared
   directory the main checkout holds becomes a link to it at the same path in the worktree, unless the
   worktree already holds that path or lacks its parent directory. One git would not ignore as a link (a
   pattern with a trailing slash ignores only a directory) is not linked, and a note tells the user which

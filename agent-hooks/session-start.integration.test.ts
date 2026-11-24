@@ -269,22 +269,22 @@ describe("session-start in a worktree the desktop app created", () => {
     expect(existsSync(path.join(worktree, "node_modules"))).toBeFalse();
   });
 
-  test("a photo that runs out of time still lets the link step run and report", async () => {
+  test("a photo that runs out of time still leaves the worktree linked", async () => {
     const worktree = desktopWorktree({ [SETTINGS]: declaring("node_modules") }, ["node_modules"]);
     process.chdir(temp.repo);
     process.env["CLAUDE_PROJECT_DIR"] = temp.repo;
 
-    // A 1000 ms deadline leaves the photo and the link step no time once the settle margin is taken: every git
-    // call of either times out without starting.
+    // A 1000 ms hook deadline leaves the photo no time once the settle margin is taken: its git calls time out
+    // without starting, while the link step keeps its own budget.
     const output = await hookOutput(
       "session-start",
       fixtureIn("session-start-startup", temp.repo, { cwd: worktree }),
       { deadlineMs: 1000 },
     );
 
-    expect(output?.["systemMessage"]).toStartWith(
-      `agent-hooks: declared directories not all linked into ${worktree}: git worktree list --porcelain -z timed out`,
-    );
+    expect(output).toBeNull();
+    expect(linkAt(worktree, "node_modules")).toBe(path.join(temp.repo, "node_modules"));
+    expect(loadState("s1", worktree).photo).toBeNull();
   });
 
   test.each([
