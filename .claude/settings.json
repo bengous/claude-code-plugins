@@ -13,10 +13,7 @@
   ],
   "worktree": {
     "symlinkDirectories": [
-      "node_modules",
-      "atlas/node_modules",
-      "pinpoint/node_modules",
-      "vellum/node_modules"
+      "node_modules"
     ]
   },
   "hooks": {

@@ -22,13 +22,14 @@ file as well: they would run twice.
    `FAIL` line before the first turn; a `WARN` line (a wiring to correct, a fixer the probes had no
    time to try, a linter that leaves a finding in a tracked file) never fails it.
 4. When sessions run in worktrees, declare the directories a worktree shares with the main checkout,
-   such as `node_modules` at the top and in each package, in Claude Code's own setting
+   such as `node_modules`, in Claude Code's own setting
    `worktree.symlinkDirectories` (paths relative to the repository's top) in the main checkout's
    `.claude/settings.json` or `.claude/settings.local.json`; `~/.claude/settings.json` is not read for
    it. The kit links them only in a worktree that holds `.claude/agent-hooks.jsonc`, so commit that
    file. Ignore each in the repository's `.gitignore` with a pattern without a trailing slash
    (`node_modules`, not `node_modules/`): to git a link is a file. Declare only a directory a session
-   reads and runs from: a write into it (an install, a build) lands in the main checkout, and a
+   reads and runs from, never one the repository's own scripts install or build into in each checkout:
+   a write into it (an install, a build) lands in the main checkout, and a
    relative link inside it (a workspace package in `node_modules`) resolves to the main checkout's
    files, not the worktree's.
 
