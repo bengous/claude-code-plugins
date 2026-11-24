@@ -100,6 +100,9 @@ pre-commit:
     # its files.
     - name: platform-copies
       run: bun ./scripts/gates/sync-platform.ts
+    # No glob: the factory's copy of a github-flow skill drifts from either side.
+    - name: skill-copies
+      run: bun ./scripts/gates/sync-skills.ts
     # The engine reads the hooks module's source and reports what it hooks and
     # calls.
     - name: validate-vellum

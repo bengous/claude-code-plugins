@@ -144,6 +144,22 @@ describe("evaluate", () => {
     );
   });
 
+  test("names the pr and issue skills the default branch lacks, with the install as their fix", () => {
+    const files = new Map(
+      [...FILES].filter(([path]) => !/^\.claude\/skills\/(?:pr|issue)\//u.test(path)),
+    );
+
+    const lines = format(evaluate({ ...COMPLETE, files }));
+
+    for (const path of [".claude/skills/pr/SKILL.md", ".claude/skills/issue/SKILL.md"]) {
+      expect(lines).toContain(
+        `missing  ${path} on main: run install.ts repo, then land it on main`,
+      );
+    }
+
+    expect(lines).not.toContain("missing  .claude/skills/verify/SKILL.md");
+  });
+
   test("sends a missing declaration file to install.ts environment, the one subject that writes it", () => {
     const files = new Map([...FILES].filter(([path]) => !path.startsWith(".github/factory/")));
     const lines = format(evaluate({ ...COMPLETE, files }));

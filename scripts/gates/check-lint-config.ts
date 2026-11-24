@@ -131,6 +131,12 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     difference: null,
   },
   {
+    gate: "skill-copies",
+    lefthook: "bun ./scripts/gates/sync-skills.ts",
+    ci: "bun ./scripts/gates/sync-skills.ts",
+    difference: null,
+  },
+  {
     gate: "validate-marketplace",
     lefthook: "./scripts/gates/validate-marketplace.ts",
     ci: "bun ./scripts/gates/validate-marketplace.ts",

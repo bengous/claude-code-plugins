@@ -109,15 +109,19 @@ templates/
 │   │   └── workflows/             dispatch, review, owner-gate, conflict, trunk-red, unclaim
 │   └── .claude/
 │       ├── commands/pr-review.md
+│       ├── skills/                pr and issue, github-flow's, each with its check: never edited here
 │       └── hooks/
 │           ├── require-verify.sh  sends a session back to verify what it changed
+│           ├── pr-body.ts         refuses a pull request body the pr skill's check refuses
 │           └── cloud-tools.sh     installs a session's tools, and names an environment that is behind
 ├── settings-hooks.json            the factory's hook entries, merged into .claude/settings.json
 ├── routine/prompt.md              the routine's prompt
 └── claude-md-sections.md          the CLAUDE.md sections the session and the review follow
 ```
 
-`review.yml` runs the reviewer with the repository's hooks off and its web and run tools denied, holds a draft red until it is marked ready, counts a red `review` as a failed round only when its run read the commit, and writes what each round read, the issue it judged against and whether it was a first round to the run's summary. `pr-review.md` judges a pull request that closes no issue against its own title and body, and exempts from a test only workflows and the text of a skill, a command, a rule or a prompt.
+`review.yml` runs the reviewer with the repository's hooks off and its web and run tools denied, holds a draft red until it is marked ready, counts a red `review` as a failed round only when its run read the commit, and writes what each round read, the issue it judged against and whether it was a first round to the run's summary. `pr-review.md` judges each situation of the issue's *Done when*, those of its HTML artifacts included, judges a pull request that closes no issue against its own title and body, and exempts from a test only workflows and the text of a skill, a command, a rule or a prompt.
+
+`.claude/skills/pr/` and `.claude/skills/issue/` are `github-flow`'s skills, copied with their checks and their tests: the gate `skill-copies` fails while a copy differs from `github-flow/skills/`, and `bun ./scripts/gates/sync-skills.ts --write` rewrites it. Their caps, in `.github/github-flow.json`, are the repository's own: the install never writes that file, and each check applies its defaults where it is absent.
 
 `.claude/skills/verify/SKILL.md`, the repository's own verify recipe, has no template: the install records it. `environment.json` and `setup.sh` are adapted to each repository by the install, which may add `.github/factory/mise.toml` and its lockfile beside them. `tier.json`, `tier-prompt.md` and `tier-cases.json` are rewritten for each repository by the install; until a replay validated the cases, the floor runs alone and every change that passes it waits for the owner.
 

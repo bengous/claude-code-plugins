@@ -26,7 +26,9 @@ const USAGE = `Usage: install.ts environment [--target <dir>] [--force]
                .github/factory/environment.json and .github/factory/setup.sh, into
                the working tree of --target, this directory by default.
   repo         writes the factory's workflows, tier files, CODEOWNERS, deep-review-paths,
-               review command and hooks into the working tree of --target, and merges
+               review command, hooks and the pr and issue skills with their checks into
+               the working tree of --target, leaving .github/github-flow.json, the caps of
+               those checks, as it is, and merges
                the factory's hook entries into its .claude/settings.json, keeping what
                the file holds. It leaves the declaration to environment: --force never
                reaches it.

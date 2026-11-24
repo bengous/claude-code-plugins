@@ -120,6 +120,9 @@ jobs:
       - name: Check that every copy of tools/platform matches its source
         run: bun ./scripts/gates/sync-platform.ts
 
+      - name: Check that the factory's skills match those of github-flow
+        run: bun ./scripts/gates/sync-skills.ts
+
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.
       - name: Validate marketplace (version + structure sync)

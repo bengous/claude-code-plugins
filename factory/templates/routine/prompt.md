@@ -20,7 +20,7 @@ Remove the label `ready` from the issue and add `in-progress`. A second run fire
 
 Implement the issue per `CLAUDE.md`. Then run the repository's `verify` skill on your change, before the pull request and again after any later edit.
 
-Open a pull request against `{{BRANCH}}` that closes the issue, ready for review, not a draft. Under **Checks**, its body states the command `verify` ran and its result; for a change with nothing to verify, `none` and why. Enable auto-merge on it and keep auto-fix on until it merges. Where the repository has a merge queue, it squashes whatever method auto-merge reports: do not retry to change it.
+Open a pull request against `{{BRANCH}}` that closes the issue, ready for review, not a draft, its body written with the repository's `pr` skill. Enable auto-merge on it and keep auto-fix on until it merges. Where the repository has a merge queue, it squashes whatever method auto-merge reports: do not retry to change it.
 
 ## 4. Until it merges
 
