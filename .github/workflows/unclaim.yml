@@ -1,0 +1,31 @@
+name: Unclaim
+# GitHub closes an issue through the `Closes #N` of the pull request that merges, and keeps its labels. The
+# Worker that labeled it in-progress is not woken by that close, so this workflow takes the claim off: a closed
+# issue carries no label that says a session works on it.
+on:
+  issues:
+    types: [closed]
+jobs:
+  unclaim:
+    if: contains(github.event.issue.labels.*.name, 'in-progress')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ISSUE: ${{ github.event.issue.number }}
+    steps:
+      - name: Remove in-progress from the closed issue
+        run: |
+          set -euo pipefail
+          # A label already gone, taken off by hand since the close, answers 404: the issue is as wanted.
+          if ! out=$(gh api -X DELETE "repos/$REPO/issues/$ISSUE/labels/in-progress" --silent 2>&1); then
+            case "$out" in
+              *"HTTP 404"*) echo "::notice::#$ISSUE no longer carries in-progress." ;;
+              *)
+                echo "$out" >&2
+                exit 1
+                ;;
+            esac
+          fi
