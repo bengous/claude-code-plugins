@@ -26,8 +26,7 @@ const SETUP_TEXT = "#!/usr/bin/env bash\necho setup\n";
 const PROGRAMS = ["bash", "sha256sum", "cut", "cat", "tail", "mkdir", "ln"] as const;
 
 /** Records each call with its directory, fails `install` on demand, and leaves one shim at `reshim`. */
-const FAKE_MISE = `#!/usr/bin/env bash
-printf '%s %s\\n' "$PWD" "$*" >>"$HOME/mise.calls"
+const FAKE_MISE = `printf '%s %s\\n' "$PWD" "$*" >>"$HOME/mise.calls"
 case "$1" in
   install)
     if [[ -n \${FAKE_MISE_FAILS:-} ]]; then
@@ -50,14 +49,33 @@ let project = "";
 
 let bin = "";
 
-/** The digest setup.sh records of itself on claude.ai, which runs its copy without the file's final newline. */
+/** A script as claude.ai runs it: its copy drops the file's final newline. */
+const asClaudeAiHoldsIt = (text: string): string => text.replace(/\n+$/u, "");
+
+/** The digest setup.sh records of itself on claude.ai. */
 function revisionOf(text: string): string {
-  return new Bun.CryptoHasher("sha256").update(text.replace(/\n+$/u, "")).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(asClaudeAiHoldsIt(text)).digest("hex");
+}
+
+/** Puts each program of this machine in the test's `bin`, the only directory on a script's `PATH`. */
+function linkPrograms(programs: readonly string[]): void {
+  for (const program of programs) {
+    const path = Bun.which(program);
+
+    if (path === null) throw new Error(`${program} is not on PATH`);
+
+    symlinkSync(path, join(bin, program));
+  }
+}
+
+/** Puts a bash script of the test's own in its `bin`, in place of the program of that name. */
+function stub(name: string, body: string): void {
+  writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(join(bin, name), 0o755);
 }
 
 function installMise(): void {
-  writeFileSync(join(bin, "mise"), FAKE_MISE);
-  chmodSync(join(bin, "mise"), 0o755);
+  stub("mise", FAKE_MISE);
 }
 
 function calls(): string {
@@ -66,16 +84,21 @@ function calls(): string {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
-async function runHook(env: Record<string, string | undefined> = {}) {
-  const proc = Bun.spawn([join(bin, "bash"), HOOK], {
+/** Runs a script with the test's `bin` as its whole `PATH` and the test's `home` as its HOME. */
+async function runScript(script: string, env: Record<string, string | undefined>) {
+  const proc = Bun.spawn([join(bin, "bash"), script], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { PATH: bin, HOME: home, CLAUDE_PROJECT_DIR: project, CLAUDE_CODE_REMOTE: "true", ...env },
+    env: { PATH: bin, HOME: home, ...env },
   });
 
   const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
   return { exitCode, stdout };
+}
+
+function runHook(env: Record<string, string | undefined> = {}) {
+  return runScript(HOOK, { CLAUDE_PROJECT_DIR: project, CLAUDE_CODE_REMOTE: "true", ...env });
 }
 
 beforeEach(() => {
@@ -90,13 +113,7 @@ beforeEach(() => {
   writeFileSync(join(project, SETUP), SETUP_TEXT);
   writeFileSync(join(home, ".cloud-env-setup.revision"), `${revisionOf(SETUP_TEXT)}\n`);
 
-  for (const program of PROGRAMS) {
-    const path = Bun.which(program);
-
-    if (path === null) throw new Error(`${program} is not on PATH`);
-
-    symlinkSync(path, join(bin, program));
-  }
+  linkPrograms(PROGRAMS);
 });
 
 afterEach(() => {
@@ -193,11 +210,6 @@ const SETUP_PROGRAMS = ["mktemp", "rm", "tee"] as const;
 /** `setup.sh` as the clone holds it. */
 const setupText = (): string => readFileSync(join(REPOSITORY, SETUP), "utf8");
 
-function stub(name: string, body: string): void {
-  writeFileSync(join(bin, name), `#!/usr/bin/env bash\n${body}\n`);
-  chmodSync(join(bin, name), 0o755);
-}
-
 /**
  * Runs `setup.sh` as claude.ai does, from a copy without the file's final newline, with no network: `apt-get`
  * answers as the test says, `curl` writes a file that is not the release, and `tar` and `install` do what their
@@ -206,15 +218,9 @@ function stub(name: string, body: string): void {
 async function runSetup(env: Record<string, string> = {}) {
   const copy = join(root, "setup-as-claude-ai-runs-it.sh");
 
-  writeFileSync(copy, setupText().replace(/\n+$/u, ""));
+  writeFileSync(copy, asClaudeAiHoldsIt(setupText()));
 
-  for (const program of SETUP_PROGRAMS) {
-    const path = Bun.which(program);
-
-    if (path === null) throw new Error(`${program} is not on PATH`);
-
-    symlinkSync(path, join(bin, program));
-  }
+  linkPrograms(SETUP_PROGRAMS);
 
   stub("apt-get", 'exit "${STUB_APT_EXIT:-0}"');
   stub(
@@ -224,13 +230,7 @@ async function runSetup(env: Record<string, string> = {}) {
   stub("tar", 'mkdir -p "$4/mise/bin" && : >"$4/mise/bin/mise"');
   stub("install", ': >"$4"');
 
-  const proc = Bun.spawn([join(bin, "bash"), copy], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { PATH: bin, HOME: home, ...env },
-  });
-
-  const exitCode = await proc.exited;
+  const { exitCode } = await runScript(copy, env);
 
   return { exitCode, log: readFileSync(join(home, ".cloud-env-setup.log"), "utf8") };
 }
