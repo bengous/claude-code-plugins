@@ -95,6 +95,8 @@ beforeEach(() => {
   project = join(root, "project");
   env = {
     ...stubbedEnv(root),
+    // A cloud session sets it, and the hook then starts nothing: a test that wants one says so.
+    CLAUDE_CODE_REMOTE: undefined,
     CLAUDE_PROJECT_DIR: project,
     CLAUDECODE: "1",
     CLAUDE_CODE_OAUTH_TOKEN: "token",

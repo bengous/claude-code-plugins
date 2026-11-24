@@ -120,6 +120,8 @@ beforeEach(() => {
     // reads its own day. The hook runs on another day than this process, so the tests read the
     // hook's day, never this process's, at any hour and in any zone.
     TZ: hookZone,
+    // A cloud session sets it, and the hook then starts nothing: a test that wants one says so.
+    CLAUDE_CODE_REMOTE: undefined,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_AUTHOR_NAME: "t",
