@@ -41,13 +41,23 @@ describe("declarationProblems", () => {
     expect(declarationProblems(declaration())).toEqual([]);
   });
 
-  test("refuses a secret's value, and names the variable without repeating the value", () => {
+  test("refuses a value on a variable named like a secret, whatever the case, and never repeats the value", () => {
     const problems = declarationProblems(
-      declaration({ environment_variables: { API_SECRET: "sk-live-1234" } }),
+      declaration({
+        environment_variables: {
+          API_SECRET: "sk-live-1234",
+          NPM_TOKEN: "npm_AbC123",
+          db_password: "hunter2",
+          SIGNING_KEY: REDACTED,
+          LOG_LEVEL: "debug",
+        },
+      }),
     );
 
     expect(problems).toEqual([
-      `environment_variables.API_SECRET holds a secret's value: write ${REDACTED}`,
+      `environment_variables.API_SECRET is named like a secret and holds a value: write ${REDACTED}`,
+      `environment_variables.NPM_TOKEN is named like a secret and holds a value: write ${REDACTED}`,
+      `environment_variables.db_password is named like a secret and holds a value: write ${REDACTED}`,
     ]);
   });
 
@@ -98,10 +108,24 @@ describe("declarationProblems", () => {
       "network.access is not one of limited, unrestricted",
       "network.allowed_hosts is not a list",
       "network.allow_package_managers is not true or false",
-      "network.allow_mcp_servers is not true or false",
       "environment_variables.RETRIES is not a string",
-      `setup_script is not ${SETUP_SCRIPT}`,
     ]);
+  });
+
+  test("names a missing key once, and refuses an access level written as a list", () => {
+    expect(declarationProblems(JSON.stringify({ setup_script: SETUP_SCRIPT }))).toEqual([
+      "network is missing",
+      "environment_variables is missing",
+    ]);
+    expect(
+      declarationProblems(
+        JSON.stringify({
+          network: { ...NETWORK, access: ["limited"] },
+          environment_variables: {},
+          setup_script: SETUP_SCRIPT,
+        }),
+      ),
+    ).toEqual(["network.access is not one of limited, unrestricted"]);
   });
 
   test("refuses a text that is not a JSON object", () => {

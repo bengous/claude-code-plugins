@@ -5,12 +5,16 @@
 # the environment's settings, under Setup script. It runs as root before Claude Code starts, with the environment's
 # variables unset, and its filesystem is cached for the sessions that follow.
 #
-# It installs what a session cannot install for itself: system packages, and mise. The tools of the mise.toml beside
-# this file need the clone: .claude/hooks/cloud-tools.sh installs them when a session starts.
+# It installs what a session cannot install for itself: the system packages of PACKAGES, and mise. The tools of the
+# mise.toml beside this file need the clone: .claude/hooks/cloud-tools.sh installs them when a session starts.
 #
 # A non-zero exit keeps every session of the environment from starting, so a failure is logged to
 # ~/.cloud-env-setup.log and the script exits 0.
 set -uo pipefail
+
+# The system packages this repository's sessions need and the image lacks, as apt names them. openssh-client: the
+# agent-docs-drift tests sign a commit with ssh-keygen.
+readonly PACKAGES=(openssh-client)
 
 readonly MISE_VERSION="2026.11.2"
 readonly MISE_SHA256="c914dc3be1ad3588c3a7fa8ddae86c65e77eaf1777aa4a900c215e467f4c94a4"
@@ -25,10 +29,11 @@ log() {
   printf '[cloud-setup] %s\n' "$*"
 }
 
-# The agent-docs-drift tests sign a commit with ssh-keygen, which the image does not ship.
 install_packages() {
+  ((${#PACKAGES[@]} > 0)) || return 0
+
   DEBIAN_FRONTEND=noninteractive apt-get update --quiet &&
-    DEBIAN_FRONTEND=noninteractive apt-get install --yes --quiet --no-install-recommends openssh-client
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes --quiet --no-install-recommends "${PACKAGES[@]}"
 }
 
 install_mise() {
@@ -64,7 +69,7 @@ write_revision() {
 
 main() {
   mkdir -p "${BIN_DIR}" "${MISE_CONFIG}"
-  install_packages || log "FAILED  apt-get install openssh-client"
+  install_packages || log "FAILED  apt-get install ${PACKAGES[*]}"
   install_mise || log "FAILED  mise ${MISE_VERSION}: download or checksum"
   write_mise_settings || log "FAILED  writing ${MISE_CONFIG}/config.toml"
   write_revision || log "FAILED  recording the script's revision: it does not run from a file"

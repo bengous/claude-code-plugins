@@ -37,9 +37,13 @@ if ! output=$(cd "${TOOLS}" && mise install --locked 2>&1); then
   exit 0
 fi
 
-mise reshim
+# The executables themselves, not mise's shims: a shim takes its version from the mise config of the directory a
+# command runs in, and the repository's root may hold none.
+directories=$(cd "${TOOLS}" && mise bin-paths) || exit 0
 mkdir -p "${BIN_DIR}"
-for shim in "${HOME}/.local/share/mise/shims/"*; do
-  [[ -e ${shim} ]] && ln -sf "${shim}" "${BIN_DIR}/"
-done
+while IFS= read -r directory; do
+  for tool in "${directory}"/*; do
+    [[ -f ${tool} && -x ${tool} ]] && ln -sf "${tool}" "${BIN_DIR}/"
+  done
+done <<<"${directories}"
 exit 0

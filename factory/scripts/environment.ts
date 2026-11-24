@@ -6,8 +6,11 @@ export const ENVIRONMENT = ".github/factory/environment.json";
 /** The one setup script a declaration names: the file the install writes beside it. */
 export const SETUP_SCRIPT = ".github/factory/setup.sh";
 
-/** What stands for the value of a `*_SECRET` variable, whose real value stays on claude.ai. */
+/** What stands for the value of a secret's variable, whose real value stays on claude.ai. */
 export const REDACTED = "<redacted>";
+
+/** A variable's name that says it holds a secret: `API_SECRET`, `NPM_TOKEN`, `DB_PASSWORD`, `api_key`. */
+const SECRET_NAME = /secret|token|password|passwd|credential|key/iu;
 
 const KEYS = ["network", "environment_variables", "setup_script"] as const;
 
@@ -42,21 +45,24 @@ function networkProblems(network: unknown): string[] {
   if (!isRecord(network)) return ["network is not an object"];
 
   const hosts = network["allowed_hosts"];
+  const access = network["access"];
 
   return [
     ...keyProblems(network, NETWORK_KEYS, "network."),
-    ...(ACCESS.includes(String(network["access"]))
+    ...(!("access" in network) || (typeof access === "string" && ACCESS.includes(access))
       ? []
       : [`network.access is not one of ${ACCESS.join(", ")}`]),
-    ...(Array.isArray(hosts)
-      ? hosts.flatMap((host: unknown) =>
+    ...(!("allowed_hosts" in network) || Array.isArray(hosts)
+      ? (Array.isArray(hosts) ? hosts : []).flatMap((host: unknown) =>
           typeof host === "string" && HOST.test(host)
             ? []
             : [`network.allowed_hosts holds ${JSON.stringify(host)}, not a domain`],
         )
       : ["network.allowed_hosts is not a list"]),
     ...(["allow_package_managers", "allow_mcp_servers"] as const).flatMap((key) =>
-      typeof network[key] === "boolean" ? [] : [`network.${key} is not true or false`],
+      !(key in network) || typeof network[key] === "boolean"
+        ? []
+        : [`network.${key} is not true or false`],
     ),
   ];
 }
@@ -67,8 +73,10 @@ function variableProblems(variables: unknown): string[] {
   return Object.entries(variables).flatMap(([name, value]) => {
     if (typeof value !== "string") return [`environment_variables.${name} is not a string`];
 
-    return name.endsWith("_SECRET") && value !== REDACTED
-      ? [`environment_variables.${name} holds a secret's value: write ${REDACTED}`]
+    return SECRET_NAME.test(name) && value !== REDACTED
+      ? [
+          `environment_variables.${name} is named like a secret and holds a value: write ${REDACTED}`,
+        ]
       : [];
   });
 }
@@ -87,8 +95,10 @@ export function declarationProblems(text: string): string[] {
 
   return [
     ...keyProblems(parsed, KEYS, ""),
-    ...networkProblems(parsed["network"]),
-    ...variableProblems(parsed["environment_variables"]),
-    ...(parsed["setup_script"] === SETUP_SCRIPT ? [] : [`setup_script is not ${SETUP_SCRIPT}`]),
+    ...("network" in parsed ? networkProblems(parsed["network"]) : []),
+    ...("environment_variables" in parsed ? variableProblems(parsed["environment_variables"]) : []),
+    ...(!("setup_script" in parsed) || parsed["setup_script"] === SETUP_SCRIPT
+      ? []
+      : [`setup_script is not ${SETUP_SCRIPT}`]),
   ];
 }

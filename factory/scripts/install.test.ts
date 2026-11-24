@@ -113,27 +113,29 @@ describe("main", () => {
     return main(argv);
   };
 
-  test("environment writes the declaration alone, which repo then finds as it left it", () => {
+  test("environment writes the declaration alone, and repo writes everything but it", () => {
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+    expect(out.join("\n")).not.toContain(".github/factory/environment.json");
+    expect(existsSync(join(root, ".github/factory/setup.sh"))).toBe(false);
+
     expect(run("environment", "--target", root)).toBe(0);
     expect(out.join("\n")).toBe(
       "wrote      .github/factory/environment.json\nwrote      .github/factory/setup.sh",
     );
-    expect(existsSync(join(root, ".claude/settings.json"))).toBe(false);
-
-    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
-    expect(out.join("\n")).toContain("identical  .github/factory/environment.json");
-    expect(out.join("\n")).toContain("identical  .github/factory/setup.sh");
   });
 
-  test("repo refuses a declaration the repository adapted, and leaves it", () => {
+  test("repo --force leaves a declaration the repository adapted as it is", () => {
     const setup = join(root, ".github/factory/setup.sh");
 
     expect(run("environment", "--target", root)).toBe(0);
     writeAtomicSync(setup, "readonly PACKAGES=(jq)\n");
 
-    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(1);
-    expect(out.join("\n")).toContain("refused    .github/factory/setup.sh");
+    expect(run("repo", ...REPO_FLAGS, "--target", root, "--force")).toBe(0);
+    expect(out.join("\n")).not.toContain(".github/factory/setup.sh");
     expect(readFileSync(setup, "utf8")).toBe("readonly PACKAGES=(jq)\n");
+
+    expect(run("environment", "--target", root)).toBe(1);
+    expect(out.join("\n")).toContain("refused    .github/factory/setup.sh");
   });
 
   test("environment takes no parameter flag and no --dir", () => {
@@ -235,8 +237,6 @@ describe("main", () => {
       ".claude/commands/pr-review.md",
       ".claude/hooks/require-verify.sh",
       ".claude/hooks/cloud-tools.sh",
-      ".github/factory/environment.json",
-      ".github/factory/setup.sh",
     ]) {
       expect(out.join("\n")).toContain(`wrote      ${path}`);
     }

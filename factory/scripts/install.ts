@@ -26,9 +26,10 @@ const USAGE = `Usage: install.ts environment [--target <dir>] [--force]
                .github/factory/environment.json and .github/factory/setup.sh, into
                the working tree of --target, this directory by default.
   repo         writes the factory's workflows, tier files, CODEOWNERS, deep-review-paths,
-               review command, hooks and that declaration into the working tree of
-               --target, and merges the factory's hook entries into its
-               .claude/settings.json, keeping what the file holds.
+               review command and hooks into the working tree of --target, and merges
+               the factory's hook entries into its .claude/settings.json, keeping what
+               the file holds. It leaves the declaration to environment: --force never
+               reaches it.
   prompt       writes the routine's prompt.md into --dir, created when missing.
 
   Each takes exactly the flags shown. Each file prints wrote, identical, overwrote
@@ -50,9 +51,11 @@ export type Outcome = "wrote" | "identical" | "overwrote" | "refused";
 export type Decision = { readonly placement: Placement; readonly outcome: Outcome };
 
 export function belongsTo(path: string, kind: Subject["kind"]): boolean {
-  if (kind === "environment") return ENVIRONMENT_FILES.includes(path);
+  if (kind === "prompt") return path === ROUTINE_PROMPT;
 
-  return kind === "repo" ? path.startsWith(REPO_PREFIX) : path === ROUTINE_PROMPT;
+  const declares = ENVIRONMENT_FILES.includes(path);
+
+  return kind === "environment" ? declares : path.startsWith(REPO_PREFIX) && !declares;
 }
 
 /** Where each rendered file of the subject goes: `repo/` files under the target, the prompt in its directory. */

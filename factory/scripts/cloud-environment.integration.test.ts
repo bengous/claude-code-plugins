@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -28,7 +29,7 @@ const HOOK_PROGRAMS = ["bash", "sha256sum", "cut", "cat", "tail", "mkdir", "ln"]
 /** The programs the setup script starts beside the four each test stubs. */
 const SETUP_PROGRAMS = ["mktemp", "rm", "tee"] as const;
 
-/** Records each call with its directory, fails `install` on demand, and leaves one shim at `reshim`. */
+/** Records each call with its directory, fails `install` on demand, and answers `bin-paths` with the directory `installMise` fills. */
 const FAKE_MISE = `printf '%s %s\\n' "$PWD" "$*" >>"$HOME/mise.calls"
 case "$1" in
   install)
@@ -37,9 +38,8 @@ case "$1" in
       exit 1
     fi
     ;;
-  reshim)
-    mkdir -p "$HOME/.local/share/mise/shims"
-    : >"$HOME/.local/share/mise/shims/bun"
+  bin-paths)
+    echo "$HOME/installs/bun/bin"
     ;;
 esac`;
 
@@ -76,8 +76,15 @@ function stub(name: string, body: string): void {
   chmodSync(join(bin, name), 0o755);
 }
 
+/** A `mise` on the PATH, and the directory it names: one tool, and one file that is no program. */
 function installMise(): void {
+  const tools = join(home, "installs/bun/bin");
+
   stub("mise", FAKE_MISE);
+  mkdirSync(tools, { recursive: true });
+  writeFileSync(join(tools, "bun"), "#!/bin/sh\n");
+  chmodSync(join(tools, "bun"), 0o755);
+  writeFileSync(join(tools, "LICENSE"), "");
 }
 
 function declareTools(): void {
@@ -152,15 +159,24 @@ describe("cloud-tools.sh", () => {
     expect(fileOf(join(home, "mise.calls"))).toBe("");
   });
 
-  test("installs the declared tools, locked, from their directory, and links their shims", async () => {
+  test("installs the declared tools, locked, from their directory, and links their programs", async () => {
     installMise();
     declareTools();
 
     expect(await runHook()).toEqual({ exitCode: 0, stdout: "" });
     expect(fileOf(join(home, "mise.calls"))).toBe(
-      `${join(project, TOOLS)} install --locked\n${project} reshim\n`,
+      `${join(project, TOOLS)} install --locked\n${join(project, TOOLS)} bin-paths\n`,
     );
-    expect(existsSync(join(home, ".local/bin/bun"))).toBe(true);
+    expect(realpathSync(join(home, ".local/bin/bun"))).toBe(
+      realpathSync(join(home, "installs/bun/bin/bun")),
+    );
+    expect(existsSync(join(home, ".local/bin/LICENSE"))).toBe(false);
+  });
+
+  test("is the hook this repository runs, unchanged: an edit of either file runs one of the two tests", () => {
+    expect(readFileSync(HOOK, "utf8")).toBe(
+      readFileSync(join(TEMPLATES_DIR, "../../.claude/hooks/cloud-tools.sh"), "utf8"),
+    );
   });
 
   test("installs nothing in a repository that declares no tools", async () => {
@@ -191,7 +207,7 @@ describe("cloud-tools.sh", () => {
     expect(stdout).toContain("mise is not installed in this cloud environment");
   });
 
-  test("hands a failed install to the session and links no shim", async () => {
+  test("hands a failed install to the session and links no tool", async () => {
     installMise();
     declareTools();
 

@@ -290,10 +290,10 @@ describe("what the required files say", () => {
     );
 
     expect(missing(leaked)).toEqual([
-      ".github/factory/environment.json declares the network, the variables and the setup script, with no secret's value",
+      ".github/factory/environment.json declares the network, the variables and the setup script, with no value on a variable named like a secret",
     ]);
     expect(format(evaluate(leaked))).toContain(
-      "a variable named *_SECRET keeps the value <redacted>, its real value stays on claude.ai, then land it on main",
+      "keeps the value <redacted>, its real value stays on claude.ai, then land it on main",
     );
     expect(format(evaluate(leaked))).not.toContain("sk-live-1234");
   });
