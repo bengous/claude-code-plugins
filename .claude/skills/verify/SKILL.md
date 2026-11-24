@@ -72,7 +72,8 @@ A cloud session's container fails some tests the code passes on CI and on the ow
 | has no IPv6 | `scripts/ci/mutation.integration.test.ts` under `a pass leaves the checkout as it found it`, two tests; `pinpoint/server/serve.integration.spec.ts`, the `[::ffff:127.0.0.1]` address | the 60 s budget, at any budget: Stryker's server cannot listen on `::`; 502 for 508 |
 | runs as root, past every file mode | the tests of a file or a folder the process cannot read, write or rename: vellum's `fs.spec.ts`, `queue.spec.ts` and `preview.integration.spec.ts` (`draft`), atlas's `cli.integration.spec.ts` and `inventory.integration.spec.ts`, pinpoint's `a seq that does not read` | a read or a write that succeeds where the test made it fail |
 | has a PID 1 that reaps no orphan | `agents-bridge/scripts/codex-run.integration.test.ts`, `cancel also stops the commands codex started` | the killed child left a zombie, which still answers a signal 0 |
-| has no `ssh-keygen` | `context-management/scripts/agent-docs-drift.integration.test.ts`, `log.showSignature` | `Executable not found in $PATH` |
+
+A session that starts with a message from `cloud-tools.sh` runs in an environment that lacks a tool or a package of `.github/factory/setup.sh`: name under **Checks** what the message says is missing.
 
 ## 5. Report
 
