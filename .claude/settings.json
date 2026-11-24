@@ -11,6 +11,14 @@
   "enabledMcpjsonServers": [
     "claude-code-docs"
   ],
+  "worktree": {
+    "symlinkDirectories": [
+      "node_modules",
+      "atlas/node_modules",
+      "pinpoint/node_modules",
+      "vellum/node_modules"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
