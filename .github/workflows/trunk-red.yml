@@ -46,6 +46,19 @@ jobs:
           read -r conclusion run sha url <<<"$newest"
           if [ "$conclusion" != failure ] && [ "$conclusion" != timed_out ]; then
             echo "$BRANCH is not red: the newest $CI run concluded $conclusion."
+            # A green dev needs no repair: an open issue left behind would swallow the next red run. It closes as
+            # not planned, which the count of repairs below does not read. One labelled in-progress stays: its
+            # session's pull request is on the way and closes it, and the repair it brings is counted.
+            if [ "$conclusion" = success ]; then
+              stale=$(gh api "repos/$REPO/issues?state=open&labels=trunk-red&per_page=100" \
+                --jq '.[] | select(.pull_request == null and ([.labels[].name] | index("in-progress") == null)) | .number')
+              for issue in $stale; do
+                gh api -X POST "repos/$REPO/issues/$issue/comments" --silent \
+                  -f body="The $CI workflow is green on $BRANCH at ${sha:0:7}: $url. No repair is needed, and this issue closes as not planned."
+                gh api -X PATCH "repos/$REPO/issues/$issue" -f state=closed -f state_reason=not_planned --silent
+                echo "Closed #$issue: $BRANCH is green."
+              done
+            fi
             exit 0
           fi
           open=$(gh api "repos/$REPO/issues?state=open&labels=trunk-red&per_page=100" \
@@ -63,7 +76,7 @@ jobs:
           fi
           # Two repair issues closed since the last green run was created, and still red: no third Worker. The
           # creation, not the last update, which a re-run of an old green run moves forward. An issue the owner
-          # closed as not planned repaired nothing.
+          # closed as not planned, or a green run closed, repaired nothing.
           green=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=$BRANCH&event=push&status=success&per_page=1" \
             --jq '.workflow_runs[0].created_at // ""')
           repairs=$(gh api --paginate "repos/$REPO/issues?state=closed&labels=trunk-red&per_page=100" \
