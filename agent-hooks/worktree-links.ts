@@ -23,9 +23,9 @@ const WORKTREE_LINE = "worktree ";
  */
 export function linkDeclaredDirectories(checkout: string, deadline: Deadline): string | null {
   try {
-    const [first, ...rest] = linkInto(checkout, deadline);
+    const unignored = linkInto(checkout, deadline);
 
-    return first === undefined ? null : unignoredNote(checkout, [first, ...rest]);
+    return unignored.length === 0 ? null : unignoredNote(checkout, unignored);
   } catch (error) {
     return `agent-hooks: declared directories not all linked into ${checkout}: ${messageOf(error)}`;
   }
@@ -60,7 +60,7 @@ function linkInto(checkout: string, deadline: Deadline): string[] {
 }
 
 /** A session starting beside this one in the same worktree may have linked the path first: its link is kept. */
-function linkUnlessPresent(target: string, link: string): void {
+export function linkUnlessPresent(target: string, link: string): void {
   try {
     // Windows creates a junction without privileges, a directory symlink only with them; elsewhere the type is ignored.
     symlinkSync(target, link, "junction");
@@ -72,9 +72,9 @@ function linkUnlessPresent(target: string, link: string): void {
 }
 
 /**
- * The main checkout of the repository `checkout` is a linked worktree of, or null when `checkout` is a main checkout,
- * its repository is bare, or its main checkout is gone from disk. A main checkout's `.git` is a directory, which
- * spares it a git process; a submodule's is a file, and git names the submodule itself as its main checkout.
+ * The main checkout of the repository `checkout` is a linked worktree of, or null when `checkout` is a main checkout
+ * or its repository is bare. A main checkout's `.git` is a directory, which spares it a git process; a submodule's
+ * is a file, and git names the submodule itself as its main checkout.
  */
 function mainCheckoutOf(checkout: string, deadline: Deadline): string | null {
   if (!statSync(path.join(checkout, ".git")).isFile()) {
@@ -89,13 +89,11 @@ function mainCheckoutOf(checkout: string, deadline: Deadline): string | null {
   const first = end === -1 ? records : records.slice(0, end);
   const [line = "", ...attributes] = first;
 
-  const listed = line.slice(WORKTREE_LINE.length);
-
-  if (!line.startsWith(WORKTREE_LINE) || attributes.includes("bare") || !isDirectory(listed)) {
+  if (!line.startsWith(WORKTREE_LINE) || attributes.includes("bare")) {
     return null;
   }
 
-  const main = realpathSync.native(listed);
+  const main = realpathSync.native(line.slice(WORKTREE_LINE.length));
 
   return main === checkout ? null : main;
 }
@@ -184,8 +182,8 @@ function ignoredAsLinks(
   throw new GitError(args, result);
 }
 
-function unignoredNote(checkout: string, unignored: readonly [string, ...string[]]): string {
-  const name = path.basename(unignored[0]);
+function unignoredNote(checkout: string, unignored: readonly string[]): string {
+  const patterns = [...new Set(unignored.map((relative) => path.posix.basename(relative)))];
 
-  return `agent-hooks: not linked into ${checkout}: ${unignored.join(", ")}. git would list the link as untracked: ignore it with a pattern without a trailing slash (${name}), since to git a link is a file and ${name}/ matches only a directory.`;
+  return `agent-hooks: not linked into ${checkout}: ${unignored.join(", ")}. git would list each link as untracked: ignore it with a pattern without a trailing slash (${patterns.join(", ")}), since to git a link is a file and a pattern with the slash matches only a directory.`;
 }

@@ -240,19 +240,22 @@ describe("session-start in a worktree the desktop app created", () => {
     expect(existsSync(path.join(worktree, "gen"))).toBeFalse();
   });
 
-  test("a directory git would not ignore as a link is not linked, and the user is told how to ignore it", async () => {
+  test("a directory git would not ignore as a link is not linked, and the user is told the pattern for each name", async () => {
     const worktree = desktopWorktree(
       {
-        ".gitignore": "node_modules/\n/.claude/worktrees/\n",
-        [SETTINGS]: declaring("node_modules"),
+        ".gitignore": "node_modules/\n.venv/\n/.claude/worktrees/\n",
+        [SETTINGS]: declaring("node_modules", "pkg/node_modules", ".venv"),
       },
-      ["node_modules"],
+      ["node_modules", "pkg/node_modules", ".venv"],
     );
 
     expect(await desktopSessionStart(worktree)).toEqual({
-      systemMessage: `agent-hooks: not linked into ${worktree}: node_modules. git would list the link as untracked: ignore it with a pattern without a trailing slash (node_modules), since to git a link is a file and node_modules/ matches only a directory.`,
+      systemMessage: `agent-hooks: not linked into ${worktree}: node_modules, pkg/node_modules, .venv. git would list each link as untracked: ignore it with a pattern without a trailing slash (node_modules, .venv), since to git a link is a file and a pattern with the slash matches only a directory.`,
     });
-    expect(existsSync(path.join(worktree, "node_modules"))).toBeFalse();
+
+    for (const declared of ["node_modules", "pkg/node_modules", ".venv"]) {
+      expect(existsSync(path.join(worktree, declared))).toBeFalse();
+    }
   });
 
   test("a declared path outside the repository links nothing and names the file", async () => {
