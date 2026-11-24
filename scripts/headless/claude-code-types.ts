@@ -9,12 +9,18 @@
  *
  * `run` works in its own worktree, `<main worktree>.wt/claude-code-types`, on
  * the rolling branch `chore/claude-code-types`. The branch is live while its
- * pull request is open: the run then rebases it onto `origin/dev`, and
- * otherwise starts it again from `origin/dev`. The run installs the
+ * pull request is open: the run then merges `origin/dev` into it, and
+ * otherwise starts it again from `origin/dev`. A merge, never a rebase: the
+ * factory's review stops a pull request whose branch was force-pushed. A live
+ * branch that conflicts with `origin/dev` starts again from it and is
+ * force-pushed all the same, and that stop is what hands it to the owner. A
+ * pull request the factory stopped (`needs-human`) gets no push until the
+ * label is gone. The
+ * run installs the
  * dependencies, regenerates and commits the types, hands the worktree to a
  * headless Claude that judges the update's impact on the hooks modules and
- * commits what the update calls for, then pushes the branch and opens or
- * updates its pull request to `dev`. Its lock, log, last outcome and the
+ * commits what the update calls for, then pushes the branch and opens its
+ * pull request to `dev`, auto-merge on, or updates the open one. Its lock, log, last outcome and the
  * version it last settled live in `<git common dir>/claude-code-types/`,
  * where the hook reads them at session start: the run alone decides whether
  * a version needs work, after its fetch.
@@ -43,7 +49,6 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 
 import { messageOf } from "../../tools/platform/pure.ts";
-import { isE2ePath } from "../gates/check-e2e-green.ts";
 import { hooksModulePlugins } from "../gates/hooks-modules.ts";
 import { TOOLS_TYPES_PATH, TYPES_PATH } from "../lib/claude-code-types-paths.ts";
 import {
@@ -165,7 +170,11 @@ interface OpenPullRequest {
   number: number;
   url: string;
   body: string;
+  labels: { name: string }[];
 }
+
+/** The label the factory puts on a pull request it stopped: nothing is pushed to one until the owner takes it off. */
+const STOPPED = "needs-human";
 
 export function headerVersion(firstLine: string): string {
   const version = HEADER_PATTERN.exec(firstLine)?.[1];
@@ -418,9 +427,9 @@ export async function worktreePath(cwd: string): Promise<string> {
 }
 
 /**
- * Recreates the worktree on the rolling branch: the live branch rebased onto
- * the trunk, else the trunk. Answers the live branch's commits when they would
- * not rebase, the worktree then starting again from the trunk.
+ * Recreates the worktree on the rolling branch: the live branch with the trunk
+ * merged into it, else the trunk. Answers the live branch's commits when the
+ * merge conflicts, the worktree then starting again from the trunk.
  */
 async function prepareWorktree(cwd: string, path: string, live: boolean): Promise<string> {
   const { checkouts } = await worktreesOf(cwd);
@@ -450,16 +459,23 @@ async function prepareWorktree(cwd: string, path: string, live: boolean): Promis
   git(cwd, "worktree", "add", "--quiet", "-B", ROLLING_BRANCH, path, live ? ROLLING_REMOTE : BASE);
 
   if (!live) return "";
-  const rebase = command(["git", "rebase", "--quiet", BASE], path);
+  const merge = command(["git", "merge", "--quiet", "--no-edit", BASE], path);
 
-  if (rebase.code === 0) return "";
+  if (merge.code === 0) return "";
 
-  const dropped = git(path, "log", "--format=%h %s", `${BASE}..${ROLLING_REMOTE}`);
-  git(path, "rebase", "--abort");
+  // Only a conflict starts the branch again, which force-pushes it: any other failure ends the run.
+  const conflicts = command(["git", "diff", "--name-only", "--diff-filter=U"], path).out.trim();
+  command(["git", "merge", "--abort"], path);
 
-  if (SIGNING_FAILED.test(`${rebase.out}${rebase.err}`)) {
-    throw new Error(`git could not sign the rebased commits: ${lastLine(rebase)}`);
+  if (conflicts === "") {
+    throw new Error(
+      SIGNING_FAILED.test(`${merge.out}${merge.err}`)
+        ? `git could not sign the merge of ${BASE}: ${lastLine(merge)}`
+        : `git merge ${BASE} failed with no conflict: ${lastLine(merge)}`,
+    );
   }
+
+  const dropped = git(path, "log", "--no-merges", "--format=%h %s", `${BASE}..${ROLLING_REMOTE}`);
 
   git(path, "reset", "--quiet", "--hard", BASE);
 
@@ -511,10 +527,10 @@ function openPullRequest(cwd: string): OpenPullRequest | null {
     "--state",
     "open",
     "--json",
-    "number,url,body",
+    "number,url,body,labels",
   );
 
-  // SAFETY: the shape `--json number,url,body` asks gh for.
+  // SAFETY: the shape `--json number,url,body,labels` asks gh for.
   const [open] = JSON.parse(listed) as OpenPullRequest[];
 
   return open ?? null;
@@ -536,7 +552,7 @@ function droppedNote(dropped: string): string {
   if (dropped === "") return "";
 
   return [
-    `The branch's earlier commits did not rebase onto ${BASE} without conflicts, so the worktree starts again from ${BASE}. They stay on \`${ROLLING_REMOTE}\` until the script pushes; bring back with \`git cherry-pick\` what still holds:`,
+    `The branch's earlier commits conflict with ${BASE}, so the worktree starts again from ${BASE}. They stay on \`${ROLLING_REMOTE}\` until the script pushes; bring back with \`git cherry-pick\` what still holds:`,
     "",
     dropped,
   ].join("\n");
@@ -581,38 +597,47 @@ interface Progress {
   child: Subprocess | null;
 }
 
-/** Opens the pull request, or updates the open one; answers its URL. */
+/** Turns the pull request's auto-merge on: it then merges by itself once its checks are green. */
+function autoMerge(worktree: string, url: string): void {
+  const merged = command(["gh", "pr", "merge", url, "--auto", "--squash"], worktree);
+
+  if (merged.code !== 0) {
+    throw new Error(
+      `${url} is open with its auto-merge off (${lastLine(merged)}): turn it on with gh pr merge ${url} --auto --squash`,
+    );
+  }
+}
+
+/** Opens the pull request or updates the open one, its auto-merge on either way; answers its URL. */
 function publish(worktree: string, open: OpenPullRequest | null, to: string, body: string): string {
   const title = `chore(vellum): types from Claude Code ${to}`;
-  let url = open?.url;
 
-  if (open === null) {
-    const created = gh(
-      worktree,
-      "pr",
-      "create",
-      "--base",
-      "dev",
-      "--head",
-      ROLLING_BRANCH,
-      "--title",
-      title,
-      "--body-file",
-      body,
-    );
-
-    url = created.split("\n").at(-1);
-  } else {
+  if (open !== null) {
     gh(worktree, "pr", "edit", String(open.number), "--title", title, "--body-file", body);
+    autoMerge(worktree, open.url);
+
+    return open.url;
   }
+
+  const url = gh(
+    worktree,
+    "pr",
+    "create",
+    "--base",
+    "dev",
+    "--head",
+    ROLLING_BRANCH,
+    "--title",
+    title,
+    "--body-file",
+    body,
+  )
+    .split("\n")
+    .at(-1);
 
   if (url === undefined || url === "") throw new Error("gh pr create printed no URL");
 
-  const changed = git(worktree, "diff", "--name-only", `${BASE}...HEAD`).split("\n");
-
-  if (changed.some((path) => isE2ePath(path))) {
-    gh(worktree, "pr", "edit", url, "--add-label", "e2e");
-  }
+  autoMerge(worktree, url);
 
   return url;
 }
@@ -649,6 +674,12 @@ async function pipeline(run: Run): Promise<Outcome> {
   const versions = { installed, devHeader, rollingHeader };
 
   if (!needsRun(versions)) return { kind: "skipped", ...versions };
+
+  if (open?.labels.some((label) => label.name === STOPPED) === true) {
+    throw new Error(
+      `${open.url} is labelled ${STOPPED}: the factory stopped it, and the run pushes nothing to it until the label is gone`,
+    );
+  }
 
   enter("sign");
   probeSigning(cwd);
@@ -703,8 +734,12 @@ async function pipeline(run: Run): Promise<Outcome> {
 
   enter("push");
 
+  // A live branch that merged the trunk only gained commits: pushed without force, a history the agent rewrote is
+  // refused here, where a force-push would stop the open pull request.
+  const startedAgain = rollingHeader === null || dropped !== "";
+
   const pushed = await logged(
-    ["git", "push", "--force-with-lease", "origin", ROLLING_BRANCH],
+    ["git", "push", ...(startedAgain ? ["--force-with-lease"] : []), "origin", ROLLING_BRANCH],
     worktree,
     run,
   );

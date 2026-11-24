@@ -257,9 +257,11 @@ describe("regenerate", () => {
   });
 });
 
-const OPEN_PR = JSON.stringify([
-  { number: 5, url: "https://github.com/o/r/pull/5", body: "old body" },
-]);
+const OPEN = { number: 5, url: "https://github.com/o/r/pull/5", body: "old body" };
+
+const OPEN_PR = JSON.stringify([{ ...OPEN, labels: [] }]);
+
+const STOPPED_PR = JSON.stringify([{ ...OPEN, labels: [{ name: "needs-human" }] }]);
 
 describe("run", () => {
   test("installs, commits the types, opens the pull request of a new rolling branch, then removes its worktree", () => {
@@ -291,7 +293,9 @@ describe("run", () => {
     expect(recorded("gh-calls")).toContain(
       `pr create --base dev --head ${ROLLING_BRANCH} --title chore(vellum): types from Claude Code 2.1.294 --body-file ${state("pr-body.md")}`,
     );
-    expect(recorded("gh-calls")).not.toContain("--add-label");
+    expect(recorded("gh-calls")).toContain(
+      "pr merge https://github.com/o/r/pull/7 --auto --squash",
+    );
     expect(recorded("agent-runs")).toBe(`${worktree()} 1 -p --model opus --permission-mode auto\n`);
     expect(recorded("agent-prompt")).toContain("hooks modules (vellum, todos)");
     expect(recorded("agent-prompt")).toContain("The script committed them as");
@@ -303,17 +307,23 @@ describe("run", () => {
     expect(existsSync(state("holder.json"))).toBe(false);
   });
 
-  test("rebases the live rolling branch onto origin/dev, keeps its commits, and updates its open pull request", () => {
+  test("merges origin/dev into the live rolling branch, on top of the head its pull request held, and updates that pull request", () => {
     pushRolling("2.1.293", (clone) => {
       write(join(clone, "notes.txt"), "kept\n");
       commitAll(clone, "a commit of the branch");
     });
     landOnDev((clone) => write(join(clone, "README.md"), "dev moved\n"));
     write(stub("gh-open"), OPEN_PR);
+    const held = git(origin, "rev-parse", ROLLING_BRANCH);
 
     const { code } = runScript();
 
     expect(code).toBe(0);
+    // A push that keeps the head the pull request held is no force-push, which the factory's review reads as a stop.
+    expect(git(origin, "merge-base", held, ROLLING_BRANCH)).toBe(held);
+    expect(recorded("gh-calls")).toContain(
+      "pr merge https://github.com/o/r/pull/5 --auto --squash",
+    );
     expect(outcome()).toMatchObject({
       kind: "pr",
       url: "https://github.com/o/r/pull/5",
@@ -325,6 +335,92 @@ describe("run", () => {
       "pr edit 5 --title chore(vellum): types from Claude Code 2.1.294 --body-file",
     );
     expect(recorded("agent-prompt")).toContain("<previous-body>\nold body\n</previous-body>");
+  });
+
+  test("refuses to push a live branch whose pushed commits the agent rewrote, and leaves the pull request's head", () => {
+    pushRolling("2.1.293", (clone) => {
+      write(join(clone, "notes.txt"), "kept\n");
+      commitAll(clone, "a commit of the branch");
+    });
+    landOnDev((clone) => write(join(clone, "README.md"), "dev moved\n"));
+    write(stub("gh-open"), OPEN_PR);
+    write(stub("agent-rebases"), "");
+    const held = git(origin, "rev-parse", ROLLING_BRANCH);
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "push" });
+    expect(git(origin, "rev-parse", ROLLING_BRANCH)).toBe(held);
+    expect(recorded("gh-calls")).not.toContain("pr edit");
+  });
+
+  test("ends at the merge, forcing nothing, when the trunk's merge fails without a conflict", () => {
+    pushRolling("2.1.293", (clone) => {
+      write(join(clone, "notes.txt"), "kept\n");
+      commitAll(clone, "a commit of the branch");
+    });
+    landOnDev((clone) => write(join(clone, "README.md"), "dev moved\n"));
+    write(stub("gh-open"), OPEN_PR);
+    // A hook that refuses the merge commit: the merge fails and leaves no unmerged path.
+    const hook = join(project, ".git", "hooks", "pre-merge-commit");
+    write(hook, "#!/bin/sh\nexit 1\n");
+    chmodSync(hook, 0o755);
+    const held = git(origin, "rev-parse", ROLLING_BRANCH);
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "worktree" });
+    expect(failureReason()).toStartWith("git merge origin/dev failed with no conflict");
+    expect(git(origin, "rev-parse", ROLLING_BRANCH)).toBe(held);
+    expect(recorded("agent-runs")).toBe("");
+  });
+
+  test("names no merge commit among the commits a conflict drops", () => {
+    pushRolling("2.1.293", (clone) => {
+      write(join(clone, "README.md"), "the branch\n");
+      commitAll(clone, "the branch edits the README");
+      git(clone, "checkout", "-qb", "side");
+      write(join(clone, "side.txt"), "side\n");
+      commitAll(clone, "a side commit");
+      git(clone, "checkout", "-q", ROLLING_BRANCH);
+      git(clone, "merge", "-q", "--no-ff", "-m", "Merge side", "side");
+    });
+    landOnDev((clone) => write(join(clone, "README.md"), "dev\n"));
+    write(stub("gh-open"), OPEN_PR);
+
+    runScript();
+
+    expect(recorded("agent-prompt")).toMatch(/[0-9a-f]+ the branch edits the README/u);
+    expect(recorded("agent-prompt")).toMatch(/[0-9a-f]+ a side commit/u);
+    expect(recorded("agent-prompt")).not.toContain("Merge side");
+  });
+
+  test("pushes nothing to a pull request the factory stopped, and leaves its worktree unmade", () => {
+    pushRolling("2.1.293", (clone) => {
+      write(join(clone, "notes.txt"), "kept\n");
+      commitAll(clone, "a commit of the branch");
+    });
+    write(stub("gh-open"), STOPPED_PR);
+    const held = git(origin, "rev-parse", ROLLING_BRANCH);
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "fetch", worktree: null });
+    expect(failureReason()).toContain("is labelled needs-human");
+    expect(git(origin, "rev-parse", ROLLING_BRANCH)).toBe(held);
+    expect(recorded("agent-runs")).toBe("");
+    expect(existsSync(worktree())).toBe(false);
+  });
+
+  test("names the command that turns auto-merge on when GitHub refuses it", () => {
+    write(stub("gh-merge-fails"), "");
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "pr" });
+    expect(failureReason()).toBe(
+      "https://github.com/o/r/pull/7 is open with its auto-merge off (auto-merge is not allowed for this repository): turn it on with gh pr merge https://github.com/o/r/pull/7 --auto --squash",
+    );
   });
 
   test("starts again from origin/dev when the rolling branch has no open pull request, as after a squash or a closed one", () => {
@@ -341,7 +437,7 @@ describe("run", () => {
     );
   });
 
-  test("starts again from origin/dev when the live branch does not rebase, and names its commits to the agent", () => {
+  test("starts again from origin/dev when the live branch conflicts with it, and names its commits to the agent", () => {
     pushRolling("2.1.293", (clone) => {
       write(join(clone, "README.md"), "the branch\n");
       commitAll(clone, "the branch edits the README");
@@ -351,7 +447,7 @@ describe("run", () => {
 
     runScript();
 
-    expect(recorded("agent-prompt")).toContain("did not rebase onto origin/dev");
+    expect(recorded("agent-prompt")).toContain("conflict with origin/dev");
     expect(recorded("agent-prompt")).toMatch(/[0-9a-f]+ the branch edits the README/u);
     expect(outcome()).toMatchObject({ kind: "pr", created: false });
     expect(git(project, "show", `origin/${ROLLING_BRANCH}:README.md`)).toBe("dev");
@@ -468,14 +564,6 @@ describe("run", () => {
     expect(recorded("notify-calls")).toBe("");
     expect(recorded("gh-calls")).toBe("");
     expect(existsSync(worktree())).toBe(false);
-  });
-
-  test("labels the pull request e2e when the branch reaches the browser suite's paths", () => {
-    write(stub("agent-e2e"), "");
-
-    runScript();
-
-    expect(recorded("gh-calls")).toContain("pr edit https://github.com/o/r/pull/7 --add-label e2e");
   });
 
   test("fails at agent when claude -p fails, keeps the worktree, and settles the version", () => {

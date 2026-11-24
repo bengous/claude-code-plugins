@@ -1,0 +1,81 @@
+name: Conflict
+# GitHub emits no event when a push to {{BRANCH}} makes a pull request conflict, so its session never hears of it.
+# This workflow turns the conflict into a failed commit status, which auto-fix delivers like any red check.
+on:
+  push:
+    branches: [{{BRANCH}}]
+jobs:
+  conflict:
+    runs-on: ubuntu-latest
+    # A label on a pull request needs pull-requests: write; issues: write alone is refused there.
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: {{BRANCH}}
+      OWNER: {{OWNER}}
+    steps:
+      # The pushed commit with its whole history: git needs the common ancestor to compute a merge. A pull
+      # request's commits are fetched as data and merged in memory; none of its code runs.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set a failed conflict status on each pull request of the factory that conflicts
+        run: |
+          set -euo pipefail
+          prs=$(gh api --paginate "repos/$REPO/pulls?state=open&base=$BRANCH&per_page=100" --jq '.[].number')
+          for pr in $prs; do
+            # A pull request of the factory is one whose commits carry a Claude-Session trailer.
+            commits=$(gh api --paginate "repos/$REPO/pulls/$pr/commits?per_page=100" --jq '.[] | "\(.sha) \(.commit.message | test("(^|\n)Claude-Session: "))"')
+            if ! grep -q ' true$' <<<"$commits"; then
+              continue
+            fi
+            # GitHub's own answer lags the push that moved $BRANCH: right after it, a pull request that now
+            # conflicts can still read as mergeable. git computes the merge here instead.
+            git fetch --quiet origin "refs/pull/$pr/head"
+            head=$(git rev-parse FETCH_HEAD)
+            merged=0
+            git merge-tree --write-tree HEAD "$head" >/dev/null 2>&1 || merged=$?
+            if [ "$merged" -eq 0 ]; then
+              echo "#$pr: merges cleanly"
+              continue
+            fi
+            if [ "$merged" -ne 1 ]; then
+              echo "::warning::#$pr: git could not compute its merge with $BRANCH (exit $merged). The next push to $BRANCH tries again."
+              continue
+            fi
+            marked=0
+            on_head=0
+            while read -r sha _; do
+              failed=$(gh api "repos/$REPO/commits/$sha/statuses?per_page=100" --jq '[.[] | select(.context == "conflict" and .state == "failure")] | length')
+              if [ "$failed" -gt 0 ]; then
+                marked=$((marked + 1))
+                if [ "$sha" = "$head" ]; then on_head=1; fi
+              fi
+            done <<<"$commits"
+            # A force-push drops the commits that carried the status, so the count cannot hold: one since the
+            # owner last removed needs-human stops the pull request too.
+            events=$(gh api --paginate "repos/$REPO/issues/$pr/events?per_page=100" \
+              --jq '.[] | select(.event == "head_ref_force_pushed" or (.event == "unlabeled" and .label.name == "needs-human")) | "\(.event) \(.actor.login) \(.created_at)"')
+            restarted=$(awk -v owner="$OWNER" '$1 == "unlabeled" && $2 == owner {print $3}' <<<"$events" | tail -n1)
+            forced=$(awk -v since="$restarted" '$1 == "head_ref_force_pushed" && $3 > since' <<<"$events" | wc -l)
+            if [ "$on_head" -eq 1 ]; then
+              echo "#$pr: conflicts, and its head already carries the status"
+            elif [ "$marked" -ge 2 ] || [ "$forced" -gt 0 ]; then
+              # Two commits already carried the status and it conflicts again, or a force-push hid how many
+              # did: the factory stops here. A label already on is left alone, so the time of the stop holds.
+              labels=$(gh api "repos/$REPO/issues/$pr/labels" --paginate --jq '.[].name')
+              if ! grep -qx needs-human <<<"$labels"; then
+                gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=needs-human" --silent
+              fi
+              echo "#$pr: conflicts, with $marked status(es) and $forced force-push(es) counted: needs-human"
+            else
+              gh api -X POST "repos/$REPO/statuses/$head" -f state=failure -f context=conflict \
+                -f description="Conflicts with $BRANCH: merge $BRANCH into this branch and resolve." --silent
+              echo "#$pr: conflicts, status set on $head"
+            fi
+          done

@@ -3,24 +3,23 @@ name: CI
 on:
   pull_request:
     branches: [main, dev]
-    types: [opened, synchronize, reopened, labeled]
-  # `main` is included so a ref update that bypasses the PR path still gets
-  # validated server-side. Without it, anything landing on main directly runs
-  # no checks at all. `renovate/**` because Renovate's branch automerge has no pull request: it
-  # fast-forwards `dev` only once it reads green check runs on the branch's own head.
+  # A push to `dev` is a pull request's squash commit, tested here on the trunk it joined;
+  # `trunk-red.yml` reads that run. `main` is included so the commit a release moves it to
+  # carries a `test` of its own event.
   push:
-    branches: [dev, main, "renovate/**"]
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# `e2e` runs on request only: the `e2e` label on a pull request, or a dispatch. The label
-# works on a pull request from this repository alone: a fork's gets a read-only token,
-# which cannot take the label off. No concurrency group: a request never cancels another.
+# `test` is the one check of this workflow that the ruleset of `dev` requires: it needs every other
+# verdict here. `main` requires it beside `validate`, the name a push's or a dispatch's run alone
+# reports: a pull request's head carries a green `test` and no `validate`, so it cannot reach `main`.
+# `e2e` runs on every push and dispatch, and on a pull request whose change touches a path vellum's
+# browser suite covers (`scope`). No concurrency group: a run never cancels another.
 jobs:
-  # No job `if:`, whatever the label: a job an `if:` skips reports success to a required check,
-  # and `main` requires `validate`, so a skipped one beside a red one could hide it. A pull
+  # No job `if:`: `test` needs this job, and reads a skipped one as it reads a green one. A pull
   # request's run is scoped by its steps instead, and named apart: only a push or a dispatch runs
   # every suite and kit, under the name `main` requires.
   validate:
@@ -31,6 +30,15 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # full history needed for the drift guard
+
+      # A `uses:` the lockfile does not follow, or a locked commit no longer behind its tag, fails here
+      # rather than at the start of the job that runs it.
+      - name: Check the workflows' actions against their lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install github/gh-actions-lock --pin v0.5.1
+          gh actions-lock --verify
 
       # The hooks module's kit needs the engine its types were written by. An exact version,
       # unlike `latest`, is neither left where the action's cache first resolved it nor held
@@ -190,14 +198,16 @@ jobs:
           path: flaky-reports/*.json
           if-no-files-found: ignore
 
-  # On a pull request, what the change reaches, for `win32 (scoped)`. `affected.ts` imports
-  # nothing `bun install` brings, so the job installs bun alone.
+  # What the change reaches: `all` and `units` for `win32 (scoped)` on a pull request, and `e2e`,
+  # whether the run runs vellum's browser suite: a pull request's when its change against its base
+  # touches a path the suite covers, any other run always, since a push's `test` speaks for the
+  # whole tree. `affected.ts` imports nothing `bun install` brings, so the job installs bun alone.
   scope:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       all: ${{ steps.scope.outputs.all }}
       units: ${{ steps.scope.outputs.units }}
+      e2e: ${{ steps.scope.outputs.e2e }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -216,9 +226,8 @@ jobs:
   # Vellum on Windows: its `bun:test` suites and the hooks module's kit, then `tools/platform`'s
   # suites, where Linux misses what Windows refuses (a folder a process holds cannot be renamed).
   # A pull request that does not reach `vellum/` skips it, unless it reaches everything, as a
-  # change to `tools/` does: `main` does not require `win32` today
-  # (`docs/repo-ops/protections.md`), and a pull request's run is named `win32 (scoped)`, a name
-  # no ruleset requires. `always()` runs it on a push or a dispatch, where `scope` is skipped. The
+  # change to `tools/` does: `test` reads a skipped `win32` as a green one, and a pull request's
+  # run is named `win32 (scoped)`. On a push or a dispatch it always runs. The
   # repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is not run here.
   # Each suite retries what failed once (`scripts/ci/flaky-report.ts`), and the job uploads what passed
   # on the retry for `flaky`, red or green.
@@ -273,17 +282,13 @@ jobs:
           if-no-files-found: ignore
 
   # Mutation testing on what the change alters in the modules `stryker.config.ts` lists or their
-  # tests (`scripts/ci/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an
-  # inline commit is tested and a survivor turns the push run red, a dispatch's since `origin/dev`.
-  # A label asks for no new verdict, and a push to `main` releases a `dev` head already tested. A
+  # tests (`scripts/ci/mutation.ts`): a pull request's, a push's to `dev` since its `before`, where a
+  # survivor turns the push run red, a dispatch's since `origin/dev`.
+  # A push to `main` releases a `dev` head already tested. A
   # push whose commit has a green `mutation` check from its pull request skips the passes. With
-  # nothing to mutate it passes before installing anything. Skipped, the job's check carries this
-  # `name:` unrendered, never `mutation`: a label's run cannot stand in for the head's verdict.
+  # nothing to mutate it passes before installing anything.
   mutation:
-    name: ${{ github.event.action == 'labeled' && 'mutation, skipped on a label' || 'mutation' }}
-    if: >-
-      github.event.action != 'labeled'
-      && (github.event_name != 'push' || github.ref == 'refs/heads/dev')
+    if: github.event_name != 'push' || github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
       checks: read
@@ -315,15 +320,12 @@ jobs:
 
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
-  # `scripts/gates/e2e-windows.integration.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
-  # reads a running `e2e (<window>)` by that name. `check-lint-config.ts` reads `validate` alone.
+  # `scripts/gates/e2e-windows.integration.test.ts` holds the list equal to the config's.
+  # `check-lint-config.ts` reads `validate` alone.
   e2e-window:
     name: e2e (${{ matrix.window }})
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || (github.event.action == 'labeled'
-      && github.event.label.name == 'e2e'
-      && github.event.pull_request.head.repo.full_name == github.repository)
+    needs: scope
+    if: needs.scope.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     strategy:
       # A red window must not cancel the others: each says something of its own.
@@ -369,15 +371,11 @@ jobs:
           if-no-files-found: ignore
 
   # The browser suite on Windows, at one window: the server, the harness and the page on the
-  # platform `e2e-window` never runs. Named `e2e (…)` so `check-e2e-green.ts` counts it among the
-  # windows still running. No `--with-deps`: the Windows runner lacks no system library.
+  # platform `e2e-window` never runs. No `--with-deps`: the Windows runner lacks no system library.
   e2e-win32:
     name: e2e (win32, light-1440)
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      || (github.event.action == 'labeled'
-      && github.event.label.name == 'e2e'
-      && github.event.pull_request.head.repo.full_name == github.repository)
+    needs: scope
+    if: needs.scope.outputs.e2e == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -413,17 +411,12 @@ jobs:
           path: flaky-reports/*.json
           if-no-files-found: ignore
 
-  # The one check the pre-push gate reads, `scripts/gates/check-e2e-green.ts`: green when every window
-  # is, Windows' included. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
-  # which the gate reads as no run; `always()` lets a red or cancelled window turn it red.
+  # The browser suite's one verdict, which `test` reads: green when every window is, Windows' included.
+  # It runs when the windows do, so a change that reaches none leaves it `skipped`; `always()` lets a
+  # red or cancelled window turn it red.
   e2e:
-    needs: [e2e-window, e2e-win32]
-    if: >-
-      always()
-      && (github.event_name == 'workflow_dispatch'
-      || (github.event.action == 'labeled'
-      && github.event.label.name == 'e2e'
-      && github.event.pull_request.head.repo.full_name == github.repository))
+    needs: [scope, e2e-window, e2e-win32]
+    if: always() && needs.scope.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every window passed
@@ -443,7 +436,7 @@ jobs:
   # Bookkeeping, never a verdict: every step continues on error, the checkout and the setup too, since
   # the job runs on every event; on the steps rather than the job, since a job's `continue-on-error`
   # still leaves its own check red, which `gh pr checks` and the pull request show. No concurrency group: GitHub cancels a pending job a
-  # third one replaces, and a cancelled check refuses a landing; two jobs racing can at worst open
+  # third one replaces, and a cancelled check shows red on its pull request; two jobs racing can at worst open
   # one test's issue twice.
   flaky:
     needs: [validate, win32, e2e-window, e2e-win32]
@@ -480,21 +473,39 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # The label asks for one run: it comes off as that run starts, so the next request is a new
-  # label. A job of its own, so the suite's job keeps a read-only token; a re-run of the same
-  # run finds the label gone already.
-  unlabel:
-    if: >-
-      github.event.action == 'labeled'
-      && github.event.label.name == 'e2e'
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && github.run_attempt == 1
+  # The check the rulesets require, on a pull request and on a push: red unless `validate` and
+  # `scope` passed, `win32` and `mutation` passed or were skipped, and `e2e` passed whenever
+  # `scope` ran the browser suite. `always()`: skipped, as after a red job it needs, it would read
+  # as green to the ruleset.
+  test:
+    needs: [validate, scope, win32, mutation, e2e]
+    if: always()
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     steps:
-      - name: Take the e2e label off the pull request
-        run: gh api --method DELETE --silent "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels/e2e"
+      - name: Fail unless every job the change reaches passed
+        run: |
+          red=0
+          verdict() {
+            echo "$1: $2"
+            case " $3 " in *" $2 "*) ;; *) red=1 ;; esac
+          }
+          verdict validate "$VALIDATE" "success"
+          verdict scope "$SCOPE" "success"
+          verdict win32 "$WIN32" "success skipped"
+          verdict mutation "$MUTATION" "success skipped"
+          if [ "$E2E_REACHED" = true ]; then
+            verdict e2e "$E2E" "success"
+          else
+            verdict e2e "$E2E" "success skipped"
+          fi
+          if [ "$red" -ne 0 ]; then
+            echo "::error::A job this change reaches did not pass; the red one is named among this run's jobs."
+            exit 1
+          fi
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
+          VALIDATE: ${{ needs.validate.result }}
+          SCOPE: ${{ needs.scope.result }}
+          WIN32: ${{ needs.win32.result }}
+          MUTATION: ${{ needs.mutation.result }}
+          E2E: ${{ needs.e2e.result }}
+          E2E_REACHED: ${{ needs.scope.outputs.e2e }}

@@ -13,59 +13,101 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      checks: write
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       PR: ${{ github.event.pull_request.number }}
-      BASE: ${{ github.event.pull_request.base.ref }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
       ACTION: ${{ github.event.action }}
       OWNER: {{OWNER}}
     steps:
-      - name: Hold PRs that touch owner paths until the owner labels them owner-ok
+      - name: A push ends the owner's approval
+        if: github.event.action == 'synchronize' || github.event.action == 'reopened'
         run: |
           set -euo pipefail
-          # No globbing: a CODEOWNERS path is compared as text, never expanded by the shell.
-          set -f
-          prefixes=$(gh api "repos/$REPO/contents/.github/CODEOWNERS?ref=$BASE" --jq .content | base64 -d | awk '!/^#/ && NF {print $1}')
-          # A rename moves a file out of an owner path under its new name only, so the old name counts too.
-          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
-          owned=""
-          for p in $prefixes; do
-            case "$p" in
-              /*[*?[]*|[!/]*)
-                # Holding everything keeps the pull request that fixes CODEOWNERS mergeable, with the owner's label.
-                echo "::warning::owner-gate reads CODEOWNERS paths as prefixes from the root and cannot read $p: every pull request is held."
-                owned="$files" ;;
-            esac
-          done
-          if [ -z "$owned" ]; then
-            owned=$(while IFS= read -r f; do
-              for p in $prefixes; do
-                case "/$f" in "$p"*) echo "$f" ;; esac
-              done
-            done <<<"$files")
+          # The owner approved the commit that was there, not the ones a push adds.
+          labels=$(gh api "repos/$REPO/issues/$PR/labels" --paginate --jq '.[].name')
+          if grep -qx human-approved <<<"$labels"; then
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/human-approved" --silent
           fi
-          if [ -z "$owned" ]; then
-            echo "No owner path touched."
+      # A change of base reruns nothing: this check stays red on the head until a push runs it against {{BRANCH}}.
+      - name: Judge pull requests against {{BRANCH}} only
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$BASE" != "{{BRANCH}}" ]; then
+            echo "::error::This pull request's base is not {{BRANCH}}: the factory judges pull requests against {{BRANCH}} only."
+            exit 1
+          fi
+      # The tier rules alone, from {{BRANCH}}: the pull request's code is never checked out, and no file of
+      # the repository's root configures the bun that runs tier.ts.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            .github/factory
+            .github/CODEOWNERS
+          sparse-checkout-cone-mode: false
+      # A step that fails from here to the verdict leaves no tier, which the last step reads as human.
+      - uses: oven-sh/setup-bun@v2
+        continue-on-error: true
+      - name: Tier of the head commit
+        id: tier
+        continue-on-error: true
+        run: bun .github/factory/tier.ts gate --repo "$REPO" --pr "$PR" --head "$HEAD"
+      # A fork's pull request never reaches the classifier: anyone can open one, and each would spend the
+      # owner's token on a stranger's text. It gets no tier, which the last step reads as human.
+      - name: Install Claude Code
+        if: steps.tier.outputs.ask == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Ask the classifier, once per commit and diff
+        id: judge
+        if: steps.tier.outputs.ask == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: bun .github/factory/tier.ts gate --repo "$REPO" --pr "$PR" --head "$HEAD" --ask
+      - name: Hold a human change until the owner labels it human-approved
+        env:
+          TIER: ${{ steps.judge.outputs.tier || steps.tier.outputs.tier }}
+          REASON: ${{ steps.judge.outputs.reason || steps.tier.outputs.reason }}
+          SUPERSEDED: ${{ steps.judge.outputs.superseded || steps.tier.outputs.superseded }}
+        run: |
+          set -euo pipefail
+          # The labels show the tier of the head commit. A push can land while the classifier answers, so the
+          # head is read again here: a run the pull request moved past touches no label.
+          current=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          if [ "$SUPERSEDED" = true ] || [ "$current" != "$HEAD" ]; then
+            echo "::error::The pull request moved past this commit: the run of its new head judges it."
+            exit 1
+          fi
+          tier=human
+          stale=tier:low
+          if [ "$TIER" = low ]; then
+            tier=low
+            stale=tier:human
+          fi
+          # The label shows the tier; no check reads it.
+          labels=$(gh api "repos/$REPO/issues/$PR/labels" --paginate --jq '.[].name')
+          if ! grep -qx "tier:$tier" <<<"$labels"; then
+            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=tier:$tier" --silent
+          fi
+          if grep -qx "$stale" <<<"$labels"; then
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/$stale" --silent
+          fi
+          if [ "$tier" = low ]; then
+            echo "Tier low: $REASON"
             exit 0
           fi
-          echo "Owner paths touched: $(tr '\n' ' ' <<<"$owned")"
-          case "$ACTION" in
-            synchronize|reopened)
-              # The owner approved the commits that were there, not the ones a push adds.
-              labels=$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name')
-              if grep -qx owner-ok <<<"$labels"; then
-                gh api -X DELETE "repos/$REPO/issues/$PR/labels/owner-ok" --silent
-              fi
-              echo "::error::New commits on a pull request that touches owner paths: $OWNER adds the owner-ok label again."
-              exit 1 ;;
-          esac
+          echo "Tier human: ${REASON:-no tier was computed, after a failed step or for a pull request from a fork}"
           # An agent acts with the owner's account but through the Claude GitHub App; only a label added without an app counts.
           last=$(gh api --paginate "repos/$REPO/issues/$PR/events?per_page=100" \
-            --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "owner-ok") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
+            --jq '.[] | select((.event == "labeled" or .event == "unlabeled") and .label.name == "human-approved") | "\(.event) \(.performed_via_github_app == null) \(.actor.login)"' | tail -n1)
           if [ "$last" = "labeled true $OWNER" ]; then
             echo "Approved by $OWNER."
             exit 0
           fi
-          echo "::error::Waiting for $OWNER to add the owner-ok label."
+          echo "::error::Tier human: $OWNER adds the human-approved label, which holds for this commit alone."
           exit 1

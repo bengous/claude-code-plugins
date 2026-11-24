@@ -1,0 +1,62 @@
+{
+  "id": 27380410,
+  "name": "main",
+  "target": "branch",
+  "source_type": "Repository",
+  "source": "bengous-labs/factory-native-trial",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "exclude": [], "include": ["~DEFAULT_BRANCH"] } },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": true,
+        "dismissal_restriction": { "enabled": false, "allowed_actors": [] },
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["squash"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "test" },
+          { "context": "review" },
+          { "context": "owner-gate" }
+        ]
+      }
+    },
+    {
+      "type": "merge_queue",
+      "parameters": {
+        "merge_method": "SQUASH",
+        "max_entries_to_build": 5,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 5,
+        "min_entries_to_merge_wait_minutes": 0,
+        "grouping_strategy": "ALLGREEN",
+        "check_response_timeout_minutes": 30
+      }
+    }
+  ],
+  "node_id": "RRS_lACqUmVwb3NpdG9yec5XB96czgGhyro",
+  "created_at": "2026-11-16T15:33:35.563+01:00",
+  "updated_at": "2026-11-22T15:10:53.101+01:00",
+  "bypass_actors": [],
+  "current_user_can_bypass": "never",
+  "_links": {
+    "self": {
+      "href": "https://api.github.com/repos/bengous-labs/factory-native-trial/rulesets/27380410"
+    },
+    "html": { "href": "https://github.com/bengous-labs/factory-native-trial/rules/27380410" }
+  }
+}

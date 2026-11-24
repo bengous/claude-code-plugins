@@ -1,6 +1,6 @@
-# Files only the owner approves: the gate, this list, and the review workflow, which the review cannot judge
-# because claude-code-action skips itself on a pull request that changes it.
+# Files only the owner approves: every file that defines a check, the workflows, the tier rules, the review
+# command, the session's hooks and the rules the session and the review follow.
 # owner-gate reads each path as a prefix from the root.
-/.github/workflows/owner-gate.yml @{{OWNER}}
-/.github/workflows/review.yml @{{OWNER}}
-/.github/CODEOWNERS @{{OWNER}}
+/.github/ @{{OWNER}}
+/.claude/ @{{OWNER}}
+/CLAUDE.md @{{OWNER}}

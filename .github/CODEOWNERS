@@ -1,0 +1,7 @@
+# Files only the owner approves: every file that defines a check, the workflows, the tier rules, the review
+# command, the session's hooks and the rules the session and the review follow.
+# owner-gate reads each path as a prefix from the root.
+/.github/ @bengous
+/.claude/ @bengous
+/CLAUDE.md @bengous
+/AGENTS.md @bengous

@@ -1,0 +1,8 @@
+# The tools a cloud session installs: those of the root mise.toml but Claude Code, which the cloud image ships.
+# mise.lock, beside this file, holds the version each `latest` means there. It stays out of the root: the mise
+# action of CI installs in locked mode once it finds a lockfile there, and CI pins Claude Code by a variable.
+[tools]
+bun = "latest"
+lefthook = "latest"
+shellcheck = "latest"
+shfmt = "latest"

@@ -17,7 +17,7 @@ A Claude Code mod that lists the repository's TODOs in a band above the prompt, 
 ## Install
 
 ```bash
-/plugin marketplace add bengous/claude-code-plugins
+/plugin marketplace add bengous/claude-code-plugins#main
 /plugin install todos@bengous-plugins
 ```
 

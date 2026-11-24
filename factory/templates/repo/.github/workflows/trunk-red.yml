@@ -1,0 +1,105 @@
+name: Trunk red
+# When the CI of {{BRANCH}} fails, this workflow opens the one issue the owner did not write and fires the routine
+# on it: a Worker repairs {{BRANCH}} through a pull request, like any issue. Two repairs in a row that leave it red
+# stop the factory.
+on:
+  workflow_run:
+    workflows: ["{{CI}}"]
+    types: [completed]
+    branches: [{{BRANCH}}]
+# One run at a time: two runs that both find no open issue would open two.
+concurrency:
+  group: trunk-red
+  cancel-in-progress: false
+jobs:
+  trunk-red:
+    if: github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: {{BRANCH}}
+      WORKFLOW: ${{ github.event.workflow_run.workflow_id }}
+      CI: ${{ github.event.workflow_run.name }}
+      FIRE_URL: https://api.anthropic.com/v1/claude_code/routines/{{ROUTINE_ID}}/fire
+      FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+    steps:
+      - name: Open the repair issue of a red {{BRANCH}} and fire the routine on it
+        run: |
+          set -euo pipefail
+          fire() {
+            curl -sS --fail-with-body -X POST "$FIRE_URL" \
+              -H "Authorization: Bearer $FIRE_TOKEN" \
+              -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+              -H "anthropic-version: 2023-06-01" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\": \"Work on issue #$1.\"}" | jq -r .claude_code_session_url
+          }
+          # The newest completed run decides, not the run that started this job: a pending job that a later one
+          # replaces is cancelled, so an event can be lost, and the state of {{BRANCH}} cannot.
+          newest=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=$BRANCH&event=push&status=completed&per_page=1" \
+            --jq '.workflow_runs[0] | "\(.conclusion) \(.id) \(.head_sha) \(.html_url)"')
+          read -r conclusion run sha url <<<"$newest"
+          if [ "$conclusion" != failure ] && [ "$conclusion" != timed_out ]; then
+            echo "$BRANCH is not red: the newest $CI run concluded $conclusion."
+            # A green {{BRANCH}} needs no repair: an open issue left behind would swallow the next red run. It closes as
+            # not planned, which the count of repairs below does not read. One labelled in-progress stays: its
+            # session's pull request is on the way and closes it, and the repair it brings is counted.
+            if [ "$conclusion" = success ]; then
+              stale=$(gh api "repos/$REPO/issues?state=open&labels=trunk-red&per_page=100" \
+                --jq '.[] | select(.pull_request == null and ([.labels[].name] | index("in-progress") == null)) | .number')
+              for issue in $stale; do
+                gh api -X POST "repos/$REPO/issues/$issue/comments" --silent \
+                  -f body="The $CI workflow is green on $BRANCH at ${sha:0:7}: $url. No repair is needed, and this issue closes as not planned."
+                gh api -X PATCH "repos/$REPO/issues/$issue" -f state=closed -f state_reason=not_planned --silent
+                echo "Closed #$issue: $BRANCH is green."
+              done
+            fi
+            exit 0
+          fi
+          open=$(gh api "repos/$REPO/issues?state=open&labels=trunk-red&per_page=100" \
+            --jq '[.[] | select(.pull_request == null)][0] | if . == null then "" else "\(.number) \([.labels[].name] | index("ready") != null)" end')
+          if [ -n "$open" ]; then
+            read -r issue unclaimed <<<"$open"
+            # A fire that failed leaves the issue labelled ready with no Worker, and dispatch.yml fires only for
+            # the owner's issues: re-running this job fires the routine on it again.
+            if [ "$unclaimed" = true ] && [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
+              fire "$issue"
+            else
+              echo "A trunk-red issue is already open: #$issue."
+            fi
+            exit 0
+          fi
+          # Two repair issues closed since the last green run was created, and still red: no third Worker. The
+          # creation, not the last update, which a re-run of an old green run moves forward. An issue the owner
+          # closed as not planned, or a green run closed, repaired nothing.
+          green=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=$BRANCH&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs[0].created_at // ""')
+          repairs=$(gh api --paginate "repos/$REPO/issues?state=closed&labels=trunk-red&per_page=100" \
+            --jq ".[] | select(.pull_request == null and .user.login == \"github-actions[bot]\" and .state_reason != \"not_planned\" and .closed_at > \"$green\") | .number" | wc -l)
+          label=ready
+          if [ "$repairs" -ge 2 ]; then label=needs-human; fi
+          # The first line of the failed steps' log that names an error. A log line is data: one line, as code.
+          error=$(gh run view "$run" --repo "$REPO" --log-failed 2>/dev/null | cut -f3- | sed -E 's/^[0-9TZ:.-]+ //' \
+            | grep -m1 -iE 'error|fail' | cut -c1-300 || true)
+          body="The $CI workflow failed on $BRANCH at ${sha:0:7}: $url
+
+          First error line:
+
+              ${error:-not found in the log}
+
+          ## Done when
+
+          - The $CI workflow is green on $BRANCH.
+          - No test is removed or skipped."
+          issue=$(gh api -X POST "repos/$REPO/issues" -f title="$BRANCH is red" -f body="$body" \
+            -f "labels[]=trunk-red" -f "labels[]=$label" --jq .number)
+          if [ "$label" = needs-human ]; then
+            echo "::error::$BRANCH is still red after $repairs repairs: #$issue is labelled needs-human, and no Worker starts."
+            exit 0
+          fi
+          fire "$issue"

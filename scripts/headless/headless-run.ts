@@ -1,8 +1,8 @@
 /**
  * The plumbing of a detached run that hands a worktree to a headless Claude:
  * its commands, its lock, its signing probe, its prompt, its log and the
- * notice it leaves the human. `scripts/headless/claude-code-types.ts` and
- * `scripts/headless/renovate-agent.ts` are its runs.
+ * notice it leaves the human. `scripts/headless/claude-code-types.ts` is its
+ * run.
  */
 
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
@@ -100,17 +100,14 @@ export async function worktreesOf(cwd: string) {
   return await readWorktrees(root);
 }
 
-/**
- * What a worktree holds that its remote does not: changes, or commits pushed nowhere; null when nothing, or when
- * `carried` says the remote already holds what those commits change, as a rebased head holds its earlier one's patch.
- */
-export function heldWork(path: string, carried?: () => boolean): string | null {
+/** What a worktree holds that its remote does not: changes, or commits pushed nowhere; null when nothing. */
+export function heldWork(path: string): string | null {
   const changes = git(path, "status", "--porcelain");
 
   if (changes !== "") return `uncommitted changes (${changes.split("\n").length})`;
   const unpushed = git(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin");
 
-  if (unpushed === "0" || carried?.() === true) return null;
+  if (unpushed === "0") return null;
 
   return `${unpushed} commits pushed nowhere`;
 }

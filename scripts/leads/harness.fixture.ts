@@ -396,8 +396,6 @@ export function landHistory(box: Sandbox): History {
       "atlas/package.json": manifest({ dependencies: { elkjs: "0.12.0" } }),
       "README.md": "atlas lays its diagrams out with elkjs.\n",
       ".github/workflows/ci.yml": "on: push\n",
-      ".claude/github-flow.json":
-        '{ "validate": ["bun ./scripts/run-gates.ts", "bun test --parallel"] }\n',
     },
   });
 

@@ -234,8 +234,8 @@ describe("testFileOf", () => {
       "scripts/releasing/changelog.test.ts",
     );
     expect(
-      testFileOf("scripts/land.ts", (path) => path === "scripts/land.integration.test.ts"),
-    ).toBe("scripts/land.integration.test.ts");
+      testFileOf("scripts/release.ts", (path) => path === "scripts/release.integration.test.ts"),
+    ).toBe("scripts/release.integration.test.ts");
   });
 
   test("refuses a module that is not TypeScript", () => {
@@ -631,19 +631,13 @@ interface Workflow {
   jobs: Record<string, { if?: string; name?: string; permissions?: Record<string, string> }>;
 }
 
-test("ci.yml mutation-tests a pull request's opening and pushes, a dispatch and a push to dev, never a label", async () => {
+test("ci.yml mutation-tests a pull request's opening and pushes, a dispatch and a push to dev", async () => {
   const source = await Bun.file(join(import.meta.dir, "../../.github/workflows/ci.yml")).text();
   const { jobs }: Workflow = parse(source);
   const job = jobs["mutation"];
 
-  expect(job?.if).toBe(
-    "github.event.action != 'labeled' && (github.event_name != 'push' || github.ref == 'refs/heads/dev')",
-  );
-  // A job its `if:` skips leaves a check named by this expression unrendered, never `mutation`,
-  // so a label's skipped run cannot stand in for the head's verdict in `gh pr checks` or `land.ts`.
-  expect(job?.name).toBe(
-    "${{ github.event.action == 'labeled' && 'mutation, skipped on a label' || 'mutation' }}",
-  );
+  expect(job?.if).toBe("github.event_name != 'push' || github.ref == 'refs/heads/dev'");
+  expect(job?.name).toBeUndefined();
   expect(job?.permissions).toEqual({ checks: "read", contents: "read" });
 });
 

@@ -30,7 +30,7 @@ export const REGISTRY: Registry = {
         "test scripts/release.integration.test.ts",
       ],
     },
-    "0e6d3332": {
+    "5ed239e7": {
       quote: "A behaviour change to a plugin is done once the `field-test`",
       prose: "whether a change alters behaviour is a judgement; no check knows a field test ran",
     },
@@ -49,11 +49,6 @@ export const REGISTRY: Registry = {
         "hook scripts/gates/run-gates.ts",
         "hook scripts/gates/affected.ts",
       ],
-    },
-    "650a7855": {
-      quote: "`.claude/github-flow.json` names the validate, tier, verdict",
-      prose:
-        "a pointer to the file the skills read; a key missing from it makes the tier human, the safe direction",
     },
     "9679b29c": { quote: "| Layer | Language | Boundary |", prose: "the table's header" },
     cdfaa70d: {
@@ -96,14 +91,14 @@ export const REGISTRY: Registry = {
     "660d31af": {
       quote: "In an agent worktree, a Bash call runs one simple command:",
       prose:
-        "the guard that refuses is Claude Code's own; this repo's Bash hooks guard `land-ok` and settings writes, not a command's shape",
+        "the guard that refuses is Claude Code's own; this repo's Bash hook guards settings writes, not a command's shape",
     },
     "70ce207e": {
       quote: "A step that code can decide is done by the script or the",
       prose:
         "what code can decide is the judgement this rule asks for; the rule registry records it",
     },
-    "31a42b84": {
+    "6368aa86": {
       quote: "A commit message says what the code does and why, the reason",
       prose:
         "a model judges each message, through the prompt hook of `.claude/__settings.jsonc`; a control here names a script, and a prompt hook has none",
@@ -116,8 +111,12 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/anti-slop/` - vendored lint plugin. Do not",
       held: ["gate lint-config"],
     },
-    "6fe85f47": {
+    "926eba4d": {
       quote: "`scripts/` - the repo's own tooling, one directory per",
+      prose: "a fact about the layout",
+    },
+    dda4d884: {
+      quote: "`.github/factory/` - this repository's tier rules and their",
       prose: "a fact about the layout",
     },
     "667fb01a": {
@@ -128,39 +127,41 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/local/` - the repo's own lint plugin, edited",
       held: ["gate lint-config"],
     },
-    e4faa8be: {
-      quote: "`dev` is the working trunk; `main` is the release channel",
+    "8245d841": {
+      quote: "`dev` is the trunk and the repository's default branch;",
       prose:
-        "lefthook's `block-commit-to-main` refuses a commit to `main` and the owner's global `guard-git-push` hook a push to it, but the fast-forward, the linear history and the signed commits are the GitHub rulesets', which no check of this repo reads",
+        "lefthook's `block-commit-to-main` refuses a commit to `main` and the owner's global `guard-git-push` hook a push to it, but the pull request, its required checks, the fast-forward, the linear history and the signed commits are the GitHub rulesets', which no gate of this repo reads; `factory/scripts/check.ts` reports the required checks, the resolved threads, a bypass actor and the merge settings, not those rules",
     },
-    "9c7f25c4": {
+    "8ea9aebc": {
       quote: "Claude Code's built-in \"Commit or push only when the user",
       prose:
         "who commits and pushes where is a convention; the `guard-git-push` hook that refuses a push to `main` is the owner's machine's, outside this repository, which no check of it reads",
     },
-    b5f9452a: {
-      quote: "Two lanes; the agent judges by scope, the user can override:",
-      prose: "a lead-in; each lane below has its own entry",
+    ce91a53a: {
+      quote: "Two ways in, one gate:",
+      prose: "a lead-in; each way below has its own entry",
     },
-    "6206bcdc": {
-      quote: "Inline — one concern, small diff: commit directly on `dev`.",
-      held: ["hook scripts/gates/check-e2e-green.ts"],
+    "50e7a4fd": {
+      quote: "An issue the owner labels `ready`: the factory starts a",
+      prose:
+        "`dispatch.yml` and the routine it fires run on GitHub and on claude.ai, where no gate of this repo reaches; `factory/scripts/check.ts` reports what they lack",
     },
-    c316b6bb: {
-      quote: "Branch — several concerns, big work (large feature, large",
-      prose: "the lane, the split into PRs and when to rebase are judgements of scope",
+    "30f260e6": {
+      quote: "A session on the owner's machine: a `feature/`|`fix/` branch",
+      prose:
+        "which skill opens the pull request and how a stack is split are judgements; the ruleset is what refuses any other way into `dev`",
     },
-    "5e069813": {
-      quote: "Review: one agent review of each branch, before",
-      held: [
-        "test scripts/land.integration.test.ts",
-        "hook .claude/hooks/land-label.ts",
-        "hook .claude/hooks/guard-land-ok.ts",
-        "test .claude/hooks/land-label.test.ts",
-        "test .claude/hooks/guard-land-ok.test.ts",
-      ],
+    "548764ed": {
+      quote: "During a feature the branch ignores `dev`. Bring `dev` in",
+      prose:
+        "when to bring the trunk in is a judgement of scope; `review.yml` is what stops a branch that was force-pushed",
     },
-    b3476aba: {
+    "66801dd9": {
+      quote: "Review: `review.yml` reviews each push of each pull request",
+      prose:
+        "the review, the gate and the label run on GitHub, where no gate of this repo reaches; `factory/scripts/tier.test.ts` holds the tier's computation on the template `.github/factory/tier.ts` was rendered from",
+    },
+    "6be8149c": {
       quote: "Before any push or release: follow [Repo",
       prose:
         "a procedure to follow; the owner's global `guard-git-push` hook refuses a push to `main`, outside this repository",
@@ -196,7 +197,7 @@ export const REGISTRY: Registry = {
       quote: "The Stop and each subagent's SubagentStop are the",
       held: ["hook scripts/gates/run-gates.ts", "test agent-hooks/stop.integration.test.ts"],
     },
-    "7fe9d962": {
+    "8a944844": {
       quote: "A new gate is one `EXPECTED_COMMANDS` entry in",
       held: ["gate lint-config"],
     },
@@ -243,10 +244,10 @@ export const REGISTRY: Registry = {
       quote: '`description` ends with a "Use when ..." clause naming the',
       prose: "`validate-frontmatter` does not read a description's wording",
     },
-    "94ac23b2": {
+    "1f0dedd2": {
       quote: "A skill whose effect leaves the machine or rewrites history",
       prose:
-        "whether an effect can be undone is a judgement; the exception's push is land.ts's, whose tier gate scripts/land.integration.test.ts holds, and the leads skills' writes are scripts/leads/'s, to which scripts/leads/guard.test.ts holds their hook",
+        "whether an effect can be undone is a judgement; the leads skills' writes are scripts/leads/'s, to which scripts/leads/guard.test.ts holds their hook",
     },
   },
   ".claude/rules/test-tiers.md": {

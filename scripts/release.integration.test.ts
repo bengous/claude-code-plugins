@@ -5,7 +5,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -15,7 +14,6 @@ import { dirname, join } from "node:path";
 
 import { parse, stringify } from "yaml";
 
-import type { Gh } from "./landing/ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import {
   type Context,
@@ -24,6 +22,7 @@ import {
   type DryRun,
   dryRunJson,
   folded,
+  type MergeStop,
   parseCli,
   plannedTags,
   release,
@@ -39,14 +38,18 @@ import {
   type MarketplaceName,
   type SourceDir,
 } from "./releasing/check-plugin-bumps.ts";
+import type { Gh, WaitLimits } from "./releasing/ci-wait.ts";
 import {
   loadPlan,
   localDate,
   type PlannedBump,
+  planDigest,
   planRelease,
   type ReleasePlan,
   sealPlan,
 } from "./releasing/release-plan.ts";
+import { decideMerge, type PullCheck, type PullView } from "./releasing/release-pull.ts";
+import { VERSION_BUMP } from "./reports/sample-review.ts";
 
 let root = "";
 
@@ -159,8 +162,239 @@ function ciGh(conclusion: "success" | "failure", asked: string[]): Gh {
   };
 }
 
-function context(gh: Gh, say: (line: string) => void = () => {}): Context {
-  return { gh, limits: { timeoutMs: 1000, pollMs: 10 }, say };
+const MERGE_LIMITS: WaitLimits = { timeoutMs: 1000, pollMs: 10 };
+
+function context(
+  gh: Gh,
+  say: (line: string) => void = () => {},
+  mergeLimits = MERGE_LIMITS,
+): Context {
+  return { gh, limits: { timeoutMs: 1000, pollMs: 10 }, mergeLimits, say };
+}
+
+interface FakePull {
+  readonly number: number;
+  readonly title: string;
+  readonly body: string;
+  /** The branch it is from. */
+  readonly head: string;
+  state: "OPEN" | "MERGED" | "CLOSED";
+  mergeCommit: string | null;
+  /** Its head commit once merged, or for a pull request seeded with no branch; null reads the branch on origin. */
+  pinnedHead: string | null;
+  mergeable: string;
+  mergeStateStatus: string;
+  checks: readonly object[];
+}
+
+/**
+ * GitHub as the release meets it: its pull requests, what happens on GitHub before each `gh pr view`
+ * answers and between a merge's request and its squash commit, and how CI's push runs end.
+ */
+interface FakeGitHub {
+  readonly gh: Gh;
+  readonly asked: string[];
+  readonly pulls: FakePull[];
+  act: (pull: FakePull) => void;
+  beforeMerge: () => void;
+  /** What `gh pr merge` fails with once GitHub merged. */
+  mergeError: Error | null;
+  ci: "success" | "failure" | Error;
+}
+
+function urlOf(number: number): string {
+  return `https://github.example/o/r/pull/${number}`;
+}
+
+function flag(args: readonly string[], name: string): string {
+  const value = args[args.indexOf(name) + 1];
+
+  if (!args.includes(name) || value === undefined)
+    throw new Error(`gh ${args.join(" ")}: no ${name}`);
+
+  return value;
+}
+
+function headOf(pull: FakePull): string {
+  return pull.pinnedHead ?? git(origin, "rev-parse", `refs/heads/${pull.head}`);
+}
+
+function github(act: (pull: FakePull) => void = () => {}): FakeGitHub {
+  const fake: FakeGitHub = {
+    asked: [],
+    pulls: [],
+    act,
+    beforeMerge: () => {},
+    mergeError: null,
+    ci: "success",
+    gh: (args) => {
+      fake.asked.push(args.join(" "));
+
+      const [command, sub, number] = args;
+
+      if (command === "api") {
+        return fake.ci instanceof Error
+          ? Promise.reject(fake.ci)
+          : Promise.resolve(`7\tcompleted\t${fake.ci}\thttps://ci.example/runs/7\n`);
+      }
+
+      if (sub === "list") {
+        const head = flag(args, "--head");
+
+        return Promise.resolve(
+          JSON.stringify(
+            fake.pulls
+              .filter((pull) => pull.head === head)
+              .map((pull) => ({
+                number: pull.number,
+                state: pull.state,
+                title: pull.title,
+                body: pull.body,
+                url: urlOf(pull.number),
+                headRefOid: headOf(pull),
+                mergeCommit: pull.mergeCommit === null ? null : { oid: pull.mergeCommit },
+              })),
+          ),
+        );
+      }
+
+      if (sub === "create") {
+        const pull: FakePull = {
+          number: fake.pulls.length + 1,
+          title: flag(args, "--title"),
+          body: flag(args, "--body"),
+          head: flag(args, "--head"),
+          state: "OPEN",
+          mergeCommit: null,
+          pinnedHead: null,
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "BLOCKED",
+          checks: [],
+        };
+
+        fake.pulls.push(pull);
+
+        return Promise.resolve(`Creating pull request\n${urlOf(pull.number)}\n`);
+      }
+
+      const pull = fake.pulls.find((known) => String(known.number) === number);
+
+      if (pull === undefined)
+        return Promise.reject(new Error(`gh ${args.join(" ")}: no such pull`));
+
+      if (sub === "merge") {
+        if (!args.includes("--squash") || flag(args, "--match-head-commit") !== headOf(pull)) {
+          return Promise.reject(new Error("GraphQL: Head branch was modified"));
+        }
+
+        if (pull.mergeStateStatus !== "CLEAN") {
+          return Promise.reject(new Error("the base branch policy prohibits the merge"));
+        }
+
+        fake.beforeMerge();
+        githubSquash(pull);
+
+        return fake.mergeError === null ? Promise.resolve("") : Promise.reject(fake.mergeError);
+      }
+
+      if (sub !== "view") return Promise.reject(new Error(`gh ${args.join(" ")}: not faked`));
+
+      fake.act(pull);
+
+      return Promise.resolve(
+        JSON.stringify({
+          state: pull.state,
+          headRefOid: headOf(pull),
+          mergeCommit: pull.mergeCommit === null ? null : { oid: pull.mergeCommit },
+          mergeable: pull.mergeable,
+          mergeStateStatus: pull.mergeStateStatus,
+          statusCheckRollup: pull.checks,
+        }),
+      );
+    },
+  };
+
+  return fake;
+}
+
+/** A clone standing for GitHub's side of origin, where squash merges and other agents' landings are made. */
+function onGitHub(): string {
+  const clone = join(root, "github");
+
+  if (existsSync(clone)) {
+    git(clone, "fetch", "--quiet", "origin");
+  } else {
+    git(root, "clone", "--quiet", "--no-checkout", origin, clone);
+    git(clone, "config", "user.email", "gh@example.com");
+    git(clone, "config", "user.name", "gh");
+    git(clone, "config", "commit.gpgsign", "false");
+  }
+
+  git(clone, "checkout", "--quiet", "-B", "dev", "origin/dev");
+
+  return clone;
+}
+
+/** GitHub's squash merge: one commit on dev, titled with the pull request's title and its number. */
+function githubSquash(pull: FakePull) {
+  const clone = onGitHub();
+
+  pull.pinnedHead = headOf(pull);
+  git(clone, "merge", "--quiet", "--squash", `origin/${pull.head}`);
+  git(clone, "commit", "--quiet", "-m", `${pull.title} (#${pull.number})`);
+  git(clone, "push", "--quiet", "origin", "HEAD:refs/heads/dev");
+  pull.state = "MERGED";
+  pull.mergeCommit = git(clone, "rev-parse", "HEAD");
+}
+
+/** The owner adds `human-approved` and the required checks go green: GitHub calls it mergeable. */
+function approve(pull: FakePull) {
+  if (pull.state === "OPEN") pull.mergeStateStatus = "CLEAN";
+}
+
+function landOnDev(path: string, subject: string): string {
+  const clone = onGitHub();
+
+  mkdirSync(dirname(join(clone, path)), { recursive: true });
+  writeFileSync(join(clone, path), `${subject}\n`);
+  git(clone, "add", "-A");
+  git(clone, "commit", "--quiet", "-m", subject);
+  git(clone, "push", "--quiet", "origin", "HEAD:refs/heads/dev");
+
+  return git(clone, "rev-parse", "HEAD");
+}
+
+/** A commit pushed onto the release branch by someone other than the release. */
+function pushOnBranch(branch: string): string {
+  const clone = onGitHub();
+
+  git(clone, "checkout", "--quiet", "-B", "extra", `origin/${branch}`);
+  writeFileSync(join(clone, "extra.md"), "extra\n");
+  git(clone, "add", "-A");
+  git(clone, "commit", "--quiet", "-m", "docs: a fix after the review");
+  git(clone, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+
+  return git(clone, "rev-parse", "HEAD");
+}
+
+/** A pull request from the release branch of `target`, seeded as another run of release.ts left it. */
+function seededPull(target: string, state: "OPEN" | "MERGED", digest: string): FakePull {
+  return {
+    number: 4,
+    title: "chore(release): vellum@0.2.0",
+    body: `<!-- release.ts: plan ${digest}, commit ${"f".repeat(40)} -->`,
+    head: `release/${target.slice(0, 12)}`,
+    state,
+    mergeCommit: state === "MERGED" ? "e".repeat(40) : null,
+    pinnedHead: "f".repeat(40),
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    checks: [],
+  };
+}
+
+function commands(asked: readonly string[]): readonly string[] {
+  return asked.map((line) => line.split(" ").slice(0, 2).join(" "));
 }
 
 function refuseOnOrigin(ref: string) {
@@ -336,6 +570,21 @@ describe("a release", () => {
     );
   });
 
+  test("tags the last commit that set a version that was set, reverted and set again", () => {
+    manifest("vellum", "0.2.0");
+    changelog("vellum", "0.2.0", "0.1.0");
+    const reverted = commit("chore(release): vellum@0.2.0 (#1)");
+
+    git(repo, "revert", "--no-edit", reverted);
+    manifest("vellum", "0.2.0");
+    changelog("vellum", "0.2.0", "0.1.0");
+    const again = commit("chore(release): vellum@0.2.0 (#2)");
+
+    expect(
+      plannedTags(repo, shipped(), again).map(({ tag, commit: at }) => [`${tag}`, at]),
+    ).toEqual([["vellum-v0.2.0", again]]);
+  });
+
   test("tags nothing when no plugin that keeps a changelog changed version", () => {
     manifest("other", "1.1.0");
     const head = commit("feat(other): no changelog kept");
@@ -455,40 +704,69 @@ describe("a release with bumps", () => {
         "  chore(other): 1.0.1, b fixed",
         "  why  a fix",
         "",
+        "Commit  chore(release): vellum@0.2.0, other@1.0.1",
         "Tags    vellum-v0.2.0 on its bump commit",
       ]);
 
-      const asked: string[] = [];
+      const hub = github(approve);
       const said: string[] = [];
 
       const outcome = await ship(
         repo,
         plan,
-        context(ciGh("success", asked), (line) => said.push(line)),
+        context(hub.gh, (line) => said.push(line)),
       );
 
       const head = git(origin, "rev-parse", "refs/heads/dev");
-      const vellumBump = git(origin, "rev-parse", "refs/heads/dev~1");
+      const branch = `release/${target.slice(0, 12)}`;
 
-      expect(git(origin, "log", "--format=%s", `${target}..dev`).split("\n")).toEqual([
-        "chore(other): 1.0.1, b fixed",
-        "chore(vellum): 0.2.0, the a module",
+      const pushed = hub.pulls[0]?.pinnedHead ?? "";
+
+      expect(commands(hub.asked)).toEqual([
+        "pr list",
+        "pr list",
+        "pr create",
+        "pr view",
+        "pr merge",
+        "pr view",
+        "api --paginate",
       ]);
-      expect(git(origin, "rev-parse", "refs/heads/dev~2")).toBe(target);
+      expect(hub.asked).toContain(`pr merge 1 --squash --match-head-commit ${pushed}`);
+      expect(hub.asked.filter((line) => line.includes("--auto"))).toEqual([]);
+      expect(hub.asked.at(-1)).toContain(`head_sha=${head}&event=push`);
+      expect(hub.pulls.map(({ title, head: from }) => [title, from])).toEqual([
+        ["chore(release): vellum@0.2.0, other@1.0.1", branch],
+      ]);
+      expect(git(origin, "rev-parse", `${pushed}~1`)).toBe(target);
+      expect(hub.pulls[0]?.body).toContain(
+        "- chore(vellum): 0.2.0, the a module\n- chore(other): 1.0.1, b fixed",
+      );
+      expect(hub.pulls[0]?.body.split("\n").at(-1)).toBe(
+        `<!-- release.ts: plan ${planDigest(plan)}, commit ${pushed} -->`,
+      );
+      expect(said.filter((line) => line.includes("human-approved"))).toEqual([
+        expect.stringMatching(
+          /^https:\/\/github\.example\/o\/r\/pull\/1: add the label human-approved yourself, your approval, which this script never adds;/u,
+        ),
+      ]);
+      expect(git(origin, "log", "--format=%s", `${target}..dev`)).toBe(
+        "chore(release): vellum@0.2.0, other@1.0.1 (#1)",
+      );
+      expect(VERSION_BUMP.test(git(origin, "log", "-1", "--format=%s", "dev"))).toBe(true);
+      expect(git(origin, "rev-parse", "refs/heads/dev~1")).toBe(target);
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
-      expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(vellumBump);
+      expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
       expect(tagMessage("vellum-v0.2.0")).toBe(
         "## 0.2.0 - 2026-10-20\n\n### Added\n\n- The a module.",
       );
-      expect(git(origin, "show", "--name-only", "--format=", vellumBump).split("\n")).toEqual([
+      expect(git(origin, "show", "--name-only", "--format=", head).split("\n")).toEqual([
+        "other/.claude-plugin/plugin.json",
         "vellum/.claude-plugin/plugin.json",
         "vellum/CHANGELOG.md",
       ]);
       expect(git(origin, "show", `${head}:other/.claude-plugin/plugin.json`)).toBe(
         '{"name":"other","version":"1.0.1"}',
       );
-      expect(asked).toHaveLength(1);
-      expect(asked[0]).toContain(`head_sha=${head}&event=push`);
       expect(said.filter((line) => line.includes("past the plan's"))).toEqual([]);
       expect(outcome).toHaveProperty("kind", "released");
       expect(worktreeCount()).toBe(1);
@@ -497,7 +775,44 @@ describe("a release with bumps", () => {
   );
 
   test(
-    "rebases the bumps when dev moved by commits the plan needs not cover",
+    "tags every plugin the squash commit bumps on that commit",
+    async () => {
+      changelog("other", "1.0.0");
+      commit("docs(other): a changelog");
+      write("vellum/a.ts", "a\n");
+      write("other/b.ts", "b\n");
+      const target = commit("feat(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+      answer("other", {
+        level: "patch",
+        reason: "a fix",
+        summary: "b fixed",
+        body: "### Fixed\n\n- B.",
+      });
+
+      const plan = await sealedPlan(target);
+      const outcome = await ship(repo, plan, context(github(approve).gh));
+      const head = git(origin, "rev-parse", "refs/heads/dev");
+
+      expect(
+        outcome.kind === "released"
+          ? outcome.tags.map(({ tag, commit: at }) => [`${tag}`, at])
+          : outcome,
+      ).toEqual([
+        ["vellum-v0.2.0", head],
+        ["other-v1.0.1", head],
+      ]);
+      expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
+      expect(git(origin, "rev-parse", "refs/tags/other-v1.0.1^{commit}")).toBe(head);
+      expect(tagMessage("other-v1.0.1")).toBe("## 1.0.1 - 2026-10-20\n\n### Fixed\n\n- B.");
+    },
+    SLOW,
+  );
+
+  test(
+    "lands the bumps on dev's head when dev moved by commits the plan needs not cover",
     async () => {
       write("vellum/a.ts", "a\n");
       const target = commit("fix(vellum): a");
@@ -523,15 +838,18 @@ describe("a release with bumps", () => {
       const outcome = await ship(
         repo,
         plan,
-        context(ciGh("success", []), (line) => said.push(line)),
+        context(github(approve).gh, (line) => said.push(line)),
       );
 
       const head = git(origin, "rev-parse", "refs/heads/dev");
+      const branch = `release/${target.slice(0, 12)}`;
+      const bumps = git(origin, "rev-parse", `refs/heads/${branch}`);
 
       expect(outcome).toHaveProperty("kind", "released");
+      expect(git(origin, "rev-parse", `${branch}~1`)).toBe(moved);
       expect(git(origin, "rev-parse", "refs/heads/dev~1")).toBe(moved);
       expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe(
-        "chore(vellum): 0.2.0, the a module",
+        "chore(release): vellum@0.2.0 (#1)",
       );
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
       expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
@@ -540,7 +858,7 @@ describe("a release with bumps", () => {
         `  ${moved.slice(0, 7)} docs: notes`,
       ]);
       expect(readFileSync(join(root, "pre-push.log"), "utf8").split("\n").slice(0, 2)).toEqual([
-        `CALL [HEAD ${head} refs/heads/dev ${moved}]`,
+        `CALL [HEAD ${bumps} refs/heads/${branch} ${"0".repeat(40)}]`,
         `CALL [${head} ${head} refs/heads/main ${plan.shipped}]`,
       ]);
       expect(worktreeCount()).toBe(1);
@@ -549,7 +867,7 @@ describe("a release with bumps", () => {
   );
 
   test(
-    "is refused, nothing pushed, when the rebased head would make a tag the plan did not print",
+    "is refused, nothing pushed, when dev's head would make a tag the plan did not print",
     async () => {
       write("vellum/a.ts", "a\n");
       const target = commit("fix(vellum): a");
@@ -570,12 +888,15 @@ describe("a release with bumps", () => {
 
       pushDev();
 
-      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+      const hub = github(approve);
+      const outcome = await ship(repo, plan, context(hub.gh));
 
+      expect(outcome).toHaveProperty("kind", "refused");
       expect(outcome).toHaveProperty(
         "why",
         expect.stringContaining("the release would tag fresh-v0.1.0, which the plan did not print"),
       );
+      expect(commands(hub.asked)).toEqual(["pr list"]);
       expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(moved);
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
       expect(git(origin, "tag", "--list")).toBe("");
@@ -602,7 +923,7 @@ describe("a release with bumps", () => {
       git(repo, "push", "--quiet", "--force", "origin", "HEAD:refs/heads/dev");
       git(repo, "fetch", "--quiet", "origin");
 
-      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+      const outcome = await ship(repo, plan, context(github().gh));
 
       expect(outcome).toHaveProperty(
         "why",
@@ -618,7 +939,7 @@ describe("a release with bumps", () => {
   );
 
   test(
-    "rebases the bumps when dev moved while the pre-push hook ran",
+    "releases the squash commit GitHub made above what landed on dev while the pull request waited",
     async () => {
       write("vellum/a.ts", "a\n");
       const target = commit("fix(vellum): a");
@@ -627,33 +948,21 @@ describe("a release with bumps", () => {
       answerVellumMinor();
 
       const plan = await sealedPlan(target);
-      const other = join(root, "other-clone");
 
-      git(root, "clone", "--quiet", "--branch", "dev", origin, other);
-      writeFileSync(
-        join(repo, ".git", "hooks", "pre-push"),
-        [
-          "#!/bin/sh",
-          "cat >/dev/null",
-          `[ -e '${root}/landed' ] && exit 0`,
-          `touch '${root}/landed'`,
-          "unset $(git rev-parse --local-env-vars)",
-          `cd '${other}' || exit 1`,
-          "echo notes > notes.md",
-          "git add -A",
-          "git -c user.email=o@example.com -c user.name=o -c commit.gpgsign=false commit -qm 'docs: an agent landed meanwhile'",
-          "git push -q origin HEAD:refs/heads/dev",
-          "",
-        ].join("\n"),
-      );
-      chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
+      const hub = github((pull) => {
+        if (pull.mergeStateStatus !== "CLEAN") {
+          landOnDev("notes.md", "docs: an agent landed meanwhile");
+        }
 
-      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+        approve(pull);
+      });
+
+      const outcome = await ship(repo, plan, context(hub.gh));
       const head = git(origin, "rev-parse", "refs/heads/dev");
 
       expect(outcome).toHaveProperty("kind", "released");
       expect(git(origin, "log", "--format=%s", `${target}..dev`).split("\n")).toEqual([
-        "chore(vellum): 0.2.0, the a module",
+        "chore(release): vellum@0.2.0 (#1)",
         "docs: an agent landed meanwhile",
       ]);
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
@@ -677,23 +986,78 @@ describe("a release with bumps", () => {
       );
       chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
 
-      const outcome = await ship(repo, await sealedPlan(target), context(ciGh("success", [])));
+      const hub = github(approve);
+      const outcome = await ship(repo, await sealedPlan(target), context(hub.gh));
 
       expect(outcome).toHaveProperty("kind", "refused");
       expect(outcome).toHaveProperty(
         "why",
         expect.stringMatching(
-          /^the push of the bumps to dev was refused, nothing moved; once what it names is fixed, the same bun \.\/scripts\/release\.ts --plan <digest> applies again:\na gate is red\n/u,
+          /^the push of the bumps to release\/[0-9a-f]{12} was refused, nothing moved; once what it names is fixed, the same bun \.\/scripts\/release\.ts --plan <digest> applies again:\na gate is red\n/u,
         ),
       );
+      expect(commands(hub.asked)).toEqual(["pr list", "pr list"]);
       expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
       expect(worktreeCount()).toBe(1);
     },
     SLOW,
   );
 
+  test.each([
+    [
+      "a commit under a plugin the plan bumps",
+      () => {
+        const fix = landOnDev("vellum/c.ts", "fix(vellum): c");
+
+        return `dev moved to ${fix.slice(0, 7)} with commits under a plugin the plan bumps (${fix.slice(0, 7)} fix(vellum): c): run the dry-run again`;
+      },
+    ],
+    [
+      "main moving while dev stays put",
+      (target: string) => {
+        git(onGitHub(), "push", "--quiet", "origin", `${target}:refs/heads/main`);
+
+        return `main moved to ${target.slice(0, 7)} meanwhile: run the dry-run again`;
+      },
+    ],
+  ])(
+    "merges nothing, main unmoved, on %s while the pull request is open",
+    async (_, meanwhile) => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      let why = "";
+
+      const hub = github((pull) => {
+        if (pull.mergeStateStatus !== "CLEAN") why = meanwhile(target);
+
+        approve(pull);
+      });
+
+      const dev = () => git(origin, "rev-parse", "refs/heads/dev");
+      const outcome = await ship(repo, plan, context(hub.gh));
+
+      expect(outcome).toEqual({
+        kind: "not-merged",
+        pr: { number: 1, url: urlOf(1) },
+        wait: { kind: "drift", why },
+      });
+      expect(reportOf(outcome).text).toBe(
+        `The release pull request #1 (${urlOf(1)}) is mergeable, but nothing merged and main is unmoved: ${why}. Close it (gh pr close 1 --delete-branch --comment "dev moved under the release plan"), then run the dry-run again: its plan judges what dev gained.`,
+      );
+      expect(commands(hub.asked)).toEqual(["pr list", "pr list", "pr create", "pr view"]);
+      expect(git(origin, "log", "-1", "--format=%s", dev())).not.toContain("chore(release)");
+      expect(git(origin, "tag", "--list")).toBe("");
+    },
+    SLOW,
+  );
+
   test(
-    "is refused, nothing pushed, when main moved while the bumps were pushed",
+    "merges nothing when the release branch's head is not the commit it pushed",
     async () => {
       write("vellum/a.ts", "a\n");
       const target = commit("fix(vellum): a");
@@ -702,49 +1066,33 @@ describe("a release with bumps", () => {
       answerVellumMinor();
 
       const plan = await sealedPlan(target);
-      const other = join(root, "other-clone");
+      let extra = "";
 
-      git(root, "clone", "--quiet", "--branch", "dev", origin, other);
-      git(other, "config", "user.email", "o@example.com");
-      git(other, "config", "user.name", "o");
-      git(other, "config", "commit.gpgsign", "false");
+      const hub = github((pull) => {
+        if (extra === "") extra = pushOnBranch(pull.head);
 
-      let moved = false;
+        approve(pull);
+      });
 
-      const outcome = await ship(
-        repo,
-        plan,
-        context(ciGh("success", []), (line) => {
-          if (moved || !line.startsWith("pushing")) return;
+      const outcome = await ship(repo, plan, context(hub.gh));
+      const pushed = git(origin, "rev-parse", `${extra}~1`);
 
-          moved = true;
-          writeFileSync(join(other, "notes.md"), "notes\n");
-          git(other, "add", "-A");
-          git(other, "commit", "-qm", "docs: notes");
-          git(
-            other,
-            "push",
-            "--quiet",
-            "origin",
-            "HEAD:refs/heads/dev",
-            `${target}:refs/heads/main`,
-          );
-        }),
+      expect(outcome).toEqual({
+        kind: "not-merged",
+        pr: { number: 1, url: urlOf(1) },
+        wait: { kind: "foreign-head", head: extra, pushed },
+      });
+      expect(reportOf(outcome).text).toContain(
+        `has the head ${extra.slice(0, 7)}, not ${pushed.slice(0, 7)}, the commit this script pushed; nothing merged, main unmoved.`,
       );
-
-      expect(outcome).toHaveProperty(
-        "why",
-        expect.stringContaining(`main moved to ${target.slice(0, 7)} meanwhile`),
-      );
-      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(target);
-      expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe("docs: notes");
-      expect(worktreeCount()).toBe(1);
+      expect(commands(hub.asked)).not.toContain("pr merge");
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
     },
     SLOW,
   );
 
   test(
-    "says the bumps are on dev, and what comes next, when the wait for CI fails",
+    "says to revert the release commit when dev gained a commit under a bumped plugin between its check and the merge",
     async () => {
       write("vellum/a.ts", "a\n");
       const target = commit("fix(vellum): a");
@@ -752,12 +1100,219 @@ describe("a release with bumps", () => {
       pushDev();
       answerVellumMinor();
 
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+      let fix = "";
+
+      hub.beforeMerge = () => {
+        fix = landOnDev("vellum/c.ts", "fix(vellum): c");
+      };
+
+      const outcome = await ship(repo, plan, context(hub.gh));
+      const head = git(origin, "rev-parse", "refs/heads/dev");
+      const line = `${fix.slice(0, 7)} fix(vellum): c`;
+
+      expect(outcome).toEqual({
+        kind: "unplanned",
+        head,
+        why: `dev moved to ${fix.slice(0, 7)} with commits under a plugin the plan bumps (${line}): run the dry-run again`,
+        commits: [line],
+      });
+      expect(reportOf(outcome).text).toContain(`main is unmoved: dev moved to ${fix.slice(0, 7)}`);
+      expect(reportOf(outcome).text).toContain(
+        `Revert ${head.slice(0, 7)} on dev through a pull request (git revert ${head}), then run the dry-run again: the revert resets the versions, so the next plan judges everything.`,
+      );
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
+      expect(git(origin, "tag", "--list")).toBe("");
+    },
+    SLOW,
+  );
+
+  test(
+    "says the bumps are on dev, main unmoved, when reading the squash commit fails",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+
+      hub.beforeMerge = () => {
+        git(repo, "tag", "vellum-v0.2.0", target);
+      };
+
+      const outcome = await ship(repo, plan, context(hub.gh));
+      const head = git(origin, "rev-parse", "refs/heads/dev");
+
+      expect(outcome).toEqual({
+        kind: "after-bumps",
+        head,
+        why: "vellum-v0.2.0 exists already: a tag is never moved",
+      });
+      expect(reportOf(outcome).text).toBe(
+        `The bumps are on dev at ${head.slice(0, 7)}; main is unmoved: vellum-v0.2.0 exists already: a tag is never moved\nNext: the same bun ./scripts/release.ts --plan <digest>; it finds its pull request merged, checks the squash commit again, waits for CI and moves main.`,
+      );
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
+    },
+    SLOW,
+  );
+
+  test(
+    "pushes nothing when another run opened the release pull request while this one made its commit",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+
       const outcome = await ship(
         repo,
-        await sealedPlan(target),
-        context(() => Promise.reject(new Error("gh api exited 1: HTTP 502"))),
+        plan,
+        context(hub.gh, (line) => {
+          if (line.startsWith("committing")) {
+            hub.pulls.push(seededPull(target, "OPEN", planDigest(plan)));
+          }
+        }),
       );
 
+      expect(outcome).toEqual({
+        kind: "refused",
+        why: `${urlOf(4)}, from release/${target.slice(0, 12)}, opened meanwhile, by another run of this plan; nothing pushed: the same bun ./scripts/release.ts --plan <digest> applies again and resumes it`,
+      });
+      expect(commands(hub.asked)).toEqual(["pr list", "pr list"]);
+      expect(git(origin, "branch", "--list", "release/*")).toBe("");
+    },
+    SLOW,
+  );
+
+  test(
+    "pushes nothing over a branch another run pushed before opening its pull request",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+      const branch = `release/${target.slice(0, 12)}`;
+      let theirs = "";
+
+      const outcome = await ship(
+        repo,
+        plan,
+        context(hub.gh, (line) => {
+          if (!line.startsWith("committing")) return;
+
+          const clone = onGitHub();
+
+          writeFileSync(join(clone, "theirs.md"), "theirs\n");
+          git(clone, "add", "-A");
+          git(clone, "commit", "--quiet", "-m", "chore(release): vellum@0.2.0");
+          git(clone, "push", "--quiet", "origin", `HEAD:refs/heads/${branch}`);
+          theirs = git(clone, "rev-parse", "HEAD");
+        }),
+      );
+
+      expect(outcome).toEqual({
+        kind: "refused",
+        why: `${branch} holds ${theirs.slice(0, 7)}, the head of no closed pull request from it: another run of this plan may have pushed it and be opening its pull request; nothing pushed: the same bun ./scripts/release.ts --plan <digest> applies again and resumes that pull request once it is open, or delete the branch (git push origin --delete ${branch}) if nothing uses it`,
+      });
+      expect(git(origin, "rev-parse", `refs/heads/${branch}`)).toBe(theirs);
+      expect(commands(hub.asked)).toEqual(["pr list", "pr list"]);
+    },
+    SLOW,
+  );
+
+  test(
+    "says the bumps may be on dev when the merge call fails after GitHub merged, and the same plan carries on",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+
+      hub.mergeError = new Error("gh pr merge exited 1: HTTP 502");
+
+      const outcome = await ship(repo, plan, context(hub.gh));
+      const head = git(origin, "rev-parse", "refs/heads/dev");
+
+      expect(outcome).toEqual({
+        kind: "not-merged",
+        pr: { number: 1, url: urlOf(1) },
+        wait: { kind: "merge-unsure", why: "gh pr merge exited 1: HTTP 502" },
+      });
+      expect(reportOf(outcome).text).toBe(
+        `The release pull request #1 (${urlOf(1)}) may have merged: gh pr merge exited 1: HTTP 502. The bumps may already be on dev; main is unmoved. The same bun ./scripts/release.ts --plan <digest> finds the pull request merged and carries on from its commit, or resumes the wait if it did not merge.`,
+      );
+      expect(git(origin, "log", "-1", "--format=%s", head)).toBe(
+        "chore(release): vellum@0.2.0 (#1)",
+      );
+
+      hub.mergeError = null;
+
+      expect(await ship(repo, plan, context(hub.gh))).toHaveProperty("kind", "released");
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
+    },
+    SLOW,
+  );
+
+  test.each(["OPEN", "MERGED"] as const)(
+    "is refused, nothing pushed, when the %s pull request of its branch holds another plan",
+    async (state) => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+
+      hub.pulls.push(seededPull(target, state, "a".repeat(12)));
+
+      const outcome = await ship(repo, plan, context(hub.gh));
+
+      expect(outcome).toEqual({
+        kind: "refused",
+        why:
+          state === "OPEN"
+            ? `${urlOf(4)} holds the bumps of the plan ${"a".repeat(12)}, not of the plan ${planDigest(plan)}: close it (gh pr close 4 --delete-branch --comment "replaced by another release plan"), then the same bun ./scripts/release.ts --plan <digest> applies again; or apply its own plan: bun ./scripts/release.ts --plan ${"a".repeat(12)}`
+            : `${urlOf(4)} merged the bumps of the plan ${"a".repeat(12)}, not of the plan ${planDigest(plan)}: carry that release on with bun ./scripts/release.ts --plan ${"a".repeat(12)}, or run the dry-run again`,
+      });
+      expect(commands(hub.asked)).toEqual(["pr list"]);
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
+    },
+    SLOW,
+  );
+
+  test(
+    "says the bumps are on dev when the wait for CI fails, and the same plan carries on from the merged pull request",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github(approve);
+
+      hub.ci = new Error("gh api exited 1: HTTP 502");
+
+      const outcome = await ship(repo, plan, context(hub.gh));
       const head = commitAt(repo, "origin/dev");
 
       expect(outcome).toEqual({
@@ -766,11 +1321,246 @@ describe("a release with bumps", () => {
         why: "waiting for its push run of CI failed: gh api exited 1: HTTP 502",
       });
       expect(reportOf(outcome).text).toBe(
-        `The bumps are on dev at ${head.slice(0, 7)}; main is unmoved: waiting for its push run of CI failed: gh api exited 1: HTTP 502\nNext: bun ./scripts/release.ts --dry-run, then --plan <the digest it prints>; its plan finds these bumps made, so it only waits for CI and pushes main.`,
+        `The bumps are on dev at ${head.slice(0, 7)}; main is unmoved: waiting for its push run of CI failed: gh api exited 1: HTTP 502\nNext: the same bun ./scripts/release.ts --plan <digest>; it finds its pull request merged, checks the squash commit again, waits for CI and moves main.`,
       );
       expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe(
-        "chore(vellum): 0.2.0, the a module",
+        "chore(release): vellum@0.2.0 (#1)",
       );
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(shipped());
+
+      hub.ci = "success";
+      hub.asked.length = 0;
+
+      expect(await ship(repo, plan, context(hub.gh))).toHaveProperty("kind", "released");
+      expect(commands(hub.asked)).toEqual(["pr list", "api --paginate"]);
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
+      expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
+    },
+    SLOW,
+  );
+
+  test(
+    "stops on a closed pull request, dev and main unmoved, and the same plan then opens a new one",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+
+      const hub = github((pull) => {
+        pull.state = "CLOSED";
+      });
+
+      const outcome = await ship(repo, plan, context(hub.gh));
+
+      expect(outcome).toEqual({
+        kind: "not-merged",
+        pr: { number: 1, url: urlOf(1) },
+        wait: { kind: "closed" },
+      });
+      expect(reportOf(outcome)).toEqual({
+        text: `The release pull request #1 (${urlOf(1)}) was closed without merging; dev and main are unmoved: the same bun ./scripts/release.ts --plan <digest> applies again and opens a new one, or run the dry-run again if the plan should change.`,
+        exit: 1,
+      });
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
+
+      hub.act = approve;
+
+      expect(await ship(repo, plan, context(hub.gh))).toHaveProperty("kind", "released");
+      expect(hub.pulls.map(({ number, state }) => [number, state])).toEqual([
+        [1, "CLOSED"],
+        [2, "MERGED"],
+      ]);
+      expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe(
+        "chore(release): vellum@0.2.0 (#2)",
+      );
+      expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "stops when the pull request is not merged in time, and a second run resumes it",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const hub = github();
+      const said: string[] = [];
+
+      const outcome = await ship(
+        repo,
+        plan,
+        context(hub.gh, (line) => said.push(line), { timeoutMs: 50, pollMs: 10 }),
+      );
+
+      expect(outcome).toEqual({
+        kind: "not-merged",
+        pr: { number: 1, url: urlOf(1) },
+        wait: { kind: "timeout", status: "BLOCKED" },
+      });
+      expect(reportOf(outcome).text).toBe(
+        `The release pull request #1 (${urlOf(1)}) is not mergeable after 60 min (BLOCKED); nothing merged, main unmoved. Once human-approved is on it and its required checks are green, the same bun ./scripts/release.ts --plan <digest> applies again and resumes the wait.`,
+      );
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
+
+      const pushed = git(origin, "rev-parse", `refs/heads/release/${target.slice(0, 12)}`);
+
+      hub.act = approve;
+      said.length = 0;
+
+      expect(
+        await ship(
+          repo,
+          plan,
+          context(hub.gh, (line) => said.push(line)),
+        ),
+      ).toHaveProperty("kind", "released");
+      expect(hub.asked.filter((line) => line.startsWith("pr create"))).toHaveLength(1);
+      expect(hub.asked.filter((line) => line.startsWith("pr merge"))).toEqual([
+        `pr merge 1 --squash --match-head-commit ${pushed}`,
+      ]);
+      expect(said[0]).toBe(`resuming the wait for ${urlOf(1)}`);
+      expect(git(origin, "rev-parse", `refs/heads/release/${target.slice(0, 12)}`)).toBe(pushed);
+      expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe(
+        "chore(release): vellum@0.2.0 (#1)",
+      );
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(
+        git(origin, "rev-parse", "refs/heads/dev"),
+      );
+    },
+    SLOW,
+  );
+
+  test.each<readonly [string, (pull: FakePull) => void, MergeStop, string]>([
+    [
+      "a red check",
+      (pull: FakePull) => {
+        pull.checks = [
+          {
+            __typename: "CheckRun",
+            name: "test",
+            status: "COMPLETED",
+            conclusion: "FAILURE",
+            detailsUrl: "https://ci.example/runs/9",
+          },
+          {
+            __typename: "CheckRun",
+            name: "owner-gate",
+            status: "COMPLETED",
+            conclusion: "FAILURE",
+            detailsUrl: "https://ci.example/runs/10",
+          },
+        ];
+      },
+      {
+        kind: "red",
+        checks: [
+          { name: "test", url: "https://ci.example/runs/9", verdict: "red", startedAt: null },
+        ],
+      },
+      `The release pull request #1 (${urlOf(1)}) has test red (https://ci.example/runs/9); nothing merged, main unmoved. Read the failed runs. A flaky job: re-run it (gh run rerun <run-id> --failed), then the same bun ./scripts/release.ts --plan <digest> applies again and resumes the wait. A fix lands on dev on its own, not on this branch, whose head this script refuses unless it pushed it. Close it (gh pr close 1 --delete-branch --comment "a fix lands first"), then run the dry-run again.`,
+    ],
+    [
+      "a red review after a skipped run of it",
+      (pull: FakePull) => {
+        pull.checks = [
+          {
+            __typename: "CheckRun",
+            name: "review",
+            status: "COMPLETED",
+            conclusion: "SKIPPED",
+            startedAt: EARLIER,
+            detailsUrl: "https://ci.example/runs/11",
+          },
+          {
+            __typename: "CheckRun",
+            name: "review",
+            status: "COMPLETED",
+            conclusion: "FAILURE",
+            startedAt: LATER,
+            detailsUrl: "https://ci.example/runs/12",
+          },
+        ];
+      },
+      {
+        kind: "red",
+        checks: [
+          { name: "review", url: "https://ci.example/runs/12", verdict: "red", startedAt: LATER },
+        ],
+      },
+      `The release pull request #1 (${urlOf(1)}) has review red (https://ci.example/runs/12); nothing merged, main unmoved. The review found something: read its comments on the pull request; running it again gives the same verdict. A fix lands on dev on its own, not on this branch, whose head this script refuses unless it pushed it. Close it (gh pr close 1 --delete-branch --comment "a fix lands first"), then run the dry-run again.`,
+    ],
+    [
+      "the agent's check red with the job that runs it, a failure a flaky job explains",
+      (pull: FakePull) => {
+        pull.checks = [
+          {
+            __typename: "CheckRun",
+            name: "review (read)",
+            status: "COMPLETED",
+            conclusion: "FAILURE",
+            startedAt: EARLIER,
+            detailsUrl: "https://ci.example/runs/13",
+          },
+          {
+            __typename: "CheckRun",
+            name: "review",
+            status: "COMPLETED",
+            conclusion: "FAILURE",
+            startedAt: LATER,
+            detailsUrl: "https://ci.example/runs/13",
+          },
+        ];
+      },
+      {
+        kind: "red",
+        checks: [
+          {
+            name: "review (read)",
+            url: "https://ci.example/runs/13",
+            verdict: "red",
+            startedAt: EARLIER,
+          },
+          { name: "review", url: "https://ci.example/runs/13", verdict: "red", startedAt: LATER },
+        ],
+      },
+      `The release pull request #1 (${urlOf(1)}) has review (read) red (https://ci.example/runs/13), review red (https://ci.example/runs/13); nothing merged, main unmoved. Read the failed runs. A flaky job: re-run it (gh run rerun <run-id> --failed), then the same bun ./scripts/release.ts --plan <digest> applies again and resumes the wait. A fix lands on dev on its own, not on this branch, whose head this script refuses unless it pushed it. Close it (gh pr close 1 --delete-branch --comment "a fix lands first"), then run the dry-run again.`,
+    ],
+    [
+      "a conflict with dev",
+      (pull: FakePull) => {
+        pull.mergeable = "CONFLICTING";
+      },
+      { kind: "conflict" },
+      `The release pull request #1 (${urlOf(1)}) conflicts with dev; nothing merged, main unmoved. Close it (gh pr close 1 --delete-branch --comment "conflicts with dev"), then run the dry-run again: its plan bumps on dev's head.`,
+    ],
+  ])(
+    "stops on %s, dev and main unmoved",
+    async (name, act, wait, said) => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const hub = github(act);
+      const outcome = await ship(repo, await sealedPlan(target), context(hub.gh));
+
+      expect(outcome).toEqual({ kind: "not-merged", pr: { number: 1, url: urlOf(1) }, wait });
+      expect(reportOf(outcome).text).toBe(said);
+      expect(hub.asked.filter((line) => line.startsWith("pr view"))).toHaveLength(1);
+
+      if (name.includes("review")) expect(reportOf(outcome).text).not.toMatch(/re-?run/iu);
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(shipped());
     },
     SLOW,
@@ -786,7 +1576,8 @@ describe("a release with bumps", () => {
       answerVellumMinor();
       refuseOnOrigin("refs/heads/main");
 
-      const outcome = await ship(repo, await sealedPlan(target), context(ciGh("success", [])));
+      const outcome = await ship(repo, await sealedPlan(target), context(github(approve).gh));
+
       const head = commitAt(repo, "origin/dev");
 
       expect(outcome).toHaveProperty("kind", "after-bumps");
@@ -801,11 +1592,7 @@ describe("a release with bumps", () => {
   );
 
   test.each([
-    [
-      "a plugin the plan bumps",
-      "vellum/c.ts",
-      "with changes to a plugin the plan bumps (vellum/c.ts)",
-    ],
+    ["a plugin the plan bumps", "vellum/c.ts", "with commits under a plugin the plan bumps ("],
     ["a plugin that now needs a bump too", "other/c.ts", "and other now need a bump too"],
   ])(
     "is refused, nothing pushed, when dev moved under %s",
@@ -823,7 +1610,7 @@ describe("a release with bumps", () => {
 
       pushDev();
 
-      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+      const outcome = await ship(repo, plan, context(github(approve).gh));
 
       expect(outcome).toHaveProperty("kind", "refused");
       expect(outcome).toHaveProperty("why", expect.stringContaining(why));
@@ -849,11 +1636,11 @@ describe("a release with bumps", () => {
       );
       chmodSync(join(repo, ".git", "hooks", "pre-commit"), 0o755);
 
-      const outcome = await ship(repo, await sealedPlan(target), context(ciGh("success", [])));
+      const outcome = await ship(repo, await sealedPlan(target), context(github(approve).gh));
 
       expect(outcome).toEqual({
         kind: "refused",
-        why: "the commit chore(vellum): 0.2.0, the a module failed:\nno bump",
+        why: "the commit chore(release): vellum@0.2.0 failed:\nno bump",
       });
       expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
       expect(worktreeCount()).toBe(1);
@@ -870,11 +1657,11 @@ describe("a release with bumps", () => {
       pushDev();
       answerVellumMinor();
 
-      const outcome: ShipOutcome = await ship(
-        repo,
-        await sealedPlan(target),
-        context(ciGh("failure", [])),
-      );
+      const hub = github(approve);
+
+      hub.ci = "failure";
+
+      const outcome: ShipOutcome = await ship(repo, await sealedPlan(target), context(hub.gh));
 
       expect(outcome).toEqual({
         kind: "ci-not-green",
@@ -893,7 +1680,7 @@ describe("a release with bumps", () => {
         },
       });
       expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe(
-        "chore(vellum): 0.2.0, the a module",
+        "chore(release): vellum@0.2.0 (#1)",
       );
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(shipped());
       expect(git(origin, "tag", "--list")).toBe("");
@@ -1089,6 +1876,7 @@ describe("the dry-run's output", () => {
       plan: run.sealed.path,
       model: "opus",
       costUsd: 0.034,
+      title: "chore(release): vellum@0.18.0",
       bumps: [
         {
           ...bump,
@@ -1120,6 +1908,91 @@ describe("the dry-run's output", () => {
   });
 });
 
+const EARLIER = "2026-11-23T10:00:00Z";
+
+const LATER = "2026-11-23T10:05:00Z";
+
+function check(
+  name: string,
+  verdict: PullCheck["verdict"],
+  startedAt: string | null = null,
+): PullCheck {
+  return { name, url: `https://ci.example/${name}`, verdict, startedAt };
+}
+
+describe("the wait for the release pull request", () => {
+  const pushed = "b".repeat(40);
+
+  const open: Extract<PullView, { state: "OPEN" }> = {
+    state: "OPEN",
+    headRefOid: pushed,
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "BLOCKED",
+    checks: [],
+  };
+
+  function decided(view: PullView, elapsedMs = 0) {
+    return decideMerge(view, pushed, elapsedMs, 1000);
+  }
+
+  test("waits while owner-gate alone is red: it is red until the owner's label", () => {
+    expect(
+      decided({ ...open, checks: [check("owner-gate", "red"), check("test", "green")] }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  test("judges each check by its latest run, ordered by startedAt, not by its place in the list", () => {
+    expect(
+      decided({ ...open, checks: [check("test", "red", LATER), check("test", "green", EARLIER)] }),
+    ).toEqual({ kind: "red", checks: [check("test", "red", LATER)] });
+    expect(
+      decided({ ...open, checks: [check("test", "green", LATER), check("test", "red", EARLIER)] }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  test("stops at once on a red run after a green or skipped one", () => {
+    expect(
+      decided({
+        ...open,
+        checks: [check("review", "green", EARLIER), check("review", "red", LATER)],
+      }),
+    ).toEqual({ kind: "red", checks: [check("review", "red", LATER)] });
+  });
+
+  test("waits on a red check whose re-run is queued, not started yet", () => {
+    expect(
+      decided({ ...open, checks: [check("test", "red", EARLIER), check("test", "pending", null)] }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  test("is mergeable once GitHub's merge state is CLEAN, and on no other state", () => {
+    expect(decided({ ...open, mergeStateStatus: "CLEAN" })).toEqual({ kind: "mergeable" });
+
+    for (const status of ["BLOCKED", "BEHIND", "UNSTABLE", "UNKNOWN", "DRAFT"]) {
+      expect(decided({ ...open, mergeStateStatus: status })).toEqual({ kind: "wait" });
+    }
+  });
+
+  test("ends on a head it did not push, before anything else", () => {
+    expect(decided({ ...open, headRefOid: "c".repeat(40), mergeStateStatus: "CLEAN" })).toEqual({
+      kind: "foreign-head",
+      head: "c".repeat(40),
+      pushed,
+    });
+  });
+
+  test("ends on a conflict, a close, a merge, and the timeout", () => {
+    expect(decided({ ...open, mergeable: "CONFLICTING" })).toEqual({ kind: "conflict" });
+    expect(decided({ state: "CLOSED" })).toEqual({ kind: "closed" });
+    expect(decided({ state: "MERGED", mergeCommit: "c".repeat(40), headRefOid: pushed })).toEqual({
+      kind: "merged",
+      commit: "c".repeat(40),
+      head: pushed,
+    });
+    expect(decided(open, 1000)).toEqual({ kind: "timeout", status: "BLOCKED" });
+  });
+});
+
 describe("the commit hooks", () => {
   test(
     "lefthook's sync-versions puts each bump into the catalog and the README, in the bump's commit",
@@ -1132,7 +2005,7 @@ describe("the commit hooks", () => {
       answerVellumMinor();
 
       expect(
-        await ship(repo, await sealedPlan(target), context(ciGh("success", []))),
+        await ship(repo, await sealedPlan(target), context(github(approve).gh)),
       ).toHaveProperty("kind", "released");
 
       const head = git(origin, "rev-parse", "refs/heads/dev");
@@ -1158,7 +2031,7 @@ describe("the commit hooks", () => {
   );
 
   test(
-    "a bump that does not rebase on what dev gained is refused, its rebase aborted so git records no conflict",
+    "the bumps' commit is made on dev's head, so the README row dev changed since the plan keeps its text",
     async () => {
       installSyncVersions();
       write("vellum/a.ts", "a\n");
@@ -1176,20 +2049,16 @@ describe("the commit hooks", () => {
       const moved = commit("docs: vellum's row says more");
 
       pushDev();
-      git(repo, "config", "rerere.enabled", "true");
 
-      const outcome = await ship(repo, plan, context(ciGh("success", [])));
-      const recorded = join(repo, ".git", "rr-cache");
+      const outcome = await ship(repo, plan, context(github(approve).gh));
+      const head = git(origin, "rev-parse", "refs/heads/dev");
 
-      expect(outcome).toHaveProperty("kind", "refused");
-      expect(outcome).toHaveProperty(
-        "why",
-        expect.stringContaining(`the bumps do not rebase on dev's ${moved.slice(0, 7)}`),
+      expect(outcome).toHaveProperty("kind", "released");
+      expect(git(origin, "rev-parse", "refs/heads/dev~1")).toBe(moved);
+      expect(git(origin, "show", `${head}:README.md`)).toContain(
+        "| [vellum](vellum/) | 0.2.0 | Plans, read in a page. |",
       );
-      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(moved);
-      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
       expect(worktreeCount()).toBe(1);
-      expect(existsSync(recorded) ? readdirSync(recorded) : []).toEqual([]);
     },
     SLOW,
   );

@@ -13,7 +13,7 @@
  *
  * The candidates are the non-merge commits whose committer date falls in an
  * ISO week, Monday 00:00 UTC to the next (the last complete one, or the one
- * `--week` names), minus the version bumps (`chore(<scope>): x.y.z`) and the commits with no code in them
+ * `--week` names), minus the version bumps (`VERSION_BUMP`) and the commits with no code in them
  * (documentation, lockfiles, Claude Code's own types). Each candidate draws an exponential clock from a
  * hash of the week and its sha, divided by the square root of its code lines;
  * the `--count` smallest clocks are the sample. That is weighted sampling
@@ -40,7 +40,12 @@ const DAY_MS = 86_400_000;
 
 const WEEK_TEXT = /^(\d{4})-W(\d{2})$/u;
 
-export const VERSION_BUMP = /^chore(?:\([^)]*\))?: \d+\.\d+\.\d+(?:[\s,]|$)/u;
+/**
+ * A bump commit: one plugin's, `chore(<plugin>): x.y.z`, or a release's squash commit as `titleOf`
+ * in `scripts/release.ts` titles it, `chore(release): <plugin>@x.y.z, ...` then GitHub's ` (#n)`.
+ */
+export const VERSION_BUMP =
+  /^chore(?:\([^)]*\))?: \d+\.\d+\.\d+(?:[\s,]|$)|^chore\(release\): [a-z0-9][a-z0-9._-]*@\d+\.\d+\.\d+(?:, [a-z0-9][a-z0-9._-]*@\d+\.\d+\.\d+)*(?: \(#\d+\))?$/u;
 
 const LOCKFILE = /(?:^|\/)(?:[^/]*\.lock|package-lock\.json|bun\.lockb)$/u;
 

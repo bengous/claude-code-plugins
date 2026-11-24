@@ -9,7 +9,7 @@
  * runs everything.
  *
  *   bun ./scripts/gates/affected.ts test            the scope's suites, `scripts/` always among them
- *   bun ./scripts/gates/affected.ts github-output   `all`, `units` and `kits`, appended to `$GITHUB_OUTPUT`
+ *   bun ./scripts/gates/affected.ts github-output   `all`, `units`, `kits` and `e2e`, appended to `$GITHUB_OUTPUT`
  *   bun ./scripts/gates/affected.ts print           the scope, as JSON
  *
  * `test --retry <job>`, in CI alone, runs each suite through `flaky-report.ts`'s retry: the files
@@ -29,6 +29,7 @@ import { parseArgs } from "node:util";
 import { GitError, git, gitRead } from "../../tools/platform/git.ts";
 import { retryReported } from "../ci/flaky-report.ts";
 import { TYPES_DIR } from "../lib/claude-code-types-paths.ts";
+import { isE2ePath } from "./e2e-paths.ts";
 import { hooksModulePlugins } from "./hooks-modules.ts";
 
 /** A top-level directory, or `.claude/hooks`. */
@@ -188,6 +189,25 @@ export async function currentScope(
   return scopeOf([...changed, ...untracked]);
 }
 
+/**
+ * Whether a CI run runs vellum's browser suite. A pull request's does when its change, against the tip it is merged
+ * into, touches a path the suite covers (`isE2ePath`), or does not read. Any other run does: a push's check says
+ * the whole tree passes, and a push scoped to its own commits would hide a suite the push before it left red.
+ */
+export async function reachesE2e(repoRoot: string, env: Env = process.env): Promise<boolean> {
+  const base = await baseOf(undefined, env);
+
+  if (base.kind !== "ref") return true;
+
+  const diffed = await git(["diff", "--name-only", "--no-renames", "-z", base.ref, "HEAD"], {
+    cwd: repoRoot,
+  });
+
+  if (diffed.kind !== "exited" || diffed.code !== 0 || diffed.outputLost === true) return true;
+
+  return nulSeparated(diffed.stdout).some((path) => isE2ePath(path));
+}
+
 /** The hooks-module plugins whose kits the scope runs, in catalog order. */
 export function kitsOf(scope: Scope, modulePlugins: readonly string[]): readonly string[] {
   return scope.kind === "all"
@@ -308,10 +328,10 @@ export async function suitesOf(repoRoot: string): Promise<Suites> {
   };
 }
 
-export function githubOutput(scope: Scope, kits: readonly string[]): string {
+export function githubOutput(scope: Scope, kits: readonly string[], e2e: boolean): string {
   const units = scope.kind === "all" ? [] : scope.units;
 
-  return `all=${scope.kind === "all"}\nunits=${JSON.stringify(units)}\nkits=${JSON.stringify(kits)}\n`;
+  return `all=${scope.kind === "all"}\nunits=${JSON.stringify(units)}\nkits=${JSON.stringify(kits)}\ne2e=${e2e}\n`;
 }
 
 export type Args = {
@@ -406,7 +426,7 @@ if (import.meta.main) {
 
       if (outputPath === undefined) throw new Error("GITHUB_OUTPUT is unset");
       const kits = kitsOf(scope, await hooksModulePlugins(repoRoot));
-      await appendFile(outputPath, githubOutput(scope, kits));
+      await appendFile(outputPath, githubOutput(scope, kits, await reachesE2e(repoRoot)));
       break;
     }
 

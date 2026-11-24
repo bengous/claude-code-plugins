@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 #
-# lefthook pre-push: on a push to dev, a refusal while another process holds
-# the landing lock (scripts/landing/lock-check.ts, given git's remote URL in
-# $2, empty when the hook runs outside a push); on a push to main, the
-# version guard over the pushed commits; on a push to dev, the e2e gate over
-# the pushed commit; then the CI gates and the suites that HEAD's commits
-# reach since their merge-base with origin/dev (scripts/gates/affected.ts
-# --committed), run on the working tree: an untracked or uncommitted file
-# is not pushed, so it widens no scope.
+# lefthook pre-push: on a push to main, the version guard over the pushed
+# commits; then the CI gates and the suites that HEAD's commits reach since
+# their merge-base with origin/dev (scripts/gates/affected.ts --committed),
+# run on the working tree: an untracked or uncommitted file is not pushed, so
+# it widens no scope.
 #
 # A push from a linked worktree exports GIT_DIR to this hook. The test suites
 # run git in temp repos with the inherited environment: with GIT_DIR still set,
@@ -27,8 +24,6 @@ git_env_list="$(git rev-parse --local-env-vars)"
 mapfile -t git_env_vars <<<"${git_env_list}"
 unset "${git_env_vars[@]}"
 
-bun ./scripts/landing/lock-check.ts "${2:-}" <<<"${pushed_refs}"
 bun ./scripts/releasing/check-plugin-bumps.ts --pre-push <<<"${pushed_refs}"
-bun ./scripts/gates/check-e2e-green.ts <<<"${pushed_refs}"
 bun ./scripts/gates/run-gates.ts --committed
 bun ./scripts/gates/affected.ts test --committed

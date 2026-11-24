@@ -135,7 +135,7 @@ describe("the scan's mode", () => {
     "grep -rn useStore .leads/412",
     "find .leads/412 -name x",
     "sed -i s/a/b/ scripts/leads/guard.ts",
-    "bun ./scripts/land.ts feature/x",
+    "bun ./scripts/release.ts --dry-run",
   ])("%s is denied", (command) => {
     expect(bash("scan", command).kind).toBe("deny");
   });
@@ -193,7 +193,7 @@ describe("the scan's mode", () => {
   test("it invokes its own skill alone; any other tool is denied", () => {
     expect(tool("scan", "Skill", { skill: "leads-scan" })).toEqual({ kind: "allow" });
     expect(tool("scan", "Skill", { skill: "leads-gate" }).kind).toBe("deny");
-    expect(tool("scan", "Skill", { skill: "github-flow:dispatch" }).kind).toBe("deny");
+    expect(tool("scan", "Skill", { skill: "github-flow:pr" }).kind).toBe("deny");
     expect(tool("scan", "WebFetch", { url: "https://example.com" }).kind).toBe("deny");
     expect(tool("scan", "mcp__github__create_issue", { title: "x" }).kind).toBe("deny");
     expect(tool("scan", "Agent", { prompt: "x" }).kind).toBe("deny");

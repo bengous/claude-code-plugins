@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, sep } from "node:path";
 
+import { ENVIRONMENT, SETUP_SCRIPT } from "./environment.ts";
 import type { TemplateFile } from "./render.ts";
 
 export const TEMPLATES_DIR = join(import.meta.dir, "..", "templates");
@@ -10,7 +11,16 @@ export const REPO_PREFIX = "repo/";
 
 export const ROUTINE_PROMPT = "routine/prompt.md";
 
+/** The declaration of a repository's cloud environment, which exists before its routine does. */
+export const ENVIRONMENT_FILES: readonly string[] = [
+  `${REPO_PREFIX}${ENVIRONMENT}`,
+  `${REPO_PREFIX}${SETUP_SCRIPT}`,
+];
+
 export const CLAUDE_MD_SECTIONS = "claude-md-sections.md";
+
+/** The hook entries the install merges into the target repository's `.claude/settings.json`. */
+export const SETTINGS_HOOKS = "settings-hooks.json";
 
 /** Every file under `root`, dot directories included, its path relative to `root` with `/`. */
 export function readTemplates(root: string = TEMPLATES_DIR): TemplateFile[] {

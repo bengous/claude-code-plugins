@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isBranch, isLogin, isRepo, isRoutineId, render } from "./render.ts";
+import { isBranch, isLogin, isRepo, isRoutineId, isWorkflowName, render } from "./render.ts";
 import { readTemplates } from "./templates.ts";
 
 const PARAMS = {
@@ -8,6 +8,7 @@ const PARAMS = {
   REPO: "octo-org/widgets",
   ROUTINE_ID: "trig_01AbC",
   BRANCH: "trunk",
+  CI: "Build & test",
 };
 
 describe("render", () => {
@@ -69,6 +70,49 @@ describe("render", () => {
     const prompt = result.files.find((file) => file.path === "routine/prompt.md");
 
     expect(prompt?.content).toContain("Open a pull request against `trunk`");
+
+    const trunkRed = result.files.find(
+      (file) => file.path === "repo/.github/workflows/trunk-red.yml",
+    );
+
+    expect(trunkRed?.content).toContain('workflows: ["Build & test"]');
+    expect(trunkRed?.content).toContain("branches: [trunk]");
+    expect(trunkRed?.content).toContain('if [ "$conclusion" = success ]; then');
+
+    const unclaim = result.files.find((file) => file.path === "repo/.github/workflows/unclaim.yml");
+
+    expect(unclaim?.content).toContain("types: [closed]");
+    expect(unclaim?.content).toContain("issues/$ISSUE/labels/in-progress");
+
+    const review = result.files.find((file) => file.path === "repo/.github/workflows/review.yml");
+
+    expect(review?.content).toContain("- name: Write what the round read to the summary");
+    expect(review?.content).toContain('"required":["findings","read","issue","round"]');
+    expect(review?.content).toContain("--settings '{\"disableAllHooks\":true}'");
+    expect(review?.content).toContain("- name: Hold a draft, which no round reads");
+  });
+
+  test("the routine's gate takes the owner's issue and the CI's two repair issues, nothing wider", () => {
+    const result = render(readTemplates(), PARAMS);
+
+    if (result.kind !== "rendered") throw new Error(result.errors.join("\n"));
+
+    const prompt = result.files.find((file) => file.path === "routine/prompt.md")?.content ?? "";
+    const gate = prompt.split("## 1. Gate")[1]?.split("## 2.")[0] ?? "";
+
+    const authors = gate
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.split(":")[0]);
+
+    expect(authors).toEqual([
+      "- `octo-cat`;",
+      "- `github-actions[bot]`, on an issue that also carries the label `trunk-red`",
+      "- `github-actions[bot]`, on an issue that also carries the label `renovate-red`",
+    ]);
+    expect(gate).toContain(
+      "bring that update onto `trunk` with the code adapted to its new version, through a pull request of your own from `trunk`, with no test removed or skipped",
+    );
   });
 });
 
@@ -100,6 +144,20 @@ describe("parameter shapes", () => {
     },
   );
 
+  test.each(["CI", "Build & test", "ci.yml", "Tests (unit, e2e): main"])(
+    "workflow name %p",
+    (value) => {
+      expect(isWorkflowName(value)).toBe(true);
+    },
+  );
+
+  test.each(["", " CI", "CI ", 'a"b', "a\\b", "a\nb", "${{ x }}", "x".repeat(101)])(
+    "not a workflow name %p",
+    (value) => {
+      expect(isWorkflowName(value)).toBe(false);
+    },
+  );
+
   test.each(["main", "dev", "release/1.2", "feature/x-y_z", "v1.0"])("branch %p", (value) => {
     expect(isBranch(value)).toBe(true);
   });
@@ -127,6 +185,12 @@ describe("parameter shapes", () => {
     "a.",
     "a.lock",
     "a/b.lock/c",
+    "a,b",
+    "a$b",
+    'a"b',
+    "a`b`",
+    "a'b",
+    "a#b",
   ])("not a branch %p", (value) => {
     expect(isBranch(value)).toBe(false);
   });

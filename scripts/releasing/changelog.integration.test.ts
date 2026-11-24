@@ -246,6 +246,40 @@ describe("versionCommits", () => {
     ]);
   });
 
+  test("reads a release's squash commit as the version commit of every plugin it bumps", () => {
+    const second = sourceDirOf("./second", "test");
+
+    manifest("0.1.0");
+    write(
+      "second/.claude-plugin/plugin.json",
+      JSON.stringify({ name: "second", version: "1.0.0" }),
+    );
+    const first = commit("feat: two plugins", "2026-09-15");
+
+    write("example/a.ts", "a\n");
+    write("second/b.ts", "b\n");
+    commit("feat: a and b", "2026-09-16");
+    manifest("0.2.0");
+    write(
+      "second/.claude-plugin/plugin.json",
+      JSON.stringify({ name: "second", version: "1.0.1" }),
+    );
+    const squash = commit("chore(release): example@0.2.0, second@1.0.1 (#41)", "2026-09-17");
+
+    for (const [source, set] of [
+      [EXAMPLE, "0.2.0"],
+      [second, "1.0.1"],
+    ] as const) {
+      expect(versionCommits(repo, source, squash).at(-1)).toEqual({
+        version: version(set),
+        commit: squash,
+        previous: first,
+        date: date("2026-09-17"),
+        commits: 2,
+      });
+    }
+  });
+
   test("raises an author date that runs backwards to the previous version's", () => {
     manifest("0.1.0");
     commit("feat(example): first", "2026-09-21");
@@ -268,6 +302,6 @@ describe("vellum/CHANGELOG.md", () => {
       .map(({ version: v }) => v)
       .toReversed();
 
-    expect(sections(text).map(({ version: v }) => v)).toEqual(set);
+    expect(sections(text).map(({ version: v }) => v)).toEqual([...new Set(set)]);
   });
 });

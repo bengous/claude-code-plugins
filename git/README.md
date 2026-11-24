@@ -2,7 +2,7 @@
 
 Local git for Claude Code, without an editor: commit, interactive rebase, squash, history re-signing. Nothing here reaches the network.
 
-Its siblings own the rest: `github-flow` for anything through `gh`, `git-sweep` for branch and worktree cleanup, `git-worktree` for the `git-wt` helper, `repo-bootstrap` for one-shot repo setup.
+Its siblings own the rest: `github-flow` for anything through `gh`, `git-sweep` for branch and worktree cleanup, `repo-bootstrap` for one-shot repo setup.
 
 ## Skills
 

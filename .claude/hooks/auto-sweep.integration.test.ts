@@ -26,6 +26,33 @@ fi
 exec "${realGit}" "$@"
 `;
 
+// UTC+14 and UTC-11 are 25 h apart, so one of them is always on another calendar day than any
+// zone the test runs in.
+const FAR_ZONES = ["Pacific/Kiritimati", "Pacific/Pago_Pago"];
+
+/** The calendar day in `timeZone`, `YYYY-MM-DD`. */
+const dayIn = (timeZone: string, date: Date): string =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+
+/** A zone whose day is not the test process's, so the hook's day and this process's differ. */
+function offDayZone(): string {
+  const zone = FAR_ZONES.find((candidate) => dayIn(candidate, new Date()) !== dayOf(new Date()));
+
+  if (zone === undefined) throw new Error(`${FAR_ZONES.join(" and ")} share the test's day`);
+
+  return zone;
+}
+
+let hookZone = "";
+
+/** Today for the hook, which reads its day in its own zone. */
+const hookToday = (): string => dayIn(hookZone, new Date());
+
 const sessionOf = (pid: number): string =>
   Bun.spawnSync(["ps", "-o", "sess=", "-p", String(pid)])
     .stdout.toString()
@@ -84,13 +111,17 @@ async function sweptLog(): Promise<string> {
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "auto-sweep-hook-"));
   project = join(root, "project");
+  hookZone = offDayZone();
   env = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !PROMPT_VARIABLES.has(name)),
     ),
-    // bun test computes dates in UTC without setting TZ, and the hook it spawns would read the
-    // machine's zone: from midnight to the offset, the two days differ.
-    TZ: "UTC",
+    // bun test computes dates in UTC without setting TZ, while a hook left in the machine's zone
+    // reads its own day. The hook runs on another day than this process, so the tests read the
+    // hook's day, never this process's, at any hour and in any zone.
+    TZ: hookZone,
+    // A cloud session sets it, and the hook then starts nothing: a test that wants one says so.
+    CLAUDE_CODE_REMOTE: undefined,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_AUTHOR_NAME: "t",
@@ -115,6 +146,10 @@ afterEach(async () => {
 });
 
 describe("auto-sweep hook", () => {
+  test("runs on another calendar day than the test process", () => {
+    expect(hookToday()).not.toBe(dayOf(new Date()));
+  });
+
   test("a cloud session starts no sweep and says nothing", async () => {
     const { exitCode, stdout } = await runHook(project, project, { CLAUDE_CODE_REMOTE: "true" });
 
@@ -133,7 +168,7 @@ describe("auto-sweep hook", () => {
     expect(JSON.parse(stdout)).toEqual({
       systemMessage: `auto-sweep: sweeping local branches and agent worktrees against dev in the background, log: ${paths().log}`,
     });
-    expect(readFileSync(paths().day, "utf8")).toBe(dayOf(new Date()));
+    expect(readFileSync(paths().day, "utf8")).toBe(hookToday());
 
     const swept = await sweptLog();
 
@@ -169,7 +204,7 @@ describe("auto-sweep hook", () => {
 
   test("starts nothing on a day it already started one", async () => {
     mkdirSync(paths().dir, { recursive: true });
-    writeFileSync(paths().day, dayOf(new Date()));
+    writeFileSync(paths().day, hookToday());
 
     const { exitCode, stdout } = await runHook(project);
 
@@ -187,7 +222,7 @@ describe("auto-sweep hook", () => {
     const { stdout } = await runHook(project);
 
     expect(stdout).toContain("auto-sweep: sweeping");
-    expect(readFileSync(paths().day, "utf8")).toBe(dayOf(new Date()));
+    expect(readFileSync(paths().day, "utf8")).toBe(hookToday());
     expect(await sweptLog()).toStartWith("an earlier run\n--- ");
   });
 

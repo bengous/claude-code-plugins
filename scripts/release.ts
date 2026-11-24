@@ -6,20 +6,27 @@
  * commit that set it, and publish its GitHub Release.
  *
  *   bun ./scripts/release.ts --dry-run [--json] [<ref>]   # judge the bumps, print and seal the plan
- *   bun ./scripts/release.ts --plan <digest>              # apply the sealed plan whose digest was read
+ *   bun ./scripts/release.ts --plan <digest>              # apply the sealed plan whose digest was read, or resume it
  *
  * The dry-run judges each bump with Claude (`release-plan.ts`) and writes nothing but the plan,
  * sealed under the git directory; `--json` prints it as one JSON document, for an agent, in place
  * of the text a person reads. `<ref>` (default: origin/dev) may be an older SHA only when
- * nothing needs a bump. The run applies that plan as it was read: one `chore(<plugin>): x.y.z,
- * <summary>` commit per bump, with its changelog section, made in a temporary worktree where the
- * commit hooks run, pushed to dev, rebased when dev moved by commits the plan does not need to
- * cover and that make no tag the plan did not print; then it waits for that commit's push run of
- * CI to end green, prints each commit dev moved by past the plan's target, and moves `main` there.
- * Everything is read and checked before a push: a changelog that does not parse, or a tag that
- * already exists, stops the release with `main` unmoved. The notes are the changelog's sections
- * newer than the version `main` held, written into the annotated tag, and the Release reads them
- * back from it. Never: a tag before the push landed, a tag moved.
+ * nothing needs a bump. The run applies that plan as it was read. dev accepts no direct push, so
+ * the bumps land through a pull request: one commit, `chore(release): <plugin>@x.y.z, ...`, with
+ * each changelog section, made in a temporary worktree on dev's head where the commit hooks run,
+ * pushed to `release/<target>`, opened against dev with a body that names the plan's digest and
+ * that commit. The owner approves it by adding the `human-approved` label, which this script never
+ * adds. The script waits, bounded, until GitHub calls the pull request mergeable (the label on, the
+ * required checks green), checks dev's head, and squash-merges that one commit itself; GitHub's
+ * squash commit carries the title and sets every bumped version. A run of the same plan finds the
+ * pull request by its branch and its digest, open or merged, and resumes; a conflict, a head the
+ * script did not push, or dev moving by commits the plan does not cover leaves it unmerged, to be
+ * closed and planned again. Past the merge, it waits for the squash commit's push run of CI to end
+ * green, prints each commit dev moved by past the plan's target, and moves `main` there.
+ * A changelog that does not parse, or a tag that already exists, stops the release with `main`
+ * unmoved. The notes are the changelog's sections newer than the version `main` held, written into
+ * the annotated tag, and the Release reads them back from it. Never: a tag before `main` moved, a
+ * tag moved.
  */
 
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -29,7 +36,6 @@ import { styleText } from "node:util";
 
 import { writeAtomicSync } from "../tools/platform/fs.ts";
 import { messageOf } from "../tools/platform/pure.ts";
-import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./landing/ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import { run as command } from "./lib/run.ts";
 import {
@@ -48,6 +54,7 @@ import {
   unbumped,
   versionAt,
 } from "./releasing/check-plugin-bumps.ts";
+import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./releasing/ci-wait.ts";
 import {
   type JudgeEvent,
   JUDGE_MODEL,
@@ -55,6 +62,7 @@ import {
   localDate,
   loadPlan,
   type PlannedBump,
+  planDigest,
   planRelease,
   type ReleasePlan,
   type Sealed,
@@ -62,6 +70,18 @@ import {
   withSection,
   withVersion,
 } from "./releasing/release-plan.ts";
+import {
+  type ListedPull,
+  type MergeWait,
+  openPull,
+  pullFrom,
+  pullsFrom,
+  type PullRequest,
+  type PullView,
+  squashMerge,
+  viewOf,
+  waitForMergeable,
+} from "./releasing/release-pull.ts";
 
 const REMOTE = "origin";
 
@@ -73,13 +93,23 @@ const DEFAULT_REF = `${REMOTE}/${DEV}`;
 
 const MANIFEST = ".claude-plugin/plugin.json";
 
-const ATTEMPTS = 3;
+const RELEASE_BRANCH = "release/";
+
+const APPROVAL_LABEL = "human-approved";
+
+/** The required check of the agent review: red on a finding, which a re-run reads the same. */
+const REVIEW = "review";
+
+/** The job that runs the reviewer: red when the reviewer itself failed, which leaves `review` red with no finding. */
+const REVIEW_READ = "review (read)";
 
 const CI_LIMITS: WaitLimits = { timeoutMs: 30 * 60_000, pollMs: 15_000 };
 
+const MERGE_LIMITS: WaitLimits = { timeoutMs: 60 * 60_000, pollMs: 15_000 };
+
 const USAGE = [
   "Usage: bun ./scripts/release.ts --dry-run [--json] [<ref>]   # judge the bumps, print and seal the plan",
-  "       bun ./scripts/release.ts --plan <digest>              # apply the sealed plan",
+  "       bun ./scripts/release.ts --plan <digest>              # apply the sealed plan through a pull request it merges once approved, or resume it",
 ].join("\n");
 
 const MAX_WIDTH = 100;
@@ -93,7 +123,10 @@ export interface PlannedTag {
   readonly name: MarketplaceName;
   readonly version: Semver;
   readonly tag: TagName;
-  /** The commit that set `version`: the tag goes there, not on the release head. */
+  /**
+   * The last commit that set `version`: the tag goes there, not on the release head, nor on an
+   * earlier commit that set it before a revert.
+   */
   readonly commit: CommitId;
   /** The changelog's sections newer than the version `main` held. */
   readonly notes: string;
@@ -110,18 +143,36 @@ export type ReleaseOutcome =
     };
 
 /**
- * What applying a plan ends on: refused with nothing moved, stopped on CI, stopped with the bumps on
- * dev and main unmoved, or the release's own outcome.
+ * Why the release pull request was left unmerged: its wait's end, dev moved under the plan, or a
+ * merge whose call failed or whose result did not read back, which GitHub may have done.
+ */
+export type MergeStop =
+  | Exclude<MergeWait, { readonly kind: "merged" | "mergeable" }>
+  | { readonly kind: "drift"; readonly why: string }
+  | { readonly kind: "merge-unsure"; readonly why: string };
+
+/**
+ * What applying a plan ends on: refused with nothing moved, the release pull request left unmerged,
+ * its squash commit on dev with what the plan did not judge, stopped on CI, stopped with the bumps
+ * on dev and main unmoved, or the release's own outcome.
  */
 export type ShipOutcome =
   | { readonly kind: "refused"; readonly why: string }
+  | { readonly kind: "not-merged"; readonly pr: PullRequest; readonly wait: MergeStop }
+  | {
+      readonly kind: "unplanned";
+      readonly head: string;
+      readonly why: string;
+      /** The commits dev gained past the plan's target, under the squash commit. */
+      readonly commits: readonly string[];
+    }
   | {
       readonly kind: "ci-not-green";
       readonly head: CommitId;
       readonly bumped: boolean;
       readonly ci: Exclude<CiOutcome, { readonly kind: "green" }>;
     }
-  | { readonly kind: "after-bumps"; readonly head: CommitId; readonly why: string }
+  | { readonly kind: "after-bumps"; readonly head: string; readonly why: string }
   | ReleaseOutcome;
 
 /** What the command line asks: `--dry-run` anywhere among the arguments. */
@@ -132,14 +183,17 @@ export type Cli =
 
 export interface Context {
   readonly gh: Gh;
+  /** The wait for the push run of CI on the commit `main` moves to. */
   readonly limits: WaitLimits;
+  /** The wait for the release pull request to become mergeable. */
+  readonly mergeLimits: WaitLimits;
   readonly say: (line: string) => void;
 }
 
 /** The commit `main` moves to once its push run is green, with the tags planned on it; or why there is none. */
 type Bumped =
   | { readonly kind: "ready"; readonly head: CommitId; readonly tags: readonly PlannedTag[] }
-  | { readonly kind: "refused"; readonly why: string };
+  | Extract<ShipOutcome, { readonly kind: "refused" | "not-merged" | "unplanned" | "after-bumps" }>;
 
 /** One command of a tag's publication, named for the message that reports its failure. */
 interface Step {
@@ -223,7 +277,7 @@ export function plannedTags(
 
     if (!parsed.ok) throw new Error(`${file}:${parsed.line}: ${parsed.reason}`);
 
-    const set = versionCommits(repo, source, target).find((found) => found.version === version);
+    const set = versionCommits(repo, source, target).findLast((found) => found.version === version);
 
     if (set === undefined) throw new Error(`${name}: no commit sets ${version} in its history`);
 
@@ -299,49 +353,101 @@ export function parseCli(args: readonly string[]): Cli {
     : { kind: "usage" };
 }
 
+/** The bump's line in the release pull request, with Claude's summary. */
 export function subjectOf(bump: PlannedBump): string {
   return `chore(${bump.name}): ${bump.to}, ${bump.summary}`;
 }
 
-/** Why the bump's commit failed, its hooks' output included; null once it is made. */
-function commitBump(tree: PluginDir, bump: PlannedBump): string | null {
-  const manifest = `${bump.source}/${MANIFEST}`;
-  const files = [manifest];
+/**
+ * The release pull request's title, which GitHub gives its squash commit: every bump as
+ * `<plugin>@x.y.z`, as `VERSION_BUMP` in `scripts/reports/sample-review.ts` reads it.
+ */
+export function titleOf(bumps: readonly PlannedBump[]): string {
+  return `chore(release): ${bumps.map(({ name, to }) => `${name}@${to}`).join(", ")}`;
+}
 
-  writeAtomicSync(
-    join(tree, manifest),
-    withVersion(readFileSync(join(tree, manifest), "utf8"), bump.from, bump.to, manifest),
-  );
+/** The release pull request's branch, named for the commit the plan releases. */
+export function branchOf(plan: ReleasePlan): string {
+  return `${RELEASE_BRANCH}${plan.target.slice(0, 12)}`;
+}
 
-  if (bump.section !== null) {
+/** What ties a release pull request to its plan and to the one commit the release pushed. */
+interface Marker {
+  readonly digest: string;
+  readonly commit: string;
+}
+
+const MARKER = /^<!-- release\.ts: plan ([0-9a-f]{12}), commit ([0-9a-f]{40}|[0-9a-f]{64}) -->$/mu;
+
+function markerOf(body: string): Marker | null {
+  const [, digest, commit] = MARKER.exec(body) ?? [];
+
+  return digest === undefined || commit === undefined ? null : { digest, commit };
+}
+
+function bodyOf(plan: ReleasePlan, { digest, commit }: Marker): string {
+  return [
+    `The bumps of the release from \`main\` ${short(plan.shipped)} to \`dev\` ${short(plan.target)}, made by \`scripts/release.ts\`:`,
+    "",
+    ...plan.bumps.map((bump) => `- ${subjectOf(bump)}`),
+    "",
+    `The \`${APPROVAL_LABEL}\` label is the owner's to add. Once it is on and the required checks are green, the release squash-merges ${short(commit)}, waits for the push run of CI on the squash commit, moves \`main\` there and tags it. It merges no other head: a push to this branch changes what was planned.`,
+    "",
+    `<!-- release.ts: plan ${digest}, commit ${commit} -->`,
+  ].join("\n");
+}
+
+function closeCommand(pr: PullRequest, why: string): string {
+  return `gh pr close ${pr.number} --delete-branch --comment "${why}"`;
+}
+
+/** Why the bumps' commit failed, its hooks' output included; null once it is made. */
+function commitBumps(tree: PluginDir, plan: ReleasePlan, title: string): string | null {
+  const files = plan.bumps.flatMap((bump) => {
+    const manifest = `${bump.source}/${MANIFEST}`;
+
+    writeAtomicSync(
+      join(tree, manifest),
+      withVersion(readFileSync(join(tree, manifest), "utf8"), bump.from, bump.to, manifest),
+    );
+
+    if (bump.section === null) return [manifest];
+
     const changelog = `${bump.source}/${CHANGELOG}`;
 
     writeAtomicSync(
       join(tree, changelog),
       withSection(readFileSync(join(tree, changelog), "utf8"), bump.section),
     );
-    files.push(changelog);
-  }
+
+    return [manifest, changelog];
+  });
 
   git(tree, ["add", "--", ...files]);
 
-  const committed = run(["git", "commit", "--quiet", "-m", subjectOf(bump)], tree);
+  const lines = plan.bumps.map((bump) => subjectOf(bump)).join("\n");
+  const committed = run(["git", "commit", "--quiet", "-m", title, "-m", lines], tree);
 
-  return committed.ok
-    ? null
-    : `the commit ${subjectOf(bump)} failed:\n${committed.out}${committed.err}`;
+  return committed.ok ? null : `the commit ${title} failed:\n${committed.out}${committed.err}`;
 }
 
-function changedBetween(repo: PluginDir, from: CommitId, to: CommitId): readonly string[] {
-  return git(repo, ["diff", "--name-only", "--no-renames", "-z", from, to])
-    .split("\0")
-    .filter((path) => path !== "");
+/** `git log --format="%h %s"` of `range`, oldest first, limited to `paths` when given. */
+function logLines(
+  repo: PluginDir,
+  range: string,
+  paths: readonly string[] = [],
+): readonly string[] {
+  const pathspec = paths.length === 0 ? [] : ["--", ...paths];
+
+  return git(repo, ["log", "--reverse", "--format=%h %s", range, ...pathspec])
+    .split("\n")
+    .filter((line) => line !== "");
 }
 
 /**
- * Why the bumps made on `base` cannot be rebased on `moved`, dev's head now; null when they can:
- * `main` still where the plan found it, `moved` above `base`, and no new commit under a plugin the
- * plan bumps or in a plugin it does not that now needs a bump.
+ * Why the plan's bumps cannot land above `moved`, where dev went from the plan's target `base`;
+ * null when they can: `moved` above `base`, and no new commit under a plugin the plan bumps or in a
+ * plugin it does not that now needs a bump.
  */
 function movedRefusal(
   repo: PluginDir,
@@ -350,22 +456,19 @@ function movedRefusal(
   moved: CommitId,
 ): string | null {
   const again = "run the dry-run again";
-  const main = commitAt(repo, MAIN);
-
-  if (main !== plan.shipped) return `main moved to ${short(main)} meanwhile: ${again}`;
 
   if (!run(["git", "merge-base", "--is-ancestor", base, moved], repo).ok) {
     return `dev's head ${short(moved)} does not hold ${short(base)}: ${again}`;
   }
 
-  const dirs = plan.bumps.map(({ source }) => `${source}/`);
-
-  const touched = changedBetween(repo, base, moved).filter((path) =>
-    dirs.some((dir) => path.startsWith(dir)),
+  const under = logLines(
+    repo,
+    `${base}..${moved}`,
+    plan.bumps.map(({ source }) => `${source}/`),
   );
 
-  if (touched.length > 0) {
-    return `dev moved to ${short(moved)} with changes to a plugin the plan bumps (${touched.join(", ")}): ${again}`;
+  if (under.length > 0) {
+    return `dev moved to ${short(moved)} with commits under a plugin the plan bumps (${under.join("; ")}): ${again}`;
   }
 
   const planned = new Set(plan.bumps.map(({ name }) => name));
@@ -380,7 +483,7 @@ function movedRefusal(
 
 const SAME_PLAN = "the same bun ./scripts/release.ts --plan <digest> applies again";
 
-/** dev's head on the remote, fetched now: whether a refused push met a moved dev is read here, never from git's wording. */
+/** dev's head on the remote, fetched now, `main` with it. */
 function devHead(repo: PluginDir): CommitId {
   git(repo, ["fetch", "--quiet", REMOTE]);
 
@@ -398,77 +501,56 @@ function printedTags(repo: PluginDir, plan: ReleasePlan): ReadonlySet<TagName> {
 }
 
 /**
- * Push the bump commits to dev, rebased first on dev's head, fetched just before, whenever it is not
- * their base: a push git would refuse as non-fast-forward still runs the whole pre-push hook. A
- * refused push is tried again when dev moved meanwhile, the pre-push hook's minutes included,
- * whatever git's message says. Refused when dev moved by commits the plan does not cover, or when
- * the rebased head would make a tag the plan did not print.
+ * Why `main` cannot move to `head`, whose bumps sit above `moved`, where dev went from the plan's
+ * target; null when it can. Reads `main` as last fetched.
  */
-function pushBumps(repo: PluginDir, tree: PluginDir, plan: ReleasePlan, context: Context): Bumped {
+function driftRefusal(
+  repo: PluginDir,
+  plan: ReleasePlan,
+  moved: CommitId,
+  head: CommitId,
+): string | null {
+  const main = commitAt(repo, MAIN);
+
+  if (main !== plan.shipped) return `main moved to ${short(main)} meanwhile: run the dry-run again`;
+
+  const why = moved === plan.target ? null : movedRefusal(repo, plan, plan.target, moved);
+
+  if (why !== null) return why;
+
   const printed = printedTags(repo, plan);
-  let base = plan.target;
-  let dev = devHead(repo);
 
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-    if (dev !== base) {
-      const why = movedRefusal(repo, plan, base, dev);
+  const unprinted = plannedTags(repo, plan.shipped, head).filter(({ tag }) => !printed.has(tag));
 
-      if (why !== null) return { kind: "refused", why };
-
-      const rebased = run(["git", "rebase", "--quiet", dev], tree);
-
-      if (!rebased.ok) {
-        run(["git", "rebase", "--abort"], tree);
-
-        return {
-          kind: "refused",
-          why: `the bumps do not rebase on ${DEV}'s ${short(dev)}: run the dry-run again\n${rebased.out}${rebased.err}`,
-        };
-      }
-
-      base = dev;
-    }
-
-    const head = commitAt(tree, "HEAD");
-    const tags = plannedTags(repo, plan.shipped, head);
-    const unprinted = tags.filter(({ tag }) => !printed.has(tag));
-
-    if (unprinted.length > 0) {
-      return {
-        kind: "refused",
-        why: `${DEV} moved to ${short(base)}, and the release would tag ${unprinted.map(({ tag }) => tag).join(", ")}, which the plan did not print: run the dry-run again`,
-      };
-    }
-
-    context.say(`pushing ${short(head)} to ${DEV}; its pre-push hook runs the gates and suites`);
-
-    const pushed = run(["git", "push", "--quiet", REMOTE, `HEAD:refs/heads/${DEV}`], tree);
-
-    if (pushed.ok) return { kind: "ready", head, tags };
-
-    dev = devHead(repo);
-
-    if (dev === base) {
-      return {
-        kind: "refused",
-        why: `the push of the bumps to ${DEV} was refused, nothing moved; once what it names is fixed, ${SAME_PLAN}:\n${pushed.out}${pushed.err}`,
-      };
-    }
-  }
-
-  return {
-    kind: "refused",
-    why: `${DEV} moved during each of ${ATTEMPTS} attempts; ${SAME_PLAN}`,
-  };
+  return unprinted.length === 0
+    ? null
+    : `${DEV} moved to ${short(moved)}, and the release would tag ${unprinted.map(({ tag }) => tag).join(", ")}, which the plan did not print: run the dry-run again`;
 }
 
-/** The bump commits, made in a temporary worktree on the plan's target and pushed to dev; the worktree removed whatever happens. */
-function bumpOnDev(repo: PluginDir, plan: ReleasePlan, context: Context): Bumped {
+type Pushed =
+  | { readonly kind: "pushed"; readonly commit: CommitId }
+  | { readonly kind: "refused"; readonly why: string };
+
+/**
+ * The bumps' commit, made in a temporary worktree on `base` and pushed to `branch`; the worktree
+ * removed whatever happens. Refused when a pull request from `branch` is open by then, or when the
+ * branch holds anything but the head of a closed one: another run of the plan may be about to open
+ * its pull request on it. The push replaces only that closed head, or needs the branch absent, as
+ * read just before: a push meanwhile fails it.
+ */
+async function pushBumps(
+  repo: PluginDir,
+  plan: ReleasePlan,
+  base: CommitId,
+  branch: string,
+  context: Context,
+): Promise<Pushed> {
+  const title = titleOf(plan.bumps);
   const scratch = mkdtempSync(join(tmpdir(), "release-bumps-"));
   const path = join(scratch, "tree");
 
   try {
-    git(repo, ["worktree", "add", "--quiet", "--detach", path, plan.target]);
+    git(repo, ["worktree", "add", "--quiet", "--detach", path, base]);
 
     const tree = pluginDirAt(path);
 
@@ -481,15 +563,60 @@ function bumpOnDev(repo: PluginDir, plan: ReleasePlan, context: Context): Bumped
     if (!installed.ok)
       throw new Error(`bun install --frozen-lockfile in ${path}: ${installed.err}`);
 
-    for (const bump of plan.bumps) {
-      context.say(`committing ${subjectOf(bump)}`);
+    context.say(`committing ${title}`);
 
-      const refusal = commitBump(tree, bump);
+    const refusal = commitBumps(tree, plan, title);
 
-      if (refusal !== null) return { kind: "refused", why: refusal };
+    if (refusal !== null) return { kind: "refused", why: refusal };
+
+    const commit = commitAt(tree, "HEAD");
+    const pulls = await pullsFrom(context.gh, branch, DEV);
+    const open = pulls.find(({ state }) => state === "OPEN");
+
+    if (open !== undefined) {
+      return {
+        kind: "refused",
+        why: `${open.url}, from ${branch}, opened meanwhile, by another run of this plan; nothing pushed: ${SAME_PLAN} and resumes it`,
+      };
     }
 
-    return pushBumps(repo, tree, plan, context);
+    const held = (
+      git(repo, ["ls-remote", REMOTE, `refs/heads/${branch}`]).split("\t")[0] ?? ""
+    ).trim();
+
+    const closedHead = pulls.some(
+      ({ state, headRefOid }) => state === "CLOSED" && headRefOid === held,
+    );
+
+    if (held !== "" && !closedHead) {
+      return {
+        kind: "refused",
+        why: `${branch} holds ${short(held)}, the head of no closed pull request from it: another run of this plan may have pushed it and be opening its pull request; nothing pushed: ${SAME_PLAN} and resumes that pull request once it is open, or delete the branch (git push ${REMOTE} --delete ${branch}) if nothing uses it`,
+      };
+    }
+
+    context.say(
+      `pushing ${short(commit)} to ${branch}; its pre-push hook runs the gates and suites`,
+    );
+
+    const pushed = run(
+      [
+        "git",
+        "push",
+        "--quiet",
+        `--force-with-lease=refs/heads/${branch}:${held}`,
+        REMOTE,
+        `HEAD:refs/heads/${branch}`,
+      ],
+      tree,
+    );
+
+    return pushed.ok
+      ? { kind: "pushed", commit }
+      : {
+          kind: "refused",
+          why: `the push of the bumps to ${branch} was refused, nothing moved; once what it names is fixed, ${SAME_PLAN}:\n${pushed.out}${pushed.err}`,
+        };
   } finally {
     run(["git", "worktree", "remove", "--force", path], repo);
     rmSync(scratch, { recursive: true, force: true });
@@ -497,7 +624,215 @@ function bumpOnDev(repo: PluginDir, plan: ReleasePlan, context: Context): Bumped
   }
 }
 
-/** Apply a sealed plan: the bumps on dev, CI green on their commit, then the release from there. */
+/** The release pull request to wait on, the commit the release pushed to it, and whether it merged already; or why none. */
+type Opened =
+  | { readonly kind: "open"; readonly pr: PullRequest; readonly pushed: string }
+  | {
+      readonly kind: "merged";
+      readonly pr: PullRequest;
+      readonly pushed: string;
+      readonly commit: string;
+      readonly head: string;
+    }
+  | { readonly kind: "refused"; readonly why: string };
+
+/** The pull request a run of a plan opened from `branch`, taken up only when its marker names this plan. */
+function resumed(found: ListedPull, digest: string): Opened {
+  const marker = markerOf(found.body);
+
+  if (marker !== null && marker.digest === digest) {
+    return found.state === "MERGED"
+      ? {
+          kind: "merged",
+          pr: found,
+          pushed: marker.commit,
+          commit: found.mergeCommit,
+          head: found.headRefOid,
+        }
+      : { kind: "open", pr: found, pushed: marker.commit };
+  }
+
+  const theirs = marker?.digest;
+  const whose = theirs === undefined ? "no plan of release.ts" : `the plan ${theirs}`;
+  const own = theirs === undefined ? "" : `bun ./scripts/release.ts --plan ${theirs}`;
+
+  if (found.state === "MERGED") {
+    return {
+      kind: "refused",
+      why: `${found.url} merged the bumps of ${whose}, not of the plan ${digest}: ${own === "" ? "" : `carry that release on with ${own}, or `}run the dry-run again`,
+    };
+  }
+
+  return {
+    kind: "refused",
+    why: `${found.url} holds the bumps of ${whose}, not of the plan ${digest}: close it (${closeCommand(found, "replaced by another release plan")}), then ${SAME_PLAN}${own === "" ? "" : `; or apply its own plan: ${own}`}`,
+  };
+}
+
+/** A new release pull request: the bumps' commit on dev's head, refused when dev moved by commits the plan does not cover. */
+async function openRelease(
+  repo: PluginDir,
+  plan: ReleasePlan,
+  branch: string,
+  digest: string,
+  context: Context,
+): Promise<Opened> {
+  const dev = devHead(repo);
+  const drift = driftRefusal(repo, plan, dev, dev);
+
+  if (drift !== null) return { kind: "refused", why: drift };
+
+  const pushed = await pushBumps(repo, plan, dev, branch, context);
+
+  if (pushed.kind === "refused") return pushed;
+
+  const pr = await openPull(context.gh, {
+    base: DEV,
+    branch,
+    title: titleOf(plan.bumps),
+    body: bodyOf(plan, { digest, commit: pushed.commit }),
+  });
+
+  context.say(`opened ${pr.url}`);
+
+  return { kind: "open", pr, pushed: pushed.commit };
+}
+
+async function mergeableOf(pr: PullRequest, pushed: string, context: Context): Promise<MergeWait> {
+  context.say(
+    `${pr.url}: add the label ${APPROVAL_LABEL} yourself, your approval, which this script never adds; once it is on and the required checks are green, the script merges ${short(pushed)}. It waits ${context.mergeLimits.timeoutMs / 60_000} min at most`,
+  );
+
+  try {
+    return await waitForMergeable(context.gh, pr, pushed, context.mergeLimits);
+  } catch (error) {
+    return { kind: "failed", why: messageOf(error) };
+  }
+}
+
+/**
+ * The squash commit of a merged release pull request, checked: its head the commit the release
+ * pushed, and dev under it moved by nothing the plan does not cover. An error past the merge says
+ * the bumps are on dev.
+ */
+function afterMerge(
+  repo: PluginDir,
+  plan: ReleasePlan,
+  merged: { readonly commit: string; readonly head: string; readonly pushed: string },
+): Bumped {
+  try {
+    git(repo, ["fetch", "--quiet", REMOTE]);
+
+    const squash = commitAt(repo, merged.commit);
+
+    if (merged.head !== merged.pushed) {
+      return {
+        kind: "unplanned",
+        head: squash,
+        why: `the pull request merged the head ${short(merged.head)}, not ${short(merged.pushed)}, the commit this script pushed`,
+        commits: [],
+      };
+    }
+
+    const below = commitAt(repo, `${squash}~1`);
+    const drift = driftRefusal(repo, plan, below, squash);
+
+    if (drift !== null) {
+      return {
+        kind: "unplanned",
+        head: squash,
+        why: drift,
+        commits: logLines(repo, `${plan.target}..${below}`),
+      };
+    }
+
+    return { kind: "ready", head: squash, tags: plannedTags(repo, plan.shipped, squash) };
+  } catch (error) {
+    return { kind: "after-bumps", head: merged.commit, why: messageOf(error) };
+  }
+}
+
+/**
+ * Merge the release pull request once mergeable: dev's head checked first, nothing merged when dev
+ * moved by commits the plan does not cover; then a squash merge of the one head the release pushed.
+ */
+async function mergeRelease(
+  repo: PluginDir,
+  plan: ReleasePlan,
+  pr: PullRequest,
+  pushed: string,
+  context: Context,
+): Promise<Bumped> {
+  const dev = devHead(repo);
+  const drift = driftRefusal(repo, plan, dev, dev);
+
+  if (drift !== null) return { kind: "not-merged", pr, wait: { kind: "drift", why: drift } };
+
+  context.say(`merging ${short(pushed)} into ${DEV} through ${pr.url}`);
+
+  let view: PullView;
+
+  try {
+    await squashMerge(context.gh, pr, pushed);
+    view = await viewOf(context.gh, pr);
+  } catch (error) {
+    return { kind: "not-merged", pr, wait: { kind: "merge-unsure", why: messageOf(error) } };
+  }
+
+  if (view.state !== "MERGED") {
+    return {
+      kind: "not-merged",
+      pr,
+      wait: {
+        kind: "merge-unsure",
+        why: `gh pr merge returned, and the pull request reads ${view.state}`,
+      },
+    };
+  }
+
+  return afterMerge(repo, plan, { commit: view.mergeCommit, head: view.headRefOid, pushed });
+}
+
+/**
+ * The plan's bumps on dev through the release pull request: the one a run of this plan opened, open
+ * or merged, or a new one; merged by this script once GitHub calls it mergeable.
+ */
+async function bumpOnDev(repo: PluginDir, plan: ReleasePlan, context: Context): Promise<Bumped> {
+  const branch = branchOf(plan);
+  const digest = planDigest(plan);
+  const found = await pullFrom(context.gh, branch, DEV);
+
+  const opened =
+    found === null
+      ? await openRelease(repo, plan, branch, digest, context)
+      : resumed(found, digest);
+
+  switch (opened.kind) {
+    case "refused":
+      return opened;
+    case "merged":
+      context.say(`${opened.pr.url} merged already, as ${short(opened.commit)}`);
+
+      return afterMerge(repo, plan, opened);
+    case "open":
+      break;
+  }
+
+  if (found !== null) context.say(`resuming the wait for ${opened.pr.url}`);
+
+  const wait = await mergeableOf(opened.pr, opened.pushed, context);
+
+  switch (wait.kind) {
+    case "merged":
+      return afterMerge(repo, plan, { ...wait, pushed: opened.pushed });
+    case "mergeable":
+      return mergeRelease(repo, plan, opened.pr, opened.pushed, context);
+    default:
+      return { kind: "not-merged", pr: opened.pr, wait };
+  }
+}
+
+/** Apply a sealed plan: the bumps on dev through a pull request, CI green on their commit, then the release from there. */
 export async function ship(
   repo: PluginDir,
   plan: ReleasePlan,
@@ -515,9 +850,9 @@ export async function ship(
   const bumped: Bumped =
     plan.bumps.length === 0
       ? { kind: "ready", head: plan.target, tags: plannedTags(repo, plan.shipped, plan.target) }
-      : bumpOnDev(repo, plan, context);
+      : await bumpOnDev(repo, plan, context);
 
-  if (bumped.kind === "refused") return bumped;
+  if (bumped.kind !== "ready") return bumped;
 
   const { head, tags } = bumped;
   const onDev = plan.bumps.length > 0;
@@ -538,23 +873,14 @@ export async function ship(
 
   if (ci.kind !== "green") return { kind: "ci-not-green", head, bumped: onDev, ci };
 
-  const belowBumps = commitAt(repo, `${head}~${plan.bumps.length}`);
+  const belowBumps = onDev ? commitAt(repo, `${head}~1`) : head;
 
   if (belowBumps !== plan.target) {
     context.say(
       `main ${short(plan.shipped)} → ${short(head)}, past the plan's ${short(plan.target)} by:`,
     );
 
-    for (const line of git(repo, [
-      "log",
-      "--reverse",
-      "--format=%h %s",
-      `${plan.target}..${belowBumps}`,
-    ])
-      .split("\n")
-      .filter((commit) => commit !== "")) {
-      context.say(`  ${line}`);
-    }
+    for (const line of logLines(repo, `${plan.target}..${belowBumps}`)) context.say(`  ${line}`);
   }
 
   const released = release(repo, head, tags);
@@ -673,7 +999,7 @@ function bumpRows(bumps: readonly PlannedBump[], view: View): readonly string[] 
   });
 }
 
-/** The bump's commit subject, Claude's reason when its level departs from the subjects', and its changelog section. */
+/** The bump's line, Claude's reason when its level departs from the subjects', and its changelog section. */
 function bumpDetail(bump: PlannedBump, view: View): readonly string[] {
   const title = `${bump.name} ${bump.to}`;
   const rule = view.paint("dim", "─".repeat(Math.max(3, view.width - title.length - 4)));
@@ -733,18 +1059,24 @@ export function describePlan(
           index === 0 ? labelled("Tags", line, view) : `${" ".repeat(LABEL_WIDTH)}${line}`,
         );
 
+  const commit = plan.bumps.length === 0 ? [] : [labelled("Commit", titleOf(plan.bumps), view)];
+
   return [
     `${view.paint("bold", "Release")}  main ${short(plan.shipped)} → ${short(plan.target)}`,
     "",
     ...(plan.bumps.length === 0 ? ["  no plugin to bump"] : bumpRows(plan.bumps, view)),
     ...plan.bumps.flatMap((bump) => bumpDetail(bump, view)),
     "",
+    ...commit,
     ...tagged,
   ].join("\n");
 }
 
 const AGAIN_AFTER_BUMPS =
   "Next: bun ./scripts/release.ts --dry-run, then --plan <the digest it prints>; its plan finds these bumps made, so it only waits for CI and pushes main";
+
+const AGAIN_AFTER_MERGE =
+  "Next: the same bun ./scripts/release.ts --plan <digest>; it finds its pull request merged, checks the squash commit again, waits for CI and moves main";
 
 function describeCi({ head, bumped, ci }: Extract<ShipOutcome, { kind: "ci-not-green" }>): string {
   const where = bumped ? `The bumps are on ${DEV} at ${short(head)}; main` : "main";
@@ -760,16 +1092,68 @@ function describeCi({ head, bumped, ci }: Extract<ShipOutcome, { kind: "ci-not-g
   }
 }
 
+function describeWait({ pr, wait }: Extract<ShipOutcome, { kind: "not-merged" }>): string {
+  const at = `The release pull request #${pr.number} (${pr.url})`;
+  const replan = (why: string) => `Close it (${closeCommand(pr, why)}), then run the dry-run again`;
+
+  switch (wait.kind) {
+    case "closed":
+      return `${at} was closed without merging; dev and main are unmoved: ${SAME_PLAN} and opens a new one, or run the dry-run again if the plan should change.`;
+    case "conflict":
+      return `${at} conflicts with ${DEV}; nothing merged, main unmoved. ${replan("conflicts with dev")}: its plan bumps on ${DEV}'s head.`;
+    case "drift":
+      return `${at} is mergeable, but nothing merged and main is unmoved: ${wait.why}. ${replan("dev moved under the release plan")}: its plan judges what ${DEV} gained.`;
+    case "foreign-head":
+      return `${at} has the head ${short(wait.head)}, not ${short(wait.pushed)}, the commit this script pushed; nothing merged, main unmoved. A push to its branch changes what was planned. ${replan("its head is not the release's commit")}.`;
+    case "red": {
+      const red = wait.checks.map(({ name, url }) => `${name} red (${url})`).join(", ");
+
+      const names = new Set(wait.checks.map(({ name }) => name));
+
+      const read =
+        names.has(REVIEW) && !names.has(REVIEW_READ)
+          ? "The review found something: read its comments on the pull request; running it again gives the same verdict."
+          : `Read the failed runs. A flaky job: re-run it (gh run rerun <run-id> --failed), then ${SAME_PLAN} and resumes the wait.`;
+
+      return `${at} has ${red}; nothing merged, main unmoved. ${read} A fix lands on ${DEV} on its own, not on this branch, whose head this script refuses unless it pushed it. ${replan("a fix lands first")}.`;
+    }
+
+    case "timeout":
+      return `${at} is not mergeable after ${MERGE_LIMITS.timeoutMs / 60_000} min (${wait.status}); nothing merged, main unmoved. Once ${APPROVAL_LABEL} is on it and its required checks are green, ${SAME_PLAN} and resumes the wait.`;
+    case "failed":
+      return `${at}: waiting for it failed: ${wait.why}. Nothing merged, main unmoved; ${SAME_PLAN} and resumes the wait.`;
+    case "merge-unsure":
+      return `${at} may have merged: ${wait.why}. The bumps may already be on ${DEV}; main is unmoved. The same bun ./scripts/release.ts --plan <digest> finds the pull request merged and carries on from its commit, or resumes the wait if it did not merge.`;
+  }
+}
+
+function describeUnplanned({
+  head,
+  why,
+  commits,
+}: Extract<ShipOutcome, { kind: "unplanned" }>): string {
+  const gained =
+    commits.length === 0
+      ? ""
+      : ` Past the plan's target, ${DEV} gained under it: ${commits.join("; ")}.`;
+
+  return `The release commit ${short(head)} is on ${DEV}, and main is unmoved: ${why}.${gained} Moving main there would ship what the plan did not judge. Revert ${short(head)} on ${DEV} through a pull request (git revert ${head}), then run the dry-run again: the revert resets the versions, so the next plan judges everything.`;
+}
+
 /** What the command prints for `outcome`, and its exit code. */
 export function reportOf(outcome: ShipOutcome): Report {
   switch (outcome.kind) {
     case "refused":
       return { text: `nothing pushed: ${outcome.why}`, exit: 1 };
+    case "not-merged":
+      return { text: describeWait(outcome), exit: 1 };
+    case "unplanned":
+      return { text: describeUnplanned(outcome), exit: 1 };
     case "ci-not-green":
       return { text: describeCi(outcome), exit: 1 };
     case "after-bumps":
       return {
-        text: `The bumps are on ${DEV} at ${short(outcome.head)}; main is unmoved: ${outcome.why}\n${AGAIN_AFTER_BUMPS}.`,
+        text: `The bumps are on ${DEV} at ${short(outcome.head)}; main is unmoved: ${outcome.why}\n${AGAIN_AFTER_MERGE}.`,
         exit: 1,
       };
     case "released":
@@ -843,7 +1227,10 @@ export function describeDryRun(repo: PluginDir, drafted: DryRun, view: View = PL
   ].join("\n");
 }
 
-/** The dry-run for an agent: the sealed plan, each bump's commit subject and tag, and the tags of versions set already. */
+/**
+ * The dry-run for an agent: the sealed plan, the release commit's subject, each bump's line and
+ * tag, and the tags of versions set already.
+ */
 export function dryRunJson(drafted: DryRun): string {
   const { plan, tags, costUsd, sealed } = drafted;
 
@@ -855,6 +1242,7 @@ export function dryRunJson(drafted: DryRun): string {
       plan: sealed.path,
       model: JUDGE_MODEL,
       costUsd,
+      title: plan.bumps.length === 0 ? null : titleOf(plan.bumps),
       bumps: plan.bumps.map((bump) => ({
         ...bump,
         subject: subjectOf(bump),
@@ -906,6 +1294,7 @@ if (import.meta.main) {
       const outcome = await ship(repo, loadPlan(repo, cli.digest), {
         gh: ghCli,
         limits: CI_LIMITS,
+        mergeLimits: MERGE_LIMITS,
         say: progress,
       });
 

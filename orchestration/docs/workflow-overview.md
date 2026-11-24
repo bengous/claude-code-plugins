@@ -324,7 +324,7 @@ v2.1+ is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
 ## Git Workflow Notes
 
 ### Dependency
-Requires `git-worktree` plugin installed. Run `/git-worktree:worktree-setup` to install `git-wt` helper.
+Requires `git-wt` on the `PATH`, the standalone script of the archived `git-worktree` plugin: from a clone of this repository, run `mkdir -p ~/.local/bin` then `install -m 755 archive/git-worktree/scripts/git-wt ~/.local/bin/git-wt`.
 
 ### Quality Enforcement
 Pre-commit and pre-push hooks automatically run linting, type checking, and tests. **You don't need to run these manually.**
@@ -372,4 +372,4 @@ Phase 3: REVIEW & SHIP
   └─ Done!
 ```
 
-**Dependency**: Requires `git-worktree` plugin with `git-wt` helper installed.
+**Dependency**: Requires the `git-wt` helper of the archived `git-worktree` plugin (see [Dependency](#dependency)).

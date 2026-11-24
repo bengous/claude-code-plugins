@@ -680,16 +680,11 @@ function blockText(text: string): string {
 }
 
 /**
- * A lead as the `github-flow:issue` skill writes an issue: links and the model's words, no upstream text. A worker
- * reads the raw body as its brief while the human reads it rendered, so the model's words render all they hold: one
+ * A lead as the `github-flow:issue` skill writes an issue: links and the model's words, no upstream text. A session
+ * reads the raw body as its task while the human reads it rendered, so the model's words render all they hold: one
  * sanitized line each, the hints in a fenced block.
  */
-export function leadBody(
-  lead: Lead,
-  claimed: Claim,
-  repo: string,
-  validate: readonly string[],
-): string {
+export function leadBody(lead: Lead, claimed: Claim, repo: string): string {
   const allowUrl = (url: string) =>
     url.startsWith(`https://github.com/${repo}/blob/`) ||
     url === claimed.compare ||
@@ -716,26 +711,11 @@ export function leadBody(
     "## Hints",
     lead.hints === "" ? "None." : textBlock(blockText(lead.hints)),
     "## Done when",
-    [
-      ...lead.doneWhen.map((check) => `- [ ] ${line(check)}`),
-      ...validate.map((command) => `- [ ] ${inlineCode(command)} passes`),
-    ].join("\n"),
+    lead.doneWhen.map((check) => `- [ ] ${line(check)}`).join("\n"),
     "## Out of scope",
     `- The version bump itself, which Renovate landed in ${claimed.sha.slice(0, 7)}, and any other dependency update.`,
     leadMarker(claimed.package, lead.key),
   ].join("\n\n");
-}
-
-/** The repository's validation commands, from `.claude/github-flow.json`; none when it has no such file. */
-function validateCommands(ctx: Context): readonly string[] {
-  const file = join(ctx.root, ".claude", "github-flow.json");
-
-  if (!existsSync(file)) return [];
-
-  const parsed = parseJson(readFileSync(file, "utf8"));
-  const validate = isRecord(parsed) ? parsed["validate"] : undefined;
-
-  return isStringArray(validate) ? validate : [];
 }
 
 function lineCountAt(ctx: Context, tree: string): LineCount {
@@ -790,7 +770,6 @@ export function publish(ctx: Context, issue: number, file: string): number {
     ]),
   );
 
-  const validate = validateCommands(ctx);
   const lines: string[] = [];
 
   for (const lead of leads) {
@@ -802,7 +781,7 @@ export function publish(ctx: Context, issue: number, file: string): number {
       const number = issueNumberOf(
         ctx.gh.call("POST", `repos/${ctx.repo}/issues`, {
           title,
-          body: leadBody(lead, claimed, ctx.repo, validate),
+          body: leadBody(lead, claimed, ctx.repo),
           labels: [LABEL.lead, LABEL.needsHuman],
         }),
       );

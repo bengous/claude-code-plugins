@@ -55,12 +55,18 @@
           },
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/renovate-agent.ts\"",
-            "timeout": 10
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
           },
           {
+            // A cloud session alone: the tools of mise.lock, which its environment cannot install before the clone.
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/cloud-tools.sh\"",
+            "timeout": 120
+          },
+          {
+            // The factory's verify hook, in a cloud session alone: it records the working tree the session starts from.
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" start"
           },
           {
             // A first run clones the private repository .private.env names.
@@ -85,13 +91,13 @@
         ]
       },
       {
-        // Keeps land-ok the human's: denies an agent's command that would put
-        // it on, which only the human's own /land does (land-label.ts).
+        // The factory's workflows take a label written with the owner's token
+        // as the owner's, and a session here writes with it.
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-land-ok.ts\"",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-owner-labels.ts\"",
             "timeout": 5
           }
         ]
@@ -104,20 +110,7 @@
             "type": "prompt",
             "if": "Bash(git commit *)",
             "continueOnBlock": true,
-            "prompt": "You check the message of a git commit before it runs. Allow at once any command that runs no git commit. A commit message says what the code does now, and why, as facts a reader can check on this commit alone, years later. How the change came about and how it was checked belong in the pull request.\nRefuse the commit when a passage of its message does one of these:\n- explains the change by what produced it: a review, an audit, their findings, a round of feedback, a session, a conversation, a person's decision or request, a plan step or decision label;\n- reports a check as an event: a test seen red before the fix, before and after numbers, a check in a browser, a run id, an eval score, who reviewed the change.\nAllow: the defect itself, even told in the past tense as what the old code did; what a test feeds in, asserts or cannot see; a measured fact about a dependency or platform that explains the code; a bare issue or pull request number; a trailer that names the session or an author; the words review, audit or session when the change itself is about that thing.\nThe message is what the command's -m, --trailer and heredoc values carry. Allow a command whose message you cannot read.\nWhen you refuse, quote each passage and say it belongs in the pull request."
-          }
-        ]
-      }
-    ],
-    "UserPromptExpansion": [
-      {
-        // The human's own /land <n> puts land-ok on each pull request it
-        // lands, before the command reaches the agent (.claude/skills/land).
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/land-label.ts\"",
-            "timeout": 30
+            "prompt": "You check the message of a git commit before it runs. Allow at once any command that runs no git commit. A commit message says what the code does now, and why, as facts a reader can check on this commit alone, years later. How the change came about and how it was checked belong in the pull request.\nRefuse the commit when a passage of its message does one of these:\n- explains the change by what produced it: a review, an audit, their findings, a round of feedback, a session, a conversation, a person's decision or request, a plan step or decision label;\n- reports a check as an event: a test seen red before the fix, before and after numbers, a check in a browser, a run id, an eval score, who reviewed the change.\nAllow: the defect itself, even told in the past tense as what the old code did; what a test feeds in, asserts or cannot see; a measured fact about a dependency or platform that explains the code; a bare issue or pull request number; a trailer that names the session or an author; what a prompt, a skill, a script, a check or a review of the repository says or does, told as its behaviour and not as something that happened once; the words review, audit or session when the change itself is about that thing.\nThe message is what the command's -m, --trailer and heredoc values carry. Allow a command whose message you cannot read.\nWhen you refuse, quote each passage and say it belongs in the pull request."
           }
         ]
       }
@@ -137,6 +130,30 @@
             "statusMessage": "Formatting..."
           }
         ]
+      },
+      {
+        // The factory's verify hook, which acts in a cloud session alone: it
+        // records the working tree each time the verify skill runs.
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" record"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        // Sends a cloud session back to the verify skill while its working
+        // tree differs from the one it started from and from the one verify
+        // last saw.
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" stop"
+          }
+        ]
       }
     ]
   },
@@ -147,10 +164,10 @@
   //
   // Sorted by reversibility: allow what stays on this machine or git undoes,
   // ask before what git cannot undo, deny secrets and system damage. No rule
-  // here guards a push: the owner's machine carries a global guard-git-push
-  // hook that refuses a push to main of a public repository, and this
-  // repository's own hooks keep land-ok the human's (guard-land-ok.ts,
-  // land-label.ts).
+  // here guards a push: a ruleset refuses every direct push to dev, and the
+  // owner's machine carries a global guard-git-push hook that refuses a push
+  // to main of a public repository. Nor does one guard the labels the owner
+  // alone writes: guard-owner-labels.ts does.
   //
   "permissions": {
     // Reversible and local: run without confirmation
@@ -189,19 +206,7 @@
       "Bash(chmod:*)",
       "Bash(sed:*)",
 
-      // Landing a reviewed branch on dev: the script pushes only a feature/,
-      // fix/ or renovate/ branch, or chore/claude-code-types, and its
-      // fast-forward to dev, refuses before any push unless its PR is open
-      // against dev and green, and the pre-push gates still run.
-      "Bash(bun ./scripts/land.ts *)",
-
-      // The loop's other commands (.claude/github-flow.json): a prompt nobody
-      // answers turns a worker's tier human. tier.ts --pr bills one or two
-      // headless judge calls; record posts the review's verdict on a
-      // worker's own PR, never a renovate/ one, which that verdict alone lands.
-      "Bash(bun ./scripts/landing/tier.ts --pr *)",
-      "Bash(bun ./scripts/landing/review-verdict.ts record feature/*)",
-      "Bash(bun ./scripts/landing/review-verdict.ts record fix/*)",
+      // The gates and the suites a session runs on its change before a push.
       "Bash(bun ./scripts/gates/run-gates.ts *)",
       "Bash(bun test *)",
 

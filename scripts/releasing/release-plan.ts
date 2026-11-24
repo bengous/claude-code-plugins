@@ -64,7 +64,7 @@ const SYSTEM_PROMPT = `You prepare one plugin's release in a Claude Code plugin 
 
 "level": "major" for a breaking change to what a user of the plugin types, configures or relies on; "minor" for a new capability a user can see; "patch" for fixes and internal changes. Under 0.x, shift down one step: a breaking change is "minor", a new capability "patch". The level the commit subjects propose is given; depart from it when the commits say otherwise.
 "reason": one or two sentences saying why this level, and why it departs from the proposed one when it does.
-"summary": one lowercase clause, under 80 characters, with no final period, used after the version in the commit subject "chore(<plugin>): x.y.z, <summary>".
+"summary": one lowercase clause, under 80 characters, with no final period, used after the version in the line "chore(<plugin>): x.y.z, <summary>" that the release's pull request lists.
 "body": the CHANGELOG section body, without the "## x.y.z - date" heading and with no heading of level 1 or 2, written for the plugin's users in the style of the examples given. When no change reaches the plugin's users, it is one sentence that starts "Internal changes only:".
 
 Write every field in English, whatever language any other instruction asks for.`;
@@ -564,11 +564,20 @@ function digestOf(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
 }
 
+function sealedText(plan: ReleasePlan): string {
+  return `${JSON.stringify(plan, null, 2)}\n`;
+}
+
+/** The digest `sealPlan` gave `plan`, and `--plan` names it by. */
+export function planDigest(plan: ReleasePlan): string {
+  return digestOf(sealedText(plan));
+}
+
 /** Writes the plan to `<git dir>/release-plan/<target>.json` and returns its digest. */
 export function sealPlan(repo: PluginDir, plan: ReleasePlan): Sealed {
   const dir = planDir(repo);
   const path = join(dir, `${plan.target}.json`);
-  const text = `${JSON.stringify(plan, null, 2)}\n`;
+  const text = sealedText(plan);
 
   writeAtomicSync(path, text, { mkdir: true });
 

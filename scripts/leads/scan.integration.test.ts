@@ -235,7 +235,6 @@ describe("publish", () => {
     expect(filed?.body).toContain(
       `- [vellum/src/state.ts:2](https://github.com/${REPO}/blob/${tree}/vellum/src/state.ts#L2)`,
     );
-    expect(filed?.body).toContain("- [ ] `bun ./scripts/run-gates.ts` passes");
     expect(filed?.body).not.toContain("don't memoize");
     expect(filed?.body).toEndWith(leadMarker("zustand", "drop the server snapshot memo"));
 

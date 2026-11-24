@@ -1,4 +1,4 @@
-export type ParamName = "OWNER" | "REPO" | "ROUTINE_ID" | "BRANCH";
+export type ParamName = "OWNER" | "REPO" | "ROUTINE_ID" | "BRANCH" | "CI";
 
 /** The parameters as given, each possibly absent: `render` refuses what is missing or malformed. */
 export type RawParams = { readonly [Name in ParamName]?: string | undefined };
@@ -21,6 +21,9 @@ const ROUTINE_ID = /^trig_[A-Za-z0-9]+$/u;
 // oxlint-disable-next-line no-control-regex -- git refuses control characters in a ref name, so this pattern must match them.
 const REF_FORBIDDEN = /[\u0000- \u007F~^:?*[\\]|\.\.|@\{|\/\//u;
 
+/** A workflow's `name:` as a double-quoted YAML string holds it unchanged: no quote, backslash, line break or `$`. */
+const WORKFLOW_NAME = /^[\w .,:;/()&+-]{1,100}$/u;
+
 const PLACEHOLDER = /\{\{([A-Z_]+)\}\}/gu;
 
 export function isLogin(value: string): boolean {
@@ -39,14 +42,21 @@ export function isRoutineId(value: string): boolean {
   return ROUTINE_ID.test(value);
 }
 
-/** A branch name git accepts (`git check-ref-format --branch`). */
+/** What a branch name may hold to be written as it is into YAML and shell: letters, digits, `_`, `.`, `/`, `-`. */
+const TEMPLATE_SAFE = /^[\w./-]+$/u;
+
+/**
+ * A branch name git accepts (`git check-ref-format --branch`) and the templates can hold: a name with a comma, a
+ * quote, a `$` or a backquote would change the YAML list or the shell string it is written into.
+ */
 export function isBranch(value: string): boolean {
   if (
     value === "" ||
     value === "@" ||
     value === "HEAD" ||
     value.startsWith("-") ||
-    REF_FORBIDDEN.test(value)
+    REF_FORBIDDEN.test(value) ||
+    !TEMPLATE_SAFE.test(value)
   ) {
     return false;
   }
@@ -59,11 +69,17 @@ export function isBranch(value: string): boolean {
     );
 }
 
+/** The name of a GitHub Actions workflow, as its `name:` line gives it. */
+export function isWorkflowName(value: string): boolean {
+  return WORKFLOW_NAME.test(value) && value.trim() === value;
+}
+
 const RULES: readonly (readonly [ParamName, Rule])[] = [
   ["OWNER", { test: isLogin, expected: "a GitHub login" }],
   ["REPO", { test: isRepo, expected: "owner/name" }],
   ["ROUTINE_ID", { test: isRoutineId, expected: "a trig_ id" }],
   ["BRANCH", { test: isBranch, expected: "a git branch name" }],
+  ["CI", { test: isWorkflowName, expected: "the name of a workflow" }],
 ];
 
 const KNOWN: ReadonlySet<string> = new Set(RULES.map(([name]) => name));

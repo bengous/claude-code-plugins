@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/584c3592-1e2a-4914-99f6-eac3fcb7cc26
 ## Install
 
 ```
-/plugin marketplace add bengous/claude-code-plugins
+/plugin marketplace add bengous/claude-code-plugins#main
 /plugin install griller@bengous-plugins
 ```
 

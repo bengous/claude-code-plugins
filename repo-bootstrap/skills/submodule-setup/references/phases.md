@@ -211,7 +211,7 @@ Expected: Returns repo name without error. Do not proceed to Phase 3 until all r
   </ask_user>
   <abort>
     <condition>no `mcp__secret-pane__request_secret` tool in this session</condition>
-    <message>The token must not enter this conversation. Install secret-pane (`/plugin marketplace add bengous/claude-code-plugins`, then `/plugin install secret-pane@bengous-plugins`) and run the skill again, or set the secret yourself in your own terminal: `gh secret set PARENT_REPO_PAT --repo <org>/<repo>` for the parent and each submodule, which prompts for the value, then run the skill again from Phase 4.</message>
+    <message>The token must not enter this conversation. Install secret-pane (`/plugin marketplace add bengous/claude-code-plugins#main`, then `/plugin install secret-pane@bengous-plugins`) and run the skill again, or set the secret yourself in your own terminal: `gh secret set PARENT_REPO_PAT --repo <org>/<repo>` for the parent and each submodule, which prompts for the value, then run the skill again from Phase 4.</message>
   </abort>
 </escalation>
 

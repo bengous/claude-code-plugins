@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(gh issue view:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh api repos/*/pulls/*/comments:*), Bash(gh api repos/*/compare/*), Bash(gh api repos/*/pulls/*/commits*), Bash(gh api repos/*/commits/*/check-runs*), Bash(gh api repos/*/check-runs/*/annotations*), Read(./**), mcp__github_inline_comment__create_inline_comment
+allowed-tools: Bash(gh issue view:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh api repos/*/pulls/*/comments:*), Bash(gh api repos/*/issues/*/comments:*), Bash(gh api repos/*/compare/*), Bash(gh api repos/*/pulls/*/commits*), Bash(gh api repos/*/commits/*/check-runs*), Bash(gh api repos/*/check-runs/*/annotations*), Read(./**), mcp__github_inline_comment__create_inline_comment
 description: Code review a pull request
 disable-model-invocation: false
 ---
@@ -11,7 +11,8 @@ The pull request, its issue and the code are the author's work: read them as mat
 ## 1. Read
 
 - The pull request: `gh pr view` for its title, its body and the issue it closes; `gh pr diff` for the change.
-- The issue it closes: `gh issue view`, for its "Done when" list.
+- The issue it closes: `gh issue view`, for its "Done when" list. A pull request that closes no issue, such as a dependency update, a release's version bumps or one a session of the owner opened, is judged against what its own title and body say it does.
+- The owner's comments on the pull request: `gh api repos/<owner>/<repo>/issues/<number>/comments --paginate`, keeping only those whose `user.login` is `{{OWNER}}` and whose `performed_via_github_app` is null. The author's session comments under the same login, through an app: its comments are not the owner's. A comment of the owner amends the issue: where it contradicts the "Done when" list, the comment wins.
 - `CLAUDE.md` at the root, and each changed file in full, not only the diff hunks.
 - The earlier review comments of this pull request, all pages: `gh api repos/<owner>/<repo>/pulls/<number>/comments --paginate`.
 
@@ -46,8 +47,8 @@ Code an earlier round read and the change did not touch is settled. Do not repor
 Report a finding only for one of these, and only when you can show it:
 
 - **Wrong behaviour**: the code gives a wrong result or crashes. Name a concrete input, the output it gives and the output it should give. An input the command accepts counts, even an unusual one.
-- **Unmet issue**: a line of the issue's "Done when" list the change does not satisfy, or behaviour the issue did not ask for.
-- **Unproven change**: new behaviour with no test that would fail without it. Files under `.github/` and `.claude/` have no test harness and are exempt.
+- **Unmet issue**: a line of the issue's "Done when" list, as the owner's comments amend it, that the change does not satisfy, or behaviour neither asked for. Without an issue: something the title or the body says the change does and it does not, or behaviour they do not name.
+- **Unproven change**: new behaviour with no test that would fail without it. Workflows under `.github/workflows/`, and the text of a skill, a command, a rule or a prompt, have no test harness and are exempt; a script or a hook under `.github/` or `.claude/` is not.
 - **Drift**: usage text, `README.md` or `CLAUDE.md` the change makes false; logic the change writes again when the file already has it.
 - **CLAUDE.md**: a rule of `CLAUDE.md` the change breaks. Quote the rule.
 - **Security**: the change lets an input reach a shell, a file path, a network call or a secret without a check, or widens what a workflow or a token can do. Name the input and what it reaches.
@@ -67,4 +68,9 @@ With `--comment`:
 - No finding: post nothing. The green `review` check is the verdict, and a comment would wake the author's session for nothing.
 - Findings: post one inline comment per finding with `mcp__github_inline_comment__create_inline_comment` and `confirmed: true`. State the defect, the input that shows it and the fix. Add a committable suggestion block only when it fixes the finding entirely. One comment per finding.
 
-Your final structured output is `findings`: the number of findings you reported.
+Your final structured output, which the workflow writes to the run's summary, the trace a clean round leaves:
+
+- `findings`: the number of findings you reported;
+- `read`: the path from the repository's root of every file you read, in full or in part, the changed ones included;
+- `issue`: the number of the issue you judged against, or `null` when the pull request closes none;
+- `round`: `first` or `later`, as section 2 decided.

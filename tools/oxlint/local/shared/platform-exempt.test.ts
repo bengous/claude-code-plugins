@@ -20,7 +20,7 @@ describe("isPlatformExempt", () => {
     for (const path of [
       "scripts/a.test.ts",
       "vellum/src/a.spec.ts",
-      "scripts/land.fixture.ts",
+      "scripts/headless/flock.fixture.ts",
       "atlas/fixtures/sample/map.ts",
       "fixtures/x.ts",
       "vellum/src/runtime/hooks/fixtures.ts",

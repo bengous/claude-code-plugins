@@ -61,6 +61,8 @@ async function runHook(cwd: string, env: Record<string, string> = {}) {
     stderr: "pipe",
     env: {
       ...process.env,
+      // A cloud session sets it, and the hook then returns at once: a test that wants one says so.
+      CLAUDE_CODE_REMOTE: undefined,
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       CLAUDE_PROJECT_DIR: project,
