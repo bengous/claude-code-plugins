@@ -41,6 +41,8 @@ Two cases have no event of their own on a pull request, and each has a workflow:
 
 A session stopped by something outside its issue comments on the issue and labels it `blocked`; the owner labels it `ready` again once the way is clear.
 
+The merge closes the issue through its pull request's `Closes #N`, which wakes no session: `unclaim.yml`, on the issue's close, removes `in-progress`. This repository runs it; it reaches `templates/` once a trial repository has run it.
+
 GitHub offers the merge queue in a public repository of an organization, and in a private one under GitHub Enterprise Cloud. Both workflows above are installed with or without it.
 
 The factory's pull requests target the repository's default branch. A repository whose working trunk is not its default branch is not supported.
@@ -50,7 +52,7 @@ The factory's pull requests target the repository's default branch. A repository
 | Label | On | Set by | Meaning |
 |-------|----|--------|---------|
 | `ready` | issue | the owner, without an app; `trunk-red.yml` on its own issue | Start a Worker on it |
-| `in-progress` | issue | the Worker | Claimed |
+| `in-progress` | issue | the Worker; removed by `unclaim.yml` when the issue closes | Claimed |
 | `blocked` | issue | the Worker | Something outside the issue stops it |
 | `needs-human` | issue and pull request | the round cap, the conflict bound, the trunk bound | A bound was reached: the factory stopped |
 | `trunk-red` | issue | `trunk-red.yml` | The repair issue of a red default branch |
