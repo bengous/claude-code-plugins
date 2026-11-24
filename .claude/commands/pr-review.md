@@ -74,4 +74,9 @@ With `--comment`:
 - No finding: post nothing. The green `review` check is the verdict, and a comment would wake the author's session for nothing.
 - Findings: post one inline comment per finding with `mcp__github_inline_comment__create_inline_comment` and `confirmed: true`. State the defect, the input that shows it and the fix. Add a committable suggestion block only when it fixes the finding entirely. One comment per finding.
 
-Your final structured output is `findings`: the number of findings you reported.
+Your final structured output, which the workflow writes to the run's summary, the trace a clean round leaves:
+
+- `findings`: the number of findings you reported;
+- `read`: the path from the repository's root of every file you read, in full or in part, the changed ones included;
+- `issue`: the number of the issue you judged against, or `null` when the pull request closes none;
+- `round`: `first` or `later`, as section 2 decided.
