@@ -80,6 +80,15 @@ export type Wait =
 const WAIT = { kind: "wait" } as const;
 
 /**
+ * Both verdicts read while another check started after one of them. A run started again shows
+ * this between two of its jobs, the first ended and the next not created, and its earlier verdict
+ * is then still the latest: the verdicts are the answer once the next poll reads them again.
+ */
+type Unconfirmed = { readonly kind: "unconfirmed" } & Seen;
+
+export type Reading = Wait | typeof WAIT | Unconfirmed;
+
+/**
  * `expected` is the commit the caller's checkout is at, when that checkout is the pull request's
  * branch, and null otherwise: verdicts are read on that head alone.
  */
@@ -88,7 +97,7 @@ export function decide(
   expected: string | null,
   elapsedMs: number,
   timeoutMs: number,
-): Wait | typeof WAIT {
+): Reading {
   if (view.state === "MERGED") return { kind: "merged", commit: view.mergeCommit };
 
   if (view.state === "CLOSED") return { kind: "closed" };
@@ -113,7 +122,18 @@ export function decide(
       : [],
   );
 
-  if (missing.length === 0 && pending.length === 0) return { kind: "verdict", head, checks };
+  if (missing.length === 0 && pending.length === 0) {
+    const followed = checks.some((check) =>
+      latest.some(
+        (other) =>
+          !WATCHED.includes(other.name) &&
+          other.startedAt !== check.startedAt &&
+          startedAfter(other, check),
+      ),
+    );
+
+    return { kind: followed ? "unconfirmed" : "verdict", head, checks };
+  }
 
   if (elapsedMs >= timeoutMs) {
     return { kind: "timeout", head, checks, waiting: [...missing, ...pending] };
@@ -129,6 +149,28 @@ export function decide(
   return WAIT;
 }
 
+/**
+ * What a poll's reading answers, given the reading of the poll before it, or null to poll again.
+ * Two readings want a second poll that reads the same: unconfirmed verdicts, and a head with no
+ * check running, which a head also shows between the end of the jobs a check needs and that
+ * check's own creation.
+ */
+export function answerOf(reading: Reading, before: Reading): Wait | null {
+  switch (reading.kind) {
+    case "wait":
+      return null;
+    case "none":
+      return before.kind === "none" ? reading : null;
+    case "unconfirmed":
+      return before.kind === "unconfirmed" &&
+        JSON.stringify(before.checks) === JSON.stringify(reading.checks)
+        ? { kind: "verdict", head: reading.head, checks: reading.checks }
+        : null;
+    default:
+      return reading;
+  }
+}
+
 export async function waitForVerdict(
   gh: Gh,
   number: number,
@@ -142,22 +184,20 @@ export async function waitForVerdict(
     const view = await viewOf(gh, { number, url: "" });
     const elapsedMs = clock.now() - start;
 
-    return { decision: decide(view, expected, elapsedMs, timeoutMs), elapsedMs };
+    return { reading: decide(view, expected, elapsedMs, timeoutMs), elapsedMs };
   };
 
-  let { decision, elapsedMs } = await read();
+  let before: Reading = WAIT;
 
-  // Between the end of the jobs a check needs and its own creation, a head shows no check running:
-  // "none" is the answer once two polls in a row read it.
-  let quiet = false;
+  for (;;) {
+    const { reading, elapsedMs } = await read();
+    const answer = answerOf(reading, before);
 
-  while (decision.kind === "wait" || (decision.kind === "none" && !quiet)) {
-    quiet = decision.kind === "none";
+    if (answer !== null) return answer;
+
+    before = reading;
     await clock.sleep(Math.max(0, Math.min(pollMs, timeoutMs - elapsedMs)));
-    ({ decision, elapsedMs } = await read());
   }
-
-  return decision;
 }
 
 /** The pull request's head commit, as the caller's checkout holds it. */

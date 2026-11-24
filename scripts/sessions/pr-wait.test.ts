@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Clock, Gh } from "../releasing/ci-wait.ts";
 import { REGISTRATION_MS } from "../releasing/ci-wait.ts";
 import type { PullCheck, PullView } from "../releasing/release-pull.ts";
-import { decide, exitOf, main, openThreadOf, report, requestOf } from "./pr-wait.ts";
+import { answerOf, decide, exitOf, main, openThreadOf, report, requestOf } from "./pr-wait.ts";
 
 const TIMEOUT_MS = 30 * 60_000;
 
@@ -102,14 +102,19 @@ function fakeClock(): Clock {
   };
 }
 
-function run(name: string, status: string, conclusion: string | null) {
+function run(
+  name: string,
+  status: string,
+  conclusion: string | null,
+  startedAt = "2026-01-01T10:00:00Z",
+) {
   return {
     __typename: "CheckRun",
     name,
     status,
     conclusion,
     detailsUrl: `https://github.com/o/r/runs/${name}`,
-    startedAt: "2026-01-01T10:00:00Z",
+    startedAt,
   };
 }
 
@@ -171,6 +176,21 @@ describe("decide", () => {
     });
   });
 
+  test("verdicts read beside a check that started after one of them are not confirmed yet", () => {
+    const checks = [
+      check("test", "green", "2026-01-01T10:05:00Z"),
+      check("review", "red", "2026-01-01T10:00:00Z"),
+    ];
+
+    const read = check("review (read)", "green", "2026-01-01T10:30:00Z");
+
+    expect(decide(open([...checks, read]), null, 0, TIMEOUT_MS)).toEqual({
+      kind: "unconfirmed",
+      head: HEAD,
+      checks,
+    });
+  });
+
   test("a head with no check yet is waited on, then answered as none", () => {
     expect(decide(open([]), null, REGISTRATION_MS - 1, TIMEOUT_MS)).toEqual({ kind: "wait" });
     expect(decide(open([]), null, REGISTRATION_MS, TIMEOUT_MS)).toEqual({
@@ -221,6 +241,37 @@ describe("decide", () => {
       decide({ state: "MERGED", mergeCommit: "04719f62aa", headRefOid: HEAD }, null, 0, TIMEOUT_MS),
     ).toEqual({ kind: "merged", commit: "04719f62aa" });
     expect(decide({ state: "CLOSED" }, null, 0, TIMEOUT_MS)).toEqual({ kind: "closed" });
+  });
+});
+
+function seen(verdict: PullCheck["verdict"]) {
+  return { head: HEAD, checks: [check("review", verdict)] };
+}
+
+const POLL_AGAIN = { kind: "wait" } as const;
+
+describe("answerOf", () => {
+  test("unconfirmed verdicts are the answer once the poll before read the same", () => {
+    const unconfirmed = { kind: "unconfirmed", ...seen("red") } as const;
+
+    expect(answerOf(unconfirmed, POLL_AGAIN)).toBeNull();
+    expect(answerOf(unconfirmed, { kind: "unconfirmed", ...seen("green") })).toBeNull();
+    expect(answerOf(unconfirmed, unconfirmed)).toEqual({ kind: "verdict", ...seen("red") });
+  });
+
+  test("a head with no check running is the answer on the second poll that reads it", () => {
+    const none = { kind: "none", ...seen("green"), missing: ["test"] } as const;
+
+    expect(answerOf(none, POLL_AGAIN)).toBeNull();
+    expect(answerOf(none, none)).toBe(none);
+  });
+
+  test("a wait polls again, and every other reading is its own answer", () => {
+    const verdict = { kind: "verdict", ...seen("green") } as const;
+
+    expect(answerOf(POLL_AGAIN, verdict)).toBeNull();
+    expect(answerOf(verdict, POLL_AGAIN)).toBe(verdict);
+    expect(answerOf({ kind: "closed" }, POLL_AGAIN)).toEqual({ kind: "closed" });
   });
 });
 
@@ -395,6 +446,24 @@ describe("main", () => {
     ]);
 
     expect(await main(["580"], gh, fakeClock(), ELSEWHERE)).toBe(0);
+  });
+
+  test("a review started again is waited through the moment between its two jobs", async () => {
+    const ci = run("test", "COMPLETED", "SUCCESS", "2026-01-01T09:00:00Z");
+    const earlier = run("review", "COMPLETED", "FAILURE", "2026-01-01T10:00:00Z");
+    const reading = run("review (read)", "IN_PROGRESS", null, "2026-01-01T10:30:00Z");
+    const read = run("review (read)", "COMPLETED", "SUCCESS", "2026-01-01T10:30:00Z");
+
+    const { gh, views } = fakeGh([
+      [ci, earlier, reading],
+      [ci, earlier, read],
+      [ci, earlier, read, run("review", "IN_PROGRESS", null, "2026-01-01T10:31:00Z")],
+      [ci, earlier, read, run("review", "COMPLETED", "SUCCESS", "2026-01-01T10:31:00Z")],
+    ]);
+
+    expect(await main(["580"], gh, fakeClock(), ELSEWHERE)).toBe(0);
+    expect(views()).toBe(5);
+    expect(out.join("\n")).toContain("review   green  https://github.com/o/r/runs/review");
   });
 
   test("from a checkout of the branch, waits for the checkout's commit and no other", async () => {
