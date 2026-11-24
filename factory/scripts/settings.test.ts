@@ -9,6 +9,8 @@ const FRAGMENT = readFileSync(join(TEMPLATES_DIR, SETTINGS_HOOKS), "utf8");
 
 const START = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh" start';
 
+const CLOUD_TOOLS = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/cloud-tools.sh"';
+
 const RECORD = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh" record';
 
 const STOP = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh" stop';
@@ -20,7 +22,11 @@ interface Settings {
       string,
       readonly {
         readonly matcher?: string;
-        readonly hooks: readonly { readonly type: string; readonly command: string }[];
+        readonly hooks: readonly {
+          readonly type: string;
+          readonly command: string;
+          readonly timeout?: number;
+        }[];
       }[]
     >
   >;
@@ -36,11 +42,12 @@ function merged(current: string | null): Settings {
 }
 
 describe("mergeHooks", () => {
-  test("a repository without settings gets the three hooks", () => {
+  test("a repository without settings gets the factory's hooks", () => {
     const settings = merged(null);
 
     expect(settings.hooks["SessionStart"]).toEqual([
       { hooks: [{ type: "command", command: START }] },
+      { hooks: [{ type: "command", command: CLOUD_TOOLS, timeout: 120 }] },
     ]);
     expect(settings.hooks["PostToolUse"]).toEqual([
       { matcher: "Skill", hooks: [{ type: "command", command: RECORD }] },

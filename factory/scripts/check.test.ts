@@ -18,6 +18,7 @@ import {
   tierStalenessOf,
   VERIFY_SKILL,
 } from "./check.ts";
+import { ENVIRONMENT } from "./environment.ts";
 import { CLAUDE_MD_SECTIONS, readTemplates, REPO_PREFIX } from "./templates.ts";
 
 const CI_WORKFLOW = `name: CI
@@ -154,9 +155,9 @@ describe("evaluate", () => {
     );
   });
 
-  test("a settings file without the verify hooks is missing them", () => {
+  test("a settings file without the factory's hooks is missing them", () => {
     expect(missing({ ...COMPLETE, hooksInstalled: false })).toEqual([
-      ".claude/settings.json runs the verify hooks",
+      ".claude/settings.json runs the factory's hooks",
     ]);
   });
 
@@ -276,6 +277,24 @@ describe("what the required files say", () => {
     ]) {
       expect(text).toContain(line);
     }
+  });
+
+  test("an environment.json that holds a secret's value is missing, and its line says what to write", () => {
+    const leaked = withFile(
+      ENVIRONMENT,
+      textOf(ENVIRONMENT).replace(
+        '"environment_variables": {}',
+        '"environment_variables": { "API_SECRET": "sk-live-1234" }',
+      ),
+    );
+
+    expect(missing(leaked)).toEqual([
+      ".github/factory/environment.json declares the network, the variables and the setup script, with no secret's value",
+    ]);
+    expect(format(evaluate(leaked))).toContain(
+      "a variable named *_SECRET keeps the value <redacted>, its real value stays on claude.ai, then land it on main",
+    );
+    expect(format(evaluate(leaked))).not.toContain("sk-live-1234");
   });
 
   test("the templates and the CLAUDE.md sections pass, each with its own ok line", () => {

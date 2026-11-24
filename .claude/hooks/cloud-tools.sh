@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart, in a cloud session alone: installs the tools .github/factory/mise.lock records, which the
 # environment's setup script cannot do before the clone exists, and says so when the environment did not run
-# .github/factory/setup.sh as the clone holds it. What it prints reaches the session as context. Never blocks the session.
+# .github/factory/setup.sh as the clone holds it. A repository that declares no tools there installs none. What it
+# prints reaches the session as context. Never blocks the session.
 set -uo pipefail
 
 [[ ${CLAUDE_CODE_REMOTE:-} == true ]] || exit 0
@@ -20,6 +21,8 @@ ran=$(cat "${HOME}/.cloud-env-setup.revision" 2>/dev/null)
 if [[ ${ran} != "${expected}" ]]; then
   echo "This cloud environment did not run ${SETUP} as this clone holds it (ran: ${ran:-none}). A tool or a package the script installs may be missing: the owner loads the file again in the environment's settings on claude.ai."
 fi
+
+[[ -f ${TOOLS}/mise.toml ]] || exit 0
 
 if ! command -v mise >/dev/null 2>&1; then
   echo "mise is not installed in this cloud environment, so the tools of ${TOOLS}/mise.toml were not installed."

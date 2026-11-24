@@ -111,6 +111,7 @@ beforeEach(() => {
   mkdirSync(bin);
   mkdirSync(join(project, ".github/factory"), { recursive: true });
   writeFileSync(join(project, SETUP), SETUP_TEXT);
+  writeFileSync(join(project, TOOLS, "mise.toml"), '[tools]\nbun = "latest"\n');
   writeFileSync(join(home, ".cloud-env-setup.revision"), `${revisionOf(SETUP_TEXT)}\n`);
 
   linkPrograms(PROGRAMS);
@@ -147,6 +148,20 @@ describe("the cloud's tools", () => {
 });
 
 describe("cloud-tools.sh", () => {
+  test("is the hook the factory installs, unchanged", () => {
+    expect(readFileSync(HOOK, "utf8")).toBe(
+      readFileSync(join(REPOSITORY, "factory/templates/repo/.claude/hooks/cloud-tools.sh"), "utf8"),
+    );
+  });
+
+  test("installs nothing in a repository that declares no tools", async () => {
+    installMise();
+    rmSync(join(project, TOOLS, "mise.toml"));
+
+    expect(await runHook()).toEqual({ exitCode: 0, stdout: "" });
+    expect(calls()).toBe("");
+  });
+
   test("starts nothing outside a cloud session", async () => {
     installMise();
 

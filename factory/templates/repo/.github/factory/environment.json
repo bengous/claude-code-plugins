@@ -1,0 +1,10 @@
+{
+  "network": {
+    "access": "limited",
+    "allowed_hosts": [],
+    "allow_package_managers": true,
+    "allow_mcp_servers": true
+  },
+  "environment_variables": {},
+  "setup_script": ".github/factory/setup.sh"
+}

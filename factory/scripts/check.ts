@@ -11,6 +11,7 @@ import {
   parseOwners,
   staleness,
 } from "../templates/repo/.github/factory/tier.ts";
+import { declarationProblems, ENVIRONMENT, REDACTED } from "./environment.ts";
 import { isRepo } from "./render.ts";
 import { mergeHooks } from "./settings.ts";
 import { readTemplates, REPO_PREFIX, SETTINGS_HOOKS } from "./templates.ts";
@@ -103,6 +104,12 @@ export const CONTENT_RULES: readonly ContentRule[] = [
         lines(text).some((line) => line.trim().split(/\s+/u)[0] === owned),
       ),
     fix: "add a line for each, owned by the owner, and remove every glob line and every path not written from the root: the owner gate reads path prefixes from the root alone, and holds every change for the owner when it meets another line",
+  },
+  {
+    path: ENVIRONMENT,
+    says: "declares the network, the variables and the setup script, with no secret's value",
+    holds: (text) => declarationProblems(text).length === 0,
+    fix: `write it as the template holds it: a network, environment_variables and .github/factory/setup.sh as setup_script; a variable named *_SECRET keeps the value ${REDACTED}, its real value stays on claude.ai`,
   },
   {
     path: VERIFY_SKILL,
@@ -506,7 +513,7 @@ export function evaluate(facts: Facts): Item[] {
         : [{ name: `${path} ${says}`, ok: holds(text), fix: `${fix}, then land it on ${branch}` }];
     }),
     {
-      name: `${SETTINGS} runs the verify hooks`,
+      name: `${SETTINGS} runs the factory's hooks`,
       ok: facts.hooksInstalled,
       fix: `run install.ts repo, which merges the hooks into it, then land it on ${branch}`,
     },
