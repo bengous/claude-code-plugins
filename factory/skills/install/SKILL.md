@@ -64,11 +64,15 @@ Only the owner creates it, on claude.ai/code: the environment selector, *New env
 - *Setup script*: *Choose file*, `.github/factory/setup.sh`;
 - *Environment variables*: those of `environment.json`, a secret with its real value.
 
+The dialog has no control for `allow_mcp_servers`: leave it `true` in the file.
+
 claude.ai keeps its own copy of all of it: a later change to the declaration reaches a session once the owner applied it there, and `.claude/hooks/cloud-tools.sh` tells a session when the environment ran another setup script than its clone's.
 
 The routine needs the environment's `env_…` id: the `schedule` skill prints the account's environments with their ids.
 
 ### The routine
+
+A repository that already has its routine keeps it: move it into the environment and give it the prompt below with the `RemoteTrigger` tool, action `update`, sending its whole `job_config` with the new `environment_id` and the new prompt. Saving a routine from its page on claude.ai adds an outcome branch it did not have. Then go to step 3.
 
 1. Ask the owner to give the Claude GitHub App access to `<REPO>` first, at <https://github.com/apps/claude>, and to confirm it. A routine created before that cannot read the repository, and its cloud session cannot push.
 2. Render the prompt into a scratch directory: `mktemp -d` prints one, then
@@ -176,7 +180,15 @@ Run `check.ts` again after the fixes; it exits 0 once everything is in place.
 
 ## 7. First run
 
-Have the owner label a small issue of his `ready`, then read its run with the `RemoteTrigger` tool, action `list_runs` then `get_run_log`. A host that does not resolve, a command that is not found, or a message from `cloud-tools.sh` when the session starts names what the declaration lacks: add it to `.github/factory/`, land it, and have the owner apply it to the environment before the next issue.
+Have the owner label a small issue of his `ready`, then read its run with the `RemoteTrigger` tool, action `list_runs` then `get_run_log`. A host that does not resolve or a command that is not found names what the declaration lacks: add it to `.github/factory/`, land it, and have the owner apply it to the environment before the next issue.
+
+That log does not show what a hook printed when the session started. To read it, send the run's session one more message, from a terminal:
+
+```bash
+claude -p "Run these two read-only commands and paste their output as it is: cat ~/.cloud-env-setup.log and bash .claude/hooks/cloud-tools.sh" --cloud <session id>
+```
+
+then read the log again. `[cloud-setup] done` with no `FAILED` line, and nothing from `cloud-tools.sh`, mean the environment ran the setup script the clone holds and has the declared tools.
 
 ## Report
 
