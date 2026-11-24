@@ -37,6 +37,10 @@
           },
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" start"
+          },
+          {
+            "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/private-sync.ts\"",
             "timeout": 60
           }

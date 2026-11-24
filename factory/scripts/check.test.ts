@@ -16,6 +16,7 @@ import {
   repoArgument,
   requiredFiles,
   tierStalenessOf,
+  VERIFY_HOOK,
   VERIFY_SKILL,
 } from "./check.ts";
 import { CLAUDE_MD_SECTIONS, readTemplates, REPO_PREFIX } from "./templates.ts";
@@ -156,7 +157,7 @@ describe("evaluate", () => {
 
   test("a settings file without the verify hooks is missing them", () => {
     expect(missing({ ...COMPLETE, hooksInstalled: false })).toEqual([
-      ".claude/settings.json runs the two verify hooks",
+      ".claude/settings.json runs the verify hooks",
     ]);
   });
 
@@ -276,6 +277,20 @@ describe("what the required files say", () => {
     ]) {
       expect(text).toContain(line);
     }
+  });
+
+  test("a verify hook from before the session's start record is missing, and its line says to replace it", () => {
+    const older = withFile(
+      VERIFY_HOOK,
+      'case "${1:-}" in\n  record)\n    ;;\n  stop)\n    ;;\n  *)\n    echo "usage: require-verify.sh record|stop" >&2\n    ;;\nesac\n',
+    );
+
+    expect(missing(older)).toEqual([
+      ".claude/hooks/require-verify.sh records the tree a session starts from",
+    ]);
+    expect(format(evaluate(older))).toContain(
+      "remove it and run install.ts repo, which writes the template's",
+    );
   });
 
   test("the templates and the CLAUDE.md sections pass, each with its own ok line", () => {

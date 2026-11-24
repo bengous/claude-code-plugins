@@ -45,6 +45,8 @@ export const VERIFY_SKILL = ".claude/skills/verify/SKILL.md";
 
 export const SETTINGS = ".claude/settings.json";
 
+export const VERIFY_HOOK = ".claude/hooks/require-verify.sh";
+
 export const TRUNK_RED = ".github/workflows/trunk-red.yml";
 
 export const TIER_CASES = ".github/factory/tier-cases.json";
@@ -103,6 +105,12 @@ export const CONTENT_RULES: readonly ContentRule[] = [
         lines(text).some((line) => line.trim().split(/\s+/u)[0] === owned),
       ),
     fix: "add a line for each, owned by the owner, and remove every glob line and every path not written from the root: the owner gate reads path prefixes from the root alone, and holds every change for the owner when it meets another line",
+  },
+  {
+    path: VERIFY_HOOK,
+    says: "records the tree a session starts from",
+    holds: (text) => /^\s*start\)/mu.test(text),
+    fix: "remove it and run install.ts repo, which writes the template's: the settings run it with `start` when a session starts, which an older script refuses",
   },
   {
     path: VERIFY_SKILL,
@@ -506,7 +514,7 @@ export function evaluate(facts: Facts): Item[] {
         : [{ name: `${path} ${says}`, ok: holds(text), fix: `${fix}, then land it on ${branch}` }];
     }),
     {
-      name: `${SETTINGS} runs the two verify hooks`,
+      name: `${SETTINGS} runs the verify hooks`,
       ok: facts.hooksInstalled,
       fix: `run install.ts repo, which merges the hooks into it, then land it on ${branch}`,
     },

@@ -7,6 +7,8 @@ import { SETTINGS_HOOKS, TEMPLATES_DIR } from "./templates.ts";
 
 const FRAGMENT = readFileSync(join(TEMPLATES_DIR, SETTINGS_HOOKS), "utf8");
 
+const START = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh" start';
+
 const RECORD = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh" record';
 
 const STOP = 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh" stop';
@@ -34,9 +36,12 @@ function merged(current: string | null): Settings {
 }
 
 describe("mergeHooks", () => {
-  test("a repository without settings gets the two hooks", () => {
+  test("a repository without settings gets the three hooks", () => {
     const settings = merged(null);
 
+    expect(settings.hooks["SessionStart"]).toEqual([
+      { hooks: [{ type: "command", command: START }] },
+    ]);
     expect(settings.hooks["PostToolUse"]).toEqual([
       { matcher: "Skill", hooks: [{ type: "command", command: RECORD }] },
     ]);
@@ -61,6 +66,21 @@ describe("mergeHooks", () => {
       STOP,
     ]);
     expect(settings.hooks["PostToolUse"]?.[0]?.matcher).toBe("Skill");
+  });
+
+  test("settings from before the start record get it, and keep their record and stop entries", () => {
+    const older = JSON.stringify({
+      hooks: {
+        PostToolUse: [{ matcher: "Skill", hooks: [{ type: "command", command: RECORD }] }],
+        Stop: [{ hooks: [{ type: "command", command: STOP }] }],
+      },
+    });
+
+    const settings = merged(older);
+
+    expect(settings.hooks["SessionStart"]?.[0]?.hooks[0]?.command).toBe(START);
+    expect(settings.hooks["PostToolUse"]).toHaveLength(1);
+    expect(settings.hooks["Stop"]).toHaveLength(1);
   });
 
   test("a second merge changes nothing", () => {

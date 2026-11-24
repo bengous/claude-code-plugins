@@ -64,6 +64,11 @@
             "timeout": 120
           },
           {
+            // The factory's verify hook, in a cloud session alone: it records the working tree the session starts from.
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-verify.sh\" start"
+          },
+          {
             // A first run clones the private repository .private.env names.
             "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/private-sync.ts\"",
@@ -141,7 +146,8 @@
     "Stop": [
       {
         // Sends a cloud session back to the verify skill while its working
-        // tree differs from the one verify last saw.
+        // tree differs from the one it started from and from the one verify
+        // last saw.
         "hooks": [
           {
             "type": "command",

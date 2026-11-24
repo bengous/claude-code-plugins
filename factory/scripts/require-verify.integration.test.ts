@@ -55,7 +55,7 @@ beforeEach(async () => {
 
   const rendered = render(
     readTemplates().filter(({ path }) => path === HOOK),
-    { BRANCH: "main" },
+    {},
   );
 
   if (rendered.kind !== "rendered") throw new Error(rendered.errors.join("; "));
@@ -71,9 +71,14 @@ beforeEach(async () => {
   edit(".gitignore", "dist/\n");
   await git("add", ".");
   await git("commit", "--quiet", "-m", "base");
-  await git("update-ref", "refs/remotes/origin/main", "HEAD");
   await git("switch", "--quiet", "-c", "work");
+  await hook("start");
 });
+
+/** Puts the clone back to what it is before a session's SessionStart hook ran. */
+function forgetStart(): void {
+  rmSync(join(repo, ".git/factory-verify/start"), { force: true });
+}
 
 afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
@@ -83,7 +88,7 @@ afterEach(() => {
 const SENT_BACK = "The working tree changed since the verify skill last ran.";
 
 describe("require-verify.sh stop", () => {
-  test("lets a session end that changed nothing since it left the trunk", async () => {
+  test("lets a session end that changed nothing since it started", async () => {
     expect(await hook("stop")).toEqual({ code: 0, stderr: "" });
 
     edit("dist/out.js", "ignored\n");
@@ -148,10 +153,28 @@ describe("require-verify.sh stop", () => {
     expect((await hook("stop")).code).toBe(0);
   });
 
-  test("counts the tree as changed where the trunk cannot be found, a committed change included", async () => {
-    await git("update-ref", "-d", "refs/remotes/origin/main");
+  test("lets a session end that started on a branch holding commits and changed nothing", async () => {
+    forgetStart();
     edit("src/cli.ts", "export const a = 1;\n");
-    await git("commit", "--quiet", "--all", "-m", "change");
+    await git("commit", "--quiet", "--all", "-m", "another session's change");
+    await hook("start");
+
+    expect(await hook("stop")).toEqual({ code: 0, stderr: "" });
+
+    edit("src/cli.ts", "export const a = 2;\n");
+
+    expect((await hook("stop")).code).toBe(2);
+  });
+
+  test("keeps the clone's first start: a resume or a compaction after an edit records nothing", async () => {
+    edit("src/cli.ts", "export const a = 1;\n");
+    await hook("start");
+
+    expect((await hook("stop")).code).toBe(2);
+  });
+
+  test("counts the tree as changed where no start was recorded, an untouched tree included", async () => {
+    forgetStart();
 
     expect((await hook("stop")).code).toBe(2);
 
@@ -165,6 +188,26 @@ describe("require-verify.sh stop", () => {
 
     expect(await hook("stop", "{}", null)).toEqual({ code: 0, stderr: "" });
     expect(await hook("stop", "{}", "false")).toEqual({ code: 0, stderr: "" });
+  });
+});
+
+describe("require-verify.sh start", () => {
+  test("records nothing outside the cloud", async () => {
+    forgetStart();
+    await hook("start", "{}", null);
+
+    expect((await hook("stop")).code).toBe(2);
+  });
+
+  test("leaves the working tree and the index as they were", async () => {
+    forgetStart();
+    edit("src/new.ts", "export const b = 2;\n");
+
+    const before = await git("status", "--porcelain");
+
+    await hook("start");
+
+    expect(await git("status", "--porcelain")).toBe(before);
   });
 });
 
