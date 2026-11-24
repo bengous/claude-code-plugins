@@ -31,7 +31,7 @@ A `review` check can succeed without a round. The workflow lets three pull reque
 
 - one that changes the review workflow;
 - one that no move of the owner started: someone else opened it, and the owner has not labeled it `ready`;
-- a dependency update of Renovate the owner has not labeled `ready`.
+- a dependency update of Renovate the owner gate does not hold for the owner, a `tier:low` that is not a `major`, and that the owner has not labeled `ready`: a held update is read with no label of his.
 
 Such a check marks nothing: look for the notice with `gh api repos/<owner>/<repo>/check-runs/<id>/annotations` before you rely on a succeeded check.
 
