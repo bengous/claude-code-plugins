@@ -276,11 +276,11 @@ declare module 'claude-code' {
       files?: Array<{
         /** Path within the project, e.g. components/button/index.html */
         path: string
-        /** Path on disk to read file contents from, relative to the localDir approved at finalize_plan. Preferred for anything you have on disk: the tool reads, encodes, and uploads directly so the contents never enter the model context. Mutually exclusive with data. */
+        /** Path on disk to read file contents from, relative to the localDir approved at finalize_plan. Use the same path as `path`, differing only where the server stores a plainer name. The tool reads, encodes, and uploads directly so the contents never enter the model context. Mutually exclusive with data. */
         localPath?: string
-        /** Inline file contents (UTF-8 text, or base64 when encoding is "base64"). For small dynamic content only — anything you have on disk should use localPath instead. */
+        /** Inline file contents (UTF-8 text, or base64 when encoding is "base64"). Do not use: write the content to a file at `path` under the localDir approved at finalize_plan, and pass localPath. */
         data?: string
-        /** Set to "base64" for binary inline data */
+        /** Do not use: localPath files are encoded automatically */
         encoding?: "base64"
         mimeType?: string
       }>
@@ -405,7 +405,15 @@ declare module 'claude-code' {
       /** The symbol name or partial name to search for (workspaceSymbol only). Most language servers return no results for an empty query, so always provide it when using workspaceSymbol. */
       query?: string
     }
+    McpTaskCheck: {
+      /** The id of the background task, the same as for TaskStop. */
+      task_id: string
+    }
     McpTaskResumePolling: {
+      /** The id of the background MCP task, as its notification gave it. */
+      task_id: string
+    }
+    McpTaskShowQuestion: {
       /** The id of the background MCP task, as its notification gave it. */
       task_id: string
     }
@@ -1232,6 +1240,7 @@ declare module 'claude-code' {
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
         outsidersMayHaveWritten?: true
+        listedKind?: string
         pinned?: boolean
       }>
       truncated?: boolean
@@ -2122,6 +2131,7 @@ declare module 'claude-code' {
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
         outsidersMayHaveWritten?: true
+        listedKind?: string
         pinned?: boolean
       }>
       truncated?: boolean
@@ -3012,6 +3022,7 @@ declare module 'claude-code' {
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
         outsidersMayHaveWritten?: true
+        listedKind?: string
         pinned?: boolean
       }>
       truncated?: boolean
@@ -3902,6 +3913,7 @@ declare module 'claude-code' {
         external?: true
         role?: "editor" | "commenter" | "reader" | "viewer"
         outsidersMayHaveWritten?: true
+        listedKind?: string
         pinned?: boolean
       }>
       truncated?: boolean
@@ -4687,7 +4699,7 @@ declare module 'claude-code' {
       backgroundedByTurnAbort?: boolean
       /** @internal True if the command was moved to the background so a message queued for the model could reach it */
       backgroundedToDeliverMessage?: boolean
-      /** @internal True if that message was a subagent's message or report, and the command had run for a minute */
+      /** @internal True if that message was a subagent's message or report, and the command had run for a minute, or was a person's, and the command waited by sleeping */
       backgroundedForAgentReport?: true
       /** Set when the command hit its timeout and was auto-backgrounded; the timeout value in ms */
       timedOutAfterMs?: number
@@ -5098,7 +5110,17 @@ declare module 'claude-code' {
       /** Number of files containing results */
       fileCount?: number
     }
+    McpTaskCheck: {
+      /** What came of the call */
+      message: string
+      isError: boolean
+    }
     McpTaskResumePolling: {
+      /** What came of the call */
+      message: string
+      isError: boolean
+    }
+    McpTaskShowQuestion: {
       /** What came of the call */
       message: string
       isError: boolean
@@ -5623,6 +5645,7 @@ declare module 'claude-code' {
         }
         project_path?: string
         partial_error?: string
+        opens_by_path?: boolean
       }[]
       rendered_locally?: boolean
     }
@@ -5684,6 +5707,8 @@ declare module 'claude-code' {
       status?: "inline"
       /** True when the skill instructions were loaded read-only (nothing was executed) */
       readOnly?: boolean
+      /** True when an MCP server served the skill */
+      fromMcpServer?: boolean
     } | {
       /** Whether the skill completed successfully */
       success: boolean
@@ -5831,6 +5856,8 @@ declare module 'claude-code' {
       url: string
       /** @internal The model may get the result as a search result that it can cite. */
       citable?: true
+      /** @internal The result holds the page's text. Only the tool_result sent to the model keeps it. */
+      pageText?: true
       artifactRead?: {
         slug: string
         ver?: string
