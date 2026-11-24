@@ -29,7 +29,7 @@ jobs:
       PR: ${{ github.event.pull_request.number }}
       BASE: ${{ github.event.pull_request.base.ref }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - name: Read what the pull request changes
@@ -66,15 +66,22 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: "/pr-review --comment ${{ steps.change.outputs.target }}"
+          # The repository's settings are a workstation's: SessionStart hooks that start headless runs, and an
+          # allow-list that lets a session fetch and run code. Neither belongs in a job that reads a pull
+          # request's text with a token in its environment: the hooks are off, and those tools are denied.
           claude_args: |
             --model claude-opus-5-5
             --effort ${{ steps.change.outputs.effort }}
+            --settings '{"disableAllHooks":true}'
+            --disallowedTools "WebSearch" "WebFetch" "Bash(curl:*)" "Bash(node:*)" "Bash(npm:*)" "Bash(npx:*)" "Bash(pnpm:*)" "Bash(pnpx:*)" "Bash(bun:*)"
             --allowedTools "mcp__github_inline_comment__create_inline_comment"
-            --json-schema '{"type":"object","properties":{"findings":{"type":"integer","minimum":0}},"required":["findings"]}'
+            --json-schema '{"type":"object","properties":{"findings":{"type":"integer","minimum":0},"read":{"type":"array","items":{"type":"string"}},"issue":{"type":["integer","null"]},"round":{"type":"string","enum":["first","later"]}},"required":["findings","read","issue","round"]}'
   review:
     needs: read
-    # The merge queue requires every required check on its merge group; a skipped job reports success.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.draft == false }}
+    # The merge queue requires every required check on its merge group; a skipped job reports success. On a
+    # draft the job runs and fails: skipped, it would read green on a head no round has read, and stay the
+    # head's verdict from the moment the draft is marked ready until its review ends.
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     # The label and the comment of the round cap need write access, which no model gets: this job runs none.
     permissions:
@@ -92,6 +99,11 @@ jobs:
       OUTSIDE: ${{ needs.read.outputs.outside }}
       SELF: ${{ needs.read.outputs.self }}
     steps:
+      - name: Hold a draft, which no round reads
+        if: github.event.pull_request.draft == true
+        run: |
+          echo "::error::A draft is not reviewed. Mark it ready: the review then reads it."
+          exit 1
       # A change of base reruns nothing: this check stays red on the head until a push runs it against {{BRANCH}}.
       - name: Judge pull requests against {{BRANCH}} only
         env:
@@ -110,6 +122,26 @@ jobs:
             echo "::error::needs-human: the factory stopped this pull request. $OWNER comments what to do and removes the label."
             exit 1
           fi
+      # A clean round posts nothing on the pull request: the run's summary is its trace. The reviewer's answer is
+      # text an agent's pull request can steer, so no shell reads it: jq takes it from the environment, and every
+      # field reaches the summary HTML-escaped inside <pre>, as text, never as Markdown or markup.
+      - name: Write what the round read to the summary
+        if: env.VERDICT != ''
+        run: |
+          set -euo pipefail
+          jq -rn '
+            def text: tostring | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
+            env.VERDICT | fromjson
+            | (if .round == "later" then "a later round" elif .round == "first" then "a first round" else "a round that did not say which" end) as $round
+            | (if .issue == null then "none" else "#" + (.issue | text) end) as $issue
+            | [.read[]? | text] as $read
+            | "<pre>",
+              "Round: \($round | text)",
+              "Judged against issue: \($issue)",
+              "Files read: \($read | length)",
+              ($read[] | "  " + .),
+              "</pre>"
+          ' >> "$GITHUB_STEP_SUMMARY"
       # The author's session can resolve a review thread it declines, so the thread rule alone does not hold a finding.
       - name: Fail while the review has findings, and stop at the third failed round
         run: |
@@ -147,8 +179,18 @@ jobs:
           rounds=0
           while IFS= read -r sha; do
             if [ "$sha" = "$HEAD" ]; then continue; fi
-            red=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" \
-              --jq "[.check_runs[] | select((.name == \"review\" or .name == \"test\") and .conclusion == \"failure\" and .completed_at > \"$since\")] | length")
+            # A red review counts when its run read the commit. On a draft, and against another base, this job
+            # fails with `review (read)` skipped: no round judged that head, and a branch pushed three times as
+            # a draft would be stopped the moment it is marked ready. A workflow run is one check suite, which
+            # keeps every attempt of a job: the last attempt speaks, so a red job re-run green is no round.
+            red=$(gh api --paginate --slurp "repos/$REPO/commits/$sha/check-runs?filter=all&per_page=100" \
+              | jq --arg since "$since" '[.[].check_runs[] | select(.completed_at != null)] as $runs
+                | def ended($name):
+                    [$runs[] | select(.name == $name)] | group_by(.check_suite.id) | map(max_by(.completed_at));
+                  [ended("review (read)")[] | select(.conclusion == "success") | .check_suite.id] as $read
+                | [ended("test")[], (ended("review")[] | select(.check_suite.id as $suite | any($read[]; . == $suite)))]
+                | map(select(.conclusion == "failure" and .completed_at > $since))
+                | length')
             if [ "$red" -gt 0 ]; then rounds=$((rounds + 1)); fi
           done <<<"$commits"
           this=0

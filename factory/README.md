@@ -37,13 +37,13 @@ Two cases have no event of their own on a pull request, and each has a workflow:
 | Case | Workflow | What it does |
 |------|----------|--------------|
 | A pull request conflicts with the default branch | `conflict.yml`, on each push to it | Sets a failed `conflict` status on the head commit, which auto-fix delivers to the session. A third conflict, or a conflict after a force-push, labels the pull request `needs-human` |
-| The default branch's CI turns red | `trunk-red.yml`, when the CI workflow completes | Opens a `trunk-red` issue and fires the routine on it. After two repairs that leave it red, the issue is `needs-human` and no Worker starts |
+| The default branch's CI turns red | `trunk-red.yml`, when the CI workflow completes | Opens a `trunk-red` issue and fires the routine on it. After two repairs that leave it red, the issue is `needs-human` and no Worker starts. A green run closes, as not planned, an open one no Worker claimed |
 
 A session stopped by something outside its issue comments on the issue and labels it `blocked`; the owner labels it `ready` again once the way is clear.
 
 A Renovate update that turns `test` red gets a `renovate-red` issue from `renovate-red.yml`, which fires the routine on it: one attempt per update, the next failure is `needs-human`. This repository runs it; it reaches `templates/` once a trial repository has run it.
 
-The merge closes the issue through its pull request's `Closes #N`, which wakes no session: `unclaim.yml`, on the issue's close, removes `in-progress`. This repository runs it; it reaches `templates/` once a trial repository has run it.
+The merge closes the issue through its pull request's `Closes #N`, which wakes no session: `unclaim.yml`, on the issue's close, removes `in-progress`.
 
 GitHub offers the merge queue in a public repository of an organization, and in a private one under GitHub Enterprise Cloud. Both workflows above are installed with or without it.
 
@@ -91,7 +91,7 @@ templates/
 │   │   │   ├── tier.json          the line cap and the paths that always wait for the owner
 │   │   │   ├── tier-prompt.md     the classifier's question
 │   │   │   └── tier-cases.json    the cases, and the model and prompt they validated
-│   │   └── workflows/             dispatch, review, owner-gate, conflict, trunk-red
+│   │   └── workflows/             dispatch, review, owner-gate, conflict, trunk-red, unclaim
 │   └── .claude/
 │       ├── commands/pr-review.md
 │       └── hooks/require-verify.sh
@@ -99,6 +99,8 @@ templates/
 ├── routine/prompt.md              the routine's prompt
 └── claude-md-sections.md          the CLAUDE.md sections the session and the review follow
 ```
+
+`review.yml` runs the reviewer with the repository's hooks off and its web and run tools denied, holds a draft red until it is marked ready, counts a red `review` as a failed round only when its run read the commit, and writes what each round read, the issue it judged against and whether it was a first round to the run's summary. `pr-review.md` judges a pull request that closes no issue against its own title and body, and exempts from a test only workflows and the text of a skill, a command, a rule or a prompt.
 
 `.claude/skills/verify/SKILL.md`, the repository's own verify recipe, has no template: the install records it. `tier.json`, `tier-prompt.md` and `tier-cases.json` are rewritten for each repository by the install; until a replay validated the cases, the floor runs alone and every change that passes it waits for the owner.
 
