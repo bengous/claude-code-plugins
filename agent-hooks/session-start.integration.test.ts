@@ -240,7 +240,7 @@ describe("session-start in a worktree the desktop app created", () => {
     expect(existsSync(path.join(worktree, "gen"))).toBeFalse();
   });
 
-  test("a directory git would not ignore as a link is not linked, and the user is told the pattern for each name", async () => {
+  test("a directory git would not ignore as a link is not linked, and the user is told the pattern for each path", async () => {
     const worktree = desktopWorktree(
       {
         ".gitignore": "node_modules/\n.venv/\n/.claude/worktrees/\n",
@@ -250,7 +250,7 @@ describe("session-start in a worktree the desktop app created", () => {
     );
 
     expect(await desktopSessionStart(worktree)).toEqual({
-      systemMessage: `agent-hooks: not linked into ${worktree}: node_modules, pkg/node_modules, .venv. git would list each link as untracked: ignore it with a pattern without a trailing slash (node_modules, .venv), since to git a link is a file and a pattern with the slash matches only a directory.`,
+      systemMessage: `agent-hooks: not linked into ${worktree}: node_modules, pkg/node_modules, .venv. git would list each link as untracked: ignore it with a pattern without a trailing slash (/node_modules, /pkg/node_modules, /.venv), since to git a link is a file and a pattern with the slash matches only a directory.`,
     });
 
     for (const declared of ["node_modules", "pkg/node_modules", ".venv"]) {
@@ -268,4 +268,27 @@ describe("session-start in a worktree the desktop app created", () => {
     });
     expect(existsSync(path.join(worktree, "node_modules"))).toBeFalse();
   });
+
+  test.each([
+    { settings: "[]", error: "expected an object" },
+    { settings: `{ "worktree": "head" }`, error: "worktree: expected an object" },
+    {
+      settings: `{ "worktree": { "symlinkDirectories": "node_modules" } }`,
+      error: "worktree.symlinkDirectories: expected an array of directory paths",
+    },
+    { settings: `{ "worktree": `, error: "invalid JSON: " },
+  ])(
+    "a local settings file shaped $settings links nothing, from either file, and names the error",
+    async ({ settings, error }) => {
+      const worktree = desktopWorktree({ [SETTINGS]: declaring("node_modules") }, ["node_modules"]);
+      writeRepoFile(temp.repo, LOCAL_SETTINGS, settings);
+
+      const output = await desktopSessionStart(worktree);
+
+      expect(output?.["systemMessage"]).toStartWith(
+        `agent-hooks: declared directories not all linked into ${worktree}: ${path.join(temp.repo, LOCAL_SETTINGS)}: ${error}`,
+      );
+      expect(existsSync(path.join(worktree, "node_modules"))).toBeFalse();
+    },
+  );
 });

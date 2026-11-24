@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { gitOutput, isDirectory, underCheckout } from "./checkout.ts";
 import type { Deadline } from "./core/util/exec.ts";
-import { isRecord, isStringArray, parseJsonc, recordField } from "./core/util/json.ts";
+import { isRecord, isStringArray, parseJsonc } from "./core/util/json.ts";
 import { GitError, gitSync } from "./lib/platform/git.ts";
 import { isErrno, messageOf } from "./lib/platform/pure.ts";
 
@@ -72,26 +72,21 @@ export function linkUnlessPresent(target: string, link: string): void {
 }
 
 /**
- * The main checkout of the repository `checkout` is a linked worktree of, or null when `checkout` is a main checkout
- * or its repository is bare. A main checkout's `.git` is a directory, which spares it a git process; a submodule's
- * is a file, and git names the submodule itself as its main checkout.
+ * The main checkout of the repository `checkout` is a linked worktree of, the first entry git lists, or null when
+ * `checkout` is a main checkout. A main checkout's `.git` is a directory, which spares it a git process; a
+ * submodule's is a file, and git names the submodule itself as its main checkout. A bare repository's first entry is
+ * its git directory, which holds no settings.
  */
 function mainCheckoutOf(checkout: string, deadline: Deadline): string | null {
   if (!statSync(path.join(checkout, ".git")).isFile()) {
     return null;
   }
 
-  const records = gitOutput(checkout, ["worktree", "list", "--porcelain", "-z"], deadline).split(
-    "\0",
-  );
-
-  const end = records.indexOf("");
-  const first = end === -1 ? records : records.slice(0, end);
-  const [line = "", ...attributes] = first;
-
-  if (!line.startsWith(WORKTREE_LINE) || attributes.includes("bare")) {
-    return null;
-  }
+  const [line = ""] = gitOutput(
+    checkout,
+    ["worktree", "list", "--porcelain", "-z"],
+    deadline,
+  ).split("\0");
 
   const main = realpathSync.native(line.slice(WORKTREE_LINE.length));
 
@@ -133,7 +128,17 @@ function declaredIn(main: string, file: string): string[] {
     throw new Error(`${file}: expected an object`);
   }
 
-  const declared = recordField(settings, "worktree")?.["symlinkDirectories"];
+  const worktree = settings["worktree"];
+
+  if (worktree === undefined) {
+    return [];
+  }
+
+  if (!isRecord(worktree)) {
+    throw new Error(`${file}: worktree: expected an object`);
+  }
+
+  const declared = worktree["symlinkDirectories"];
 
   if (declared === undefined) {
     return [];
@@ -182,8 +187,9 @@ function ignoredAsLinks(
   throw new GitError(args, result);
 }
 
+/** The note names one pattern per path, anchored at the top, so it ignores that link and nothing else. */
 function unignoredNote(checkout: string, unignored: readonly string[]): string {
-  const patterns = [...new Set(unignored.map((relative) => path.posix.basename(relative)))];
+  const patterns = unignored.map((relative) => `/${relative}`);
 
   return `agent-hooks: not linked into ${checkout}: ${unignored.join(", ")}. git would list each link as untracked: ignore it with a pattern without a trailing slash (${patterns.join(", ")}), since to git a link is a file and a pattern with the slash matches only a directory.`;
 }

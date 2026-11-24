@@ -77,7 +77,7 @@ file as well: they would run twice.
   same path in the worktree, unless the worktree already holds that path or lacks its parent directory.
   One git would not ignore as a link (a pattern with a trailing slash ignores only a directory) is not
   linked, and a note tells the user which pattern to write. A settings file that is not valid JSONC,
-  a `worktree.symlinkDirectories` that is not an array of paths, or a declared path outside the
+  a `worktree` that is not an object, a `worktree.symlinkDirectories` that is not an array of paths, or a declared path outside the
   repository stops the linking and is a note too; an absent settings file declares nothing. A session in the main
   checkout links nothing. Then it photographs the checkout around the cwd (its dirty tree), once per
   session, and removes the scratch directories a killed pre-edit left.
