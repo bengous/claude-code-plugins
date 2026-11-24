@@ -46,6 +46,8 @@ export const VERIFY_SKILL = ".claude/skills/verify/SKILL.md";
 
 export const SETTINGS = ".claude/settings.json";
 
+export const VERIFY_HOOK = ".claude/hooks/require-verify.sh";
+
 export const TRUNK_RED = ".github/workflows/trunk-red.yml";
 
 export const TIER_CASES = ".github/factory/tier-cases.json";
@@ -110,6 +112,12 @@ export const CONTENT_RULES: readonly ContentRule[] = [
     says: "declares the network, the variables and the setup script, with no secret's value",
     holds: (text) => declarationProblems(text).length === 0,
     fix: `write it as the template holds it: a network, environment_variables and .github/factory/setup.sh as setup_script; a variable named *_SECRET keeps the value ${REDACTED}, its real value stays on claude.ai`,
+  },
+  {
+    path: VERIFY_HOOK,
+    says: "records the tree a session starts from",
+    holds: (text) => /^\s*start\)/mu.test(text),
+    fix: "remove it and run install.ts repo, which writes the template's: the settings run it with `start` when a session starts, which an older script refuses",
   },
   {
     path: VERIFY_SKILL,

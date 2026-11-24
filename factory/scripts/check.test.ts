@@ -16,6 +16,7 @@ import {
   repoArgument,
   requiredFiles,
   tierStalenessOf,
+  VERIFY_HOOK,
   VERIFY_SKILL,
 } from "./check.ts";
 import { ENVIRONMENT } from "./environment.ts";
@@ -295,6 +296,20 @@ describe("what the required files say", () => {
       "a variable named *_SECRET keeps the value <redacted>, its real value stays on claude.ai, then land it on main",
     );
     expect(format(evaluate(leaked))).not.toContain("sk-live-1234");
+  });
+
+  test("a verify hook from before the session's start record is missing, and its line says to replace it", () => {
+    const older = withFile(
+      VERIFY_HOOK,
+      'case "${1:-}" in\n  record)\n    ;;\n  stop)\n    ;;\n  *)\n    echo "usage: require-verify.sh record|stop" >&2\n    ;;\nesac\n',
+    );
+
+    expect(missing(older)).toEqual([
+      ".claude/hooks/require-verify.sh records the tree a session starts from",
+    ]);
+    expect(format(evaluate(older))).toContain(
+      "remove it and run install.ts repo, which writes the template's",
+    );
   });
 
   test("the templates and the CLAUDE.md sections pass, each with its own ok line", () => {
