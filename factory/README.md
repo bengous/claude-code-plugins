@@ -41,6 +41,8 @@ Two cases have no event of their own on a pull request, and each has a workflow:
 
 A session stopped by something outside its issue comments on the issue and labels it `blocked`; the owner labels it `ready` again once the way is clear.
 
+A Renovate update that turns `test` red gets a `renovate-red` issue from `renovate-red.yml`, which fires the routine on it: one attempt per update, the next failure is `needs-human`. This repository runs it; it reaches `templates/` once a trial repository has run it.
+
 The merge closes the issue through its pull request's `Closes #N`, which wakes no session: `unclaim.yml`, on the issue's close, removes `in-progress`. This repository runs it; it reaches `templates/` once a trial repository has run it.
 
 GitHub offers the merge queue in a public repository of an organization, and in a private one under GitHub Enterprise Cloud. Both workflows above are installed with or without it.
@@ -51,11 +53,12 @@ The factory's pull requests target the repository's default branch. A repository
 
 | Label | On | Set by | Meaning |
 |-------|----|--------|---------|
-| `ready` | issue | the owner, without an app; `trunk-red.yml` on its own issue | Start a Worker on it |
+| `ready` | issue | the owner, without an app; `trunk-red.yml` and `renovate-red.yml` on their own issues | Start a Worker on it |
 | `in-progress` | issue | the Worker; removed by `unclaim.yml` when the issue closes | Claimed |
 | `blocked` | issue | the Worker | Something outside the issue stops it |
-| `needs-human` | issue and pull request | the round cap, the conflict bound, the trunk bound | A bound was reached: the factory stopped |
+| `needs-human` | issue and pull request | the round cap, the conflict bound, the trunk bound, the Renovate bound | A bound was reached: the factory stopped |
 | `trunk-red` | issue | `trunk-red.yml` | The repair issue of a red default branch |
+| `renovate-red` | issue | `renovate-red.yml` | The repair issue of a Renovate update that turned `test` red |
 | `tier:low`, `tier:human` | pull request | the owner gate | Shows the tier of the head commit; no check reads it |
 | `human-approved` | pull request | the owner, without an app | Approval of the head commit; removed by any push |
 

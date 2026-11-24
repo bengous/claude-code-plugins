@@ -1,0 +1,146 @@
+name: Renovate red
+# When the CI of a Renovate update fails its test, this workflow opens a repair issue and fires the routine on
+# it: a Worker brings the update onto dev with the code adapted to its new version, through a pull request of its
+# own, and Renovate closes its pull request once dev has the version. One attempt per update: a failure of the
+# same update once its repair issue is closed opens the next one needs-human, and no Worker starts.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+# One run at a time per update: two runs that both find no issue would open two.
+concurrency:
+  group: renovate-red-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+jobs:
+  renovate-red:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      startsWith(github.event.workflow_run.head_branch, 'renovate/')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BRANCH: dev
+      WORKFLOW: ${{ github.event.workflow_run.workflow_id }}
+      CI: ${{ github.event.workflow_run.name }}
+      RUN: ${{ github.event.workflow_run.id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      HEAD: ${{ github.event.workflow_run.head_sha }}
+      PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+      FIRE_URL: https://api.anthropic.com/v1/claude_code/routines/trig_013GFViM3BmyhPaxNajFrzxE/fire
+      FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+    steps:
+      - name: Open the repair issue of a red Renovate update and fire the routine on it
+        run: |
+          set -euo pipefail
+          fire() {
+            curl -sS --fail-with-body -X POST "$FIRE_URL" \
+              -H "Authorization: Bearer $FIRE_TOKEN" \
+              -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+              -H "anthropic-version: 2023-06-01" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\": \"Work on issue #$1.\"}" | jq -r .claude_code_session_url
+          }
+          if [ -z "${PR:-}" ]; then
+            echo "The $CI run names no pull request."
+            exit 0
+          fi
+          # The title is Renovate's text: it travels in variables and reaches jq through the environment.
+          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.state, .user.login, .head.sha, .base.ref, .title] | @tsv')
+          IFS=$'\t' read -r state author head base title <<<"$pr"
+          if [ "$state" != open ] || [ "$author" != "renovate[bot]" ] || [ "$base" != "$BRANCH" ]; then
+            echo "#$PR is not an open update of Renovate against $BRANCH."
+            exit 0
+          fi
+          # The run of a head Renovate has since rewritten speaks for a commit the pull request no longer holds.
+          if [ "$head" != "$HEAD" ]; then
+            echo "#$PR moved past ${HEAD:0:7}: the run of its new head decides."
+            exit 0
+          fi
+          test=$(gh api "repos/$REPO/actions/runs/$RUN/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name == "test")][0].conclusion // ""')
+          if [ "$test" != failure ]; then
+            echo "test did not fail on #$PR: it concluded ${test:-nothing}."
+            exit 0
+          fi
+          # Renovate commits through GitHub's API, which signs for it: a commit of anyone else makes the update
+          # someone else's work, which no session repairs. The same filter as review.yml's.
+          foreign=$(gh api --paginate "repos/$REPO/pulls/$PR/commits?per_page=100" \
+            --jq '.[] | select((.author.login == "renovate[bot]" and .committer.login == "web-flow" and .commit.verification.verified == true) | not) | .sha' | wc -l)
+          if [ "$foreign" -gt 0 ]; then
+            echo "#$PR carries a commit of someone else than Renovate: no repair."
+            exit 0
+          fi
+          # An update is its pull request and its title, which names the version: Renovate keeps both when it
+          # rewrites its branch, and a new version is a new update. Each issue records the head it was opened on.
+          export KEY="Renovate #$PR is red: $title"
+          tried=$(gh api --paginate "repos/$REPO/issues?state=all&labels=renovate-red&per_page=100" \
+            --jq '.[] | select(.pull_request == null and .user.login == "github-actions[bot]" and .title == env.KEY) | "\(.number) \(.state) \(.body // "" | contains(env.HEAD)) \([.labels[].name] | index("ready") != null)"')
+          # A failure counts once per head: a re-run of a head already counted opens nothing and stops nothing.
+          same=$(awk '$3 == "true"' <<<"$tried" | head -n1)
+          if [ -n "$same" ]; then
+            read -r issue status _ unclaimed <<<"$same"
+            # A fire that failed leaves the issue labelled ready with no Worker: re-running this job fires again.
+            if [ "$status" = open ] && [ "$unclaimed" = true ] && [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
+              fire "$issue"
+            else
+              echo "${HEAD:0:7} of #$PR is already counted: #$issue."
+            fi
+            exit 0
+          fi
+          # Renovate rewrites its branch while the repair is on its way: the open issue is the attempt.
+          open=$(awk '$2 == "open" {print $1}' <<<"$tried" | head -n1)
+          if [ -n "$open" ]; then
+            echo "The repair of #$PR is under way: #$open."
+            exit 0
+          fi
+          # A red dev fails every update for a reason not its own: trunk-red.yml repairs dev first.
+          trunk=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW/runs?branch=$BRANCH&event=push&status=completed&per_page=1" \
+            --jq '.workflow_runs[0].conclusion // ""')
+          if [ "$trunk" = failure ] || [ "$trunk" = timed_out ]; then
+            echo "$BRANCH is red: the newest $CI run of it concluded $trunk. No repair of #$PR opens until it is green."
+            exit 0
+          fi
+          label=ready
+          stop=""
+          if [ -n "$tried" ]; then
+            stop="The update failed again once its repair was closed: one attempt per update."
+          else
+            # A cloud session cannot run gh actions-lock, which a change to a workflow needs.
+            workflows=$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty) | select(startswith(".github/workflows/"))' | wc -l)
+            if [ "$workflows" -gt 0 ]; then
+              stop="The update changes .github/workflows/, which a cloud session cannot lock with gh actions-lock."
+            fi
+          fi
+          if [ -n "$stop" ]; then label=needs-human; fi
+          # The first line of the failed steps' log that names an error. A log line is data: one line, as code.
+          error=$(gh run view "$RUN" --repo "$REPO" --log-failed 2>/dev/null | cut -f3- | sed -E 's/^[0-9TZ:.-]+ //' \
+            | grep -m1 -iE 'error|fail' | cut -c1-300 || true)
+          body="The $CI workflow failed on the Renovate update #$PR at $HEAD: $RUN_URL
+
+          First error line:
+
+              ${error:-not found in the log}
+          ${stop:+
+          $stop No session starts: the owner decides.
+          }
+          ## Done when
+
+          - $BRANCH has the update of #$PR, through a pull request of its own from $BRANCH, with the code adapted to the new version. Renovate closes #$PR once $BRANCH has it.
+          - The $CI workflow is green on that pull request.
+          - No test is removed or skipped."
+          issue=$(gh api -X POST "repos/$REPO/issues" -f title="$KEY" -f body="$body" \
+            -f "labels[]=renovate-red" -f "labels[]=$label" --jq .number)
+          if [ -n "$stop" ]; then
+            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=needs-human" --silent
+            echo "::error::#$PR: $stop #$issue is labelled needs-human, and no Worker starts."
+            exit 0
+          fi
+          fire "$issue"

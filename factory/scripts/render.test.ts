@@ -78,6 +78,29 @@ describe("render", () => {
     expect(trunkRed?.content).toContain('workflows: ["Build & test"]');
     expect(trunkRed?.content).toContain("branches: [trunk]");
   });
+
+  test("the routine's gate takes the owner's issue and the CI's two repair issues, nothing wider", () => {
+    const result = render(readTemplates(), PARAMS);
+
+    if (result.kind !== "rendered") throw new Error(result.errors.join("\n"));
+
+    const prompt = result.files.find((file) => file.path === "routine/prompt.md")?.content ?? "";
+    const gate = prompt.split("## 1. Gate")[1]?.split("## 2.")[0] ?? "";
+
+    const authors = gate
+      .split("\n")
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.split(":")[0]);
+
+    expect(authors).toEqual([
+      "- `octo-cat`;",
+      "- `github-actions[bot]`, on an issue that also carries the label `trunk-red`",
+      "- `github-actions[bot]`, on an issue that also carries the label `renovate-red`",
+    ]);
+    expect(gate).toContain(
+      "bring that update onto `trunk` with the code adapted to its new version, through a pull request of your own from `trunk`, with no test removed or skipped",
+    );
+  });
 });
 
 describe("parameter shapes", () => {
