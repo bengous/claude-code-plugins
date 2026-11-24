@@ -27,8 +27,9 @@ jobs:
     steps:
       # The classifier and the review spend the owner's token, so a move of his starts them. A pull request
       # opened under his login gets both. A dependency update of Renovate, from the configuration he wrote,
-      # gets the classifier alone. His ready label on a pull request he did not open gets it the review
-      # alone, and leaves the merge to him. review.yml reads the same author, commits and label.
+      # gets the classifier alone, and the review too once the gate holds it for him. His ready label on a
+      # pull request he did not open gets it the review alone, and leaves the merge to him. review.yml reads
+      # the same author, commits and label.
       - name: Whose move started this pull request
         id: start
         run: |
@@ -117,6 +118,86 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: bun .github/factory/tier.ts gate --repo "$REPO" --pr "$PR" --head "$HEAD" --ask
+      # A Renovate update the owner approves or merges by hand is read first: one the tier holds, and a major,
+      # which renovate.json leaves for him to merge, whatever its tier. The step marks the head, which
+      # review.yml reads, and runs its review again if that run started before the mark. It waits for the
+      # review to end: a run started again keeps its earlier green `Not reviewed` until it reports, and this
+      # check stays pending until then, so no approval and no merge lands on a head the review did not read.
+      - name: Have the review read a Renovate update held for the owner
+        if: steps.start.outputs.by == 'renovate'
+        env:
+          TIER: ${{ steps.judge.outputs.tier || steps.tier.outputs.tier }}
+          SUPERSEDED: ${{ steps.judge.outputs.superseded || steps.tier.outputs.superseded }}
+        run: |
+          set -euo pipefail
+          # A run the pull request moved past leaves the review to the run of its new head.
+          moved() {
+            [ "$SUPERSEDED" = true ] || [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$HEAD" ]
+          }
+          if moved; then exit 0; fi
+          labels=$(gh api "repos/$REPO/issues/$PR/labels" --paginate --jq '.[].name')
+          if [ "$TIER" = low ] && ! grep -qx major <<<"$labels"; then
+            echo "Not held: tier low, and no major."
+            exit 0
+          fi
+          marks=$(gh api "repos/$REPO/commits/$HEAD/check-runs?check_name=held%20for%20the%20owner&per_page=100" \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions")] | length')
+          if [ "$marks" -eq 0 ]; then
+            gh api -X POST "repos/$REPO/check-runs" --silent \
+              -f name="held for the owner" -f head_sha="$HEAD" -f status=completed -f conclusion=neutral \
+              -f "output[title]=Held for $OWNER: the review reads it" \
+              -f "output[summary]=The owner gate holds this Renovate update for $OWNER, so review.yml reads it before he approves or merges it."
+          fi
+          deadline=$((SECONDS + 2700))
+          appear=$((SECONDS + 120))
+          run=""
+          while [ -z "$run" ]; do
+            run=$(gh api "repos/$REPO/actions/workflows/review.yml/runs?head_sha=$HEAD&event=pull_request&per_page=1" \
+              --jq '.workflow_runs[0].id // empty')
+            if [ -n "$run" ]; then break; fi
+            if [ "$SECONDS" -ge "$appear" ]; then
+              echo "::error::No review run on $HEAD to have it read the update: a push starts one."
+              exit 1
+            fi
+            sleep 15
+          done
+          # Waits until the run's attempt is at least the one given and has ended.
+          ended() {
+            local at
+            while true; do
+              at=$(gh api "repos/$REPO/actions/runs/$run" --jq '"\(.run_attempt) \(.status)"')
+              if [ "${at% *}" -ge "$1" ] && [ "${at#* }" = completed ]; then return 0; fi
+              if moved; then exit 0; fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::The review of $HEAD did not end in 45 minutes: run the owner gate again once it has."
+                exit 1
+              fi
+              sleep 15
+            done
+          }
+          # The reviewer's step, skipped when the run decided before the mark that no move started it.
+          reviewer() {
+            gh api "repos/$REPO/actions/runs/$run/jobs" \
+              --jq '[.jobs[] | select(.name == "review (read)") | .steps[] | select(.name | startswith("Run anthropics/claude-code-action")) | .conclusion] | last // "none"'
+          }
+          ended 1
+          if [ "$(reviewer)" = skipped ]; then
+            attempt=$(gh api "repos/$REPO/actions/runs/$run" --jq .run_attempt)
+            # Another run of this gate may have started it again first: GitHub refuses a second start, and
+            # this run waits for that one's attempt.
+            if gh api -X POST "repos/$REPO/actions/runs/$run/rerun" --silent; then
+              ended $((attempt + 1))
+            else
+              ended "$(gh api "repos/$REPO/actions/runs/$run" --jq .run_attempt)"
+            fi
+          fi
+          verdict=$(reviewer)
+          if moved; then exit 0; fi
+          if [ "$verdict" = skipped ] || [ "$verdict" = none ]; then
+            echo "::error::The review did not read $HEAD, which the gate holds for $OWNER: run it again."
+            exit 1
+          fi
+          echo "The review read $HEAD: its verdict is on the review check."
       - name: Hold a human change until the owner labels it human-approved
         env:
           TIER: ${{ steps.judge.outputs.tier || steps.tier.outputs.tier }}
