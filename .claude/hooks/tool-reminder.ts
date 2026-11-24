@@ -14,7 +14,8 @@ import { extname, join, relative, sep } from "node:path";
 
 import { isRecord, recordField, stringField } from "../../agent-hooks/core/util/json.ts";
 import { createExclusiveSync } from "../../tools/platform/fs.ts";
-import { messageOf } from "../../tools/platform/pure.ts";
+import { isUnder, messageOf } from "../../tools/platform/pure.ts";
+import { hookOutput } from "./format-on-edit.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 
 export interface CreatedFile {
@@ -52,7 +53,7 @@ export function createdWriteOf(json: string): CreatedWrite | null {
 
 /** Whether `file`, inside `projectDir`, is a script someone runs. */
 export function isTool(file: CreatedFile, projectDir: string): boolean {
-  if (!file.path.startsWith(projectDir + sep)) return false;
+  if (!isUnder(projectDir, file.path, sep)) return false;
 
   const extension = extname(file.path);
 
@@ -72,28 +73,27 @@ export function claimSession(stateDir: string, sessionId: string): boolean {
   return createExclusiveSync(join(stateDir, sessionId), "");
 }
 
+/** The hook's stdout for one Write: the note the first time a session creates a tool, null otherwise. */
+export function noteFor(json: string, projectDir: string, stateDir: string): string | null {
+  const file = createdWriteOf(json);
+
+  if (file === null || !isTool(file, projectDir) || !claimSession(stateDir, file.sessionId)) {
+    return null;
+  }
+
+  return hookOutput(reminder(relative(projectDir, file.path)));
+}
+
 const STATE_DIR = join(tmpdir(), "claude-tool-reminder");
 
 if (import.meta.main) {
   try {
     const projectDir = process.env["CLAUDE_PROJECT_DIR"];
-    const file = createdWriteOf(await Bun.stdin.text());
 
-    if (
-      projectDir !== undefined &&
-      file !== null &&
-      isTool(file, projectDir) &&
-      claimSession(STATE_DIR, file.sessionId)
-    ) {
-      console.log(
-        JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: "PostToolUse",
-            additionalContext: reminder(relative(projectDir, file.path)),
-          },
-        }),
-      );
-    }
+    const note =
+      projectDir === undefined ? null : noteFor(await Bun.stdin.text(), projectDir, STATE_DIR);
+
+    if (note !== null) console.log(note);
   } catch (error) {
     // Claude Code shows the first stderr line of a failed hook, and an
     // uncaught throw makes that line a Bun source frame.
