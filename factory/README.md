@@ -95,7 +95,7 @@ templates/
 │   └── .claude/
 │       ├── commands/pr-review.md
 │       └── hooks/require-verify.sh
-├── settings-hooks.json            the two hook entries merged into .claude/settings.json
+├── settings-hooks.json            the three hook entries merged into .claude/settings.json
 ├── routine/prompt.md              the routine's prompt
 └── claude-md-sections.md          the CLAUDE.md sections the session and the review follow
 ```
@@ -110,7 +110,7 @@ A template changes only after the same change has run in a trial repository. A p
 
 | Script | What it does |
 |--------|--------------|
-| `scripts/install.ts repo --owner --routine --branch --ci [--target] [--force]` | Renders `templates/repo/` into a working tree and merges the two verify hooks into its `.claude/settings.json`, keeping what the file holds. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical`, `overwrote` or `refused` per file, `merged`, `identical` or `refused` for the settings. No GitHub call, no commit. |
+| `scripts/install.ts repo --owner --routine --branch --ci [--target] [--force]` | Renders `templates/repo/` into a working tree and merges the three verify hooks into its `.claude/settings.json`, keeping what the file holds. Refuses to overwrite a file that differs unless `--force`; prints `wrote`, `identical`, `overwrote` or `refused` per file, `merged`, `identical` or `refused` for the settings. No GitHub call, no commit. |
 | `scripts/install.ts prompt --owner --repo --branch --dir [--force]` | Renders the routine's `prompt.md` into a directory. |
 | `scripts/check.ts --repo <owner/name>` | Reads, through `gh`, the labels, the files on the default branch and what the gate, the review, `CODEOWNERS`, the verify skill and `CLAUDE.md` say, the hooks of its `.claude/settings.json`, the CI workflow `trunk-red.yml` names (a job that reports the check `test` on pull requests and on pushes to the default branch, with no paths filter), the ruleset (required checks, resolved threads, merge queue, no bypass actor), the auto-merge and squash merge settings, whether GitHub Actions runs the workflows' actions, and the secret names; one line per item, `ok` or `missing` with its fix, an item the token cannot read marked `not visible`. Exit 1 while one is missing. On a private repository it prints what a workflow's token may do by default. Never reads a secret's value. |
 

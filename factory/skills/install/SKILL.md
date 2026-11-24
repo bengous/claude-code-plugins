@@ -51,7 +51,7 @@ The routine has no trigger yet, and only the owner can add one: on the routine's
 "${CLAUDE_PLUGIN_ROOT}/scripts/install.ts" repo --owner <OWNER> --routine <ROUTINE_ID> --branch <BRANCH> --ci <CI>
 ```
 
-Run it from the repository's root. Each file prints `wrote`, `identical`, `overwrote` or `refused`; `.claude/settings.json` prints `merged` or `identical`, since the two verify hooks are added to what the file already holds, or `refused` when it is not valid JSON: `--force` does not override that one, so fix the file with the owner and run again. Any other `refused` file differs from the template: show the owner the difference and run again with `--force` only on his yes. A file adapted on purpose, the tier files of step 5 among them, stays refused on every later run; that is expected.
+Run it from the repository's root. Each file prints `wrote`, `identical`, `overwrote` or `refused`; `.claude/settings.json` prints `merged` or `identical`, since the three verify hooks are added to what the file already holds, or `refused` when it is not valid JSON: `--force` does not override that one, so fix the file with the owner and run again. Any other `refused` file differs from the template: show the owner the difference and run again with `--force` only on his yes. A file adapted on purpose, the tier files of step 5 among them, stays refused on every later run; that is expected.
 
 Then, with the owner:
 

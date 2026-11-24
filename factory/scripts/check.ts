@@ -506,7 +506,7 @@ export function evaluate(facts: Facts): Item[] {
         : [{ name: `${path} ${says}`, ok: holds(text), fix: `${fix}, then land it on ${branch}` }];
     }),
     {
-      name: `${SETTINGS} runs the two verify hooks`,
+      name: `${SETTINGS} runs the verify hooks`,
       ok: facts.hooksInstalled,
       fix: `run install.ts repo, which merges the hooks into it, then land it on ${branch}`,
     },

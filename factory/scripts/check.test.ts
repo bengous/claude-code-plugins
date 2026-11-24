@@ -156,7 +156,7 @@ describe("evaluate", () => {
 
   test("a settings file without the verify hooks is missing them", () => {
     expect(missing({ ...COMPLETE, hooksInstalled: false })).toEqual([
-      ".claude/settings.json runs the two verify hooks",
+      ".claude/settings.json runs the verify hooks",
     ]);
   });
 
