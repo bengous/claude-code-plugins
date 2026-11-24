@@ -79,7 +79,7 @@ Each repository has its own environment on claude.ai, which keeps its own copy o
 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
-| `install` | `/factory:install [owner/name]` | Creates the routine and versions it in `~/dotfiles/cloud/routines/`, writes the declaration of its cloud environment and the factory's files into the current repository, records its `verify` recipe, writes its tier rules and validates its tier cases with the owner, and reports what the GitHub side still lacks. Asks the owner before every change outside the working tree. |
+| `install` | `/factory:install [owner/name]` | Creates the routine and versions it where the owner keeps his routines, writes the declaration of its cloud environment and the factory's files into the current repository, records its `verify` recipe, writes its tier rules and validates its tier cases with the owner, and reports what the GitHub side still lacks. Asks the owner before every change outside the working tree. |
 
 ## Templates
 
@@ -147,7 +147,7 @@ Each subject of `install.ts` takes exactly the parameter flags its templates nam
 - `gh`, signed in as the owner
 - The Claude GitHub App on the repository, a claude.ai routine with an API trigger, and the secrets `CLAUDE_CODE_OAUTH_TOKEN` and `ROUTINE_FIRE_TOKEN`
 - A CI workflow with a job that reports the check `test` (its id `test` with no `name:`, or its `name:` `test`; no matrix), with no `paths` filter, that runs on `pull_request`, on `push` to the default branch, and on `merge_group` where the repository has a merge queue
-- The owner's routine convention, which the install skill follows: each routine is versioned in `~/dotfiles/cloud/routines/<name>/` (`routine.json`, `prompt.md`), and `bun run routines:check` in `~/dotfiles` exits 0
+- A place where the owner versions his routines, if he does. The install skill gives one convention as an example to adapt: each routine in `~/dotfiles/cloud/routines/<name>/` (`routine.json`, `prompt.md`), and `bun run routines:check` in `~/dotfiles` exits 0
 
 ## License
 

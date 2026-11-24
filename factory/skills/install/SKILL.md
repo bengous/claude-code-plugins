@@ -16,7 +16,7 @@ Run it from a checkout of `<REPO>`. The factory's pull requests target the repos
 
 Ask the owner, in the session, before each of these, and do it only on a yes:
 
-- creating or changing the routine, and writing under `~/dotfiles`;
+- creating or changing the routine, and writing outside this repository, where the owner versions his routines;
 - creating a label, a ruleset, or changing a repository setting;
 - merging anything into `<BRANCH>`: the owner merges the install's pull request himself, or says yes to it;
 - setting a secret. A secret value never passes through you: the owner types it into `gh secret set` in his own terminal.
@@ -78,7 +78,7 @@ The routine needs the environment's `env_…` id: the `schedule` skill prints th
    ```
 
 3. Create the routine from that prompt with the `RemoteTrigger` tool, action `create` (the owner's own way is `/schedule`): `name` `<repo name>: issue to PR`, `enabled` true, no cron, `model` `claude-opus-5-5`, `effort_level` `medium`, `allowed_tools` `["Bash", "Read", "Write", "Edit", "Glob", "Grep"]`, `sources` `["<REPO>"]`, `persist_session` false, that environment's id as `environment_id`, and `clear_mcp_connections` true: a routine created with no connector named gets every connector of the owner's account, mail and drive included, and the Worker needs none.
-4. Only once the routine exists, version it: write `~/dotfiles/cloud/routines/<repo name>-worker/prompt.md` by running the same `install.ts prompt` command again with `--dir ~/dotfiles/cloud/routines/<repo name>-worker`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id. Add the folder's name to the list `scripts/routines/routine.test.ts` expects there. Then `bun run --cwd ~/dotfiles routines:check` must exit 0.
+4. Only once the routine exists, version it where the owner keeps his routines: ask him where, and follow what he has. Nothing of the factory reads that copy; it is how the owner sees a routine drift from what he wrote. One convention, given as an example to adapt: a folder `~/dotfiles/cloud/routines/<repo name>-worker/` holds `prompt.md`, written by running the same `install.ts prompt` command again with that folder as `--dir`, and `routine.json` beside it on the model of an existing routine there, with the `trig_…` id; the folder's name joins the list `scripts/routines/routine.test.ts` expects there; then `bun run --cwd ~/dotfiles routines:check` exits 0. An owner who versions no routine keeps the prompt's directory and the id in his report.
 
 The routine has no trigger yet, and only the owner can add one: on the routine's page on claude.ai, *Edit*, the *Trigger* row, **+**, *API*, *Generate token*. The token is shown once. Ask him to do it, then to run `gh secret set ROUTINE_FIRE_TOKEN --repo <REPO>` and paste it there.
 
