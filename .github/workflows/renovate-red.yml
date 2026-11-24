@@ -51,9 +51,10 @@ jobs:
             echo "The $CI run names no pull request."
             exit 0
           fi
-          # The title is Renovate's text: it travels in variables and reaches jq through the environment.
-          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.state, .user.login, .head.sha, .base.ref, .title] | @tsv')
-          IFS=$'\t' read -r state author head base title <<<"$pr"
+          # The title is Renovate's text: it travels in variables and reaches jq through the environment. The
+          # labels come between commas, never empty: read collapses an empty field between two tabs.
+          pr=$(gh api "repos/$REPO/pulls/$PR" --jq '[.state, .user.login, .head.sha, .base.ref, ("," + ([.labels[].name] | join(",")) + ","), .title] | @tsv')
+          IFS=$'\t' read -r state author head base labels title <<<"$pr"
           if [ "$state" != open ] || [ "$author" != "renovate[bot]" ] || [ "$base" != "$BRANCH" ]; then
             echo "#$PR is not an open update of Renovate against $BRANCH."
             exit 0
@@ -111,6 +112,9 @@ jobs:
           stop=""
           if [ -n "$tried" ]; then
             stop="The update failed again once its repair was closed: one attempt per update."
+          elif [[ "$labels" == *",major,"* ]]; then
+            # renovate.json leaves a major to the owner: a session's pull request would carry it past him.
+            stop="The update is a major, which the owner merges himself."
           else
             # A cloud session cannot run gh actions-lock, which a change to a workflow needs.
             workflows=$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \

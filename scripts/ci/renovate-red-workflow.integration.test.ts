@@ -74,6 +74,7 @@ type Answer =
       readonly user: { readonly login: string };
       readonly head: { readonly sha: string };
       readonly base: { readonly ref: string };
+      readonly labels: readonly { readonly name: string }[];
       readonly title: string;
     }
   | { readonly jobs: readonly { readonly name: string; readonly conclusion: string }[] }
@@ -84,6 +85,10 @@ type Answer =
   | readonly { readonly filename: string }[];
 
 interface Fixtures {
+  readonly pr?: string;
+  readonly state?: string;
+  readonly base?: string;
+  readonly labels?: readonly string[];
   readonly head?: string;
   readonly title?: string;
   readonly author?: string;
@@ -129,10 +134,11 @@ async function runStep(
   };
 
   const pr = data("pr", {
-    state: "open",
+    state: fixtures.state ?? "open",
     user: { login: fixtures.author ?? "renovate[bot]" },
     head: { sha: fixtures.head ?? HEAD },
-    base: { ref: "dev" },
+    base: { ref: fixtures.base ?? "dev" },
+    labels: (fixtures.labels ?? []).map((name) => ({ name })),
     title: fixtures.title ?? TITLE,
   });
 
@@ -194,7 +200,7 @@ jq -r "$filter" "$file"
       RUN: "1",
       RUN_URL: "https://ci/1",
       HEAD,
-      PR: "7",
+      PR: fixtures.pr ?? "7",
       FIRE_URL: "https://fire",
       FIRE_TOKEN: "t",
       GITHUB_RUN_ATTEMPT: fixtures.attempt ?? "1",
@@ -319,6 +325,22 @@ test("an update that touches .github/workflows/ starts no session and is labelle
   expect(fired(calls)).toBe(false);
 });
 
+test("re-run CI on a head whose issue is still ready fires nothing: only a re-run of this job fires again", async () => {
+  const { calls } = await runStep({ issues: [issue(4, "open", HEAD, ["ready"])], attempt: "1" });
+
+  expect(opened(calls)).toBeUndefined();
+  expect(fired(calls)).toBe(false);
+});
+
+test("a major starts no session and is labelled needs-human: the owner merges it himself", async () => {
+  const { calls } = await runStep({ labels: ["dependencies", "major"] });
+
+  expect(opened(calls)).toContain("labels[]=needs-human");
+  expect(opened(calls)).toContain("a major");
+  expect(stopped(calls)).toBe(true);
+  expect(fired(calls)).toBe(false);
+});
+
 test("a Renovate pull request that carries a commit of someone else gets no repair", async () => {
   const { calls, out } = await runStep({
     commits: [RENOVATE, { ...RENOVATE, sha: "dddd", author: { login: "bengous" } }],
@@ -329,10 +351,20 @@ test("a Renovate pull request that carries a commit of someone else gets no repa
   expect(fired(calls)).toBe(false);
 });
 
+test("a run that names no pull request asks GitHub nothing", async () => {
+  const { code, calls, out } = await runStep({ pr: "" });
+
+  expect(code).toBe(0);
+  expect(out).toContain("The CI run names no pull request.");
+  expect(calls).toEqual([]);
+});
+
 test.each([
   ["a pull request someone else opened", { author: "bengous" }],
   ["the run of a head Renovate has since rewritten", { head: "eeee5555" }],
   ["a run whose test did not fail", { test: "success" }],
+  ["a pull request Renovate closed", { state: "closed" }],
+  ["a pull request against another base", { base: "main" }],
 ])("%s gets no repair", async (_name, fixtures: Fixtures) => {
   const { code, calls } = await runStep(fixtures);
 
