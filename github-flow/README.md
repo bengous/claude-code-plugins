@@ -52,8 +52,8 @@ Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 o
 | `view` | **Start at** with no code block or table under it |
 | `question` | a `?` in prose or a table, outside code, code spans and link targets |
 | `prose` | more than 120 words of prose outside views, tables and code |
-| `decided` | more than three facts under **Decided**: list items, table rows, else paragraphs |
-| `clip` | a clip with no protocol line or no e2e test named under **Proof**; more than three clips |
+| `decided` | more than three facts under **Decided**: list items, table rows and paragraphs, a lead-in ending on a colon left out |
+| `clip` | a clip with no protocol line or no e2e test named under it, before the next clip or section; more than three clips |
 
 A repository sets its own caps in `.github/github-flow.json`, found from the current directory up to the git root, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`. A cap left out keeps its default; a cap that is no positive integer exits 2.
 

@@ -84,7 +84,7 @@ const LINK_TARGET = /\]\(\s*<?([^)\s>]+)>?[^)]*\)|<video[^>]*\ssrc=["']([^"']+)[
 
 const PROTOCOL = /^[\s>*_\-+]*protocol\b/iu;
 
-const E2E_TEST = /`[^`]*(?:e2e|\.(?:spec|test)\.[cm]?[jt]sx?)[^`]*`/iu;
+const E2E_TEST = /`[^`]*(?:e2e|\.spec\.[cm]?[jt]sx?)[^`]*`/iu;
 
 type Kind = "prose" | "code" | "table" | "comment";
 
@@ -342,19 +342,21 @@ function view(lines: readonly Line[]): Finding[] {
       ];
 }
 
-/** A fact is a list item or a table row; with neither, a paragraph. */
+/** A fact is a list item, a table row or a paragraph; a lead-in that ends on a colon only announces them. */
 function decided(lines: readonly Line[], cap: number): Finding[] {
   const said = (l: Line | undefined): boolean =>
     l !== undefined && l.kind === "prose" && prose(l.raw).trim() !== "";
 
-  const items = lines.filter(
-    (l, i) =>
-      (l.kind === "prose" && LIST_ITEM.test(l.raw)) ||
-      (l.kind === "table" && !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "")),
-  );
+  const facts = lines.filter((l, i) => {
+    if (l.kind === "table")
+      return !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "");
 
-  const facts =
-    items.length > 0 ? items : lines.filter((l, i) => said(l) && (i === 0 || !said(lines[i - 1])));
+    if (LIST_ITEM.test(l.raw)) return l.kind === "prose";
+
+    const text = prose(l.raw).trim();
+
+    return said(l) && (i === 0 || !said(lines[i - 1])) && !(l.opens !== null && text.endsWith(":"));
+  });
 
   const over = facts[cap];
 
@@ -369,47 +371,57 @@ function decided(lines: readonly Line[], cap: number): Finding[] {
       ];
 }
 
-/** At most `cap` clips; a clip comes with a protocol line and the e2e test that asserts it, under **Proof**. */
-function clips(parts: Parts, cap: number): Finding[] {
-  const found = parts.rendered.flatMap((l) =>
-    l.kind === "code" || l.kind === "comment"
-      ? []
-      : [...l.raw.matchAll(LINK_TARGET)].flatMap((m) => (CLIP.test(m[1] ?? m[2] ?? "") ? [l] : [])),
+function isClip(l: Line): boolean {
+  return (
+    l.kind !== "code" &&
+    l.kind !== "comment" &&
+    [...l.raw.matchAll(LINK_TARGET)].some((m) => CLIP.test(m[1] ?? m[2] ?? ""))
   );
+}
 
-  const first = found[0];
-
-  if (first === undefined) return [];
-
-  const proof = parts.sections.get("Proof") ?? [];
+/**
+ * At most `cap` clips. Each clip comes with its own protocol line and the e2e
+ * test that asserts it, in the lines from the clip to the next clip or section.
+ */
+function clips(parts: Parts, cap: number): Finding[] {
+  const lines = parts.rendered;
   const findings: Finding[] = [];
+  let count = 0;
 
-  if (!proof.some((l) => l.kind !== "code" && PROTOCOL.test(l.raw))) {
-    findings.push({
-      check: "clip",
-      line: first.line,
-      message:
-        "a clip with no protocol line: under **Proof**, `Protocol: <build>, <viewport>, <page>, <action>`.",
-    });
-  }
+  for (const [index, l] of lines.entries()) {
+    if (!isClip(l)) continue;
 
-  if (!proof.some((l) => E2E_TEST.test(l.raw))) {
-    findings.push({
-      check: "clip",
-      line: first.line,
-      message:
-        "a clip with no e2e test named: under **Proof**, the test that asserts what the clip shows.",
-    });
-  }
+    count += 1;
 
-  const over = found[cap];
+    if (count === cap + 1) {
+      findings.push({
+        check: "clip",
+        line: l.line,
+        message: `more than ${cap} clips: a still proves a state, a clip only a transition.`,
+      });
+    }
 
-  if (over !== undefined) {
-    findings.push({
-      check: "clip",
-      line: over.line,
-      message: `${found.length} clips, past the cap of ${cap}: a still proves a state, a clip only a transition.`,
-    });
+    const rest = lines.slice(index + 1);
+    const stop = rest.findIndex((next) => next.opens !== null || isClip(next));
+    const own = [l, ...(stop === -1 ? rest : rest.slice(0, stop))].filter((o) => o.kind !== "code");
+
+    if (!own.some((o) => PROTOCOL.test(o.raw))) {
+      findings.push({
+        check: "clip",
+        line: l.line,
+        message:
+          "a clip with no protocol line of its own: under it, `Protocol: <build>, <viewport>, <page>, <action>`.",
+      });
+    }
+
+    if (!own.some((o) => E2E_TEST.test(o.raw))) {
+      findings.push({
+        check: "clip",
+        line: l.line,
+        message:
+          "a clip with no e2e test named under it: the test that asserts what the clip shows.",
+      });
+    }
   }
 
   return findings;

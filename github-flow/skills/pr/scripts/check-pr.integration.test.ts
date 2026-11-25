@@ -246,6 +246,24 @@ describe("caps", () => {
     expect(checks(body({ extra: table }))).toEqual(["decided@27"]);
     expect(checks(body({ extra: wrapped }))).toEqual([]);
   });
+
+  test("Decided counts paragraphs beside a list, and its lead-in's text unless it ends on a colon", () => {
+    const mixed = [
+      "**Decided** The settings file is shared.",
+      "",
+      "The session line stays under the footer.",
+      "",
+      "- one",
+      "- two",
+      "- three",
+      "",
+    ];
+
+    const announced = ["**Decided** three choices:", "", "- one", "- two", "- three", ""];
+
+    expect(checks(body({ extra: mixed }))).toEqual(["decided@25"]);
+    expect(checks(body({ extra: announced }))).toEqual([]);
+  });
 });
 
 describe("clips", () => {
@@ -264,10 +282,26 @@ describe("clips", () => {
     expect(checks(body({ extra: ["![](/tmp/x/after.mp4)", protocol, ""] }))).toEqual(["clip@20"]);
   });
 
-  test("a fourth clip is refused", () => {
-    const four = ["![](/a.mp4)", "![](/b.mov)", "![](/c.webm)", "![](/d.mp4)", protocol, e2e, ""];
+  test("each clip needs its own protocol line and e2e test, before the next clip", () => {
+    const two = ["![](/tmp/c/open.mp4)", protocol, e2e, "", "![](/tmp/c/close.mp4)", ""];
 
-    expect(checks(body({ extra: four }))).toEqual(["clip@23"]);
+    expect(checks(body({ extra: two }))).toEqual(["clip@24", "clip@24"]);
+  });
+
+  test("a unit test is no e2e test", () => {
+    const unit = ["![](/tmp/x/after.mp4)", protocol, "Asserted by `gate.test.ts`.", ""];
+
+    expect(checks(body({ extra: unit }))).toEqual(["clip@20"]);
+  });
+
+  test("a fourth clip is refused", () => {
+    const four = ["/a.mp4", "/b.mov", "/c.webm", "/d.mp4"].flatMap((clip) => [
+      `![](${clip})`,
+      protocol,
+      e2e,
+    ]);
+
+    expect(checks(body({ extra: [...four, ""] }))).toEqual(["clip@29"]);
   });
 });
 
