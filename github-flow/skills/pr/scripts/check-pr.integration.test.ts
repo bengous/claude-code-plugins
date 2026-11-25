@@ -121,9 +121,24 @@ describe("refusals name the line", () => {
   test.each([
     "<details><summary>Left open</summary>",
     "<b>Ask</b>: keep the old flag or drop it.",
-    "| Left open | Why |",
-  ])("an open point in HTML or a table cell: %s", (line) => {
+    "| Left open | Why |\n|---|---|",
+  ])("an open point in HTML or a table header: %s", (line) => {
     expect(checks(body({ extra: [line, ""] }))).toEqual(["open-point@20"]);
+  });
+
+  test("a data cell holding a value such as ask passes", () => {
+    const table = [
+      "| Command | Before | After |",
+      "|---|---|---|",
+      "| `git push --force` | allow | ask |",
+      "",
+    ];
+
+    expect(checks(body({ extra: table }))).toEqual([]);
+  });
+
+  test("two issues closed, each with its keyword", () => {
+    expect(checks(body().replace("Closes #1.", "Closes #12, closes #13."))).toEqual([]);
   });
 
   test("prose before Why other than the issue it closes", () => {

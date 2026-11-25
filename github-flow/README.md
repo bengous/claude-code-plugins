@@ -49,7 +49,7 @@ Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 o
 | Check | Refuses |
 |---|---|
 | `section` | a heading, a bold lead-in that is no section of the shape, a section twice, prose before **Why** other than `Closes #N.` or a line in italics (a host's attribution) |
-| `open-point` | *Ask*, *Left open*, *Not shown*, *Known gaps*, *Open questions*, *Follow-ups* and their kin, whatever their markup |
+| `open-point` | *Ask*, *Left open*, *Not shown*, *Known gaps*, *Open questions*, *Follow-ups* and their kin, whatever their markup; in a table, in its header row only |
 | `missing`, `order`, `footer` | a section of the shape absent or out of order (**Decided** may be absent), no footer |
 | `question` | a `?` in prose or a table, outside code, code spans and link targets |
 | `prose` | more than 120 words of prose outside views, tables and code |

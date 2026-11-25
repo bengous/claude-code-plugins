@@ -78,7 +78,8 @@ const LEAD_IN = /^\*\*([^*]+?)\*\*/u;
 const LIST_ITEM = /^ {0,3}(?:[-*+]|\d+[.)])\s/u;
 
 /** What may stand before **Why**: the issue it closes. A line wholly in italics is a host's attribution. */
-const PREAMBLE = /^(?:(?:closes|fixes|resolves) #\d+(?:,? #\d+)*\.?|_[^_].*_|\*[^*].*\*)$/iu;
+const PREAMBLE =
+  /^(?:(?:closes|fixes|resolves) #\d+(?:,? (?:and )?(?:(?:closes|fixes|resolves) )?#\d+)*\.?|_[^_].*_|\*[^*].*\*)$/iu;
 
 /** The footer opens on who wrote the body: `<sub>Written by <model></sub>`, or a tool's own line. */
 const FOOTER =
@@ -274,17 +275,20 @@ function bare(text: string): string {
 }
 
 /** A line, or a table cell, that names an open point, its tags and its markup aside. */
-function namesOpenPoint(l: Line): boolean {
-  if (l.kind === "table") return l.raw.split("|").some((cell) => OPEN_POINT.test(bare(cell)));
+function namesOpenPoint(l: Line, header: boolean): boolean {
+  // Only a header row names a column such as *Left open*; a data cell may hold a value such as `ask`.
+  if (l.kind === "table") {
+    return header && l.raw.split("|").some((cell) => OPEN_POINT.test(bare(cell)));
+  }
 
   return OPEN_POINT.test(bare(l.raw));
 }
 
 function strayLines(body: readonly Line[]): Finding[] {
-  return body.flatMap((l): Finding[] => {
+  return body.flatMap((l, index): Finding[] => {
     if (l.kind !== "prose" && l.kind !== "table") return [];
 
-    if (namesOpenPoint(l)) {
+    if (namesOpenPoint(l, TABLE_RULE.test(body[index + 1]?.raw ?? ""))) {
       return [
         {
           check: "open-point",
