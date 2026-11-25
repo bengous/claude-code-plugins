@@ -14,9 +14,8 @@ Importing a GEDCOM file whose dates carry a time zone drops every person born af
 
 - The people missing are exactly those whose birth date has a time zone suffix.
 - `bun run import fixtures/tz.ged` reproduces it in two seconds.
-- Dates are parsed in one place, `parseDate` in `src/gedcom/date.ts`; the importer and the search index both call it.
+- Dates are parsed in one place, `parseDate`; the importer and the search index both call it.
 - GEDCOM 7 allows the time zone suffix; GEDCOM 5.5.1 files have none, which is why the older fixtures pass.
-- Possible direction: the parser already handles `Z`, so the suffix may only need the same path.
 
 </details>
 
