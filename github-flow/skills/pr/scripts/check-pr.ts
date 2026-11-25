@@ -75,8 +75,8 @@ const LIST_ITEM = /^ {0,3}(?:[-*+]|\d+[.)])\s/u;
 const FOOTER =
   /^(?:<sub>\s*(?:[_*]\s*)?(?:\p{Extended_Pictographic}\s*)?|[_*]\s*(?:\p{Extended_Pictographic}\s*)?|\p{Extended_Pictographic}\s*)(?:written|generated|opened) (?:by|with)\b/iu;
 
-/** A URL, without the stop that may end its sentence: GitHub leaves a trailing `?`, `.` or `,` out of the link. */
-const WEB_ADDRESS = /\bhttps?:\/\/\S*[^\s.,;:!?)]/gu;
+/** A URL, without the stop that may end its sentence: GitHub leaves a trailing `?`, `.`, `,`, `_` or a quote out of the link, and a table pipe ends it. */
+const WEB_ADDRESS = /\bhttps?:\/\/[^\s|]*[^\s|.,;:!?)*_~'"]/gu;
 
 const CLIP = /\.(?:mp4|mov|webm)$/iu;
 

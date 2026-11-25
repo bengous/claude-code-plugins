@@ -187,6 +187,14 @@ describe("questions", () => {
     expect(checks(body({ extra: ["| close | see https://x.y/a? |", ""] }))).toEqual([
       "question@20",
     ]);
+
+    for (const line of [
+      "_Should the hook also cover https://github.com/o/r/pull/12?_",
+      '"cover https://x.y/a?"',
+      "| close | see https://x.y/a?|",
+    ]) {
+      expect(checks(body({ extra: [line, ""] }))).toEqual(["question@20"]);
+    }
   });
 
   test("a ? in a code block, a code span or a link target passes", () => {
