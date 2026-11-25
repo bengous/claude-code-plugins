@@ -67,7 +67,7 @@ The skill runs `bun skills/issue/scripts/check-issue.ts <body.md>` on its draft 
 | `contract`, `regression`, `expected` | No line on what is contract and what is free, no situation for no regression, a row with no expected result. |
 | `checkbox` | A task list item. |
 | `visual-size` | A fenced block or a table over `visualLines`: it moves to an issue artifact. |
-| `fix`, `plan` | A fix handed over as the thing to do: `Fix:`, `Solution:`, `Approach:`, `Workaround:`, a suggested or proposed fix or solution; a numbered list of steps. A lead passes: the part of the architecture, a symbol or concept, domain context. |
+| `fix`, `plan` | A fix handed over as the thing to do: `Fix:`, `Possible direction`, `Solution:`, `Approach:`, `Workaround:`, a suggested or proposed fix or solution; a numbered list of steps. A lead passes: the part of the architecture, a symbol or concept, domain context. |
 | `question` | A `?` outside code spans, fenced blocks, URLs and HTML comments. |
 | `leads` | The author's leads outside a `<details>`. |
 | `script` | In an `.html` artifact: a `<script>`, an on-event attribute or a `javascript:` URL; an artifact also lists its situations as table rows, one for no regression. |

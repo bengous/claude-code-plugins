@@ -98,8 +98,13 @@ describe("drafts in the shape", () => {
 });
 
 describe("the solution stays out", () => {
-  test("Fix: and a numbered plan are refused on their line", () => {
-    expect(checks(fixture("refuse/prescribes.md"))).toEqual(["fix@12", "plan@14", "plan@15"]);
+  test("Fix:, Possible direction and a numbered plan are refused on their line", () => {
+    expect(checks(fixture("refuse/prescribes.md"))).toEqual([
+      "fix@12",
+      "fix@13",
+      "plan@14",
+      "plan@15",
+    ]);
   });
 
   test.each([

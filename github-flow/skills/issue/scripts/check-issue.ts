@@ -118,11 +118,12 @@ const REGRESSION = /r[eé]gression/iu;
 const ARTIFACT = /\/issues\/\d+\/artifacts\/\d+|(?<!\p{L})issue artifact(?!\p{L})/iu;
 
 /**
- * A fix handed to the reader as the thing to do. A hint is no fix: where in the
- * architecture, which files and symbols, a possible direction, domain context.
+ * A fix or a direction handed to the reader as the thing to do. A lead is no
+ * fix: the part of the architecture, a symbol or a concept, domain context.
  */
 const FIXES: readonly RegExp[] = [
   /(?<!\p{L})(?:(?:suggested|proposed|quick) )?fix(?:es)?\s*:/iu,
+  /(?<!\p{L})possible directions?(?!\p{L})/iu,
   /(?<!\p{L})(?:suggested|proposed) (?:fix|solution|implementation)s?(?!\p{L})/iu,
   /(?<!\p{L})(?:solution|approach|workaround)\s*:/iu,
 ];
