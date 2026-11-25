@@ -53,10 +53,10 @@ Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 o
 | `missing`, `order`, `footer` | a section of the shape absent or out of order (**Decided** may be absent), no footer |
 | `question` | a `?` in prose or a table, outside code, code spans and link targets |
 | `prose` | more than 120 words of prose outside views, tables and code |
-| `why`, `danger`, `view`, `checks` | **Why** past one sentence; **Danger** with no door or no reach; **Start at** with no view under it; **Checks** with no number |
-| `recap`, `not-run` | a review recap under **Checks**; a line on what did not run under **Checks** or **Decided** |
-| `decided` | more than three facts under **Decided** |
-| `clip` | a clip with no protocol line or no e2e test named under it, before the next clip; more than three clips |
+| `why`, `danger`, `view`, `checks` | **Why** past one sentence; **Danger** with no door or no reach; **Start at** with no code block or table under it; **Checks** with no number, an issue number or a URL being none |
+| `recap`, `not-run` | a review recap or a line on what did not run, under **Decided**, **Checks** or the footer |
+| `decided` | more than three facts under **Decided**: list items, table rows and the lead-in line's own text |
+| `clip` | a clip with no protocol line or no e2e test named under it, before the next clip or section; more than three clips |
 
 A repository sets its own caps in `.github/github-flow.json`, found from the current directory up to the git root, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`. A cap left out keeps its default; a cap that is no positive integer exits 2.
 

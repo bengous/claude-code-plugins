@@ -70,13 +70,16 @@ const HEADING = /^ {0,3}#{1,6}\s/u;
 
 const TABLE_ROW = /^\s*\|/u;
 
+/** The row under a table's header: `|---|:---:|`. */
+const TABLE_RULE = /^\s*\|[\s:|-]+\|?\s*$/u;
+
 const LEAD_IN = /^\*\*([^*]+?)\*\*/u;
 
 const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s/u;
 
 /** The footer opens on who wrote the body: `<sub>Written by <model></sub>`, or a tool's own line. */
 const FOOTER =
-  /^(?:<sub>\s*)?(?:[_*]\s*)?(?:\p{Extended_Pictographic}\s*)?(?:written|generated|opened) (?:by|with)\b/iu;
+  /^(?:<sub>\s*(?:[_*]\s*)?|[_*]\s*(?:\p{Extended_Pictographic}\s*)?|\p{Extended_Pictographic}\s*)(?:written|generated|opened) (?:by|with)\b/iu;
 
 /** A section the shape has no place for, whatever its markup. */
 const OPEN_POINT =
@@ -84,13 +87,13 @@ const OPEN_POINT =
 
 /** A line on what did not run, in **Decided** or **Checks**. */
 const NOT_RUN: readonly RegExp[] = [
-  /\b(?:not|never|did not|didn['’]t|was not|wasn['’]t|were not|weren['’]t|could not|couldn['’]t|cannot|can['’]t|unable to be) (?:yet |been )?(?:run|ran|played|tested|verified|measured|reviewed|checked|executed|exercised|seen|rendered)\b/iu,
+  /\b(?:not|never|did not|didn['’]t|was not|wasn['’]t|were not|weren['’]t|could not|couldn['’]t|cannot|can['’]t|unable to be) (?:yet |be |been )?(?:\w+-)?(?:run|ran|played|tested|verified|measured|reviewed|checked|executed|exercised|seen|rendered)\b/iu,
   /\b(?:untested|unverified|unmeasured|unplayed|skipped)\b/iu,
   /(?<!\p{L})(?:non|pas) (?:été )?(?:lancée?s?|jouée?s?|testée?s?|vérifiée?s?|mesurée?s?)(?!\p{L})/iu,
 ];
 
-/** A recap of the review, in **Checks**: the review is on the pull request, not in its body. */
-const RECAP = /\b(?:code-review|skill-reviewer|reviewers?|reviewed|review|findings?)\b/iu;
+/** A recap of the review: the review is on the pull request, not in its body. A lint's "0 findings" is no recap. */
+const RECAP = /\b(?:code-review|skill-reviewer|reviewers?|reviewed|reviews?)\b/iu;
 
 /** A reviewer named only inside a code span: `/code-review medium`. A path such as `src/review/` is no recap. */
 const REVIEWER_IN_CODE = /`[^`]*(?:code-review|skill-reviewer)[^`]*`/iu;
@@ -410,7 +413,8 @@ function danger(lines: readonly Line[]): Finding[] {
 }
 
 function view(lines: readonly Line[]): Finding[] {
-  const shown = lines.some((l) => l.kind === "code" || l.kind === "table" || l.raw.includes("!["));
+  // Every view is text: a still is proof, not the view.
+  const shown = lines.some((l) => l.kind === "code" || l.kind === "table");
 
   return shown
     ? []
@@ -425,11 +429,17 @@ function view(lines: readonly Line[]): Finding[] {
 }
 
 function decided(lines: readonly Line[], cap: number): Finding[] {
-  const items = lines.filter((l) => l.kind === "prose" && LIST_ITEM.test(l.raw));
+  const items = lines.filter(
+    (l, i) =>
+      (l.kind === "prose" && LIST_ITEM.test(l.raw)) ||
+      (l.kind === "table" && !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "")),
+  );
+
+  const leadIn = lines[0] !== undefined && prose(lines[0].raw).trim() !== "" ? [lines[0]] : [];
 
   const facts =
     items.length > 0
-      ? items
+      ? [...leadIn, ...items]
       : lines.filter((l) => l.kind === "prose" && prose(l.raw).trim() !== "");
 
   const over = facts[cap];
@@ -450,7 +460,8 @@ function checks(lines: readonly Line[]): Finding[] {
 
   const counted = lines.some(
     (l) =>
-      l.kind !== "comment" && /\d/u.test(l.raw.replace(LEAD_IN, "").replaceAll(WEB_ADDRESS, "")),
+      l.kind !== "comment" &&
+      /\d/u.test(l.raw.replace(LEAD_IN, "").replaceAll(WEB_ADDRESS, "").replaceAll(/#\d+/gu, "")),
   );
 
   if (!counted) {
@@ -461,20 +472,28 @@ function checks(lines: readonly Line[]): Finding[] {
     });
   }
 
-  for (const l of lines) {
-    if (l.kind === "code" || l.kind === "comment") continue;
-
-    if (RECAP.test(prose(l.raw)) || REVIEWER_IN_CODE.test(l.raw)) {
-      findings.push({
-        check: "recap",
-        line: l.line,
-        message:
-          "a review recap: the review lives on the pull request. **Checks** names what ran, with its numbers.",
-      });
-    }
-  }
-
   return findings;
+}
+
+function recaps(lines: readonly Line[]): Finding[] {
+  return lines.flatMap((l): Finding[] =>
+    (l.kind === "prose" || l.kind === "table") &&
+    (RECAP.test(prose(l.raw)) || REVIEWER_IN_CODE.test(l.raw))
+      ? [
+          {
+            check: "recap",
+            line: l.line,
+            message:
+              "a review recap: the review lives on the pull request. **Checks** names what ran, with its numbers.",
+          },
+        ]
+      : [],
+  );
+}
+
+/** The footer and the lines under it: GitHub renders them, and the shape gives them no section. */
+function underFooter(lines: readonly Line[], parts: Parts): Line[] {
+  return parts.footer === null ? [] : lines.slice(lines.indexOf(parts.footer));
 }
 
 function notRun(lines: readonly Line[]): Finding[] {
@@ -497,8 +516,13 @@ function unmarked(raw: string): string {
   return raw.replace(/^[\s>*_\-+]+/u, "");
 }
 
-function clips(parts: Parts, cap: number): Finding[] {
-  const found = parts.body.flatMap((l, at) => {
+/** Every line GitHub renders as the body's, the footer line aside. */
+function rendered(lines: readonly Line[], parts: Parts): Line[] {
+  return lines.filter((l) => l !== parts.footer);
+}
+
+function clips(lines: readonly Line[], cap: number): Finding[] {
+  const found = lines.flatMap((l, at) => {
     if (l.kind === "code" || l.kind === "comment") return [];
 
     return [...l.raw.matchAll(LINK_TARGET)].flatMap((m) =>
@@ -508,10 +532,17 @@ function clips(parts: Parts, cap: number): Finding[] {
 
   const findings: Finding[] = [];
 
-  for (const [index, { l, at }] of found.entries()) {
-    // Each clip owns the lines from it to the next clip, or to the footer.
-    const end = found[index + 1]?.at ?? parts.body.length;
-    const own = parts.body.slice(at, end);
+  for (const { l, at } of found) {
+    // Each clip owns the lines from it to the next clip on a later line or the next section,
+    // whichever comes first: two clips of one table row share their lines.
+    const nextSection = lines.findIndex((x, i) => i > at && x.opens !== null);
+
+    const end = Math.min(
+      found.find((f) => f.at > at)?.at ?? lines.length,
+      nextSection === -1 ? lines.length : nextSection,
+    );
+
+    const own = lines.slice(at, end);
 
     if (!own.some((x) => x.kind === "prose" && PROTOCOL.test(unmarked(x.raw)))) {
       findings.push({
@@ -553,17 +584,18 @@ export function checkBody(body: string, caps: Readonly<Caps> = DEFAULT_CAPS): Fi
 
   return [
     ...parts.findings,
-    ...strayLines(lines.filter((l) => l !== parts.footer)),
-    ...questions(lines.filter((l) => l !== parts.footer)),
-    ...proseCap(parts.body, caps.proseWords),
+    ...strayLines(rendered(lines, parts)),
+    ...questions(rendered(lines, parts)),
+    ...proseCap(rendered(lines, parts), caps.proseWords),
     ...missing(parts, lines),
     ...(has("Why") ? why(section("Why")) : []),
     ...(has("Danger") ? danger(section("Danger")) : []),
     ...(has("Start at") ? view(section("Start at")) : []),
     ...(has("Decided") ? decided(section("Decided"), caps.decided) : []),
     ...(has("Checks") ? checks(section("Checks")) : []),
-    ...notRun([...section("Decided"), ...section("Checks")]),
-    ...clips(parts, caps.clips),
+    ...recaps([...section("Decided"), ...section("Checks"), ...underFooter(lines, parts)]),
+    ...notRun([...section("Decided"), ...section("Checks"), ...underFooter(lines, parts)]),
+    ...clips(rendered(lines, parts), caps.clips),
   ].toSorted((a, b) => a.line - b.line);
 }
 
