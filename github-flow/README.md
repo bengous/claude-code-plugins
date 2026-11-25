@@ -56,7 +56,7 @@ Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 o
 | `why`, `danger`, `view`, `checks` | **Why** past one sentence; **Danger** with no door or no reach; **Start at** with no view under it; **Checks** with no number |
 | `recap`, `not-run` | a review recap under **Checks**; a line on what did not run under **Checks** or **Decided** |
 | `decided` | more than three facts under **Decided** |
-| `clip` | a clip with no protocol line or no e2e test named under **Proof**; more than three clips |
+| `clip` | a clip with no protocol line or no e2e test named under it, before the next clip; more than three clips |
 
 A repository sets its own caps in `.github/github-flow.json`, found from the current directory up to the git root, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`. A cap left out keeps its default; a cap that is no positive integer exits 2.
 

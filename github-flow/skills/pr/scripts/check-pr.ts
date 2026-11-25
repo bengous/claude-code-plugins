@@ -92,6 +92,11 @@ const NOT_RUN: readonly RegExp[] = [
 /** A recap of the review, in **Checks**: the review is on the pull request, not in its body. */
 const RECAP = /\b(?:code-review|skill-reviewer|reviewers?|reviewed|review|findings?)\b/iu;
 
+/** A reviewer named only inside a code span: `/code-review medium`. A path such as `src/review/` is no recap. */
+const REVIEWER_IN_CODE = /`[^`]*(?:code-review|skill-reviewer)[^`]*`/iu;
+
+const WEB_ADDRESS = /\bhttps?:\/\/\S+/gu;
+
 const DOOR = /\b(?:one|two)-way\b/iu;
 
 const REACH = /\breach\b/iu;
@@ -179,7 +184,7 @@ function sectionOf(raw: string): Section | null {
   return SECTIONS.find((section) => section.toLowerCase() === label) ?? null;
 }
 
-/** The words a reader reads: no code span, no link target, no URL, no tag, no lead-in label. */
+/** The words a reader reads: no code span, no link target, no WEB_ADDRESS, no tag, no lead-in label. */
 function prose(raw: string): string {
   return raw
     .replace(LEAD_IN, "")
@@ -188,7 +193,7 @@ function prose(raw: string): string {
     .replaceAll(/!\[[^\]]*\]\([^)]*\)/gu, "")
     .replaceAll(/\[([^\]]*)\]\([^)]*\)/gu, "$1")
     .replaceAll(/<[^>]+>/gu, "")
-    .replaceAll(/\bhttps?:\/\/\S+/gu, "");
+    .replaceAll(WEB_ADDRESS, "");
 }
 
 function wordCount(text: string): number {
@@ -442,7 +447,11 @@ function decided(lines: readonly Line[], cap: number): Finding[] {
 
 function checks(lines: readonly Line[]): Finding[] {
   const findings: Finding[] = [];
-  const counted = lines.some((l) => /\d/u.test(l.raw.replace(LEAD_IN, "")));
+
+  const counted = lines.some(
+    (l) =>
+      l.kind !== "comment" && /\d/u.test(l.raw.replace(LEAD_IN, "").replaceAll(WEB_ADDRESS, "")),
+  );
 
   if (!counted) {
     findings.push({
@@ -455,7 +464,7 @@ function checks(lines: readonly Line[]): Finding[] {
   for (const l of lines) {
     if (l.kind === "code" || l.kind === "comment") continue;
 
-    if (RECAP.test(l.raw.replace(LEAD_IN, "").replaceAll("`", ""))) {
+    if (RECAP.test(prose(l.raw)) || REVIEWER_IN_CODE.test(l.raw)) {
       findings.push({
         check: "recap",
         line: l.line,
@@ -489,36 +498,38 @@ function unmarked(raw: string): string {
 }
 
 function clips(parts: Parts, cap: number): Finding[] {
-  const found = parts.body.flatMap((l) => {
+  const found = parts.body.flatMap((l, at) => {
     if (l.kind === "code" || l.kind === "comment") return [];
 
     return [...l.raw.matchAll(LINK_TARGET)].flatMap((m) =>
-      CLIP.test(m[1] ?? m[2] ?? "") ? [l] : [],
+      CLIP.test(m[1] ?? m[2] ?? "") ? [{ l, at }] : [],
     );
   });
 
-  if (found.length === 0) return [];
-
-  const proof = parts.sections.get("Proof") ?? [];
   const findings: Finding[] = [];
-  const first = found[0]?.line ?? 1;
 
-  if (!proof.some((l) => l.kind === "prose" && PROTOCOL.test(unmarked(l.raw)))) {
-    findings.push({
-      check: "clip",
-      line: first,
-      message:
-        "a clip with no protocol line: under **Proof**, `Protocol: <build>, <viewport>, <page>, <action>`.",
-    });
-  }
+  for (const [index, { l, at }] of found.entries()) {
+    // Each clip owns the lines from it to the next clip, or to the footer.
+    const end = found[index + 1]?.at ?? parts.body.length;
+    const own = parts.body.slice(at, end);
 
-  if (!proof.some((l) => E2E_TEST.test(l.raw))) {
-    findings.push({
-      check: "clip",
-      line: first,
-      message:
-        "a clip with no e2e test named: under **Proof**, the test that asserts what the clip shows.",
-    });
+    if (!own.some((x) => x.kind === "prose" && PROTOCOL.test(unmarked(x.raw)))) {
+      findings.push({
+        check: "clip",
+        line: l.line,
+        message:
+          "a clip with no protocol line: under it, before the next clip, `Protocol: <build>, <viewport>, <page>, <action>`.",
+      });
+    }
+
+    if (!own.some((x) => E2E_TEST.test(x.raw))) {
+      findings.push({
+        check: "clip",
+        line: l.line,
+        message:
+          "a clip with no e2e test named: under it, before the next clip, the test that asserts what it shows.",
+      });
+    }
   }
 
   const over = found[cap];
@@ -526,7 +537,7 @@ function clips(parts: Parts, cap: number): Finding[] {
   if (over !== undefined) {
     findings.push({
       check: "clip",
-      line: over.line,
+      line: over.l.line,
       message: `${found.length} clips, past the cap of ${cap}: a still proves a state, a clip only a transition.`,
     });
   }
@@ -542,8 +553,8 @@ export function checkBody(body: string, caps: Readonly<Caps> = DEFAULT_CAPS): Fi
 
   return [
     ...parts.findings,
-    ...strayLines(parts.body),
-    ...questions(parts.body),
+    ...strayLines(lines.filter((l) => l !== parts.footer)),
+    ...questions(lines.filter((l) => l !== parts.footer)),
     ...proseCap(parts.body, caps.proseWords),
     ...missing(parts, lines),
     ...(has("Why") ? why(section("Why")) : []),
@@ -594,6 +605,10 @@ function capsFrom(file: string, source: string): Caps {
       `${file}: not JSON: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
+  }
+
+  if (Array.isArray(settings) || Object(settings) !== settings) {
+    throw new Error(`${file}: not a JSON object`);
   }
 
   const own = settings?.pr;

@@ -163,11 +163,24 @@ describe("refusals name the line", () => {
     expect(checks(body().replace("two-way door · ", ""))).toEqual(["danger@5"]);
     expect(checks(body().replace("reach:", "then:"))).toEqual(["danger@5"]);
     expect(checks(body({ checksLine: "**Checks** `bun test` passes." }))).toEqual(["checks@20"]);
+    expect(
+      checks(
+        body({
+          checksLine: "**Checks** `bun test` passes.\n\nhttps://claude.ai/code/session_012ea2\n",
+        }),
+      ),
+    ).toEqual(["checks@20"]);
     expect(checks(body().replace(/```diff\n[^`]*```\n/u, ""))).toEqual(["view@7"]);
   });
 
   test("no footer", () => {
     expect(checks(body().replace("<sub>Written by Claude</sub>", ""))).toEqual(["footer@20"]);
+  });
+
+  test("an open point or a question under the footer", () => {
+    const under = `${body()}\n\n## Left open\n\n- Should the hook also cover \`gh pr edit\`?`;
+
+    expect(checks(under)).toEqual(["open-point@24", "question@26"]);
   });
 
   test("more than three facts under Decided", () => {
@@ -224,6 +237,12 @@ describe("no regression", () => {
     );
   });
 
+  test("a command whose path holds the word review is no recap", () => {
+    expect(
+      checks(body({ checksLine: "**Checks** `bun test vellum/src/review/`: 212 pass, 0 fail." })),
+    ).toEqual([]);
+  });
+
   test("the words that open no section pass inside a sentence", () => {
     expect(
       checks(
@@ -262,18 +281,21 @@ describe("clips", () => {
     expect(checks(body({ extra: [...clip, protocol, ""] }))).toEqual(["clip@20"]);
   });
 
+  test("each clip needs its own protocol line and e2e test, before the next clip", () => {
+    const two = ["![](/tmp/c/open.mp4)", protocol, test2e, "", "![](/tmp/c/close.mp4)", ""];
+
+    // The second clip has neither: two findings on its line, 24.
+    expect(checks(body({ extra: two }))).toEqual(["clip@24", "clip@24"]);
+  });
+
   test("a fourth clip is refused", () => {
-    const four = [
-      "![](/a.mp4)",
-      "![](/b.mov)",
-      "![](/c.webm)",
-      "![](/d.mp4)",
+    const four = ["/a.mp4", "/b.mov", "/c.webm", "/d.mp4"].flatMap((target) => [
+      `![](${target})`,
       protocol,
       test2e,
-      "",
-    ];
+    ]);
 
-    expect(checks(body({ extra: four }))).toEqual(["clip@23"]);
+    expect(checks(body({ extra: [...four, ""] }))).toEqual(["clip@29"]);
   });
 });
 
@@ -320,6 +342,21 @@ describe("a repository's own caps", () => {
       join(repo, ".github", "github-flow.json"),
       JSON.stringify({ pr: { decided: 0 } }),
     );
+
+    expect(run([file], repo).code).toBe(2);
+  });
+
+  test.each([
+    ["a key that is no cap", { pr: { prose: 100 } }],
+    ["a pr that is no object", { pr: 5 }],
+    ["a top level that is no object", []],
+  ])("the CLI exits 2 on %s", (_case, settings) => {
+    const repo = tmp();
+    mkdirSync(join(repo, ".git"));
+    mkdirSync(join(repo, ".github"));
+    const file = join(repo, "body.md");
+    writeFileSync(file, body());
+    writeFileSync(join(repo, ".github", "github-flow.json"), JSON.stringify(settings));
 
     expect(run([file], repo).code).toBe(2);
   });
