@@ -91,11 +91,13 @@ const OPEN_POINT =
 /** A line on what did not run, anywhere: a verification left out, not a behaviour ("not run for subagents"). */
 const NOT_RUN: readonly RegExp[] = [
   /\b(?:not|never|could not|couldn['’]t|cannot|can['’]t) (?:yet |be |been )?(?:\w+-)?(?:played|tested|verified|measured|exercised|rendered)\b/iu,
-  /\b(?:not|never) (?:yet |been )?(?:run|ran)(?: (?:in|on|here|locally|yet|live)\b|\s*[.;,)]|\s*$)|\b(?:could not|couldn['’]t|cannot|can['’]t) (?:be )?run\b/iu,
-  /\b(?:untested|unverified|unmeasured|unplayed)\b/iu,
-  /(?<!\d )\bskipped\b/iu,
+  // A run left out, not a behaviour: "not run for subagents" and "never run by hand" pass.
+  /\b(?:not|never|cannot|can['’]t) (?:yet |be |been )?(?:run|ran|executed|checked)\b(?! (?:for|by|when|if|unless|on (?:every|each))\b)/iu,
   /(?<!\p{L})(?:non|pas) (?:été )?(?:lancée?s?|jouée?s?|testée?s?|vérifiée?s?|mesurée?s?)(?!\p{L})/iu,
 ];
+
+/** Words that say a run was left out only where a body reports runs: **Checks** and the footer. */
+const NOT_RUN_WORDS = /\b(?:untested|unverified|unmeasured|unplayed)\b|(?<!\d )\bskipped\b/iu;
 
 /** A recap of the review: the review is on the pull request, not in its body. A lint's "0 findings" is no recap. */
 /** A recap anywhere: a reviewer's command, or what a review found. */
@@ -552,9 +554,16 @@ function underFooter(lines: readonly Line[], parts: Parts): Line[] {
   return parts.footer === null ? [] : lines.slice(lines.indexOf(parts.footer));
 }
 
-function notRun(lines: readonly Line[]): Finding[] {
+/** `reports`: the lines that report runs, where a word alone such as skipped says a run was left out. */
+function notRun(lines: readonly Line[], reports: readonly Line[]): Finding[] {
+  const leftOut = (l: Line): boolean => {
+    const said = prose(l.raw);
+
+    return NOT_RUN.some((p) => p.test(said)) || (reports.includes(l) && NOT_RUN_WORDS.test(said));
+  };
+
   return lines.flatMap((l): Finding[] =>
-    (l.kind === "prose" || l.kind === "table") && NOT_RUN.some((p) => p.test(prose(l.raw)))
+    (l.kind === "prose" || l.kind === "table") && leftOut(l)
       ? [
           {
             check: "not-run",
@@ -657,7 +666,7 @@ export function checkBody(body: string, caps: Readonly<Caps> = DEFAULT_CAPS): Fi
     ...(has("Decided") ? decided(section("Decided"), caps.decided) : []),
     ...(has("Checks") ? checks(section("Checks")) : []),
     ...recaps(lines, [...section("Checks"), ...underFooter(lines, parts)]),
-    ...notRun(lines),
+    ...notRun(lines, [...section("Checks"), ...underFooter(lines, parts)]),
     ...preamble(lines),
     ...clips(rendered(lines, parts), caps.clips),
   ].toSorted((a, b) => a.line - b.line);
