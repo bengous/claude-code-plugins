@@ -62,6 +62,12 @@ const FENCE = /^\s*(`{3,}|~{3,})/u;
 
 const HEADING = /^ {0,3}#{1,6}\s/u;
 
+/** The line under a setext heading: `===` or `---`. */
+const SETEXT = /^ {0,3}(?:=+|-+)\s*$/u;
+
+/** A thematic break: `---`, `* * *`, `___`. */
+const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/u;
+
 const TABLE_ROW = /^\s*\|/u;
 
 /** The row under a table's header: `|---|:---:|`. */
@@ -230,10 +236,19 @@ function split(lines: readonly Line[]): Parts {
 
 /** A heading, or a bold lead-in that is no section of the shape: the body has no other section. */
 function strayLines(lines: readonly Line[]): Finding[] {
-  return lines.flatMap((l): Finding[] => {
+  return lines.flatMap((l, i): Finding[] => {
     if (l.kind !== "prose") return [];
 
-    if (HEADING.test(l.raw)) {
+    const under = lines[i + 1];
+
+    const setext =
+      l.raw.trim() !== "" &&
+      !LIST_ITEM.test(l.raw) &&
+      !THEMATIC_BREAK.test(l.raw) &&
+      under?.kind === "prose" &&
+      SETEXT.test(under.raw);
+
+    if (HEADING.test(l.raw) || setext) {
       return [
         {
           check: "section",
@@ -348,6 +363,8 @@ function decided(lines: readonly Line[], cap: number): Finding[] {
     l !== undefined && l.kind === "prose" && prose(l.raw).trim() !== "";
 
   const facts = lines.filter((l, i) => {
+    if (THEMATIC_BREAK.test(l.raw)) return false;
+
     if (l.kind === "table")
       return !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "");
 
@@ -371,12 +388,11 @@ function decided(lines: readonly Line[], cap: number): Finding[] {
       ];
 }
 
-function isClip(l: Line): boolean {
-  return (
-    l.kind !== "code" &&
-    l.kind !== "comment" &&
-    [...l.raw.matchAll(LINK_TARGET)].some((m) => CLIP.test(m[1] ?? m[2] ?? ""))
-  );
+/** The clips a line shows: a table row may hold several side by side. */
+function clipsOn(l: Line): number {
+  return l.kind === "code" || l.kind === "comment"
+    ? 0
+    : [...l.raw.matchAll(LINK_TARGET)].filter((m) => CLIP.test(m[1] ?? m[2] ?? "")).length;
 }
 
 /**
@@ -389,11 +405,14 @@ function clips(parts: Parts, cap: number): Finding[] {
   let count = 0;
 
   for (const [index, l] of lines.entries()) {
-    if (!isClip(l)) continue;
+    const here = clipsOn(l);
 
-    count += 1;
+    if (here === 0) continue;
 
-    if (count === cap + 1) {
+    const before = count;
+    count += here;
+
+    if (before <= cap && count > cap) {
       findings.push({
         check: "clip",
         line: l.line,
@@ -402,7 +421,7 @@ function clips(parts: Parts, cap: number): Finding[] {
     }
 
     const rest = lines.slice(index + 1);
-    const stop = rest.findIndex((next) => next.opens !== null || isClip(next));
+    const stop = rest.findIndex((next) => next.opens !== null || clipsOn(next) > 0);
     const own = [l, ...(stop === -1 ? rest : rest.slice(0, stop))].filter((o) => o.kind !== "code");
 
     if (!own.some((o) => PROTOCOL.test(o.raw))) {

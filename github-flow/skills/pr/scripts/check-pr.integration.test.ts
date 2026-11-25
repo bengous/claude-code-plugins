@@ -166,6 +166,14 @@ describe("structure", () => {
     ).toEqual(["footer@20"]);
   });
 
+  test("a setext heading is a heading; a rule after a blank line is not", () => {
+    expect(checks(body({ extra: ["Left open", "---------", "The page.", ""] }))).toEqual([
+      "section@20",
+    ]);
+    expect(checks(body({ extra: ["Done.", "=====", ""] }))).toEqual(["section@20"]);
+    expect(checks(body({ extra: ["Done.", "", "---", ""] }))).toEqual([]);
+  });
+
   test("a heading under the footer", () => {
     expect(checks(`${body()}\n\n## Left open`)).toEqual(["section@22"]);
   });
@@ -271,6 +279,9 @@ describe("caps", () => {
 
     expect(checks(body({ extra: mixed }))).toEqual(["decided@25"]);
     expect(checks(body({ extra: announced }))).toEqual([]);
+    expect(
+      checks(body({ extra: ["**Decided**", "", "- one", "- two", "- three", "", "---", ""] })),
+    ).toEqual([]);
   });
 });
 
@@ -310,6 +321,10 @@ describe("clips", () => {
     ]);
 
     expect(checks(body({ extra: [...four, ""] }))).toEqual(["clip@29"]);
+
+    const row = "| ![](/a.mp4) | ![](/b.mp4) | ![](/c.mp4) | ![](/d.mp4) |";
+
+    expect(checks(body({ extra: [row, protocol, e2e, ""] }))).toEqual(["clip@20"]);
   });
 });
 
