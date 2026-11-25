@@ -288,6 +288,12 @@ describe("clips", () => {
     expect(checks(body({ extra: two }))).toEqual(["clip@24", "clip@24"]);
   });
 
+  test("a clip written as a video tag is held to the same rules", () => {
+    const video = ['<video src="/tmp/x/after.mp4"></video>', test2e, ""];
+
+    expect(checks(body({ extra: video }))).toEqual(["clip@20"]);
+  });
+
   test("a fourth clip is refused", () => {
     const four = ["/a.mp4", "/b.mov", "/c.webm", "/d.mp4"].flatMap((target) => [
       `![](${target})`,
