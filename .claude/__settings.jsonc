@@ -36,6 +36,23 @@
   ],
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Worktrees
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // The root's installed dependencies, linked from the main checkout into a
+  // new worktree: Claude Code links them at --worktree and EnterWorktree, the
+  // agent-hooks kit's SessionStart in a worktree the desktop Code tab
+  // creates, which ignores this setting. vellum's, pinpoint's and atlas's stay
+  // out: scripts/gates/run-gates.ts installs them in each worktree, and
+  // through a link that install would rewrite the main checkout's.
+  //
+  "worktree": {
+    "symlinkDirectories": [
+      "node_modules"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Hooks - SessionStart checks
   // ─────────────────────────────────────────────────────────────────────────
   "hooks": {

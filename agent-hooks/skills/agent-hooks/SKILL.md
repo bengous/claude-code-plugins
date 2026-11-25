@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (fixers before each write and Stop lanes on the files a session changed, wired by this plugin). Use when the user asks to add quality hooks to a repo, to write or check `.claude/agent-hooks.jsonc`, to run the hooks doctor or verify, to measure what the hooks inject into the context (noise), or when a Stop hook misbehaves (blocks on the wrong files, never blocks, a fixer seems to do nothing).
+description: Set up or check the agent-hooks kit in a repository (fixers before each write and Stop lanes on the files a session changed, wired by this plugin). Use when the user asks to add quality hooks to a repo, to write or check `.claude/agent-hooks.jsonc`, to run the hooks doctor or verify, to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, a fixer seems to do nothing), or when a desktop session's worktree lacks the main checkout's `node_modules` or another dependency directory.
 argument-hint: "[doctor|verify|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *)
 ---
@@ -21,6 +21,17 @@ file as well: they would run twice.
 3. Run `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts doctor` from the repository and fix every `MISSING` and
    `FAIL` line before the first turn; a `WARN` line (a wiring to correct, a fixer the probes had no
    time to try, a linter that leaves a finding in a tracked file) never fails it.
+4. When sessions run in worktrees, declare the directories a worktree shares with the main checkout,
+   such as `node_modules`, in Claude Code's own setting
+   `worktree.symlinkDirectories` (paths relative to the repository's top) in the main checkout's
+   `.claude/settings.json` or `.claude/settings.local.json`; `~/.claude/settings.json` is not read for
+   it. The kit links them only in a worktree that holds `.claude/agent-hooks.jsonc`, so commit that
+   file. Ignore each in the repository's `.gitignore` with a pattern without a trailing slash
+   (`node_modules`, not `node_modules/`): to git a link is a file. Declare only a directory a session
+   reads and runs from, never one the repository's own scripts install or build into in each checkout:
+   a write into it (an install, a build) lands in the main checkout, and a
+   relative link inside it (a workspace package in `node_modules`) resolves to the main checkout's
+   files, not the worktree's.
 
 ## Config
 
@@ -59,8 +70,20 @@ file as well: they would run twice.
 
 ## What each hook does
 
-- SessionStart: photographs the checkout around the cwd (its dirty tree), once per session; removes the
-  scratch directories a killed pre-edit left.
+- SessionStart: in a linked worktree, first links each directory the main checkout's
+  `.claude/settings.json` and `.claude/settings.local.json` declare in `worktree.symlinkDirectories`,
+  which Claude Code applies at `--worktree` and `EnterWorktree` but the desktop app's Code tab does not
+  apply to the worktree it creates. The link step has its own second from the start of the hook, so a
+  slow photo never leaves the worktree unlinked, and it delays the photo by that second at most. Then it
+  photographs the checkout around the cwd (its dirty tree), once per session, and removes the scratch
+  directories a killed pre-edit left. A declared
+  directory the main checkout holds becomes a link to it at the same path in the worktree, unless the
+  worktree already holds that path or lacks its parent directory. One git would not ignore as a link (a
+  pattern with a trailing slash ignores only a directory) is not linked, and a note tells the user which
+  pattern to write. A settings file that is not valid JSONC, a `worktree` that is not an object, a
+  `worktree.symlinkDirectories` that is not an array of paths, or a declared path outside the
+  repository stops the linking and is a note too; an absent settings file declares nothing. A session
+  in the main checkout links nothing.
 - PreToolUse: photographs the edited file's checkout at the agent's first edit there, then runs the
   `edit` fixers on a copy of the new content in `.agent-hooks-XXXXXX/` beside the file, so a tool finds
   its config and ignore files as for the real file, and hands Claude Code the result as `updatedInput`
@@ -108,5 +131,7 @@ file as well: they would run twice.
 - A session without a photo of its cwd's checkout is measured over the whole dirty tree there, and
   blocks at most once per failing set: it cannot tell its work from what it found.
 - `.claude/worktrees/` and nested repositories are out of the scope: each is a checkout of its own.
+- A write through a linked directory lands in the main checkout: an install run in a worktree changes
+  the main checkout's dependencies.
 - A state written by another version of the kit reads as absent: the session loses its photo and is
   measured over the whole dirty tree.

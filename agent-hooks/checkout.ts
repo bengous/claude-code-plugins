@@ -48,7 +48,7 @@ export function realPathOf(target: string): string {
   return path.join(realpathSync.native(existing), path.relative(existing, resolved));
 }
 
-function isDirectory(absolute: string): boolean {
+export function isDirectory(absolute: string): boolean {
   try {
     return statSync(absolute).isDirectory();
   } catch {
@@ -107,7 +107,7 @@ export function underCheckout(checkout: string, absolute: string): string | null
  * would send git to another repository than the checkout `checkoutOf` found. A git that fails or times out throws a `GitError` that says
  * which: no caller may read it as "no changes".
  */
-function gitOutput(cwd: string, args: readonly string[], deadline: Deadline): string {
+export function gitOutput(cwd: string, args: readonly string[], deadline: Deadline): string {
   const result = gitSync(args, { cwd, timeoutMs: deadline.remaining(), scrubGitEnv: true });
 
   if (result.kind === "exited" && result.code === 0) {
