@@ -103,7 +103,9 @@ describe("require-verify.sh stop", () => {
 
     expect(stopped.code).toBe(2);
     expect(stopped.stderr).toContain(SENT_BACK);
-    expect(stopped.stderr).toContain("Run the verify skill again before you push.");
+    expect(stopped.stderr).toContain(
+      "Run the verify skill again, then report in the session the command it ran and its result.",
+    );
   });
 
   test("lets it end once verify ran on that tree, a commit of it included", async () => {
