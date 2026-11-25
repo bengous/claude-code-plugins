@@ -180,6 +180,13 @@ describe("questions", () => {
       "question@20",
     ]);
     expect(checks(`${body()}\n\nIs it done?`)).toEqual(["question@22"]);
+    // GitHub leaves the trailing ? out of the link, so the reader sees a question.
+    expect(
+      checks(body({ extra: ["Should the hook also cover https://github.com/o/r/pull/12?", ""] })),
+    ).toEqual(["question@20"]);
+    expect(checks(body({ extra: ["| close | see https://x.y/a? |", ""] }))).toEqual([
+      "question@20",
+    ]);
   });
 
   test("a ? in a code block, a code span or a link target passes", () => {
@@ -191,6 +198,8 @@ describe("questions", () => {
       "Run `gh pr view 1 --json body?`.",
       "",
       "See [the run](https://example.com/run?id=3).",
+      "",
+      "The run: https://example.com/run?id=3.",
       "",
     ];
 
