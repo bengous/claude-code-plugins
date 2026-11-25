@@ -19,6 +19,10 @@ test("the CLAUDE.md sections leave how to write a pull request body to the pr sk
   expect(bodyRules(CLAUDE_MD_SECTIONS)).toEqual([]);
 });
 
+test("the verify hook sends a session back to verify, and leaves the pull request body to the pr skill", () => {
+  expect(bodyRules("repo/.claude/hooks/require-verify.sh")).toEqual([]);
+});
+
 test("the routine's prompt leaves how to write a pull request body to the pr skill", () => {
   expect(bodyRules(ROUTINE_PROMPT)).toEqual([]);
 });
