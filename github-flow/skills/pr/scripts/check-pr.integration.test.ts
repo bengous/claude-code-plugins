@@ -340,6 +340,16 @@ describe("a repository's own caps", () => {
     expect(readCaps(join(repo, "a", "b"))).toEqual({ ...DEFAULT_CAPS, decided: 1 });
   });
 
+  test("a settings file above the repository's root is not read", () => {
+    const outer = tmp();
+    const repo = join(outer, "repo");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(join(outer, ".github"));
+    writeFileSync(join(outer, ".github", "github-flow.json"), '{ "pr": { "decided": 1 } }');
+
+    expect(readCaps(repo)).toEqual(DEFAULT_CAPS);
+  });
+
   test("the CLI uses them", () => {
     const repo = repoWith();
     const file = join(repo, "body.md");
