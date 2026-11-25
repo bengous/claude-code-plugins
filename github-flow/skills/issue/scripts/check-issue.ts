@@ -117,10 +117,13 @@ const REGRESSION = /r[eé]gression/iu;
 /** A Done when that hands its situations to an issue artifact names it, by its link or in words. */
 const ARTIFACT = /\/issues\/\d+\/artifacts\/\d+|(?<!\p{L})issue artifact(?!\p{L})/iu;
 
+/**
+ * A fix handed to the reader as the thing to do. A hint is no fix: where in the
+ * architecture, which files and symbols, a possible direction, domain context.
+ */
 const FIXES: readonly RegExp[] = [
-  /(?<!\p{L})(?:(?:suggested|proposed|possible|quick) )?fix(?:es)?\s*:/iu,
-  /(?<!\p{L})possible directions?(?!\p{L})/iu,
-  /(?<!\p{L})(?:suggested|proposed|possible) (?:fix|solution|approach|change|implementation)s?(?!\p{L})/iu,
+  /(?<!\p{L})(?:(?:suggested|proposed|quick) )?fix(?:es)?\s*:/iu,
+  /(?<!\p{L})(?:suggested|proposed) (?:fix|solution|implementation)s?(?!\p{L})/iu,
   /(?<!\p{L})(?:solution|approach|workaround)\s*:/iu,
 ];
 
@@ -529,7 +532,7 @@ function proseFindings(lines: readonly Line[]): Finding[] {
       found.push({
         check: "fix",
         line,
-        message: `"${fix.trim()}" prescribes the solution: the issue gives the goal and how to tell it is reached; the reader plans.`,
+        message: `"${fix.trim()}" hands the reader a fix to apply: a hint names where to look or what to know, and the reader decides what to change.`,
       });
     }
 
@@ -537,7 +540,8 @@ function proseFindings(lines: readonly Line[]): Finding[] {
       found.push({
         check: "plan",
         line,
-        message: "a numbered list is a plan: the reader plans.",
+        message:
+          "a numbered list is a step-by-step plan: the reader plans; a hint goes in the author's leads as a fact.",
       });
     }
 

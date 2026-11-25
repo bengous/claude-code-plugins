@@ -98,13 +98,8 @@ describe("drafts in the shape", () => {
 });
 
 describe("the solution stays out", () => {
-  test("Fix:, Possible direction and a numbered plan are refused on their line", () => {
-    expect(checks(fixture("refuse/prescribes.md"))).toEqual([
-      "fix@12",
-      "fix@13",
-      "plan@14",
-      "plan@15",
-    ]);
+  test("Fix: and a numbered plan are refused on their line, a possible direction is a hint", () => {
+    expect(checks(fixture("refuse/prescribes.md"))).toEqual(["fix@12", "plan@14", "plan@15"]);
   });
 
   test.each([
@@ -114,6 +109,15 @@ describe("the solution stays out", () => {
     ["2) Parse it twice.", "plan"],
   ])("%p is refused", (line, check) => {
     expect(checks(issue(DONE_WHEN, [line, ""]))).toEqual([`${check}@10`]);
+  });
+
+  test.each([
+    ["where in the architecture", "The parsing lives in the importer's date layer, `src/gedcom/`."],
+    ["a file and a symbol", "- `parseDate` in `src/gedcom/date.ts` is the only parser."],
+    ["a possible direction", "- Possible direction: reuse the `Z` path."],
+    ["domain context", "- GEDCOM 7 allows the suffix; 5.5.1 does not."],
+  ])("a hint on %s passes", (_kind, line) => {
+    expect(checks(issue(DONE_WHEN, [line, ""]))).toEqual([]);
   });
 
   test("the words inside code are not read", () => {
