@@ -25,6 +25,4 @@ Closes #431.
 
 - `--depth` counts from the repository root, not from the deepest common directory: the root is what the reader sees on GitHub.
 
-**Checks** `bun test github-flow/scripts/tree-diff.integration.test.ts`: 31 pass, 0 fail. `bun ./scripts/gates/run-gates.ts`: 14 gates pass.
-
 <sub>Written by Claude</sub>

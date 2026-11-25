@@ -29,6 +29,4 @@ The toast enters, holds, then leaves on a click:
 Protocol: build `a1b2c3d`, viewport 1440×900, page `/panel`, action edit then save.
 The clip is asserted by `e2e/toast.spec.ts`, `a save toast holds for 4 s`.
 
-**Checks** `bun run e2e -- --project=light-1440`: 42 pass, 0 fail.
-
 <sub>Written by Claude</sub>

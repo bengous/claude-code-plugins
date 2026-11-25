@@ -19,6 +19,4 @@ Closes #412.
 | `gh pr close 12 -c ""` | allowed | denied, the reason gives the convention |
 | `gh pr close 12 -c "Landed in abc123"` | allowed | allowed |
 
-**Checks** `bun test github-flow/scripts/gate-pr-close.test.ts`: 9 pass, 0 fail.
-
 <sub>Written by Claude</sub>

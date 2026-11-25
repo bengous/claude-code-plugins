@@ -77,4 +77,4 @@ A session that starts with a message from `cloud-tools.sh` runs in an environmen
 
 ## 5. Report
 
-Under **Checks** in the pull request body: each command run and its result, with numbers (tests passed, exit codes); the body names only what ran (`github-flow/skills/pr/`). What section 4 left unplayed goes in the session's report. For a change with nothing to verify, the gates that ran, with their count.
+In the session's report: each command run and its result, with numbers (tests passed, exit codes), and what section 4 left unplayed. For a change with nothing to verify, the gates that ran, with their count. The pull request body repeats none of it: its checks show what CI ran (`github-flow/skills/pr/`).

@@ -7,7 +7,7 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
 | `issue` | `/github-flow:issue [--dry-run] [number] <request>` | Writes or rewrites an issue as a prompt for another agent: Problem, Evidence, Hints, Done when, Out of scope. |
-| `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Settles the branch's open decisions, reviews it, writes a short body in a fixed shape, checks it with `scripts/check-pr.ts`, pushes it and opens or updates its PR; images go up through `gh --attach`. |
+| `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Settles the branch's open decisions, reviews a hot branch, writes a short body in a fixed shape, checks it with `scripts/check-pr.ts`, pushes it and opens or updates its PR; images go up through `gh --attach`. |
 | `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. Manual. |
 | `await-merge` | `/github-flow:await-merge [--dry-run] [--rebase] [pr]` | Watches the checks, merges by squash (`--rebase` for atomic commits, never a merge commit), fast-forwards the local base branch. |
 | `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `github-flow:pr`. |
@@ -32,13 +32,12 @@ Closes #N.
 **Proof**     the issue's situations, before → after; for a UI change, stills, and clips
               each with a protocol line and the e2e test that asserts it
 **Decided**   three facts at most, never a question
-**Checks**    what ran, with its numbers; nothing about what did not run
 <sub>Written by <model></sub>
 ```
 
 `skills/pr/references/bodies/` holds a worked body for a fix, a feature, a UI change and a change across modules.
 
-`skills/pr/scripts/check-pr.ts` holds that shape as a contract, and the skill runs it on the body before it publishes. It imports only `node:` modules, so `skills/pr/` copied whole into another repository runs it there.
+The body repeats no check: the pull request shows what CI ran. `skills/pr/scripts/check-pr.ts` holds the structure of that shape as a contract, and the skill runs it on the body before it publishes; what the prose says is the review's to judge. It imports only `node:` modules, so `skills/pr/` copied whole into another repository runs it there.
 
 ```bash
 bun skills/pr/scripts/check-pr.ts <body.md>...   # or - to read the body from stdin
@@ -48,19 +47,17 @@ Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 o
 
 | Check | Refuses |
 |---|---|
-| `section` | a heading, a bold lead-in that is no section of the shape, a section twice, prose before **Why** other than `Closes #N.` or a line in italics (a host's attribution) |
-| `open-point` | *Ask*, *Left open*, *Not shown*, *Known gaps*, *Open questions*, *Follow-ups* and their kin, whatever their markup; in a table, in its header row only |
+| `section` | a heading, a bold lead-in that is no section of the shape (*Ask*, *Left open*, *Checks*...), a section twice; **Before**, **After** and **Protocol** are labels |
 | `missing`, `order`, `footer` | a section of the shape absent or out of order (**Decided** may be absent), no footer |
+| `view` | **Start at** with no code block or table under it |
 | `question` | a `?` in prose or a table, outside code, code spans and link targets |
 | `prose` | more than 120 words of prose outside views, tables and code |
-| `why`, `danger`, `view`, `checks` | **Why** past one sentence; **Danger** with no door or no reach; **Start at** with no code block or table under it; **Checks** with no number, an issue number or a URL being none |
-| `recap`, `not-run` | a reviewer's command (`/code-review`, `skill-reviewer`) or what a review found, anywhere, and any word of a review under **Checks** or the footer; a line on what did not run, anywhere ("not run for subagents" says what the code does, and passes), and *skipped*, *untested* or *unverified* under **Checks** or the footer |
-| `decided` | more than three facts under **Decided**: list items, table rows and the lead-in line's own text |
-| `clip` | a clip with no protocol line or no e2e test named under it, before the next clip or section; more than three clips |
+| `decided` | more than three facts under **Decided**: list items, table rows, else paragraphs |
+| `clip` | a clip with no protocol line or no e2e test named under **Proof**; more than three clips |
 
 A repository sets its own caps in `.github/github-flow.json`, found from the current directory up to the git root, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`. A cap left out keeps its default; a cap that is no positive integer exits 2.
 
-The branch is reviewed before the body is written, so the body describes the final head: `/code-review` against the base, and `plugin-dev:skill-reviewer` when a `SKILL.md` or an agent changes. The body recaps neither: the reviews live on the pull request. The validation commands **Checks** reports are the ones the repository's `AGENTS.md` or `CLAUDE.md` names.
+A hot branch, a large diff or a change to authentication, permissions, secrets, input parsing or a tool guard, is reviewed before the body is written, so the body describes the final head: `/code-review` against the base, and `plugin-dev:skill-reviewer` when a `SKILL.md` or an agent changes. Any other branch leaves the review to the pull request's own. The body recaps no review: the reviews live on the pull request.
 
 The view follows the kind of change: pseudocode as a diff for logic, a call tree for runtime control flow, a tree diff for moved directories, a component tree for UI structure, a Mermaid `flowchart TB` for a topology. `scripts/tree-diff.ts origin/<base>` prints the tree diff: a directory moved, added or deleted whole is one line. `skills/pr/references/` holds a worked example of each view and the Mermaid traps measured on GitHub; a body with a diagram is checked in a browser that can open the PR, and a diagram that still does not read after two rounds becomes a text view. The menu of views and some of its wording come from Dex Horthy's `show-me` and Matt Pocock's `pr`, both MIT: `skills/pr/CREDITS.md`.
 

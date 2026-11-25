@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 
 /**
- * The shape of a pull request body, checked with no model call: what the `pr`
- * skill runs on its body before it publishes, and what
- * `bun check-pr.ts <body.md>...` prints. `SKILL.md` beside this directory says
- * the shape; this file holds its contract: the section set, the caps and the
- * refusals.
+ * The structure of a pull request body, checked with no model call: what the
+ * `pr` skill runs on its body before it publishes, and what
+ * `bun check-pr.ts <body.md>...` prints. It checks the sections, their order,
+ * the caps, and that the body asks nothing; what the prose says is the
+ * review's to judge. `SKILL.md` beside this directory says the shape.
  *
  * It imports only `node:` modules, so the skill directory copied whole into
  * another repository runs it there.
@@ -16,19 +16,13 @@ import { dirname, join, resolve } from "node:path";
 
 export type CheckId =
   | "section"
-  | "open-point"
   | "missing"
   | "order"
   | "question"
-  | "not-run"
-  | "recap"
   | "prose"
-  | "why"
-  | "danger"
   | "view"
   | "decided"
   | "clip"
-  | "checks"
   | "footer";
 
 export interface Finding {
@@ -52,7 +46,7 @@ export const DEFAULT_CAPS: Readonly<Caps> = { proseWords: 120, decided: 3, clips
 /** Where a repository sets its own caps, under the key `pr`. */
 export const SETTINGS_FILE = join(".github", "github-flow.json");
 
-const SECTIONS = ["Why", "Danger", "Start at", "Proof", "Decided", "Checks"] as const;
+const SECTIONS = ["Why", "Danger", "Start at", "Proof", "Decided"] as const;
 
 type Section = (typeof SECTIONS)[number];
 
@@ -77,54 +71,17 @@ const LEAD_IN = /^\*\*([^*]+?)\*\*/u;
 
 const LIST_ITEM = /^ {0,3}(?:[-*+]|\d+[.)])\s/u;
 
-/** What may stand before **Why**: the issue it closes. A line wholly in italics is a host's attribution. */
-const PREAMBLE =
-  /^(?:(?:closes|fixes|resolves) #\d+(?:,? (?:and )?(?:(?:closes|fixes|resolves) )?#\d+)*\.?|_[^_].*_|\*[^*].*\*)$/iu;
-
-/** The footer opens on who wrote the body: `<sub>Written by <model></sub>`, or a tool's own line. */
+/** The footer: `<sub>Written by <model></sub>`, or a host's own line in italics or behind an emoji. */
 const FOOTER =
   /^(?:<sub>\s*(?:[_*]\s*)?(?:\p{Extended_Pictographic}\s*)?|[_*]\s*(?:\p{Extended_Pictographic}\s*)?|\p{Extended_Pictographic}\s*)(?:written|generated|opened) (?:by|with)\b/iu;
 
-/** A section the shape has no place for, whatever its markup. */
-const OPEN_POINT =
-  /^(?:asks?|left open|not shown|known (?:gaps?|issues?|limits?)|open (?:questions?|points?)|questions?|unresolved|follow[- ]ups?|next steps?|to ?dos?|caveats?|limitations?)(?:\s*[:*_]|\s*$)/iu;
-
-/** A line on what did not run, anywhere: a verification left out, not a behaviour ("not run for subagents"). */
-const NOT_RUN: readonly RegExp[] = [
-  /\b(?:not|never|could not|couldn['’]t|cannot|can['’]t) (?:yet |be |been )?(?:\w+-)?(?:played|tested|verified|measured|exercised|rendered)\b/iu,
-  // A run left out, not a behaviour: "not run for subagents" and "never run by hand" pass.
-  /\b(?:not|never|cannot|can['’]t) (?:yet |be |been )?(?:run|ran|executed|checked)\b(?! (?:for|by|when|if|unless|on (?:every|each))\b)/iu,
-  /(?<!\p{L})(?:non|pas) (?:été )?(?:lancée?s?|jouée?s?|testée?s?|vérifiée?s?|mesurée?s?)(?!\p{L})/iu,
-];
-
-/** Words that say a run was left out only where a body reports runs: **Checks** and the footer. */
-const NOT_RUN_WORDS = /\b(?:untested|unverified|unmeasured|unplayed)\b|(?<!\d )\bskipped\b/iu;
-
-/** A recap of the review: the review is on the pull request, not in its body. A lint's "0 findings" is no recap. */
-/** A recap anywhere: a reviewer's command, or what a review found. */
-const RECAP_FORM =
-  /(?<![\w./-])\/code-review(?![\w/.-])|(?<![\w/.-])(?:plugin-dev:)?skill-reviewer(?![\w/.-])|\breview(?:er)?s? (?:found|raised|flagged|reported)\b|\bfindings?,? (?:all |both )?(?:fixed|addressed|resolved)\b/iu;
-
-const RECAP = /\b(?:code-review|skill-reviewer|reviewers?|reviewed|reviews?)\b/iu;
-
-/** A URL, without the stop that may end its sentence. */
-const WEB_ADDRESS = /\bhttps?:\/\/\S*[^\s.,;:!?)]/gu;
-
-const DOOR = /\b(?:one|two)-way\b/iu;
-
-const REACH = /\breach(?:es|ed|ing)?\b/iu;
-
-/** A sentence ends on a stop followed by a capital, a digit or the end. */
-const SENTENCE_END = /[.!?](?=\s+[\p{Lu}\p{N}]|\s*$)/gu;
-
-/** A stop that ends no sentence: `e.g.`, `i.e.`, `vs.`, `etc.`, `cf.`, `approx.`, `No.`... */
-const ABBREVIATION = /(?<![\p{L}.])(?:e\.g|i\.e|vs|etc|cf|approx|ca|fig|no|al)\./giu;
+const WEB_ADDRESS = /\bhttps?:\/\/\S+/gu;
 
 const CLIP = /\.(?:mp4|mov|webm)$/iu;
 
 const LINK_TARGET = /\]\(\s*<?([^)\s>]+)>?[^)]*\)|<video[^>]*\ssrc=["']([^"']+)["']/giu;
 
-const PROTOCOL = /^protocol\b/iu;
+const PROTOCOL = /^[\s>*_\-+]*protocol\b/iu;
 
 const E2E_TEST = /`[^`]*(?:e2e|\.(?:spec|test)\.[cm]?[jt]sx?)[^`]*`/iu;
 
@@ -182,6 +139,7 @@ function classify(text: string): Line[] {
     }
 
     const kind: Kind = TABLE_ROW.test(raw) ? "table" : "prose";
+
     lines.push({ line, raw, kind, opens: kind === "prose" ? sectionOf(raw) : null });
   }
 
@@ -200,7 +158,7 @@ function sectionOf(raw: string): Section | null {
   return SECTIONS.find((section) => section.toLowerCase() === label) ?? null;
 }
 
-/** The words a reader reads: no code span, no link target, no WEB_ADDRESS, no tag, no lead-in label. */
+/** The words a reader reads: no code span, no link target, no URL, no tag, no lead-in label. */
 function prose(raw: string): string {
   return raw
     .replace(LEAD_IN, "")
@@ -219,8 +177,8 @@ function wordCount(text: string): number {
 interface Parts {
   /** Each section present, with the lines from its lead-in to the next section or the footer. */
   sections: Map<Section, Line[]>;
-  /** The lines before the footer; the whole body when there is none. */
-  body: Line[];
+  /** Every line but the footer's: GitHub renders the lines under it too. */
+  rendered: Line[];
   footer: Line | null;
   findings: Finding[];
 }
@@ -232,13 +190,13 @@ function split(lines: readonly Line[]): Parts {
     (l, i) => i > lastLeadIn && l.kind === "prose" && FOOTER.test(l.raw.trim()),
   );
 
-  const body = footerAt === -1 ? [...lines] : lines.slice(0, footerAt);
+  const footer = lines[footerAt] ?? null;
   const sections = new Map<Section, Line[]>();
   const findings: Finding[] = [];
   let current: Line[] | null = null;
   let rank = -1;
 
-  for (const l of body) {
+  for (const l of footerAt === -1 ? lines : lines.slice(0, footerAt)) {
     if (l.opens !== null) {
       const seen = sections.has(l.opens);
       const at = SECTIONS.indexOf(l.opens);
@@ -266,40 +224,13 @@ function split(lines: readonly Line[]): Parts {
     current?.push(l);
   }
 
-  return { sections, body, footer: footerAt === -1 ? null : (lines[footerAt] ?? null), findings };
+  return { sections, rendered: lines.filter((l) => l !== footer), footer, findings };
 }
 
-/** A text without its tags and the markup in front of it. */
-function bare(text: string): string {
-  return text.replaceAll(/<[^>]+>/gu, " ").replace(/^[\s#>*_\-+\d.):]+/u, "");
-}
-
-/** A line, or a table cell, that names an open point, its tags and its markup aside. */
-function namesOpenPoint(l: Line, header: boolean): boolean {
-  // Only a header row names a column such as *Left open*; a data cell may hold a value such as `ask`.
-  if (l.kind === "table") {
-    return header && l.raw.split("|").some((cell) => OPEN_POINT.test(bare(cell)));
-  }
-
-  return OPEN_POINT.test(bare(l.raw));
-}
-
-function strayLines(body: readonly Line[]): Finding[] {
-  return body.flatMap((l, index): Finding[] => {
-    if (l.kind !== "prose" && l.kind !== "table") return [];
-
-    if (namesOpenPoint(l, TABLE_RULE.test(body[index + 1]?.raw ?? ""))) {
-      return [
-        {
-          check: "open-point",
-          line: l.line,
-          message:
-            "an open point: the body leaves nothing open. Settle it as a fact under **Decided**, or leave it to an issue.",
-        },
-      ];
-    }
-
-    if (l.kind === "table") return [];
+/** A heading, or a bold lead-in that is no section of the shape: the body has no other section. */
+function strayLines(lines: readonly Line[]): Finding[] {
+  return lines.flatMap((l): Finding[] => {
+    if (l.kind !== "prose") return [];
 
     if (HEADING.test(l.raw)) {
       return [
@@ -327,8 +258,8 @@ function strayLines(body: readonly Line[]): Finding[] {
   });
 }
 
-function questions(body: readonly Line[]): Finding[] {
-  return body.flatMap((l): Finding[] =>
+function questions(lines: readonly Line[]): Finding[] {
+  return lines.flatMap((l): Finding[] =>
     (l.kind === "prose" || l.kind === "table") && prose(l.raw).includes("?")
       ? [
           {
@@ -342,12 +273,12 @@ function questions(body: readonly Line[]): Finding[] {
   );
 }
 
-function proseCap(body: readonly Line[], cap: number): Finding[] {
-  const counts = body.map((l) => (l.kind === "prose" ? wordCount(prose(l.raw)) : 0));
+function proseCap(lines: readonly Line[], cap: number): Finding[] {
+  const counts = lines.map((l) => (l.kind === "prose" ? wordCount(prose(l.raw)) : 0));
   const total = counts.reduce((sum, n) => sum + n, 0);
   let words = 0;
 
-  for (const [index, l] of body.entries()) {
+  for (const [index, l] of lines.entries()) {
     words += counts[index] ?? 0;
 
     if (words > cap) {
@@ -394,55 +325,6 @@ function missing(parts: Parts, lines: readonly Line[]): Finding[] {
   return findings;
 }
 
-function sectionText(lines: readonly Line[]): string {
-  return lines
-    .flatMap((l) => (l.kind === "prose" ? [prose(l.raw)] : []))
-    .join(" ")
-    .trim();
-}
-
-function why(lines: readonly Line[]): Finding[] {
-  const sentences =
-    sectionText(lines).replaceAll(ABBREVIATION, "_").match(SENTENCE_END)?.length ?? 0;
-
-  const at = lines[0]?.line ?? 1;
-
-  return sentences > 1
-    ? [
-        {
-          check: "why",
-          line: at,
-          message: `**Why** holds ${sentences} sentences: one says why the change exists.`,
-        },
-      ]
-    : [];
-}
-
-function danger(lines: readonly Line[]): Finding[] {
-  // The door may sit in a code span: `two-way`.
-  const said = lines.map((l) => l.raw.replace(LEAD_IN, "").replaceAll("`", "")).join(" ");
-  const at = lines[0]?.line ?? 1;
-  const findings: Finding[] = [];
-
-  if (!DOOR.test(said)) {
-    findings.push({
-      check: "danger",
-      line: at,
-      message: "**Danger** names no door: one-way or two-way, whether the change can be undone.",
-    });
-  }
-
-  if (!REACH.test(said)) {
-    findings.push({
-      check: "danger",
-      line: at,
-      message: "**Danger** names no reach: what breaks if the change is wrong.",
-    });
-  }
-
-  return findings;
-}
-
 function view(lines: readonly Line[]): Finding[] {
   // Every view is text: a still is proof, not the view.
   const shown = lines.some((l) => l.kind === "code" || l.kind === "table");
@@ -454,31 +336,24 @@ function view(lines: readonly Line[]): Finding[] {
           check: "view",
           line: lines[0]?.line ?? 1,
           message:
-            "no view under **Start at**: one pseudocode, call tree or file tree as a diff, a table, or a Mermaid diagram for a topology.",
+            "no view under **Start at**: pseudocode, a call tree or a file tree as a diff, a table, or a Mermaid diagram for a topology.",
         },
       ];
 }
 
+/** A fact is a list item or a table row; with neither, a paragraph. */
 function decided(lines: readonly Line[], cap: number): Finding[] {
-  // A fact is a list item, a table row, or a paragraph: the lead-in's own text included, an intro
-  // ending on a colon left out, the lines a paragraph or an item wraps onto counted once.
-  const facts = lines.filter((l, i) => {
-    if (l.kind === "table") {
-      return !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "");
-    }
+  const said = (l: Line | undefined): boolean =>
+    l !== undefined && l.kind === "prose" && prose(l.raw).trim() !== "";
 
-    const said = l.kind === "prose" ? prose(l.raw).trim() : "";
+  const items = lines.filter(
+    (l, i) =>
+      (l.kind === "prose" && LIST_ITEM.test(l.raw)) ||
+      (l.kind === "table" && !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "")),
+  );
 
-    if (said === "") return false;
-
-    if (LIST_ITEM.test(l.raw)) return true;
-
-    if (said.endsWith(":")) return false;
-
-    const before = lines[i - 1];
-
-    return before === undefined || before.kind !== "prose" || prose(before.raw).trim() === "";
-  });
+  const facts =
+    items.length > 0 ? items : lines.filter((l, i) => said(l) && (i === 0 || !said(lines[i - 1])));
 
   const over = facts[cap];
 
@@ -493,150 +368,37 @@ function decided(lines: readonly Line[], cap: number): Finding[] {
       ];
 }
 
-function checks(lines: readonly Line[]): Finding[] {
-  const findings: Finding[] = [];
-
-  const counted = lines.some(
-    (l) =>
-      l.kind !== "comment" &&
-      /\d/u.test(
-        (l.kind === "prose" ? prose(l.raw) : l.raw)
-          .replaceAll(WEB_ADDRESS, "")
-          .replaceAll(/#\d+/gu, ""),
-      ),
+/** At most `cap` clips; a clip comes with a protocol line and the e2e test that asserts it, under **Proof**. */
+function clips(parts: Parts, cap: number): Finding[] {
+  const found = parts.rendered.flatMap((l) =>
+    l.kind === "code" || l.kind === "comment"
+      ? []
+      : [...l.raw.matchAll(LINK_TARGET)].flatMap((m) => (CLIP.test(m[1] ?? m[2] ?? "") ? [l] : [])),
   );
 
-  if (!counted) {
+  const first = found[0];
+
+  if (first === undefined) return [];
+
+  const proof = parts.sections.get("Proof") ?? [];
+  const findings: Finding[] = [];
+
+  if (!proof.some((l) => l.kind !== "code" && PROTOCOL.test(l.raw))) {
     findings.push({
-      check: "checks",
-      line: lines[0]?.line ?? 1,
-      message: "**Checks** gives no number: what ran, with its counts.",
+      check: "clip",
+      line: first.line,
+      message:
+        "a clip with no protocol line: under **Proof**, `Protocol: <build>, <viewport>, <page>, <action>`.",
     });
   }
 
-  return findings;
-}
-
-/** `broad`: the lines where any word of a review is a recap, **Checks** and the footer; elsewhere only its forms. */
-function recaps(lines: readonly Line[], broad: readonly Line[]): Finding[] {
-  const recap = (l: Line): boolean =>
-    RECAP_FORM.test(l.raw.replaceAll("`", "")) || (broad.includes(l) && RECAP.test(prose(l.raw)));
-
-  return lines.flatMap((l): Finding[] =>
-    (l.kind === "prose" || l.kind === "table") && recap(l)
-      ? [
-          {
-            check: "recap",
-            line: l.line,
-            message:
-              "a review recap: the review lives on the pull request. **Checks** names what ran, with its numbers.",
-          },
-        ]
-      : [],
-  );
-}
-
-/** Prose before the first section other than the issue it closes: the shape opens on **Why**. */
-function preamble(lines: readonly Line[]): Finding[] {
-  const first = lines.findIndex((l) => l.opens !== null);
-
-  return lines.slice(0, Math.max(first, 0)).flatMap((l): Finding[] =>
-    l.kind === "prose" && prose(l.raw).trim() !== "" && !PREAMBLE.test(l.raw.trim())
-      ? [
-          {
-            check: "section",
-            line: l.line,
-            message: "prose before **Why**: the body opens on `Closes #N.`, then **Why**.",
-          },
-        ]
-      : [],
-  );
-}
-
-/** The footer and the lines under it: GitHub renders them, and the shape gives them no section. */
-function underFooter(lines: readonly Line[], parts: Parts): Line[] {
-  return parts.footer === null ? [] : lines.slice(lines.indexOf(parts.footer));
-}
-
-/** `reports`: the lines that report runs, where a word alone such as skipped says a run was left out. */
-function notRun(lines: readonly Line[], reports: readonly Line[]): Finding[] {
-  const leftOut = (l: Line): boolean => {
-    const said = prose(l.raw);
-
-    return NOT_RUN.some((p) => p.test(said)) || (reports.includes(l) && NOT_RUN_WORDS.test(said));
-  };
-
-  return lines.flatMap((l): Finding[] =>
-    (l.kind === "prose" || l.kind === "table") && leftOut(l)
-      ? [
-          {
-            check: "not-run",
-            line: l.line,
-            message:
-              "a line on what did not run: the body names what ran. Run it, or leave the line out.",
-          },
-        ]
-      : [],
-  );
-}
-
-/** A protocol line, or a table cell that opens on one. */
-function protocolLine(l: Line): boolean {
-  if (l.kind === "prose") return PROTOCOL.test(unmarked(l.raw));
-
-  return l.kind === "table" && l.raw.split("|").some((cell) => PROTOCOL.test(unmarked(cell)));
-}
-
-/** A line without its list marker, quote or emphasis in front. */
-function unmarked(raw: string): string {
-  return raw.replace(/^[\s>*_\-+]+/u, "");
-}
-
-/** Every line GitHub renders as the body's, the footer line aside. */
-function rendered(lines: readonly Line[], parts: Parts): Line[] {
-  return lines.filter((l) => l !== parts.footer);
-}
-
-function clips(lines: readonly Line[], cap: number): Finding[] {
-  const found = lines.flatMap((l, at) => {
-    if (l.kind === "code" || l.kind === "comment") return [];
-
-    return [...l.raw.matchAll(LINK_TARGET)].flatMap((m) =>
-      CLIP.test(m[1] ?? m[2] ?? "") ? [{ l, at }] : [],
-    );
-  });
-
-  const findings: Finding[] = [];
-
-  for (const { l, at } of found) {
-    // Each clip owns the lines from it to the next clip on a later line or the next section,
-    // whichever comes first: two clips of one table row share their lines.
-    const nextSection = lines.findIndex((x, i) => i > at && x.opens !== null);
-
-    const end = Math.min(
-      found.find((f) => f.at > at)?.at ?? lines.length,
-      nextSection === -1 ? lines.length : nextSection,
-    );
-
-    const own = lines.slice(at, end);
-
-    if (!own.some((x) => protocolLine(x))) {
-      findings.push({
-        check: "clip",
-        line: l.line,
-        message:
-          "a clip with no protocol line: under it, before the next clip, `Protocol: <build>, <viewport>, <page>, <action>`.",
-      });
-    }
-
-    if (!own.some((x) => E2E_TEST.test(x.raw))) {
-      findings.push({
-        check: "clip",
-        line: l.line,
-        message:
-          "a clip with no e2e test named: under it, before the next clip, the test that asserts what it shows.",
-      });
-    }
+  if (!proof.some((l) => E2E_TEST.test(l.raw))) {
+    findings.push({
+      check: "clip",
+      line: first.line,
+      message:
+        "a clip with no e2e test named: under **Proof**, the test that asserts what the clip shows.",
+    });
   }
 
   const over = found[cap];
@@ -644,7 +406,7 @@ function clips(lines: readonly Line[], cap: number): Finding[] {
   if (over !== undefined) {
     findings.push({
       check: "clip",
-      line: over.l.line,
+      line: over.line,
       message: `${found.length} clips, past the cap of ${cap}: a still proves a state, a clip only a transition.`,
     });
   }
@@ -655,24 +417,19 @@ function clips(lines: readonly Line[], cap: number): Finding[] {
 export function checkBody(body: string, caps: Readonly<Caps> = DEFAULT_CAPS): Finding[] {
   const lines = classify(body);
   const parts = split(lines);
-  const section = (name: Section): Line[] => parts.sections.get(name) ?? [];
-  const has = (name: Section): boolean => parts.sections.has(name);
+  const section = (name: Section): Line[] | undefined => parts.sections.get(name);
+  const startAt = section("Start at");
+  const facts = section("Decided");
 
   return [
     ...parts.findings,
-    ...strayLines(rendered(lines, parts)),
-    ...questions(rendered(lines, parts)),
-    ...proseCap(rendered(lines, parts), caps.proseWords),
+    ...strayLines(parts.rendered),
+    ...questions(parts.rendered),
+    ...proseCap(parts.rendered, caps.proseWords),
     ...missing(parts, lines),
-    ...(has("Why") ? why(section("Why")) : []),
-    ...(has("Danger") ? danger(section("Danger")) : []),
-    ...(has("Start at") ? view(section("Start at")) : []),
-    ...(has("Decided") ? decided(section("Decided"), caps.decided) : []),
-    ...(has("Checks") ? checks(section("Checks")) : []),
-    ...recaps(lines, [...section("Checks"), ...underFooter(lines, parts)]),
-    ...notRun(lines, [...section("Checks"), ...underFooter(lines, parts)]),
-    ...preamble(lines),
-    ...clips(rendered(lines, parts), caps.clips),
+    ...(startAt === undefined ? [] : view(startAt)),
+    ...(facts === undefined ? [] : decided(facts, caps.decided)),
+    ...clips(parts, caps.clips),
   ].toSorted((a, b) => a.line - b.line);
 }
 

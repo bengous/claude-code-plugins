@@ -1,13 +1,13 @@
 ---
 name: pr
-description: Open or update the pull request of the current branch once the branch is reviewed, with a short body in a fixed shape (why, danger, where to start, one view, proof, decisions, checks) that a bundled script checks before it is published, and images attached through gh. Use when the user asks to open, create, submit, update, or rewrite a PR, or to push and open one.
+description: Open or update the pull request of the current branch once the branch is reviewed, with a short body in a fixed shape (why, danger, where to start, one view, proof, decisions) that a bundled script checks before it is published, and images attached through gh. Use when the user asks to open, create, submit, update, or rewrite a PR, or to push and open one.
 argument-hint: "[--dry-run] [image.png#alt ...] [what the reviewer should know]"
 allowed-tools: Bash(git status:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git restore:*), Bash(git push:*), Bash(gh repo view:*), Bash(gh issue view:*), Bash(gh pr view:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(mktemp:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/tree-diff.ts *), Bash(bun ${CLAUDE_SKILL_DIR}/scripts/check-pr.ts *), Skill, Read, Grep, Glob
 ---
 
 # PR
 
-Agents review the PR first. The body is for the reader who opens it afterwards, human or agent, and needs to act: why the change exists, what breaks if it is wrong, where to start reading, one view of it, the proof, and what ran. It leaves nothing open: every open point is something the next agent reads and loops on. Every view is text, so an agent reads the same facts.
+Agents review the PR first. The body is for the reader who opens it afterwards, human or agent, and needs to act: why the change exists, what breaks if it is wrong, where to start reading, one view of it, and the proof. It leaves nothing open: every open point is something the next agent reads and loops on. Every view is text, so an agent reads the same facts. The body repeats no check: the pull request shows what CI ran.
 
 ## Input
 
@@ -28,7 +28,6 @@ Agents review the PR first. The body is for the reader who opens it afterwards, 
    - The issue: `Closes #N` in a commit body, else the leading number of the branch name, else none. `gh issue view <n> --json title,body` when there is one. Its situations, a *Done when* table or list, are what **Proof** answers.
    - When the issue has an Out of scope section: every file of `git diff --name-only origin/<base>...HEAD` that it names.
    - The validation commands: the repository's `AGENTS.md` or `CLAUDE.md` names them. Its `GLOSSARY.md` or `CONTEXT.md` when one exists: the words that name the nodes of a view.
-   - What ran this session, with its numbers.
 4. **View.** One, the smallest that makes the key point clear, from the table under [Views](#views).
    - Moved, added or deleted directories: `${CLAUDE_PLUGIN_ROOT}/scripts/tree-diff.ts origin/<base>` prints the tree diff. A directory moved, added or deleted whole is one line, and a directory where more than three files changed, all of them only modified, is a count. Keep the lines the reader needs and comment each one with what it owns now. Where the skill runs outside its plugin, with no `scripts/tree-diff.ts` beside it, write that tree by hand from `git diff --name-status origin/<base>...HEAD`, by the same rules.
    - A Mermaid diagram, for a topology only: read `references/mermaid.md` first. GitHub's renderer has traps a terminal never shows.
@@ -42,9 +41,9 @@ Agents review the PR first. The body is for the reader who opens it afterwards, 
    - A user in the session: every decision in one `AskUserQuestion`, the option the agent would take first. An answer that changes the code is committed (`/git:commit`).
    - No user, inside a subagent, a `/loop` run or a scheduled task: never call `AskUserQuestion`; decide. A file of the diff that the issue's *Out of scope* names goes back to its `origin/<base>` state in a commit (`git restore --source origin/<base> -- <file>`).
    - **Decided** keeps the three facts a reader would ask about at most, each a choice made, never a question. What cannot be settled here is the next issue's, not this body's.
-7. **Review.** Before the body, so the body describes the final head. Wait for each reviewer's report before step 8.
-   - `/code-review medium` of the branch against `origin/<base>`: with no level the review runs at the level typed last, and `low` leaves most findings to the pull request's own review, one failed round each. Each finding is fixed and committed, or settled as a fact of **Decided**.
-   - `plugin-dev:skill-reviewer` when the diff touches a `SKILL.md` or an `agents/*.md`, its findings under the same rule.
+7. **Review.** Only for a hot branch: a large diff (past about 400 changed lines), or a change to authentication, permissions, secrets, input parsing or a hook that guards tools. Any other branch leaves the review to the pull request's own, and the skill goes on to step 8. Before the body, so the body describes the final head; wait for each reviewer's report.
+   - `/code-review medium` of the branch against `origin/<base>`: with no level the review runs at the level typed last. Each finding is fixed and committed, or settled as a fact of **Decided**.
+   - `plugin-dev:skill-reviewer` when the hot diff touches a `SKILL.md` or an `agents/*.md`, its findings under the same rule.
    - The body recaps no review: the reviews live on the pull request.
 8. **Body.** Write the shape of [Body](#body) to a file in a directory of its own, from `mktemp -d`, outside the repo. The title follows the convention of `git log --oneline -10`. Then check it:
 
@@ -93,16 +92,15 @@ Closes #N.
 <the view of step 4>
 **Proof** the situations, before → after; for a UI change, the stills, the clips with their protocol line and their e2e test.
 **Decided** three facts at most, never a question. Omitted when empty.
-**Checks** what ran, with its numbers: the command, passes, failures.
 <sub>Written by <the model that wrote the body></sub>
 ```
 
 - `Closes #N.` when there is an issue.
 - **Danger**: a one-way door cannot be undone by reverting the commit (a migration, a published name, a deleted file someone reads); a two-way door can.
 - **Proof** writes the stills as `**Before**, <where>:` then `![<what the reader sees>](<capture dir>/before.png)`, the same string as its `--attach`, the same for After. The alt text names what is in the picture, not the file. A clip is `![](<capture dir>/after.mp4)`, with no alt text: GitHub renders it as a player, and the line above it says what to watch for.
-- **Checks** names only what ran. A failure that predates the branch is named with its file, the test or symbol it hits, and its cause. A change that alters an output (an error message, a printed report) shows it in **Proof**, before and after: "Tests are green" on its own is a claim, not a before and after.
+- **Proof** shows a changed output (an error message, a printed report) before and after. That the build, the linter and the tests pass goes without saying: the checks of the pull request show it.
 
-The check, `scripts/check-pr.ts`, refuses a question anywhere outside code, a section the shape does not have (*Ask*, *Left open*, *Not shown*, *Known gaps*...), a heading, prose before **Why** other than `Closes #N.`, a review recap or a line on what did not run, more than 120 words of prose outside views, tables and code, more than three facts under **Decided**, and a clip with no protocol line or no e2e test named. A repository sets its own caps in `.github/github-flow.json`, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`; a cap it leaves out keeps its default.
+The check, `scripts/check-pr.ts`, reads the structure, not the prose: a required section missing, out of order or twice, a heading or a section the shape does not have (*Ask*, *Left open*, *Checks*...), no view under **Start at**, no footer, a question anywhere outside code, more than 120 words of prose outside views, tables and code, more than three facts under **Decided**, more than three clips, and a clip with no protocol line or no e2e test named under **Proof**. What the prose says is the review's to judge. A repository sets its own caps in `.github/github-flow.json`, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`; a cap it leaves out keeps its default.
 
 **Session line.** Under the footer, rendered by GitHub as nothing:
 

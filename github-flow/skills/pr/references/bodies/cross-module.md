@@ -28,6 +28,4 @@ Closes #470.
 - `scan()` stays in `plan-lint.ts` rather than a module of its own: its two readers sit beside it.
 - The deny message is unchanged, so a session mid-plan sees no new text.
 
-**Checks** `bun test --parallel github-flow/`: 212 pass, 0 fail. `bun ./scripts/gates/run-gates.ts`: 14 gates pass.
-
 <sub>Written by Claude</sub>
