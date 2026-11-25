@@ -75,7 +75,10 @@ const TABLE_RULE = /^\s*\|[\s:|-]+\|?\s*$/u;
 
 const LEAD_IN = /^\*\*([^*]+?)\*\*/u;
 
-const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s/u;
+const LIST_ITEM = /^ {0,3}(?:[-*+]|\d+[.)])\s/u;
+
+/** What may stand before **Why**: the issue it closes. A line wholly in italics is a host's attribution. */
+const PREAMBLE = /^(?:(?:closes|fixes|resolves) #\d+(?:,? #\d+)*\.?|_[^_].*_|\*[^*].*\*)$/iu;
 
 /** The footer opens on who wrote the body: `<sub>Written by <model></sub>`, or a tool's own line. */
 const FOOTER =
@@ -85,21 +88,24 @@ const FOOTER =
 const OPEN_POINT =
   /^(?:asks?|left open|not shown|known (?:gaps?|issues?|limits?)|open (?:questions?|points?)|questions?|unresolved|follow[- ]ups?|next steps?|to ?dos?|caveats?|limitations?)(?:\s*[:*_]|\s*$)/iu;
 
-/** A line on what did not run, in **Decided** or **Checks**. */
+/** A line on what did not run, anywhere: a verification left out, not a behaviour ("not run for subagents"). */
 const NOT_RUN: readonly RegExp[] = [
-  /\b(?:not|never|did not|didn['’]t|was not|wasn['’]t|were not|weren['’]t|could not|couldn['’]t|cannot|can['’]t|unable to be) (?:yet |be |been )?(?:\w+-)?(?:run|ran|played|tested|verified|measured|reviewed|checked|executed|exercised|seen|rendered)\b/iu,
+  /\b(?:not|never|could not|couldn['’]t|cannot|can['’]t) (?:yet |be |been )?(?:\w+-)?(?:played|tested|verified|measured|exercised|rendered)\b/iu,
+  /\b(?:not|never) (?:yet |been )?(?:run|ran)(?: (?:in|on|here|locally|yet|live)\b|\s*[.;,)]|\s*$)|\b(?:could not|couldn['’]t|cannot|can['’]t) (?:be )?run\b/iu,
   /\b(?:untested|unverified|unmeasured|unplayed)\b/iu,
+  /(?<!\d )\bskipped\b/iu,
   /(?<!\p{L})(?:non|pas) (?:été )?(?:lancée?s?|jouée?s?|testée?s?|vérifiée?s?|mesurée?s?)(?!\p{L})/iu,
 ];
 
 /** A recap of the review: the review is on the pull request, not in its body. A lint's "0 findings" is no recap. */
+/** A recap anywhere: a reviewer's command, or what a review found. */
+const RECAP_FORM =
+  /(?<![\w./-])\/code-review(?![\w/.-])|(?<![\w/.-])(?:plugin-dev:)?skill-reviewer(?![\w/.-])|\breview(?:er)?s? (?:found|raised|flagged|reported)\b|\bfindings?,? (?:all |both )?(?:fixed|addressed|resolved)\b/iu;
+
 const RECAP = /\b(?:code-review|skill-reviewer|reviewers?|reviewed|reviews?)\b/iu;
 
-/** A reviewer named only inside a code span: `/code-review medium`. A path such as `src/review/` is no recap. */
-const REVIEWER_IN_CODE =
-  /`[^`]*(?<![\w./-])(?:\/code-review|(?:plugin-dev:)?skill-reviewer)(?![\w./-])[^`]*`/iu;
-
-const WEB_ADDRESS = /\bhttps?:\/\/\S+/gu;
+/** A URL, without the stop that may end its sentence. */
+const WEB_ADDRESS = /\bhttps?:\/\/\S*[^\s.,;:!?)]/gu;
 
 const DOOR = /\b(?:one|two)-way\b/iu;
 
@@ -108,8 +114,8 @@ const REACH = /\breach(?:es|ed|ing)?\b/iu;
 /** A sentence ends on a stop followed by a capital, a digit or the end. */
 const SENTENCE_END = /[.!?](?=\s+[\p{Lu}\p{N}]|\s*$)/gu;
 
-/** A stop that ends no sentence: `e.g.`, `i.e.`, `vs.`, `etc.`, `cf.`, an initial such as `U.`. */
-const ABBREVIATION = /(?<![\p{L}.])(?:e\.g|i\.e|vs|etc|cf|\p{Lu})\./gu;
+/** A stop that ends no sentence: `e.g.`, `i.e.`, `vs.`, `etc.`, `cf.`, `approx.`, `No.`... */
+const ABBREVIATION = /(?<![\p{L}.])(?:e\.g|i\.e|vs|etc|cf|approx|ca|fig|no|al)\./giu;
 
 const CLIP = /\.(?:mp4|mov|webm)$/iu;
 
@@ -260,13 +266,23 @@ function split(lines: readonly Line[]): Parts {
   return { sections, body, footer: footerAt === -1 ? null : (lines[footerAt] ?? null), findings };
 }
 
+/** A text without its tags and the markup in front of it. */
+function bare(text: string): string {
+  return text.replaceAll(/<[^>]+>/gu, " ").replace(/^[\s#>*_\-+\d.):]+/u, "");
+}
+
+/** A line, or a table cell, that names an open point, its tags and its markup aside. */
+function namesOpenPoint(l: Line): boolean {
+  if (l.kind === "table") return l.raw.split("|").some((cell) => OPEN_POINT.test(bare(cell)));
+
+  return OPEN_POINT.test(bare(l.raw));
+}
+
 function strayLines(body: readonly Line[]): Finding[] {
   return body.flatMap((l): Finding[] => {
-    if (l.kind !== "prose") return [];
+    if (l.kind !== "prose" && l.kind !== "table") return [];
 
-    const bare = l.raw.replace(/^[\s#>*_\-+\d.)]+/u, "");
-
-    if (OPEN_POINT.test(bare)) {
+    if (namesOpenPoint(l)) {
       return [
         {
           check: "open-point",
@@ -276,6 +292,8 @@ function strayLines(body: readonly Line[]): Finding[] {
         },
       ];
     }
+
+    if (l.kind === "table") return [];
 
     if (HEADING.test(l.raw)) {
       return [
@@ -395,7 +413,8 @@ function why(lines: readonly Line[]): Finding[] {
 }
 
 function danger(lines: readonly Line[]): Finding[] {
-  const said = sectionText(lines);
+  // The door may sit in a code span: `two-way`.
+  const said = lines.map((l) => l.raw.replace(LEAD_IN, "").replaceAll("`", "")).join(" ");
   const at = lines[0]?.line ?? 1;
   const findings: Finding[] = [];
 
@@ -435,23 +454,25 @@ function view(lines: readonly Line[]): Finding[] {
 }
 
 function decided(lines: readonly Line[], cap: number): Finding[] {
-  const items = lines.filter(
-    (l, i) =>
-      (l.kind === "prose" && LIST_ITEM.test(l.raw)) ||
-      (l.kind === "table" && !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "")),
-  );
+  // A fact is a list item, a table row, or a paragraph: the lead-in's own text included, an intro
+  // ending on a colon left out, the lines a paragraph or an item wraps onto counted once.
+  const facts = lines.filter((l, i) => {
+    if (l.kind === "table") {
+      return !TABLE_RULE.test(l.raw) && !TABLE_RULE.test(lines[i + 1]?.raw ?? "");
+    }
 
-  const leadIn = lines[0] !== undefined && prose(lines[0].raw).trim() !== "" ? [lines[0]] : [];
+    const said = l.kind === "prose" ? prose(l.raw).trim() : "";
 
-  // With no list or table, a fact is a paragraph: its first non-blank line.
-  const paragraphs = lines.filter(
-    (l, i) =>
-      l.kind === "prose" &&
-      prose(l.raw).trim() !== "" &&
-      (i === 0 || prose(lines[i - 1]?.raw ?? "").trim() === "" || lines[i - 1]?.kind !== "prose"),
-  );
+    if (said === "") return false;
 
-  const facts = items.length > 0 ? [...leadIn, ...items] : paragraphs;
+    if (LIST_ITEM.test(l.raw)) return true;
+
+    if (said.endsWith(":")) return false;
+
+    const before = lines[i - 1];
+
+    return before === undefined || before.kind !== "prose" || prose(before.raw).trim() === "";
+  });
 
   const over = facts[cap];
 
@@ -490,12 +511,12 @@ function checks(lines: readonly Line[]): Finding[] {
   return findings;
 }
 
-/** `named`: lines where only a reviewer's command is a recap, as in **Decided**, which may decide about a review. */
-function recaps(lines: readonly Line[], named: readonly Line[] = []): Finding[] {
+/** `broad`: the lines where any word of a review is a recap, **Checks** and the footer; elsewhere only its forms. */
+function recaps(lines: readonly Line[], broad: readonly Line[]): Finding[] {
   const recap = (l: Line): boolean =>
-    REVIEWER_IN_CODE.test(l.raw) || (!named.includes(l) && RECAP.test(prose(l.raw)));
+    RECAP_FORM.test(l.raw.replaceAll("`", "")) || (broad.includes(l) && RECAP.test(prose(l.raw)));
 
-  return [...named, ...lines].flatMap((l): Finding[] =>
+  return lines.flatMap((l): Finding[] =>
     (l.kind === "prose" || l.kind === "table") && recap(l)
       ? [
           {
@@ -503,6 +524,23 @@ function recaps(lines: readonly Line[], named: readonly Line[] = []): Finding[] 
             line: l.line,
             message:
               "a review recap: the review lives on the pull request. **Checks** names what ran, with its numbers.",
+          },
+        ]
+      : [],
+  );
+}
+
+/** Prose before the first section other than the issue it closes: the shape opens on **Why**. */
+function preamble(lines: readonly Line[]): Finding[] {
+  const first = lines.findIndex((l) => l.opens !== null);
+
+  return lines.slice(0, Math.max(first, 0)).flatMap((l): Finding[] =>
+    l.kind === "prose" && prose(l.raw).trim() !== "" && !PREAMBLE.test(l.raw.trim())
+      ? [
+          {
+            check: "section",
+            line: l.line,
+            message: "prose before **Why**: the body opens on `Closes #N.`, then **Why**.",
           },
         ]
       : [],
@@ -618,8 +656,9 @@ export function checkBody(body: string, caps: Readonly<Caps> = DEFAULT_CAPS): Fi
     ...(has("Start at") ? view(section("Start at")) : []),
     ...(has("Decided") ? decided(section("Decided"), caps.decided) : []),
     ...(has("Checks") ? checks(section("Checks")) : []),
-    ...recaps([...section("Checks"), ...underFooter(lines, parts)], section("Decided")),
-    ...notRun([...section("Checks"), ...underFooter(lines, parts)]),
+    ...recaps(lines, [...section("Checks"), ...underFooter(lines, parts)]),
+    ...notRun(lines),
+    ...preamble(lines),
     ...clips(rendered(lines, parts), caps.clips),
   ].toSorted((a, b) => a.line - b.line);
 }

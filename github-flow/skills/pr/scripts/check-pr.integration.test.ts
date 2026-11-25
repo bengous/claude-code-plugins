@@ -118,6 +118,23 @@ describe("refusals name the line", () => {
     expect(checks(body({ extra: [line, ""] }))).toEqual(["open-point@20"]);
   });
 
+  test.each([
+    "<details><summary>Left open</summary>",
+    "<b>Ask</b>: keep the old flag or drop it.",
+    "| Left open | Why |",
+  ])("an open point in HTML or a table cell: %s", (line) => {
+    expect(checks(body({ extra: [line, ""] }))).toEqual(["open-point@20"]);
+  });
+
+  test("prose before Why other than the issue it closes", () => {
+    const opening = body().replace(
+      "Closes #1.",
+      "Closes #1.\nThe hook let an empty comment through.",
+    );
+
+    expect(checks(opening)).toEqual(["section@2"]);
+  });
+
   test("a heading or a bold lead-in that is no section", () => {
     expect(checks(body({ extra: ["## Notes", ""] }))).toEqual(["section@20"]);
     expect(checks(body({ extra: ["**Summary** the hook is fixed.", ""] }))).toEqual(["section@20"]);
@@ -206,6 +223,26 @@ describe("refusals name the line", () => {
     expect(
       checks(body().replace("Written by Claude", "Written by Claude after the review")),
     ).toEqual(["recap@22"]);
+  });
+
+  test("a recap or a line on what did not run in Proof or Decided", () => {
+    expect(checks(body({ extra: ["The code review found 3 findings; all fixed.", ""] }))).toEqual([
+      "recap@20",
+    ]);
+    expect(checks(body({ extra: ["The panel was not played in a live session.", ""] }))).toEqual([
+      "not-run@20",
+    ]);
+    expect(
+      checks(body({ extra: ["**Decided** The e2e suite was not run in the container.", ""] })),
+    ).toEqual(["not-run@20"]);
+  });
+
+  test("a suite skipped in Checks", () => {
+    expect(
+      checks(
+        body({ checksLine: "**Checks** `bun test`: 9 pass. `bun run e2e`: skipped, no Chromium." }),
+      ),
+    ).toEqual(["not-run@20"]);
   });
 
   test("a review recap under Decided", () => {
@@ -336,6 +373,26 @@ describe("no regression", () => {
       .replace("reach:", "it reaches");
 
     expect(checks(text)).toEqual([]);
+  });
+
+  test("Decided counts a paragraph beside a list, an indented list, and no intro ending on a colon", () => {
+    const mixed = ["**Decided** one fact.", "", "A second fact.", "", "- third", "- fourth", ""];
+    const indented = ["**Decided**", "", " - one", " - two", " - three", " - four", ""];
+    const intro = ["**Decided** three choices:", "", "- one", "- two", "- three", ""];
+
+    expect(checks(body({ extra: mixed }))).toEqual(["decided@25"]);
+    expect(checks(body({ extra: indented }))).toEqual(["decided@25"]);
+    expect(checks(body({ extra: intro }))).toEqual([]);
+  });
+
+  test("Why: an abbreviation is no stop, a URL keeps the stop after it, a door in a code span counts", () => {
+    expect(checks(body().replace("through.", "through, approx. 3 s per call."))).toEqual([]);
+    expect(
+      checks(
+        body().replace("through.", "through, see https://x.y/a. Then the close said nothing."),
+      ),
+    ).toEqual(["why@3"]);
+    expect(checks(body().replace("two-way door", "`two-way` door"))).toEqual([]);
   });
 
   test("Decided as one wrapped paragraph is one fact", () => {
