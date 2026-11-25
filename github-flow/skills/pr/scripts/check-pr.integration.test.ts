@@ -142,9 +142,9 @@ describe("refusals name the line", () => {
         }),
       ),
     ).toEqual(["not-run@20"]);
-    expect(checks(body({ checksLine: "**Checks** `bun test`: 12 pass, 3 skipped." }))).toEqual([
-      "not-run@20",
-    ]);
+    expect(
+      checks(body({ checksLine: "**Checks** `bun test`: 12 pass; Windows untested." })),
+    ).toEqual(["not-run@20"]);
   });
 
   test("a missing section, a section out of order, a second one", () => {
@@ -177,6 +177,10 @@ describe("refusals name the line", () => {
     const still = body().replace(/```diff\n[^`]*```\n/u, "![the tree](/tmp/x/tree.png)\n");
 
     expect(checks(still)).toEqual(["view@7"]);
+  });
+
+  test("a digit inside a code span is no count", () => {
+    expect(checks(body({ checksLine: "**Checks** `bun run e2e` green." }))).toEqual(["checks@20"]);
   });
 
   test("an issue number in Checks is no count", () => {
@@ -310,6 +314,42 @@ describe("no regression", () => {
     ).toEqual([]);
   });
 
+  test("true lines on what ran, and decisions about a review or a hook, pass", () => {
+    const extra = [
+      "**Decided**",
+      "",
+      "- The review check stays required on every push.",
+      "- The hook is not run for subagents, which never close a PR.",
+      "",
+    ];
+
+    const checksLine =
+      "**Checks** `vitest run`: 40 passed, 2 skipped. `bun test plugins/code-review/x.test.ts`: 9 pass.";
+
+    expect(checks(body({ extra, checksLine }))).toEqual([]);
+  });
+
+  test("an emoji inside the sub of the footer, an abbreviation in Why, a form of reach", () => {
+    const text = body()
+      .replace("Written by Claude", "🤖 Written by Claude")
+      .replace("through.", "through, e.g. GitHub showed nothing.")
+      .replace("reach:", "it reaches");
+
+    expect(checks(text)).toEqual([]);
+  });
+
+  test("Decided as one wrapped paragraph is one fact", () => {
+    const extra = [
+      "**Decided** The cap stays at 3,",
+      "since a longer list",
+      "reads as a plan",
+      "nobody keeps.",
+      "",
+    ];
+
+    expect(checks(body({ extra }))).toEqual([]);
+  });
+
   test("the words that open no section pass inside a sentence", () => {
     expect(
       checks(
@@ -357,6 +397,17 @@ describe("clips", () => {
 
   test("two clips of one table row share their protocol line and e2e test", () => {
     const row = ["| ![](/t/a.mp4) | ![](/t/b.mp4) |", "", protocol, test2e, ""];
+
+    expect(checks(body({ extra: row }))).toEqual([]);
+  });
+
+  test("a clip in a table, its protocol in a cell", () => {
+    const row = [
+      "| Clip | Protocol | Test |",
+      "|---|---|---|",
+      `| ![](/t/a.mp4) | ${protocol} | ${test2e} |`,
+      "",
+    ];
 
     expect(checks(body({ extra: row }))).toEqual([]);
   });

@@ -79,7 +79,7 @@ const LIST_ITEM = /^(?:[-*+]|\d+[.)])\s/u;
 
 /** The footer opens on who wrote the body: `<sub>Written by <model></sub>`, or a tool's own line. */
 const FOOTER =
-  /^(?:<sub>\s*(?:[_*]\s*)?|[_*]\s*(?:\p{Extended_Pictographic}\s*)?|\p{Extended_Pictographic}\s*)(?:written|generated|opened) (?:by|with)\b/iu;
+  /^(?:<sub>\s*(?:[_*]\s*)?(?:\p{Extended_Pictographic}\s*)?|[_*]\s*(?:\p{Extended_Pictographic}\s*)?|\p{Extended_Pictographic}\s*)(?:written|generated|opened) (?:by|with)\b/iu;
 
 /** A section the shape has no place for, whatever its markup. */
 const OPEN_POINT =
@@ -88,7 +88,7 @@ const OPEN_POINT =
 /** A line on what did not run, in **Decided** or **Checks**. */
 const NOT_RUN: readonly RegExp[] = [
   /\b(?:not|never|did not|didn['’]t|was not|wasn['’]t|were not|weren['’]t|could not|couldn['’]t|cannot|can['’]t|unable to be) (?:yet |be |been )?(?:\w+-)?(?:run|ran|played|tested|verified|measured|reviewed|checked|executed|exercised|seen|rendered)\b/iu,
-  /\b(?:untested|unverified|unmeasured|unplayed|skipped)\b/iu,
+  /\b(?:untested|unverified|unmeasured|unplayed)\b/iu,
   /(?<!\p{L})(?:non|pas) (?:été )?(?:lancée?s?|jouée?s?|testée?s?|vérifiée?s?|mesurée?s?)(?!\p{L})/iu,
 ];
 
@@ -96,16 +96,20 @@ const NOT_RUN: readonly RegExp[] = [
 const RECAP = /\b(?:code-review|skill-reviewer|reviewers?|reviewed|reviews?)\b/iu;
 
 /** A reviewer named only inside a code span: `/code-review medium`. A path such as `src/review/` is no recap. */
-const REVIEWER_IN_CODE = /`[^`]*(?:code-review|skill-reviewer)[^`]*`/iu;
+const REVIEWER_IN_CODE =
+  /`[^`]*(?<![\w./-])(?:\/code-review|(?:plugin-dev:)?skill-reviewer)(?![\w./-])[^`]*`/iu;
 
 const WEB_ADDRESS = /\bhttps?:\/\/\S+/gu;
 
 const DOOR = /\b(?:one|two)-way\b/iu;
 
-const REACH = /\breach\b/iu;
+const REACH = /\breach(?:es|ed|ing)?\b/iu;
 
 /** A sentence ends on a stop followed by a capital, a digit or the end. */
 const SENTENCE_END = /[.!?](?=\s+[\p{Lu}\p{N}]|\s*$)/gu;
+
+/** A stop that ends no sentence: `e.g.`, `i.e.`, `vs.`, `etc.`, `cf.`, an initial such as `U.`. */
+const ABBREVIATION = /(?<![\p{L}.])(?:e\.g|i\.e|vs|etc|cf|\p{Lu})\./gu;
 
 const CLIP = /\.(?:mp4|mov|webm)$/iu;
 
@@ -374,7 +378,9 @@ function sectionText(lines: readonly Line[]): string {
 }
 
 function why(lines: readonly Line[]): Finding[] {
-  const sentences = sectionText(lines).match(SENTENCE_END)?.length ?? 0;
+  const sentences =
+    sectionText(lines).replaceAll(ABBREVIATION, "_").match(SENTENCE_END)?.length ?? 0;
+
   const at = lines[0]?.line ?? 1;
 
   return sentences > 1
@@ -437,10 +443,15 @@ function decided(lines: readonly Line[], cap: number): Finding[] {
 
   const leadIn = lines[0] !== undefined && prose(lines[0].raw).trim() !== "" ? [lines[0]] : [];
 
-  const facts =
-    items.length > 0
-      ? [...leadIn, ...items]
-      : lines.filter((l) => l.kind === "prose" && prose(l.raw).trim() !== "");
+  // With no list or table, a fact is a paragraph: its first non-blank line.
+  const paragraphs = lines.filter(
+    (l, i) =>
+      l.kind === "prose" &&
+      prose(l.raw).trim() !== "" &&
+      (i === 0 || prose(lines[i - 1]?.raw ?? "").trim() === "" || lines[i - 1]?.kind !== "prose"),
+  );
+
+  const facts = items.length > 0 ? [...leadIn, ...items] : paragraphs;
 
   const over = facts[cap];
 
@@ -461,7 +472,11 @@ function checks(lines: readonly Line[]): Finding[] {
   const counted = lines.some(
     (l) =>
       l.kind !== "comment" &&
-      /\d/u.test(l.raw.replace(LEAD_IN, "").replaceAll(WEB_ADDRESS, "").replaceAll(/#\d+/gu, "")),
+      /\d/u.test(
+        (l.kind === "prose" ? prose(l.raw) : l.raw)
+          .replaceAll(WEB_ADDRESS, "")
+          .replaceAll(/#\d+/gu, ""),
+      ),
   );
 
   if (!counted) {
@@ -475,10 +490,13 @@ function checks(lines: readonly Line[]): Finding[] {
   return findings;
 }
 
-function recaps(lines: readonly Line[]): Finding[] {
-  return lines.flatMap((l): Finding[] =>
-    (l.kind === "prose" || l.kind === "table") &&
-    (RECAP.test(prose(l.raw)) || REVIEWER_IN_CODE.test(l.raw))
+/** `named`: lines where only a reviewer's command is a recap, as in **Decided**, which may decide about a review. */
+function recaps(lines: readonly Line[], named: readonly Line[] = []): Finding[] {
+  const recap = (l: Line): boolean =>
+    REVIEWER_IN_CODE.test(l.raw) || (!named.includes(l) && RECAP.test(prose(l.raw)));
+
+  return [...named, ...lines].flatMap((l): Finding[] =>
+    (l.kind === "prose" || l.kind === "table") && recap(l)
       ? [
           {
             check: "recap",
@@ -509,6 +527,13 @@ function notRun(lines: readonly Line[]): Finding[] {
         ]
       : [],
   );
+}
+
+/** A protocol line, or a table cell that opens on one. */
+function protocolLine(l: Line): boolean {
+  if (l.kind === "prose") return PROTOCOL.test(unmarked(l.raw));
+
+  return l.kind === "table" && l.raw.split("|").some((cell) => PROTOCOL.test(unmarked(cell)));
 }
 
 /** A line without its list marker, quote or emphasis in front. */
@@ -544,7 +569,7 @@ function clips(lines: readonly Line[], cap: number): Finding[] {
 
     const own = lines.slice(at, end);
 
-    if (!own.some((x) => x.kind === "prose" && PROTOCOL.test(unmarked(x.raw)))) {
+    if (!own.some((x) => protocolLine(x))) {
       findings.push({
         check: "clip",
         line: l.line,
@@ -593,8 +618,8 @@ export function checkBody(body: string, caps: Readonly<Caps> = DEFAULT_CAPS): Fi
     ...(has("Start at") ? view(section("Start at")) : []),
     ...(has("Decided") ? decided(section("Decided"), caps.decided) : []),
     ...(has("Checks") ? checks(section("Checks")) : []),
-    ...recaps([...section("Decided"), ...section("Checks"), ...underFooter(lines, parts)]),
-    ...notRun([...section("Decided"), ...section("Checks"), ...underFooter(lines, parts)]),
+    ...recaps([...section("Checks"), ...underFooter(lines, parts)], section("Decided")),
+    ...notRun([...section("Checks"), ...underFooter(lines, parts)]),
     ...clips(rendered(lines, parts), caps.clips),
   ].toSorted((a, b) => a.line - b.line);
 }

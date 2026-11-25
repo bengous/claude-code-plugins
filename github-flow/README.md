@@ -54,7 +54,7 @@ Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 o
 | `question` | a `?` in prose or a table, outside code, code spans and link targets |
 | `prose` | more than 120 words of prose outside views, tables and code |
 | `why`, `danger`, `view`, `checks` | **Why** past one sentence; **Danger** with no door or no reach; **Start at** with no code block or table under it; **Checks** with no number, an issue number or a URL being none |
-| `recap`, `not-run` | a review recap or a line on what did not run, under **Decided**, **Checks** or the footer |
+| `recap`, `not-run` | a review recap under **Checks** or the footer, a reviewer's command (`/code-review`, `skill-reviewer`) under **Decided** too; a line on what did not run under **Checks** or the footer |
 | `decided` | more than three facts under **Decided**: list items, table rows and the lead-in line's own text |
 | `clip` | a clip with no protocol line or no e2e test named under it, before the next clip or section; more than three clips |
 
