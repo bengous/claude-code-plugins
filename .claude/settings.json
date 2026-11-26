@@ -11,6 +11,11 @@
   "enabledMcpjsonServers": [
     "claude-code-docs"
   ],
+  "worktree": {
+    "symlinkDirectories": [
+      "node_modules"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {

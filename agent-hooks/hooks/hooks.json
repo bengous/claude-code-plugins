@@ -1,5 +1,5 @@
 {
-  "description": "In a git checkout whose top holds .claude/agent-hooks.jsonc: fixers on the text before each write, and Stop lanes on the files the session or subagent changed",
+  "description": "In a git checkout whose top holds .claude/agent-hooks.jsonc: the main checkout's declared worktree.symlinkDirectories linked into a session's worktree, fixers on the text before each write, and Stop lanes on the files the session or subagent changed",
   "hooks": {
     "SessionStart": [
       {

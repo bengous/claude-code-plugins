@@ -12,8 +12,8 @@ plans
 /.private.env
 /.scratch
 
-# Node/Bun
-node_modules/
+# Node/Bun. No trailing slash: a worktree's link to the main checkout's node_modules is a file to git.
+node_modules
 
 # Claude Code writes one at a mod's root, when it has none, at each --plugin-dir load; it extends the untracked
 # .claude-plugin/types/. A plugin's own tsconfig.json, vellum's or atlas's, is tracked, which no ignore pattern affects.
