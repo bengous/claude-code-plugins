@@ -29,7 +29,8 @@
     "**/*.tsx",
     ".claude/**/*.ts",
     ".github/**/*.ts",
-    "factory/templates/repo/.github/**/*.ts"
+    "factory/templates/repo/.github/**/*.ts",
+    "factory/templates/repo/.claude/**/*.ts"
   ],
   "exclude": ["node_modules", "archive", "tools/oxlint/anti-slop", ".claude/worktrees"]
 }

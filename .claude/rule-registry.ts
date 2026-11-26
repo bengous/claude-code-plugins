@@ -123,6 +123,10 @@ export const REGISTRY: Registry = {
       quote: "`tools/platform/` - the file, path and process helpers; edit",
       held: ["gate platform-copies"],
     },
+    "69fbe931": {
+      quote: "`factory/templates/repo/.claude/skills/` - the factory's",
+      held: ["gate skill-copies"],
+    },
     "32b88bf5": {
       quote: "`tools/oxlint/local/` - the repo's own lint plugin, edited",
       held: ["gate lint-config"],

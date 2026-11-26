@@ -63,6 +63,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite;
 - `archive/` - retired plugins, not in the marketplace.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
 - `tools/platform/` - the file, path and process helpers; edit here, then `bun ./scripts/gates/sync-platform.ts --write`; never edit a copy.
+- `factory/templates/repo/.claude/skills/` - the factory's copy of the `github-flow` skills `pr` and `issue`; edit `github-flow/skills/`, then `bun ./scripts/gates/sync-skills.ts --write`; never edit the copy.
 - `tools/oxlint/local/` - the repo's own lint plugin, edited here; registered beside anti-slop in `oxlint.config.ts`.
 
 ## Branching

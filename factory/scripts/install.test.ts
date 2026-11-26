@@ -237,6 +237,9 @@ describe("main", () => {
       ".claude/commands/pr-review.md",
       ".claude/hooks/require-verify.sh",
       ".claude/hooks/cloud-tools.sh",
+      ".claude/hooks/pr-body.ts",
+      ".claude/skills/pr/SKILL.md",
+      ".claude/skills/issue/SKILL.md",
     ]) {
       expect(out.join("\n")).toContain(`wrote      ${path}`);
     }
@@ -244,6 +247,19 @@ describe("main", () => {
     expect(readFileSync(join(root, ".github/workflows/trunk-red.yml"), "utf8")).toContain(
       'workflows: ["CI"]',
     );
+  });
+
+  test("keeps the caps a repository tuned for the pr and issue checks, --force included", () => {
+    const caps = join(root, ".github/github-flow.json");
+    const tuned = `${JSON.stringify({ pr: { proseWords: 200 }, issue: { notThisLines: 5 } })}\n`;
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+    writeAtomicSync(caps, tuned, { mkdir: true });
+
+    expect(run("repo", ...REPO_FLAGS, "--target", root)).toBe(0);
+    expect(run("repo", ...REPO_FLAGS, "--target", root, "--force")).toBe(0);
+    expect(readFileSync(caps, "utf8")).toBe(tuned);
+    expect(out.join("\n")).not.toContain("github-flow.json");
   });
 
   test("merges its hooks into an existing settings file and keeps what is there", () => {

@@ -1,6 +1,6 @@
 ---
 name: install
-description: "Install the native software factory in the current repository: the dispatch, review, owner-gate, conflict, trunk-red and unclaim workflows, the tier classifier and its rules, CODEOWNERS, the review command, the verify skill and its hook, the declaration of its cloud environment, the CLAUDE.md sections and the claude.ai routine that turns a `ready` issue into a merged pull request; then report what the GitHub side still lacks. Use when the user asks to install, set up or add the factory to a repository, or to check a repository's factory setup."
+description: "Install the native software factory in the current repository: the dispatch, review, owner-gate, conflict, trunk-red and unclaim workflows, the tier classifier and its rules, CODEOWNERS, the review command, the pr and issue skills and their checks, the verify skill and its hook, the declaration of its cloud environment, the CLAUDE.md sections and the claude.ai routine that turns a `ready` issue into a merged pull request; then report what the GitHub side still lacks. Use when the user asks to install, set up or add the factory to a repository, or to check a repository's factory setup."
 argument-hint: "[owner/name]"
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/install.ts *), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check.ts *), Bash(bun .github/factory/tier.ts replay *), Bash(claude -p *), Bash(mktemp -d), Bash(gh repo view:*), Bash(gh api user:*), Bash(gh pr list:*), Bash(gh pr diff:*), Bash(gh workflow list:*), Bash(mise -C .github/factory lock:*), Bash(bun run --cwd ~/dotfiles routines:check), Read
@@ -96,6 +96,7 @@ Run it from the repository's root. Each file prints `wrote`, `identical`, `overw
 
 Then, with the owner:
 
+- `.claude/skills/pr/` and `.claude/skills/issue/` are `github-flow`'s skills with their checks: the Worker writes a pull request's body and an issue with them, and `.claude/hooks/pr-body.ts` refuses a body the `pr` check refuses. Their caps, the words of prose, the decided facts and the lines past which a check refuses, are the defaults until the repository writes `.github/github-flow.json`; the install never writes or overwrites it. Ask the owner whether he tunes them.
 - `.github/deep-review-paths` lists `/.github/` alone. Add this repository's sensitive paths, one prefix per line: the review reads every caller and test of a change there, at a higher effort.
 - Merge the sections of `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-sections.md` into `CLAUDE.md`: the cloud session and the review both follow them. Write `<BRANCH>` where the file says `{{BRANCH}}`. Its test command and its *Code* rules are the trial's: adapt them to this repository and show the owner the result.
 

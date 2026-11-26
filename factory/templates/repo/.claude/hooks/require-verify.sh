@@ -55,7 +55,7 @@ case "${1:-}" in
       exit 0
     fi
     echo $((${sent:-0} + 1)) >"$state/sent"
-    echo "The working tree changed since the verify skill last ran. Run the verify skill again, then state under Checks in the pull request body the command it ran and its result." >&2
+    echo "The working tree changed since the verify skill last ran. Run the verify skill again, then report in the session the command it ran and its result." >&2
     exit 2
     ;;
   *)
