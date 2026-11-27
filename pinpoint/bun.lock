@@ -5,11 +5,11 @@
     "": {
       "name": "pinpoint",
       "dependencies": {
-        "@zumer/snapdom": "3.8.1",
+        "@zumer/snapdom": "3.8.3",
       },
     },
   },
   "packages": {
-    "@zumer/snapdom": ["@zumer/snapdom@3.8.1", "", {}, "sha512-3GJUDSv0mpSKPE0Ta5MSOPXlARYRo9zUMhmq/BLZVAUEg2UgFEk6z0mkDBIlmXcvJR28FIiMmn+RhDsoMiabJA=="],
+    "@zumer/snapdom": ["@zumer/snapdom@3.8.3", "", {}, "sha512-WW/T0i3S2pYqjzLOsBrOO/lTaHGS/EEu1DQyC+XCWpR+N7sBxlOmWLwy35GAuH29UA37GC1nv7kOgvrKLe8bJg=="],
   }
 }
