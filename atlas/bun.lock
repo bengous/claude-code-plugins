@@ -7,7 +7,7 @@
       "dependencies": {
         "@typescript/native-preview": "7.0.0-dev.20260707.2",
         "elkjs": "0.12.1",
-        "libavoid-js": "0.5.0-beta.6",
+        "libavoid-js": "0.5.0-beta.7",
         "oxfmt": "0.80.0",
         "oxlint": "1.91.0",
       },
@@ -117,7 +117,7 @@
 
     "elkjs": ["elkjs@0.12.1", "", {}, "sha512-IhMYKHE4S2vtx0QrhBP3lYOIKDeIiJXBrdq9MGYkuB8ZHqhrBnHNfSUndjXFewrX1CPK8chwq+2NA0K0hliYuw=="],
 
-    "libavoid-js": ["libavoid-js@0.5.0-beta.6", "", {}, "sha512-VUmKt4YvKyMELnfw5rsYgaJGmWvCVjdAkQ3q9X3n6g93LDu8vMxGios8KY/ABl8pbJp5YA29u7Ibvfjeae3LGA=="],
+    "libavoid-js": ["libavoid-js@0.5.0-beta.7", "", {}, "sha512-IzXTw4BqURWH8z2gNrGz27FyN+Yqkuox3aLtfqnvh7m9Skij0GOvQO5N4x8LT5xfFlm25jaFTr/orVa04rsecg=="],
 
     "oxfmt": ["oxfmt@0.80.0", "", { "dependencies": { "tinypool": "2.2.0" }, "optionalDependencies": { "@oxfmt/binding-android-arm-eabi": "0.80.0", "@oxfmt/binding-android-arm64": "0.80.0", "@oxfmt/binding-darwin-arm64": "0.80.0", "@oxfmt/binding-darwin-x64": "0.80.0", "@oxfmt/binding-freebsd-x64": "0.80.0", "@oxfmt/binding-linux-arm-gnueabihf": "0.80.0", "@oxfmt/binding-linux-arm-musleabihf": "0.80.0", "@oxfmt/binding-linux-arm64-gnu": "0.80.0", "@oxfmt/binding-linux-arm64-musl": "0.80.0", "@oxfmt/binding-linux-ppc64-gnu": "0.80.0", "@oxfmt/binding-linux-riscv64-gnu": "0.80.0", "@oxfmt/binding-linux-riscv64-musl": "0.80.0", "@oxfmt/binding-linux-s390x-gnu": "0.80.0", "@oxfmt/binding-linux-x64-gnu": "0.80.0", "@oxfmt/binding-linux-x64-musl": "0.80.0", "@oxfmt/binding-openharmony-arm64": "0.80.0", "@oxfmt/binding-win32-arm64-msvc": "0.80.0", "@oxfmt/binding-win32-ia32-msvc": "0.80.0", "@oxfmt/binding-win32-x64-msvc": "0.80.0" }, "peerDependencies": { "@astrojs/compiler-rs": "^0.5.0", "svelte": "^5.0.0", "vite-plus": "*" }, "optionalPeers": ["@astrojs/compiler-rs", "svelte", "vite-plus"], "bin": { "oxfmt": "bin/oxfmt" } }, "sha512-jy8/kYEomtC6g1LqXDl1LEXk5Ih+c7a1jB5wxqEp8qBmDoOD7Ei+XCxU2jGEjGUdBfoPef6rDiSENVLJ5gWq+Q=="],
 
