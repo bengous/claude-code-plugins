@@ -1,0 +1,413 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { checkBody, DEFAULT_CAPS, readCaps } from "./check-pr.ts";
+
+const SKILL_DIR = join(import.meta.dir, "..");
+
+const BODIES = join(SKILL_DIR, "references", "bodies");
+
+const SCRIPT = join(import.meta.dir, "check-pr.ts");
+
+function checks(text: string, caps = DEFAULT_CAPS): string[] {
+  return checkBody(text, caps).map(({ check, line }) => `${check}@${line}`);
+}
+
+/** A body in the shape, its lines numbered from 1; `extra` lands after the **Proof** table, from line 20. */
+function body({ extra = [] }: { extra?: string[] } = {}): string {
+  return [
+    "Closes #1.", // 1
+    "", // 2
+    "**Why** The hook let an empty comment through.", // 3
+    "", // 4
+    "**Danger** two-way door · reach: a close is denied once.", // 5
+    "", // 6
+    "**Start at** `gate.test.ts`.", // 7
+    "", // 8
+    "```diff", // 9
+    "- allow when comment is not null", // 10
+    "+ allow when comment is not empty", // 11
+    "```", // 12
+    "", // 13
+    "**Proof**", // 14
+    "", // 15
+    "| Situation | Before | After |", // 16
+    "|---|---|---|", // 17
+    '| `-c ""` | allowed | denied |', // 18
+    "", // 19
+    ...extra, // 20...
+    "<sub>Written by Claude</sub>",
+  ].join("\n");
+}
+
+function words(n: number): string {
+  return Array.from({ length: n }, () => "word").join(" ");
+}
+
+let tmpDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  tmpDirs = [];
+});
+
+function tmp(): string {
+  const dir = mkdtempSync(join(tmpdir(), "check-pr-"));
+  tmpDirs.push(dir);
+
+  return dir;
+}
+
+/** A repository root, with `.github/github-flow.json` holding the JSON text `settings` when given. */
+function repoWith(settings?: string): string {
+  const repo = tmp();
+  mkdirSync(join(repo, ".git"));
+  mkdirSync(join(repo, ".github"));
+
+  if (settings !== undefined) {
+    writeFileSync(join(repo, ".github", "github-flow.json"), settings);
+  }
+
+  return repo;
+}
+
+function run(args: string[], cwd: string, script = SCRIPT, stdin?: string) {
+  const proc = Bun.spawnSync(["bun", script, ...args], {
+    cwd,
+    stdin: stdin === undefined ? "ignore" : Buffer.from(stdin),
+  });
+
+  return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+}
+
+describe("bodies in the shape", () => {
+  const files = readdirSync(BODIES).filter((f) => f.endsWith(".md"));
+
+  test("a fix, a feature, a UI change and a cross-module change are each a worked body", () => {
+    expect(files.toSorted()).toEqual(["cross-module.md", "feature.md", "fix.md", "ui.md"]);
+  });
+
+  for (const file of files) {
+    test(`${file} passes`, () => {
+      expect(checks(readFileSync(join(BODIES, file), "utf8"))).toEqual([]);
+    });
+  }
+
+  test("the body built by this file passes, and so do the lines a host writes around it", () => {
+    const hosted = [
+      '<!-- attribution: {"login":"x"} -->',
+      "_Requested by **someone** · [thread](https://example.com/t?id=1)_",
+      body().replace(
+        "<sub>Written by Claude</sub>",
+        "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+      ),
+      "",
+      "https://example.com/session_1",
+    ].join("\n");
+
+    expect(checks(body())).toEqual([]);
+    expect(checks(hosted)).toEqual([]);
+  });
+});
+
+describe("structure", () => {
+  const danger = "**Danger** two-way door · reach: a close is denied once.";
+  const startAt = "**Start at** `gate.test.ts`.";
+
+  test("a missing section, a second one, one out of order", () => {
+    const swapped = body().replace(`${danger}\n\n${startAt}`, `${startAt}\n\n${danger}`);
+
+    expect(checks(body().replace(danger, ""))).toEqual(["missing@7"]);
+    expect(checks(body({ extra: ["**Why** again.", ""] }))).toEqual(["section@20"]);
+    // The view now sits under Danger, so Start at shows none.
+    expect(checks(swapped)).toEqual(["view@5", "order@7"]);
+  });
+
+  test("a heading, or a bold lead-in that is no section of the shape", () => {
+    expect(checks(body({ extra: ["## Left open", ""] }))).toEqual(["section@20"]);
+    expect(checks(body({ extra: ["**Checks** `bun test`: 12 pass.", ""] }))).toEqual([
+      "section@20",
+    ]);
+  });
+
+  test("the stills of a UI proof and its protocol are labels, not sections", () => {
+    const extra = [
+      "**Before**, the panel:",
+      "",
+      "**After**, the same:",
+      "",
+      "**Protocol:** build `a1`.",
+      "",
+    ];
+
+    expect(checks(body({ extra }))).toEqual([]);
+  });
+
+  test("no view under Start at: a still is no view", () => {
+    const still = body().replace(/```diff\n[^`]*```\n/u, "![the tree](/tmp/x/tree.png)\n");
+
+    expect(checks(still)).toEqual(["view@7"]);
+  });
+
+  test("no footer, or a line that only opens on Generated by", () => {
+    expect(checks(body().replace("<sub>Written by Claude</sub>", ""))).toEqual(["footer@18"]);
+    expect(
+      checks(body().replace("<sub>Written by Claude</sub>", "Generated by `bun test`.")),
+    ).toEqual(["footer@20"]);
+  });
+
+  test("a setext heading is a heading; a rule after a blank line is not", () => {
+    expect(checks(body({ extra: ["Left open", "---------", "The page.", ""] }))).toEqual([
+      "section@20",
+    ]);
+    expect(checks(body({ extra: ["Done.", "=====", ""] }))).toEqual(["section@20"]);
+    expect(checks(body({ extra: ["Done.", "", "---", ""] }))).toEqual([]);
+  });
+
+  test("a heading under the footer", () => {
+    expect(checks(`${body()}\n\n## Left open`)).toEqual(["section@22"]);
+  });
+});
+
+describe("questions", () => {
+  test("a question in prose, in a table cell, or under the footer", () => {
+    expect(checks(body({ extra: ["Should the hook also cover `gh pr edit`?", ""] }))).toEqual([
+      "question@20",
+    ]);
+    expect(checks(body({ extra: ["| `-c x` | allowed | allowed? |", ""] }))).toEqual([
+      "question@20",
+    ]);
+    expect(checks(`${body()}\n\nIs it done?`)).toEqual(["question@22"]);
+    // GitHub leaves the trailing ? out of the link, so the reader sees a question.
+    expect(
+      checks(body({ extra: ["Should the hook also cover https://github.com/o/r/pull/12?", ""] })),
+    ).toEqual(["question@20"]);
+    expect(checks(body({ extra: ["| close | see https://x.y/a? |", ""] }))).toEqual([
+      "question@20",
+    ]);
+
+    for (const line of [
+      "_Should the hook also cover https://github.com/o/r/pull/12?_",
+      '"cover https://x.y/a?"',
+      "| close | see https://x.y/a?|",
+    ]) {
+      expect(checks(body({ extra: [line, ""] }))).toEqual(["question@20"]);
+    }
+  });
+
+  test("a ? in a code block, a code span or a link target passes", () => {
+    const extra = [
+      "```ts",
+      "const x = a ?? b?.c;",
+      "```",
+      "",
+      "Run `gh pr view 1 --json body?`.",
+      "",
+      "See [the run](https://example.com/run?id=3).",
+      "",
+      "The run: https://example.com/run?id=3.",
+      "",
+    ];
+
+    expect(checks(body({ extra }))).toEqual([]);
+  });
+});
+
+describe("caps", () => {
+  // The body around holds 17 words of prose.
+  test("120 words of prose pass, 121 are refused on the line that crosses the cap", () => {
+    expect(checks(body({ extra: [words(103), ""] }))).toEqual([]);
+    expect(checks(body({ extra: [words(104), ""] }))).toEqual(["prose@20"]);
+  });
+
+  test("views, tables and code do not count; prose under the footer does", () => {
+    const shown = [
+      "```text",
+      words(200),
+      "```",
+      "",
+      `| ${words(200)} |`,
+      "",
+      `\`${words(200)}\``,
+      "",
+    ];
+
+    expect(checks(body({ extra: shown }))).toEqual([]);
+    expect(checks(`${body()}\n\n${words(200)}`)).toEqual(["prose@22"]);
+  });
+
+  test("more than three facts under Decided: list items, table rows, or paragraphs", () => {
+    const list = ["**Decided**", "", "- one", "- two", "- three", "- four", ""];
+    const table = ["**Decided**", "", "| Fact |", "|---|", "| a |", "| b |", "| c |", "| d |", ""];
+
+    const wrapped = [
+      "**Decided** The cap stays at 3,",
+      "since a longer list",
+      "reads as a plan.",
+      "",
+    ];
+
+    expect(checks(body({ extra: list }))).toEqual(["decided@25"]);
+    expect(checks(body({ extra: list.filter((l) => l !== "- four") }))).toEqual([]);
+    expect(checks(body({ extra: table }))).toEqual(["decided@27"]);
+    expect(checks(body({ extra: wrapped }))).toEqual([]);
+  });
+
+  test("Decided counts paragraphs beside a list, and its lead-in's text unless it ends on a colon", () => {
+    const mixed = [
+      "**Decided** The settings file is shared.",
+      "",
+      "The session line stays under the footer.",
+      "",
+      "- one",
+      "- two",
+      "- three",
+      "",
+    ];
+
+    const announced = ["**Decided** three choices:", "", "- one", "- two", "- three", ""];
+
+    expect(checks(body({ extra: mixed }))).toEqual(["decided@25"]);
+    expect(checks(body({ extra: announced }))).toEqual([]);
+    expect(
+      checks(body({ extra: ["**Decided**", "", "- one", "- two", "- three", "", "---", ""] })),
+    ).toEqual([]);
+  });
+});
+
+describe("clips", () => {
+  const protocol = "Protocol: build `a1b2c3`, viewport 393×830, page `/`, action tap Save.";
+  const e2e = "Asserted by `e2e/save.spec.ts`.";
+
+  test("a clip with its protocol line and its e2e test passes, as an image or a video tag", () => {
+    expect(checks(body({ extra: ["![](/tmp/x/after.mp4)", protocol, e2e, ""] }))).toEqual([]);
+    expect(
+      checks(body({ extra: ['<video src="/tmp/x/after.mp4"></video>', protocol, e2e, ""] })),
+    ).toEqual([]);
+  });
+
+  test("a clip with no protocol line or no e2e test is refused on the clip", () => {
+    expect(checks(body({ extra: ["![](/tmp/x/after.mp4)", e2e, ""] }))).toEqual(["clip@20"]);
+    expect(checks(body({ extra: ["![](/tmp/x/after.mp4)", protocol, ""] }))).toEqual(["clip@20"]);
+  });
+
+  test("each clip needs its own protocol line and e2e test, before the next clip", () => {
+    const two = ["![](/tmp/c/open.mp4)", protocol, e2e, "", "![](/tmp/c/close.mp4)", ""];
+
+    expect(checks(body({ extra: two }))).toEqual(["clip@24", "clip@24"]);
+  });
+
+  test("a unit test is no e2e test", () => {
+    const unit = ["![](/tmp/x/after.mp4)", protocol, "Asserted by `gate.test.ts`.", ""];
+
+    expect(checks(body({ extra: unit }))).toEqual(["clip@20"]);
+  });
+
+  test("a fourth clip is refused", () => {
+    const four = ["/a.mp4", "/b.mov", "/c.webm", "/d.mp4"].flatMap((clip) => [
+      `![](${clip})`,
+      protocol,
+      e2e,
+    ]);
+
+    expect(checks(body({ extra: [...four, ""] }))).toEqual(["clip@29"]);
+
+    const row = "| ![](/a.mp4) | ![](/b.mp4) | ![](/c.mp4) | ![](/d.mp4) |";
+
+    expect(checks(body({ extra: [row, protocol, e2e, ""] }))).toEqual(["clip@20"]);
+  });
+});
+
+describe("a repository's own caps", () => {
+  test("no settings file: the defaults", () => {
+    expect(readCaps(repoWith())).toEqual(DEFAULT_CAPS);
+  });
+
+  test("the key pr of .github/github-flow.json, found from a subdirectory, over the defaults", () => {
+    const repo = repoWith('{ "pr": { "decided": 1 }, "issue": { "x": 1 } }');
+    mkdirSync(join(repo, "a", "b"), { recursive: true });
+
+    expect(readCaps(join(repo, "a", "b"))).toEqual({ ...DEFAULT_CAPS, decided: 1 });
+  });
+
+  test("a settings file above the repository's root is not read", () => {
+    const outer = tmp();
+    const repo = join(outer, "repo");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(join(outer, ".github"));
+    writeFileSync(join(outer, ".github", "github-flow.json"), '{ "pr": { "decided": 1 } }');
+
+    expect(readCaps(repo)).toEqual(DEFAULT_CAPS);
+  });
+
+  test("the CLI uses them", () => {
+    const repo = repoWith();
+    const file = join(repo, "body.md");
+    writeFileSync(file, body({ extra: ["**Decided**", "", "- one", "- two", ""] }));
+
+    expect(run([file], repo).code).toBe(0);
+
+    writeFileSync(
+      join(repo, ".github", "github-flow.json"),
+      JSON.stringify({ pr: { decided: 1 } }),
+    );
+    const refused = run([file], repo);
+
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toContain(`${file}:23: decided:`);
+  });
+
+  test.each([
+    ["a cap that is no positive integer", '{ "pr": { "decided": 0 } }'],
+    ["a key that is no cap", '{ "pr": { "prose": 100 } }'],
+    ["a pr that is no object", '{ "pr": 5 }'],
+    ["a top level that is no object", "[]"],
+    ["no JSON", "{ pr: 3 }"],
+  ])("the CLI exits 2 on %s", (_case, settings) => {
+    const repo = repoWith(settings);
+    const file = join(repo, "body.md");
+    writeFileSync(file, body());
+
+    expect(run([file], repo).code).toBe(2);
+  });
+});
+
+describe("the CLI", () => {
+  test("reads the body from stdin with -, prints <file>:<line>: <check>: <message>, exits 1", () => {
+    const result = run(["-"], repoWith(), SCRIPT, body({ extra: ["Is it done?", ""] }));
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toMatch(/^-:20: question: /u);
+  });
+
+  test("exits 2 on a file it cannot read, and with no file", () => {
+    const repo = repoWith();
+
+    expect(run([join(repo, "missing.md")], repo).code).toBe(2);
+    expect(run([], repo).code).toBe(2);
+  });
+
+  test("the skill directory copied alone into another repository runs its check there", () => {
+    const repo = repoWith();
+    const copy = join(repo, ".claude", "skills", "pr");
+    cpSync(SKILL_DIR, copy, { recursive: true });
+
+    const result = run(
+      [join(copy, "references", "bodies", "ui.md")],
+      repo,
+      join(copy, "scripts", "check-pr.ts"),
+    );
+
+    expect(result).toEqual({ code: 0, stdout: "", stderr: "" });
+  });
+});

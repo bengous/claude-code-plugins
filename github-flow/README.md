@@ -7,7 +7,7 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
 | `issue` | `/github-flow:issue [--dry-run] [number] <request>` | Writes or rewrites an issue as the goal and how to tell it is reached: a problem in two lines, a *Done when* visual of testable situations, *Not this*, and only when the session already holds context, the author's leads folded. `skills/issue/scripts/check-issue.ts` refuses any other shape before it is published. |
-| `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Settles the branch's open decisions, reviews it, pushes it and opens or updates its PR with a body that shows the change first: a diagram, a tree diff, a table or screenshots; images go up through `gh --attach`. |
+| `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Settles the branch's open decisions, reviews a hot branch, writes a short body in a fixed shape, checks it with `scripts/check-pr.ts`, pushes it and opens or updates its PR; images go up through `gh --attach`. |
 | `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. Manual. |
 | `await-merge` | `/github-flow:await-merge [--dry-run] [--rebase] [pr]` | Watches the checks, merges by squash (`--rebase` for atomic commits, never a merge commit), fast-forwards the local base branch. |
 | `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `github-flow:pr`. |
@@ -15,30 +15,53 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 
 `issue`, `pr` and `stacked-prs` invoke themselves when the request matches. `triage`, `await-merge` and `commit-push-pr` run only on an explicit call: each one closes, merges or pushes, and "check issue 12" must not close issue 12.
 
-No skill asks before it publishes, closes or merges: an orchestrating agent has nobody to answer. A PR body asks nothing either: with a user in the session, `pr` puts the branch's open decisions to them before publishing; without one, it settles them and writes each in *Decisions*, so a subagent never blocks on a question. `--dry-run` does the whole job and prints what would be sent instead of sending it; rerun without it to send.
+No skill asks before it publishes, closes or merges: an orchestrating agent has nobody to answer. A PR body asks nothing either and leaves nothing open: with a user in the session, `pr` puts the branch's open decisions to them before publishing; without one, it settles them and writes the ones a reader would ask about under **Decided**, so a subagent never blocks on a question. `--dry-run` does the whole job and prints what would be sent instead of sending it; rerun without it to send.
 
 `github-flow` depends on the `git` plugin, installed with it.
 
 ### PR shape
 
-Agents review the PR first; the body is for the human who opens it afterwards. It shows the change, then says only what a picture cannot:
+Agents review the PR first; the body is for the reader who acts on it afterwards, human or agent. It leaves nothing open, since each open point is something the next agent reads and loops on:
 
 ```markdown
 Closes #N.
-<two lines: the problem, what the change does>
-## Before / After   the views: a diagram, a tree diff, a shaped diff, a table, screenshots
-## Decisions        each choice: what was kept, what was set aside, why, the line that undoes it
-## Checks           the review and its findings; commands with their numbers;
-                    added tests as Test | Mutant | Seen failing
-## Left open        limits, what was read but not run, what was not measured, views left out,
-                    diagrams not seen rendered
+**Why**       one sentence
+**Danger**    one-way or two-way door · reach: what breaks if the change is wrong
+**Start at**  the test or the contract; "read in this order" when the change crosses modules
+<one view: pseudocode, call tree or file tree as a diff; Mermaid for a topology>
+**Proof**     the issue's situations, before → after; for a UI change, stills, and clips
+              each with a protocol line and the e2e test that asserts it
+**Decided**   three facts at most, never a question
+<sub>Written by <model></sub>
 ```
 
-The branch is reviewed before the body is written, so the body describes the final head: `/code-review` against the base, and `plugin-dev:skill-reviewer` when a `SKILL.md` or an agent changes. The validation commands the body reports are the ones the repository's `AGENTS.md` or `CLAUDE.md` names.
+`skills/pr/references/bodies/` holds a worked body for a fix, a feature, a UI change and a change across modules.
 
-The view follows the kind of change: a `flowchart TB` for an architecture or a data model, a `sequenceDiagram` for behaviour over time, a tree diff for moved directories, pseudocode as a diff for logic, a call tree for runtime control flow, a component tree for UI structure, screenshots for what a user sees. A standard change gets one view, a large one (≥ 10 files, ≥ 300 lines, or a shared module) three at most. `scripts/tree-diff.ts origin/<base>` prints the tree diff: a directory moved, added or deleted whole is one line. `skills/pr/references/` holds a worked example of each view and the Mermaid traps measured on GitHub; a body with a diagram is checked in a browser that can open the PR, and without one *Left open* says so. The menu of views and some of its wording come from Dex Horthy's `show-me` and Matt Pocock's `pr`, both MIT: `skills/pr/CREDITS.md`.
+The body repeats no check: the pull request shows what CI ran. `skills/pr/scripts/check-pr.ts` holds the structure of that shape as a contract, and the skill runs it on the body before it publishes; what the prose says is the review's to judge. It imports only `node:` modules, so `skills/pr/` copied whole into another repository runs it there.
 
-A visual change carries a Before/After pair: the agent captures both states with the session's browser tool when none is given, and `gh pr create --attach '<capture dir>/before.png#alt'` uploads them from a `mktemp -d` directory outside the repository; the alt text names what the reader sees. The body ends with `<!-- opened_by: <session id> -->`, joined by `<!-- updated_by: <session id> -->` on an update, so the session behind a PR is found with `claude --resume <id>` whether or not it had a plan; inside a subagent the id is the parent session's.
+```bash
+bun skills/pr/scripts/check-pr.ts <body.md>...   # or - to read the body from stdin
+```
+
+Each finding prints as `<file>:<line>: <check>: <message>`; the exit code is 1 on a finding, 2 on a body it cannot read or on bad settings.
+
+| Check | Refuses |
+|---|---|
+| `section` | a heading, a bold lead-in that is no section of the shape (*Ask*, *Left open*, *Checks*...), a section twice; **Before**, **After** and **Protocol** are labels |
+| `missing`, `order`, `footer` | a section of the shape absent or out of order (**Decided** may be absent), no footer |
+| `view` | **Start at** with no code block or table under it |
+| `question` | a `?` in prose or a table, outside code, code spans and link targets |
+| `prose` | more than 120 words of prose outside views, tables and code |
+| `decided` | more than three facts under **Decided**: list items, table rows and paragraphs, a lead-in ending on a colon left out |
+| `clip` | a clip with no protocol line or no e2e test named under it, before the next clip or section; more than three clips |
+
+A repository sets its own caps in `.github/github-flow.json`, found from the current directory up to the git root, under the key `pr`: `{ "pr": { "proseWords": 120, "decided": 3, "clips": 3 } }`. A cap left out keeps its default; a cap that is no positive integer exits 2.
+
+A hot branch, a large diff or a change to authentication, permissions, secrets, input parsing or a tool guard, is reviewed before the body is written, so the body describes the final head: `/code-review` against the base, and `plugin-dev:skill-reviewer` when a `SKILL.md` or an agent changes. Any other branch leaves the review to the pull request's own. The body recaps no review: the reviews live on the pull request.
+
+The view follows the kind of change: pseudocode as a diff for logic, a call tree for runtime control flow, a tree diff for moved directories, a component tree for UI structure, a Mermaid `flowchart TB` for a topology. `scripts/tree-diff.ts origin/<base>` prints the tree diff: a directory moved, added or deleted whole is one line. `skills/pr/references/` holds a worked example of each view and the Mermaid traps measured on GitHub; a body with a diagram is checked in a browser that can open the PR, and a diagram that still does not read after two rounds becomes a text view. The menu of views and some of its wording come from Dex Horthy's `show-me` and Matt Pocock's `pr`, both MIT: `skills/pr/CREDITS.md`.
+
+A visual change proves itself with a Before/After pair of stills under **Proof**: the agent captures both states with the session's browser tool when none is given, and `gh pr create --attach '<capture dir>/before.png#alt'` uploads them from a `mktemp -d` directory outside the repository; the alt text names what the reader sees. The footer is followed by `<!-- opened_by: <session id> -->`, joined by `<!-- updated_by: <session id> -->` on an update, so the session behind a PR is found with `claude --resume <id>` whether or not it had a plan; inside a subagent the id is the parent session's.
 
 ### Issue shape
 

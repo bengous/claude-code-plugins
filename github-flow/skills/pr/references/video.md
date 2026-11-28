@@ -1,7 +1,17 @@
 # Video
 
 A clip proves a transition: an animation, a navigation, a sequence of gestures. Two stills prove a
-state. Record only what a pair of images cannot show.
+state. Record only what a pair of images cannot show, three clips at most.
+
+Under **Proof**, each clip comes with a protocol line and the e2e test that asserts what it shows;
+`scripts/check-pr.ts` refuses a clip without them:
+
+```markdown
+![](<capture dir>/after.mp4)
+
+Protocol: build `a1b2c3d`, viewport 393×830, page `/settings`, action open the language menu.
+Asserted by `e2e/settings.spec.ts`, `the language menu opens under the header`.
+```
 
 ## The recipe
 

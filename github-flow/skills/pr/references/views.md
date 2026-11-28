@@ -1,25 +1,12 @@
 # Views
 
-One worked example per row of the views table in `SKILL.md`. Most come from bengous/arbre-genealogique-bengolea-src#76: 152 files, about 120 of them moved into `archive/`, a pipeline taken out of every tool, a data model changed. Its first body was six sections of prose; the shape below is what it should have led with. The call tree and the component tree come from Matt Pocock's `pr` and Dex Horthy's `show-me`: `../CREDITS.md`.
+One worked example per row of the views table in `SKILL.md`, then the line a decision hangs on and the stills of a UI proof. Most come from bengous/arbre-genealogique-bengolea-src#76: 152 files, about 120 of them moved into `archive/`, a pipeline taken out of every tool, a data model changed. Its first body was six sections of prose; the shape below is what it should have led with. The call tree and the component tree come from Matt Pocock's `pr` and Dex Horthy's `show-me`: `../CREDITS.md`.
 
-## An architecture: two views, the shape changes
+## An architecture: the shape changes
 
-Nodes vanish and the flow reroutes, so Before and After are two diagrams, same ids, same direction. The legend comes first.
+Nodes vanish and the flow reroutes. The body holds one view, the After: what replaced the old shape is in blue, what was archived is dashed, and the Before is what the issue describes. The legend comes first.
 
-Red: what `verify` re-reads on every push. Blue: new, or a new role. Dashed: archived. Rounded: a script; rectangle: a file.
-
-**Before**: the tree is the output of a pipeline, and `verify` re-reads every intermediate file.
-
-```mermaid
-flowchart TB
-  pages["pages/<br/>54 extractions"] --> merge(["merge-pages"])
-  decisions["decision files"] --> merge
-  merge --> draft["family.draft.json<br/>written by merge-pages only"]
-  draft --> site(["export → site"])
-  types["scripts/lib/types.ts<br/>tree and pipeline schemas"] --> verify{{"bun run verify"}}
-  classDef hot fill:#fde8e6,stroke:#a3342b,color:#4a1510
-  class pages,decisions,draft,types,verify hot
-```
+Blue: new, or a new role. Dashed: archived. Rounded: a script; rectangle: a file.
 
 **After**: the tree is the source, edited directly, and `verify` reads only it.
 
@@ -49,27 +36,6 @@ flowchart TB
   S --> testimonial["testimonial<br/>by, stated"]
   classDef new fill:#e2eef4,stroke:#1d5b78,color:#0f3346
   class S,research,testimonial new
-```
-
-## Behaviour over time
-
-What an agent hits when it edits a schema, before and after, in one diagram.
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant A as Agent
-  participant V as verify
-  participant D as data/
-  Note over A,D: Before
-  A->>V: edit scripts/lib/types.ts
-  V->>D: re-read 54 pages and the logs
-  D-->>V: one file breaks the schema
-  V-->>A: red, end of turn blocked
-  Note over A,D: After
-  A->>V: edit scripts/lib/types.ts
-  V->>D: read data/bengolea.json only
-  D-->>V: valid, or one named error
 ```
 
 ## Moved directories: the tree diff
@@ -174,4 +140,4 @@ The union words its own refusal, then hands back to the shared wording for every
 ![The language menu fits under the header](<capture dir>/after.png)
 ```
 
-`<capture dir>` is the absolute path of the directory the captures went to, outside the repo, the same string as in the `--attach` arguments. A transition gets a clip for the After: `references/video.md`.
+These stills are the **Proof** of a UI change, not its view. `<capture dir>` is the absolute path of the directory the captures went to, outside the repo, the same string as in the `--attach` arguments. A transition gets a clip for the After, with its protocol line and its e2e test: `references/video.md`.
